@@ -1,4 +1,4 @@
-// routes/quotations.js — Quotations CRUD API (with line items)
+// routes/quotations.js — Quotations CRUD API (with notes support)
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -6,14 +6,42 @@ const db      = require('../config/db');
 // GET /api/quotations/next-number — generates the next QT-YYYY-### number
 router.get('/next-number', async (req, res) => {
   try {
-    const [rows] = await db.query(`SELECT COUNT(*) AS cnt FROM quotations`);
-    const nextSeq = rows[0].cnt + 89; // mirrors existing QT-2024-089 style numbering
-    const year = new Date().getFullYear();
-    const quotationNo = `QT-${year}-${String(nextSeq).padStart(3, '0')}`;
-    return res.json({ success: true, data: { quotationNo } });
+
+    const now = new Date();
+
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+
+    const datePart = `${yyyy}${mm}${dd}`;
+
+    // quotations count
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM quotations
+       WHERE quotation_no LIKE ?`,
+      [`QT-${datePart}%`]
+    );
+
+    // quotation = 301
+    const nextNumber = 301 + rows[0].total;
+
+    const quotationNo = `QT-${datePart}${nextNumber}`;
+
+    return res.json({
+      success: true,
+      data: {
+        quotationNo,
+      },
+    });
+
   } catch (err) {
-    console.error('GET /quotations/next-number ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
@@ -23,6 +51,7 @@ router.get('/', async (req, res) => {
     const [rows] = await db.query(
       `SELECT q.id, q.quotation_no, q.client_name, q.quotation_date, q.expiry_date, q.include_gst,
               q.subtotal, q.tax, q.total_amount, q.paid_amount, q.balance_amount, q.status, q.created_at,
+              q.linked_invoice_id, q.invoice_no AS linked_invoice_no, q.notes, q.terms,
               (SELECT qi.description FROM quotation_items qi
                 WHERE qi.quotation_id = q.id ORDER BY qi.sort_order ASC, qi.id ASC LIMIT 1) AS package_type
        FROM quotations q ORDER BY q.id DESC`
@@ -34,7 +63,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// PATCH /api/quotations/:id/status — update only the status (DRAFT/SENT/ACCEPTED/EXPIRED)
+// PATCH /api/quotations/:id/status — update status; if ACCEPTED, auto-create a linked invoice
 router.patch('/:id/status', async (req, res) => {
   const { status } = req.body;
   const allowed = ['DRAFT', 'SENT', 'ACCEPTED', 'EXPIRED'];
@@ -42,17 +71,135 @@ router.patch('/:id/status', async (req, res) => {
   if (!status || !allowed.includes(status.toUpperCase()))
     return res.status(400).json({ success: false, message: `status must be one of ${allowed.join(', ')}` });
 
+  const newStatus = status.toUpperCase();
+
+  const connection = await db.getConnection();
   try {
-    const [result] = await db.query(
+    await connection.beginTransaction();
+
+    // ── 1. Update the quotation's status ────────────────────────────────────
+    const [result] = await connection.query(
       `UPDATE quotations SET status = ? WHERE id = ?`,
-      [status.toUpperCase(), req.params.id]
+      [newStatus, req.params.id]
     );
-    if (result.affectedRows === 0)
+    if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ success: false, message: 'Quotation not found' });
-    return res.json({ success: true, message: 'Status updated' });
+    }
+
+    // ── 2. If ACCEPTED → auto-create a linked invoice ────────────────────────
+    let invoiceNo   = null;
+    let invoiceId   = null;
+
+    if (newStatus === 'ACCEPTED') {
+      // Check if this quotation already has a linked invoice (avoid duplicates)
+      const [existing] = await connection.query(
+        `SELECT linked_invoice_id, invoice_no FROM quotations WHERE id = ?`,
+        [req.params.id]
+      );
+      if (existing[0]?.linked_invoice_id) {
+        // Already linked — just return the existing invoice info
+        await connection.commit();
+        return res.json({
+          success: true,
+          message: 'Status updated (invoice already exists)',
+          data: { invoiceNo: existing[0].invoice_no, invoiceId: existing[0].linked_invoice_id, alreadyExists: true },
+        });
+      }
+
+      // Fetch full quotation + items
+      const [quotRows] = await connection.query(
+        `SELECT * FROM quotations WHERE id = ?`, [req.params.id]);
+      const quot = quotRows[0];
+
+      const [items] = await connection.query(
+        `SELECT * FROM quotation_items WHERE quotation_id = ? ORDER BY sort_order ASC, id ASC`,
+        [req.params.id]
+      );
+
+      // ── Generate invoice number — suffix matches quotation exactly ──────────
+      const quotNo = quot.quotation_no || '';
+      const parts  = quotNo.split('-');
+      const year   = parts[1] || new Date().getFullYear();
+      const suffix = parts[2] || '0001';
+      invoiceNo    = `INV-${year}-${suffix}`;
+
+      // If that exact invoice number already exists, append -R2, -R3 etc.
+      const [dupCheck] = await connection.query(
+        `SELECT id FROM invoices WHERE invoice_no = ?`, [invoiceNo]);
+      if (dupCheck.length > 0) {
+        invoiceNo = `INV-${year}-${suffix}-R${dupCheck.length + 1}`;
+      }
+
+      const invStatus = 'DRAFT';
+
+      // Insert the invoice — all financial data copied from the accepted quotation
+      const [invResult] = await connection.query(
+        `INSERT INTO invoices
+          (invoice_no, client_name, invoice_date, maintenance_date, include_gst,
+           discount, subtotal, tax, total_amount, paid_amount, balance_amount,
+           status, notes, linked_quotation_id, linked_quotation_no)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, '', ?, ?)`,
+        [
+          invoiceNo,
+          quot.client_name,
+          quot.quotation_date,
+          '',
+          quot.include_gst,
+          quot.subtotal,
+          quot.tax,
+          quot.total_amount,
+          quot.total_amount,
+          invStatus,
+          req.params.id,
+          quotNo,
+        ]
+      );
+      invoiceId = invResult.insertId;
+
+      // Copy quotation items → invoice items
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        await connection.query(
+          `INSERT INTO invoice_items
+            (invoice_id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            invoiceId,
+            it.package_id || null,
+            it.description,
+            it.qty,
+            it.rate,
+            it.amount,
+            0,
+            it.amount,
+            i,
+          ]
+        );
+      }
+
+      // Store the link back on the quotation row
+      await connection.query(
+        `UPDATE quotations SET linked_invoice_id = ?, invoice_no = ? WHERE id = ?`,
+        [invoiceId, invoiceNo, req.params.id]
+      );
+    }
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message: newStatus === 'ACCEPTED'
+        ? `Quotation accepted — Invoice ${invoiceNo} created automatically`
+        : 'Status updated',
+      data: invoiceNo ? { invoiceNo, invoiceId } : null,
+    });
   } catch (err) {
+    await connection.rollback();
     console.error('PATCH /quotations/:id/status ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -76,16 +223,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/quotations — create quotation + line items
-// Body: {
-//   quotationNo, clientName, quotationDate, expiryDate, includeGST,
-//   subtotal, tax, totalAmount, paidAmount, balanceAmount,
-//   items: [{ packageId, description, qty, rate, amount, paidAmount, pendingAmount }]
-// }
 router.post('/', async (req, res) => {
   const {
-    quotationNo, clientName, quotationDate, expiryDate, includeGST,
+    quotationNo, clientName, clientId, quotationDate, expiryDate, includeGST,
     subtotal, tax, totalAmount, paidAmount, balanceAmount, items,
+    notes, terms,
   } = req.body;
 
   if (!quotationNo || !clientName || !Array.isArray(items) || items.length === 0)
@@ -97,18 +239,31 @@ router.post('/', async (req, res) => {
 
     const [result] = await connection.query(
       `INSERT INTO quotations
-        (quotation_no, client_name, quotation_date, expiry_date, include_gst,
-         subtotal, tax, total_amount, paid_amount, balance_amount, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')`,
+        (quotation_no, client_name, client_id, quotation_date, expiry_date, include_gst,
+         subtotal, tax, total_amount, paid_amount, balance_amount, status,
+         notes, terms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)`,
       [
-        quotationNo, clientName, quotationDate || '', expiryDate || '',
-        includeGST ? 1 : 0,
-        subtotal || 0, tax || 0, totalAmount || 0, paidAmount || 0, balanceAmount || 0,
+        quotationNo,                    // ✅ quotation_no (?)
+        clientName,                     // ✅ client_name (?)
+        clientId,                       // ✅ client_id (?) - FIXED: changed from clientId to client_id
+        quotationDate || '',            // ✅ quotation_date (?)
+        expiryDate || '',               // ✅ expiry_date (?)
+        includeGST ? 1 : 0,             // ✅ include_gst (?)
+        subtotal || 0,                  // ✅ subtotal (?)
+        tax || 0,                       // ✅ tax (?)
+        totalAmount || 0,               // ✅ total_amount (?)
+        paidAmount || 0,                // ✅ paid_amount (?)
+        balanceAmount || 0,             // ✅ balance_amount (?) - FIXED: was missing!
+        notes || '',                    // ✅ notes (?)
+        terms || '',                    // ✅ terms (?)
       ]
+      // status is hardcoded as 'DRAFT' ✅
     );
 
     const quotationId = result.insertId;
 
+    // ✅ Insert quotation items
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       await connection.query(
@@ -116,9 +271,15 @@ router.post('/', async (req, res) => {
           (quotation_id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          quotationId, it.packageId || null, it.description || '',
-          it.qty || 1, it.rate || 0, it.amount || 0,
-          it.paidAmount || 0, it.pendingAmount || 0, i,
+          quotationId,
+          it.packageId || null,
+          it.description || '',
+          it.qty || 1,
+          it.rate || 0,
+          it.amount || 0,
+          it.paidAmount || 0,
+          it.pendingAmount || 0,
+          i,
         ]
       );
     }
@@ -127,7 +288,7 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Quotation created',
+      message: 'Quotation created successfully',
       data: { id: quotationId, quotationNo },
     });
   } catch (err) {
@@ -141,11 +302,14 @@ router.post('/', async (req, res) => {
   }
 });
 
+
 // PUT /api/quotations/:id — update quotation + replace its line items
+// ✅ UPDATED: Added notes and terms support
 router.put('/:id', async (req, res) => {
   const {
     clientName, quotationDate, expiryDate, includeGST,
     subtotal, tax, totalAmount, paidAmount, balanceAmount, items, status,
+    notes, terms,
   } = req.body;
 
   if (!clientName || !Array.isArray(items) || items.length === 0)
@@ -155,17 +319,21 @@ router.put('/:id', async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    // ✅ UPDATED: Added notes and terms to UPDATE
     const [result] = await connection.query(
       `UPDATE quotations
        SET client_name = ?, quotation_date = ?, expiry_date = ?, include_gst = ?,
            subtotal = ?, tax = ?, total_amount = ?, paid_amount = ?, balance_amount = ?,
-           status = COALESCE(?, status)
+           status = COALESCE(?, status),
+           notes = ?, terms = ?
        WHERE id = ?`,
       [
         clientName, quotationDate || '', expiryDate || '',
         includeGST ? 1 : 0,
         subtotal || 0, tax || 0, totalAmount || 0, paidAmount || 0, balanceAmount || 0,
         status || null,
+        notes || '',     // ✅ NEW: Update notes
+        terms || '',     // ✅ NEW: Update terms
         req.params.id,
       ]
     );
@@ -216,4 +384,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = router; 

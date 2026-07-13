@@ -42,6 +42,11 @@ dependencies:
   pdf: ^3.10.3
   printing: ^5.11.0
   google_fonts: ^6.1.0
+  shared_preferences: ^2.3.0
+  provider: ^6.0.0
+  share_plus: ^7.0.0
+  path_provider: ^2.1.0
+  
 
 dev_dependencies:
   flutter_test:

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:my_first_app/services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -8,9 +10,10 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  int _selectedTab = 1;
+  int _selectedTab = 0; // 0 = Employee, 1 = Admin
   bool _rememberDevice = false;
   bool _obscurePassword = true;
+  bool _isLoading = false;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -203,129 +206,167 @@ class _LoginScreenState extends State<LoginScreen> {
   // ── Form body ───────────────────────────────────────────────────────────────
 
   Widget _buildFormContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Center(
-          child: Text(
-            'Welcome Back',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1A1A2E),
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Center(
-          child: Text(
-            'Please enter your corporate credentials to continue.',
-            style: TextStyle(fontSize: 13, color: Color(0xFF888888)),
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        // Email
-        _fieldLabel('Email or Username'),
-        const SizedBox(height: 8),
-        _textField(
-          controller: _emailController,
-          hint: 'name@company.com',
-          prefixIcon: Icons.alternate_email,
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 18),
-
-        // Password
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Consumer<AuthService>(
+      builder: (context, authService, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _fieldLabel('Password'),
-            TextButton(
-              onPressed: () {},
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text(
-                'Forgot Password?',
+            const Center(
+              child: Text(
+                'Welcome Back',
                 style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF2A52BE),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A2E),
                 ),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _textField(
-          controller: _passwordController,
-          hint: '••••••••',
-          prefixIcon: Icons.lock_outline,
-          obscureText: _obscurePassword,
-          suffixIcon: GestureDetector(
-            onTap: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
-            child: Icon(
-              _obscurePassword ? Icons.visibility_off : Icons.visibility,
-              size: 18,
-              color: const Color(0xFFAAAAAA),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // Remember device
-        Row(
-          children: [
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: Checkbox(
-                value: _rememberDevice,
-                onChanged: (v) =>
-                    setState(() => _rememberDevice = v ?? false),
-                activeColor: const Color(0xFF2A52BE),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(3)),
-                side: const BorderSide(color: Color(0xFFCCCCCC)),
+            const SizedBox(height: 6),
+            const Center(
+              child: Text(
+                'Please enter your corporate credentials to continue.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF888888)),
+                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(width: 8),
-            const Text(
-              'Remember this device',
-              style: TextStyle(fontSize: 13, color: Color(0xFF555555)),
+            const SizedBox(height: 24),
+
+            // Error message
+            if (authService.error != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  border: Border.all(color: Colors.red.shade200),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  authService.error!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ),
+
+            // Email
+            _fieldLabel('Email or Username'),
+            const SizedBox(height: 8),
+            _textField(
+              controller: _emailController,
+              hint: 'name@company.com',
+              prefixIcon: Icons.alternate_email,
+              keyboardType: TextInputType.emailAddress,
+              enabled: !authService.isLoading,
+            ),
+            const SizedBox(height: 18),
+
+            // Password
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _fieldLabel('Password'),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text(
+                    'Forgot Password?',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF2A52BE),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _textField(
+              controller: _passwordController,
+              hint: '••••••••',
+              prefixIcon: Icons.lock_outline,
+              obscureText: _obscurePassword,
+              enabled: !authService.isLoading,
+              suffixIcon: GestureDetector(
+                onTap: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+                child: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  size: 18,
+                  color: const Color(0xFFAAAAAA),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Remember device
+            Row(
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: Checkbox(
+                    value: _rememberDevice,
+                    onChanged: authService.isLoading
+                        ? null
+                        : (v) =>
+                            setState(() => _rememberDevice = v ?? false),
+                    activeColor: const Color(0xFF2A52BE),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(3)),
+                    side: const BorderSide(color: Color(0xFFCCCCCC)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Remember this device',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF555555)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Sign In
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton(
+                onPressed: authService.isLoading ? null : _handleLogin,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A3A8F),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6)),
+                  elevation: 0,
+                  disabledBackgroundColor: Colors.grey.shade400,
+                ),
+                child: authService.isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text(
+                        'Sign In',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5),
+                      ),
+              ),
             ),
           ],
-        ),
-        const SizedBox(height: 24),
-
-        // Sign In
-        SizedBox(
-          width: double.infinity,
-          height: 46,
-          child: ElevatedButton(
-            onPressed: _handleLogin,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1A3A8F),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6)),
-              elevation: 0,
-            ),
-            child: const Text(
-              'Sign In',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5),
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -376,12 +417,14 @@ class _LoginScreenState extends State<LoginScreen> {
     required IconData prefixIcon,
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
+    bool enabled = true,
     Widget? suffixIcon,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
       keyboardType: keyboardType,
+      enabled: enabled,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle:
@@ -410,34 +453,77 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // void _handleLogin() {
-  //   final email = _emailController.text.trim();
-  //   final isAdmin = _selectedTab == 1;
-  //   debugPrint('Login → email: $email | admin: $isAdmin');
-  // }
+  // ── Login handler ───────────────────────────────────────────────────────────
 
-  void _handleLogin() {
-  final email = _emailController.text.trim();
-  final password = _passwordController.text.trim();
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
-  if (email.isEmpty || password.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please enter email and password.'),
-        backgroundColor: Colors.redAccent,
-      ),
-    );
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter email and password.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final authService = context.read<AuthService>();
+    final isAdmin = _selectedTab == 1;
+
+    debugPrint('🔐 Login attempt: $email (admin: $isAdmin)');
+
+    final success = await authService.login(email, password, isAdmin);
+
+    if (!mounted) return;
+
+    if (success) {
+      debugPrint('✅ Login successful! Role: ${authService.userRole}');
+      _navigateBasedOnRole(authService.userRole, isAdmin);
+    } else {
+      debugPrint('❌ Login failed: ${authService.error}');
+    }
+  }
+
+  // ── Role-based navigation ───────────────────────────────────────────────────
+
+  /// Navigate to appropriate route based on user's database role
+  /// Handles actual database roles: 'UI/ UX Designer', 'Graphic Designer', 
+  /// 'Digital Marketing', 'Video Editor', 'Web Developer'
+  void _navigateBasedOnRole(String? role, bool isAdmin) {
+  if (isAdmin) {
+    debugPrint('➡️ Navigating to: /admin');
+    Navigator.pushReplacementNamed(context, '/admin');
     return;
   }
 
-  if (_selectedTab == 1) {
-    // Admin Login
-    Navigator.pushReplacementNamed(context, '/admin');
-  } else {
-    // Employee Login
-    Navigator.pushReplacementNamed(context, '/employee');
+  final roleStr = role?.toLowerCase().trim() ?? '';
+  
+  // Use the exact route names defined in your MaterialApp routes
+  String route = '/employee'; 
+
+  if (roleStr.contains('ui') || 
+      roleStr.contains('ux') || 
+      roleStr.contains('graphic') ||
+      roleStr.contains('designer') ||
+      roleStr.contains('web')) {
+    route = '/designer';
+  } 
+  else if (roleStr.contains('video') || roleStr.contains('editor')) {
+    // Check if you have a /videographer route in main.dart
+    route = '/videographer'; 
+  } 
+  else if (roleStr.contains('Ads') || roleStr.contains('handler')) {
+    route = '/adsHandler'; // Corrected from '/ads-handler'
+  }  
+  else if (roleStr.contains('page') || roleStr.contains('handler')) {
+    route = '/pageHandler'; // Corrected from '/page-handler'
   }
+
+  Navigator.pushReplacementNamed(context, route);
 }
+
 
   void _handleCreateAccount() {
     debugPrint('Create Admin Account tapped');

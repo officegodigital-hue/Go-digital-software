@@ -60,6 +60,39 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ✅ NEW: GET /api/clients/search/query — search clients by company name
+router.get('/search/query', async (req, res) => {
+  try {
+    const query = req.query.query || '';
+    
+    if (query.trim().length === 0) {
+      // ✅ ADDED: industry field
+      const [clients] = await db.query(
+        `SELECT id, company_name, industry 
+         FROM clients 
+         ORDER BY company_name ASC`
+      );
+      
+      return res.json({ success: true, data: clients, });
+    }
+    
+    // ✅ ADDED: industry field
+    const [clients] = await db.query(
+      `SELECT id, company_name, industry 
+       FROM clients 
+       WHERE company_name LIKE ? 
+       ORDER BY company_name ASC`,
+      [`%${query}%`]
+    );
+ 
+    return res.json({ success: true, data: clients });
+  } catch (err) {
+    console.error('GET /clients/search ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 // GET /api/clients/:id — single client with completion %
 router.get('/:id', async (req, res) => {
   try {
@@ -84,13 +117,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/clients — create new client (Save Draft)
-// Body: { companyName, industry, contactPerson, email, address,
-//         bankAccountName, bankName, bankAccountNumber, bankIfsc, status }
 router.post('/', async (req, res) => {
   const {
-    companyName, industry, contactPerson, email, address,
+    companyName, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
+    clientPhone, gstNumber // Add these
   } = req.body;
 
   if (!companyName)
@@ -99,13 +130,13 @@ router.post('/', async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO clients
-        (company_name, industry, contact_person, email, address,
-         bank_account_name, bank_name, bank_account_number, bank_ifsc, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (company_name, contact_person, email, address,
+         bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        companyName, industry || 'Financial Services', contactPerson || '', email || '', address || '',
+        companyName, contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft',
+        status || 'draft', clientPhone || '', gstNumber || ''
       ]
     );
 
@@ -126,13 +157,12 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/clients/:id — update existing client (Save Draft / Complete Registration)
-// Body: { companyName, industry, contactPerson, email, address,
-//         bankAccountName, bankName, bankAccountNumber, bankIfsc, status }
+// Updated PUT /api/clients/:id
 router.put('/:id', async (req, res) => {
   const {
-    companyName, industry, contactPerson, email, address,
+    companyName, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
+    clientPhone, gstNumber // Add these
   } = req.body;
 
   if (!companyName)
@@ -141,16 +171,17 @@ router.put('/:id', async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE clients
-       SET company_name = ?, industry = ?, contact_person = ?, email = ?, address = ?,
+       SET company_name = ?, contact_person = ?, email = ?, address = ?,
            bank_account_name = ?, bank_name = ?, bank_account_number = ?, bank_ifsc = ?,
-           status = ?
+           status = ?, client_phone = ?, gst_number = ?
        WHERE id = ?`,
       [
-        companyName, industry || 'Financial Services', contactPerson || '', email || '', address || '',
+        companyName, contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft', req.params.id,
+        status || 'draft', clientPhone || '', gstNumber || '', req.params.id
       ]
     );
+    
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Client not found' });
 
@@ -158,6 +189,7 @@ router.put('/:id', async (req, res) => {
       `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
       [req.params.id]
     );
+    
     const completionPercent = computePercent({
       status: status || 'draft',
       bank_account_name: bankAccountName, bank_name: bankName,
@@ -170,6 +202,7 @@ router.put('/:id', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 
 // PATCH /api/clients/:id/status — quickly update only the status (Verify / Pending button)
 router.patch('/:id/status', async (req, res) => {
@@ -209,6 +242,93 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /clients/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+router.get('/list', async (req, res) => {
+  try {
+    const [clients] = await db.query(
+      `SELECT id, company_name FROM clients WHERE status = 'verified' ORDER BY company_name ASC`
+    );
+ 
+    res.json({
+      success: true,
+      data: clients,
+    });
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query; // search query parameter
+ 
+    if (!q || q.trim() === '') {
+      // If no search, return all
+      const [clients] = await db.query(
+        `SELECT id, company_name FROM clients WHERE status = 'verified' ORDER BY company_name ASC LIMIT 20`
+      );
+      return res.json({
+        success: true,
+        data: clients,
+      });
+    }
+ 
+    // Search by company name
+    const searchTerm = `%${q}%`;
+    const [clients] = await db.query(
+      `SELECT id, company_name FROM clients 
+       WHERE status = 'verified' AND company_name LIKE ? 
+       ORDER BY company_name ASC LIMIT 20`,
+      [searchTerm]
+    );
+ 
+    res.json({
+      success: true,
+      data: clients,
+    });
+  } catch (error) {
+    console.error('Error searching clients:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+ 
+// ✅ GET single client details
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+ 
+    const [clients] = await db.query(
+      `SELECT * FROM clients WHERE id = ?`,
+      [id]
+    );
+ 
+    if (clients.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Client not found',
+      });
+    }
+ 
+    res.json({
+      success: true,
+      data: clients[0],
+    });
+  } catch (error) {
+    console.error('Error fetching client:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 

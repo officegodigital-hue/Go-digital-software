@@ -1,4 +1,4 @@
-// routes/timings.js — Time Manager Task Timings CRUD API (v2: unique task_name)
+// routes/timings.js — Time Manager Task Timings CRUD API (v3: linked to task_master)
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -7,7 +7,7 @@ const db      = require('../config/db');
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, task_name, qty, timing FROM task_timings ORDER BY id ASC`
+      `SELECT id, task_name, task_master_id, qty, timing FROM task_timings ORDER BY id ASC`
     );
     return res.json({ success: true, data: rows });
   } catch (err) {
@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, task_name, qty, timing FROM task_timings WHERE id = ?`,
+      `SELECT id, task_name, task_master_id, qty, timing FROM task_timings WHERE id = ?`,
       [req.params.id]
     );
     if (rows.length === 0)
@@ -32,23 +32,27 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/timings — create new entry (task_name must be unique)
-// Body: { taskName, qty, timing }
+// POST /api/timings — create new entry
+// Body: { taskName, taskMasterId, qty, timing }
+// taskMasterId is null when the task came from the free-text "Other" field
 router.post('/', async (req, res) => {
-  const { taskName, qty, timing } = req.body;
+  const { taskName, taskMasterId, qty, timing } = req.body;
 
-  if (!taskName || !qty || !timing)
-    return res.status(400).json({ success: false, message: 'taskName, qty and timing are required' });
+  if (!taskName || !timing)
+    return res.status(400).json({ success: false, message: 'taskName and timing are required' });
+
+  const finalQty = qty && qty.toString().trim() !== '' ? qty : '1';
+  const finalTaskMasterId = taskMasterId !== undefined && taskMasterId !== null ? taskMasterId : null;
 
   try {
     const [result] = await db.query(
-      `INSERT INTO task_timings (task_name, qty, timing) VALUES (?, ?, ?)`,
-      [taskName, qty, timing]
+      `INSERT INTO task_timings (task_name, task_master_id, qty, timing) VALUES (?, ?, ?, ?)`,
+      [taskName, finalTaskMasterId, finalQty, timing]
     );
     return res.status(201).json({
       success: true,
       message: 'Entry created',
-      data: { id: result.insertId, task_name: taskName, qty, timing },
+      data: { id: result.insertId, task_name: taskName, task_master_id: finalTaskMasterId, qty: finalQty, timing },
     });
   } catch (err) {
     console.error('POST /timings ERROR:', err.message);
@@ -58,18 +62,21 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/timings/:id — update entry (task_name must remain unique)
-// Body: { taskName, qty, timing }
+// PUT /api/timings/:id — update entry
+// Body: { taskName, taskMasterId, qty, timing }
 router.put('/:id', async (req, res) => {
-  const { taskName, qty, timing } = req.body;
+  const { taskName, taskMasterId, qty, timing } = req.body;
 
-  if (!taskName || !qty || !timing)
-    return res.status(400).json({ success: false, message: 'taskName, qty and timing are required' });
+  if (!taskName || !timing)
+    return res.status(400).json({ success: false, message: 'taskName and timing are required' });
+
+  const finalQty = qty && qty.toString().trim() !== '' ? qty : '1';
+  const finalTaskMasterId = taskMasterId !== undefined && taskMasterId !== null ? taskMasterId : null;
 
   try {
     const [result] = await db.query(
-      `UPDATE task_timings SET task_name = ?, qty = ?, timing = ? WHERE id = ?`,
-      [taskName, qty, timing, req.params.id]
+      `UPDATE task_timings SET task_name = ?, task_master_id = ?, qty = ?, timing = ? WHERE id = ?`,
+      [taskName, finalTaskMasterId, finalQty, timing, req.params.id]
     );
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Entry not found' });
@@ -82,13 +89,10 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/timings/:id — delete entry
+// DELETE /api/timings/:id
 router.delete('/:id', async (req, res) => {
   try {
-    const [result] = await db.query(
-      `DELETE FROM task_timings WHERE id = ?`,
-      [req.params.id]
-    );
+    const [result] = await db.query(`DELETE FROM task_timings WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Entry not found' });
     return res.json({ success: true, message: 'Entry deleted' });

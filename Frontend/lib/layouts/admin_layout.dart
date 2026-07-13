@@ -1,19 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:my_first_app/services/auth_service.dart';
 
 class AdminLayout extends StatelessWidget {
   final String pageTitle;
   final String currentRoute;
   final Widget child;
+  final Function(String)? onSearch;
+  
+
+  
 
   const AdminLayout({
     super.key,
     required this.pageTitle,
     required this.currentRoute,
     required this.child,
+
+  this.onSearch,
   });
 
   @override
   Widget build(BuildContext context) {
+    final TextEditingController searchController = TextEditingController();
+
+    final authService = context.watch<AuthService>();
+
+final user = authService.user;
+
+final String userName =
+    user?['name']?.toString() ??
+    user?['full_name']?.toString() ??
+    user?['username']?.toString() ??
+    'Admin User';
+
+final String userType =
+    user?['user_type']?.toString() ??
+    'Administrator';
+
+final String userRole =
+    user?['role']?.toString() ??
+    'Administrator';
+   
+
+final String initials = userName
+    .split(' ')
+    .where((e) => e.isNotEmpty)
+    .take(2)
+    .map((e) => e[0].toUpperCase())
+    .join();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       body: Row(
@@ -136,23 +172,24 @@ class AdminLayout extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: const Color(0xFFE0E4EF)),
                             ),
+                            
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
-                              children: const [
+                              children:  [
                                 SizedBox(width: 12),
                                 Icon(Icons.search, size: 17, color: Color(0xFFADB5BD)),
                                 SizedBox(width: 8),
                                 Expanded(
-                                  child: TextField(
-                                    decoration: InputDecoration(
-                                      hintText: 'Search tasks, employees, or clients...',
-                                      hintStyle: TextStyle(fontSize: 13, color: Color(0xFFADB5BD)),
-                                      border: InputBorder.none,
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(vertical: 10),
-                                    ),
-                                  ),
-                                ),
+  child: TextField(
+  controller: searchController,
+  onChanged: (value) {
+    onSearch?.call(value);
+  },
+  decoration: const InputDecoration(
+    hintText: 'Search...',
+    border: InputBorder.none,
+  ),
+)),
                               ],
                             ),
                           ),
@@ -163,7 +200,9 @@ class AdminLayout extends StatelessWidget {
 
                       // Quick Add button
                       ElevatedButton.icon(
-                        onPressed: () {},
+                        onPressed: () {
+                        Navigator.pushNamed(context, '/client-history');
+                          },
                         icon: const Icon(Icons.add, size: 15, color: Colors.white),
                         label: const Text(
                           'Quick Add',
@@ -184,7 +223,9 @@ class AdminLayout extends StatelessWidget {
                         children: [
                           IconButton(
                             icon: const Icon(Icons.notifications_outlined, size: 20, color: Color(0xFF555F6E)),
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.pushNamed(context, '/notifications');
+                            },
                             padding: const EdgeInsets.all(6),
                             constraints: const BoxConstraints(),
                           ),
@@ -200,17 +241,45 @@ class AdminLayout extends StatelessWidget {
                       ),
                       const SizedBox(width: 2),
 
+                      // IconButton(
+                      //   icon: const Icon(Icons.help_outline_rounded, size: 20, color: Color(0xFF555F6E)),
+                      //   onPressed: () {},
+                      //   padding: const EdgeInsets.all(6),
+                      //   constraints: const BoxConstraints(),
+                      // ),
                       IconButton(
-                        icon: const Icon(Icons.help_outline_rounded, size: 20, color: Color(0xFF555F6E)),
-                        onPressed: () {},
+  icon: const Icon(
+    Icons.help_outline_rounded, size: 20, color: Color(0xFF555F6E)
+  ),
+  onPressed: () {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Help Center"),
+        content: const Text(
+          "Need assistance?\n\nEmail: support@godigital.com\nPhone: +91 XXXXX XXXXX",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
+        ],
+      ),
+    );
+  },
+  
                         padding: const EdgeInsets.all(6),
                         constraints: const BoxConstraints(),
-                      ),
+),
+                      
                       const SizedBox(width: 2),
 
                       IconButton(
                         icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF555F6E)),
-                        onPressed: () {},
+                        onPressed: () { 
+                          Navigator.pushNamed(context, '/settings');
+                          },
                         padding: const EdgeInsets.all(6),
                         constraints: const BoxConstraints(),
                       ),
@@ -222,25 +291,49 @@ class AdminLayout extends StatelessWidget {
 
                       // Admin name + role
                       Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: const [
-                          Text('Admin User',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1A1A2E))),
-                          Text('Super Administrator',
-                              style: TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
-                        ],
-                      ),
+  mainAxisAlignment: MainAxisAlignment.center,
+  crossAxisAlignment: CrossAxisAlignment.end,
+  children: [
+    Text(
+      userName,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF1A1A2E),
+      ),
+    ),
+    Text(
+      userType,
+      style: const TextStyle(
+        fontSize: 11,
+        color: Color(0xFF8A94A6),
+      ),
+    ),
+    Text(
+      userRole,
+      style: const TextStyle(
+        fontSize: 8,
+        color: Color(0xFF8A94A6),
+      ),
+    ),
+  ],
+),
                       const SizedBox(width: 10),
 
                       // Avatar
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: const Color(0xFF2A52BE),
-                        child: const Text('AU',
-                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-                      ),
-                    ],
+                    CircleAvatar(
+  radius: 18,
+  backgroundColor: const Color(0xFF2A52BE),
+  child: Text(
+    initials,
+    style: const TextStyle(
+      color: Colors.white,
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+    ),
+  ),
+),
+],
                   ),
                 ),
 

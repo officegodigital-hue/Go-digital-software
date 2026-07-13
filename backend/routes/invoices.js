@@ -4,16 +4,68 @@ const router  = express.Router();
 const db      = require('../config/db');
 
 // GET /api/invoices/next-number — generates the next INV-YYYY-#### number
+// router.get('/next-number', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(`SELECT COUNT(*) AS cnt FROM invoices`);
+//     const nextSeq = rows[0].cnt + 842; // mirrors existing INV-2023-0842 style numbering
+//     const year = new Date().getFullYear();
+//     const invoiceNo = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+//     return res.json({ success: true, data: { invoiceNo } });
+//   } catch (err) {
+//     console.error('GET /invoices/next-number ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.get('/next-number', async (req, res) => {
   try {
-    const [rows] = await db.query(`SELECT COUNT(*) AS cnt FROM invoices`);
-    const nextSeq = rows[0].cnt + 842; // mirrors existing INV-2023-0842 style numbering
-    const year = new Date().getFullYear();
-    const invoiceNo = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
-    return res.json({ success: true, data: { invoiceNo } });
+
+    const now = new Date();
+
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+
+    const datePart = `${yyyy}${mm}${dd}`;
+
+    const [rows] = await db.query(
+      `SELECT invoice_no
+       FROM invoices
+       WHERE invoice_no LIKE ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [`INV-${datePart}%`]
+    );
+
+    let nextSequence = 301;
+
+    if (rows.length > 0) {
+      const lastInvoiceNo = rows[0].invoice_no;
+
+      // INV-20260708301
+      const lastSequence = parseInt(lastInvoiceNo.substring(12));
+
+      if (!isNaN(lastSequence)) {
+        nextSequence = lastSequence + 1;
+      }
+    }
+
+    const invoiceNo = `INV-${datePart}${nextSequence}`;
+
+    return res.json({
+      success: true,
+      data: {
+        invoiceNo,
+      },
+    });
+
   } catch (err) {
     console.error('GET /invoices/next-number ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
@@ -40,7 +92,7 @@ router.get('/', async (req, res) => {
     const [rows] = await db.query(
       `SELECT i.id, i.invoice_no, i.client_name, i.invoice_date, i.maintenance_date, i.include_gst,
               i.discount, i.subtotal, i.tax, i.total_amount, i.paid_amount, i.balance_amount,
-              i.status, i.created_at,
+              i.status, i.created_at, i.linked_quotation_id, i.linked_quotation_no,
               (SELECT ii.description FROM invoice_items ii
                 WHERE ii.invoice_id = i.id ORDER BY ii.sort_order ASC, ii.id ASC LIMIT 1) AS package_type
        FROM invoices i ORDER BY i.id DESC`
@@ -250,6 +302,78 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /invoices/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/invoices/client-package/:clientName
+router.get('/client-package/:clientName', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT GROUP_CONCAT(ii.description SEPARATOR ', ') AS packages
+      FROM invoices i
+      JOIN invoice_items ii ON ii.invoice_id = i.id
+      WHERE i.client_name = ?
+    `, [req.params.clientName]);
+
+    return res.json({
+      success: true,
+      packages: rows[0]?.packages ?? ''
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// GET /api/invoices/client-details/:clientName
+router.get('/client-details/:clientName', async (req, res) => {
+  try {
+    // ✅ FIX: Get the MOST RECENT invoice with PAID/PARTIAL status
+    const [invoiceRows] = await db.query(
+      `SELECT i.id, i.invoice_no, i.maintenance_date
+       FROM invoices i
+       WHERE i.client_name = ? AND i.status IN ('PAID', 'PARTIAL')
+       ORDER BY i.created_at DESC 
+       LIMIT 1`,
+      [req.params.clientName]
+    );
+
+    if (invoiceRows.length === 0) {
+      return res.json({
+        success: true,
+        data: { packages: '', maintenance_date: '' },
+      });
+    }
+
+    const invoiceId = invoiceRows[0].id;
+    const maintenanceDate = invoiceRows[0].maintenance_date || '';
+
+    // ✅ Get the packages for this invoice
+    const [itemRows] = await db.query(
+      `SELECT GROUP_CONCAT(ii.description SEPARATOR ', ') AS packages
+       FROM invoice_items ii
+       WHERE ii.invoice_id = ?`,
+      [invoiceId]
+    );
+
+    const packages = itemRows[0]?.packages || '';
+
+    return res.json({
+      success: true,
+      data: {
+        packages: packages,
+        maintenance_date: maintenanceDate,
+      },
+    });
+  } catch (err) {
+    console.error('GET /client-details ERROR:', err.message);
+    return res.status(500).json({ 
+      success: false, 
+      message: err.message 
+    });
   }
 });
 

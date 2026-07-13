@@ -1,5 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import '../layouts/admin_layout.dart';
+import '../services/auth_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -9,109 +13,153 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  // Current active filter tab tracker
-  String activeFilter = "All";
+  static const String _baseUrl = 'http://127.0.0.1:5000/api';
 
-  // ── FILTER VISIBILITY TOGGLE TRACKER FLAG ──
-  bool _isFilterMenuOpen = false;
+  // Selected employee filter (i.e. which conversation thread to show)
+  String? _selectedEmployee;
 
-  // Notification Data Model matching the mockups exactly
-  final List<Map<String, dynamic>> notificationLogs = [
-    {
-      "initials": "AD",
-      "name": "Arun",
-      "message": "Task \"Homepage Banner Design\" Has Been Submitted For Review.",
-      "isUnread": true,
-      "isFavorite": false,
-      "time": "Just Now",
-      "isArchived": false
-    },
-    {
-      "initials": "SS",
-      "name": "Susan",
-      "message": "Deliverables For The Social Media Campaign Have Been Uploaded Successfully.",
-      "isUnread": false,
-      "isFavorite": true,
-      "time": "10.30am",
-      "isArchived": false
-    },
-    {
-      "initials": "PC",
-      "name": "Pavithra C",
-      "message": "Unable To Access Client Assets Required For Today's Deliverables.",
-      "isUnread": false,
-      "isFavorite": false,
-      "time": "10.00am",
-      "isArchived": false
-    },
-    {
-      "initials": "AD",
-      "name": "Arun",
-      "message": "Daily Work Report Has Been Submitted To The Admin Panel.",
-      "isUnread": true,
-      "isFavorite": false,
-      "time": "Just Now",
-      "isArchived": false
-    },
-    {
-      "initials": "SS",
-      "name": "Susan",
-      "message": "The Campaign Creatives Need Final Confirmation Before Publishing.",
-      "isUnread": false,
-      "isFavorite": true,
-      "time": "10.30am",
-      "isArchived": true // Mock sample for Achive group filtering
-    },
-    {
-      "initials": "PC",
-      "name": "Pavithra C",
-      "message": "Delay Expected Due To Pending Feedback From The Client Side.",
-      "isUnread": false,
-      "isFavorite": false,
-      "time": "10.00am",
-      "isArchived": false
-    },
-    {
-      "initials": "AD",
-      "name": "Arun",
-      "message": "SEO Optimization Task Completed And Moved To Testing Stage.",
-      "isUnread": true,
-      "isFavorite": false,
-      "time": "Just Now",
-      "isArchived": false
-    },
-    {
-      "initials": "SS",
-      "name": "Susan",
-      "message": "Additional Time Requested To Complete The Branding Presentation Updates.",
-      "isUnread": false,
-      "isFavorite": false,
-      "time": "10.30am",
-      "isArchived": false
-    },
-    {
-      "initials": "PC",
-      "name": "Pavithra C",
-      "message": "Website UI Revisions Are Completed And Ready For Approval.",
-      "isUnread": false,
-      "isFavorite": false,
-      "time": "10.00am",
-      "isArchived": false
+  // Logged-in employee (from auth service)
+  String? _loggedInEmployee;
+
+  // FIX: no longer hardcoded — populated from the backend in
+  // _fetchNotifications(), scoped to whoever is actually logged in. The
+  // backend guarantees only threads where this person is sender OR
+  // recipient ever come back, so there's no way to see someone else's
+  // messages by accident.
+  List<Map<String, dynamic>> notificationLogs = [];
+
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authService = context.read<AuthService>();
+      final loggedInName = authService.user?['fullName'] as String? ?? 'Unknown';
+      setState(() {
+        _loggedInEmployee = loggedInName;
+      });
+      _fetchNotifications();
+    });
+  }
+
+  Future<void> _fetchNotifications() async {
+    if (_loggedInEmployee == null || _loggedInEmployee!.isEmpty) return;
+    setState(() { _loading = true; _error = null; });
+
+    try {
+      // FIX: some backend events (e.g. an employee completing a task) still
+      // address their notification to the literal string "Admin" rather
+      // than a specific admin's real name — there's no per-task "who's the
+      // responsible admin" column yet to target correctly. Until that's
+      // added, we fetch both this admin's personal thread AND the generic
+      // "Admin" bucket, and merge them, so those messages are still visible
+      // no matter which real admin account is logged in.
+      final personalFuture = http.get(
+        Uri.parse('$_baseUrl/notifications/${Uri.encodeComponent(_loggedInEmployee!)}'),
+      );
+
+      final needsAdminBucket = _loggedInEmployee!.toLowerCase() != 'admin';
+      final adminFuture = needsAdminBucket
+          ? http.get(Uri.parse('$_baseUrl/notifications/Admin'))
+          : null;
+
+      final personalResponse = await personalFuture;
+      final adminResponse = adminFuture != null ? await adminFuture : null;
+
+      if (personalResponse.statusCode == 200) {
+        final personalRows = List<dynamic>.from(
+          jsonDecode(personalResponse.body)['data'] ?? [],
+        );
+
+        List<dynamic> adminRows = [];
+        if (adminResponse != null && adminResponse.statusCode == 200) {
+          adminRows = List<dynamic>.from(
+            jsonDecode(adminResponse.body)['data'] ?? [],
+          );
+        }
+
+        // Merge + dedupe by id (a row could theoretically appear in both
+        // fetches if otherParty happened to literally be "Admin").
+        final merged = <int, Map<String, dynamic>>{};
+        for (final row in [...personalRows, ...adminRows]) {
+          merged[row['id'] as int] = row as Map<String, dynamic>;
+        }
+        final rows = merged.values.toList()
+          ..sort((a, b) => (b['id'] as int).compareTo(a['id'] as int));
+
+        setState(() {
+          notificationLogs = rows.map((row) {
+            final otherParty = row['otherParty'] as String? ?? 'Unknown';
+            return {
+              "id": row['id'],
+              "initials": _initialsFor(otherParty),
+              "name": otherParty,
+              "message": row['message'] ?? '',
+              "time": row['time'] ?? '',
+              "type": row['type'] ?? 'RECEIVED',
+              "isSeen": row['isSeen'] as bool? ?? false,
+              "isFavorite": row['isFavorite'] as bool? ?? false,
+              "isArchived": row['isArchived'] as bool? ?? false,
+            };
+          }).toList();
+          _loading = false;
+        });
+      } else {
+        setState(() { _error = 'Failed to load notifications (${personalResponse.statusCode})'; _loading = false; });
+      }
+    } catch (e) {
+      setState(() { _error = 'Connection error: $e'; _loading = false; });
     }
-  ];
+  }
+
+  String _initialsFor(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '--';
+    if (parts.length == 1) return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  Future<void> _toggleFavorite(Map<String, dynamic> log) async {
+    final newValue = !(log["isFavorite"] as bool);
+    setState(() => log["isFavorite"] = newValue);
+    try {
+      await http.patch(
+        Uri.parse('$_baseUrl/notifications/${log["id"]}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'isFavorite': newValue}),
+      );
+    } catch (_) {
+      // Non-fatal — local UI already updated; a refresh will resync if it failed.
+    }
+  }
+
+  Future<void> _deleteNotification(Map<String, dynamic> log) async {
+    setState(() => notificationLogs.remove(log));
+    try {
+      await http.delete(Uri.parse('$_baseUrl/notifications/${log["id"]}'));
+    } catch (_) {}
+  }
+
+  // Get unique "other party" list — i.e. everyone THIS logged-in person has
+  // an actual conversation thread with. Never anyone else's data.
+  List<String> get _uniqueEmployees {
+    final names = notificationLogs.map((log) => log["name"] as String).toSet().toList();
+    names.sort();
+    return names;
+  }
+
+  // Filter notifications based on selected thread
+  List<Map<String, dynamic>> get _filteredNotifications {
+    return notificationLogs.where((log) {
+      if (_selectedEmployee == null) return true;
+      return log["name"] == _selectedEmployee;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // ── REACTIVE NOTIFICATION FILTER MATRIX ──
-    List<Map<String, dynamic>> filteredNotifications = notificationLogs.where((log) {
-      if (!_isFilterMenuOpen || activeFilter == "All") return true;
-      if (activeFilter == "Unread") return log["isUnread"] == true;
-      if (activeFilter == "Read") return log["isUnread"] == false;
-      if (activeFilter == "Achive") return log["isArchived"] == true;
-      if (activeFilter == "Favorite") return log["isFavorite"] == true;
-      return true;
-    }).toList();
-
     return AdminLayout(
       pageTitle: "Notifications",
       currentRoute: "/notifications",
@@ -128,10 +176,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             "Never miss an update — get real-time notifications on all your activities.",
             style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
           ),
-
           const SizedBox(height: 28),
 
-          // ── Main Content Alert Workspace Box ──
+          // ── Main Content Container ──
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -141,204 +188,224 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. Interactive Tab Controls Ribbon Bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "List of Notification",
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
-                      ),
-                      Row(
-                        children: [
-                          // Animated Visibility rendering for filtering options row tabs
-                          AnimatedVisibility(
-                            visible: _isFilterMenuOpen,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildFilterTab("All"),
-                                _buildFilterTab("Unread"),
-                                _buildFilterTab("Read"),
-                                _buildFilterTab("Achive"),
-                                _buildFilterTab("Favorite"),
-                                const SizedBox(width: 8),
-                              ],
-                            ),
-                          ),
-                          
-                          // ── DYNAMIC INTERACTIVE FILTER MASTER TOGGLE ──
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                _isFilterMenuOpen = !_isFilterMenuOpen;
-                                if (!_isFilterMenuOpen) {
-                                  activeFilter = "All"; // Resets condition cleanly when hidden
-                                }
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _isFilterMenuOpen ? const Color(0xFFF1F5F9) : Colors.transparent,
-                                border: Border.all(color: const Color(0xFFCBD5E1)),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _isFilterMenuOpen ? Icons.filter_list_off_rounded : Icons.filter_list_rounded, 
-                                    size: 14, 
-                                    color: const Color(0xFF475569)
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _isFilterMenuOpen ? "Hide Filters" : "Filters", 
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                // ── Title Bar ──
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: Text(
+                    "List of Notification",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
                   ),
                 ),
                 const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
-                // 2. Fixed Index Title Heading Headers
-                Container(
-                  color: Colors.white,
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      SizedBox(width: 150, child: Text("EMPLOYEE NAME", style: _headerStyle)),
-                      Expanded(child: Text("MESSAGES", style: _headerStyle)),
-                      SizedBox(width: 120, child: Text("TIME", textAlign: TextAlign.center, style: _headerStyle)),
-                      SizedBox(width: 80, child: Text("REMOVE", textAlign: TextAlign.center, style: _headerStyle)),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: Color(0xFFE2E8F0)),
-
-                // 3. Scrollable List of Alerts
+                // ── Main Content Row: Sidebar + Notifications ──
                 SizedBox(
                   height: 520,
-                  child: filteredNotifications.isEmpty
-                      ? const Center(
-                          child: Text(
-                            "No notifications found in this group category.",
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                          ),
-                        )
-                      : ListView.separated(
-                          itemCount: filteredNotifications.length,
-                          physics: const BouncingScrollPhysics(),
-                          separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                          itemBuilder: (context, index) {
-                            final log = filteredNotifications[index];
-                            final bool isUnread = log["isUnread"];
+                  child: Row(
+                    children: [
+                      // ── LEFT SIDEBAR: threads for THIS logged-in person only ──
+                      Container(
+                        width: 200,
+                        decoration: const BoxDecoration(
+                          border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+                        ),
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: [
+                            _buildEmployeeItem("All", null),
+                            const Divider(height: 1),
+                            ..._uniqueEmployees.map((employee) {
+                              return _buildEmployeeItem(employee, employee);
+                            }).toList(),
+                          ],
+                        ),
+                      ),
 
-                            return Container(
-                              height: 58,
-                              color: isUnread ? const Color(0xFFEFF6FF).withOpacity(0.4) : Colors.white,
+                      // ── RIGHT SECTION: Notifications List ──
+                      Expanded(
+                        child: Column(
+                          children: [
+                            // ── Table Header ──
+                            Container(
+                              height: 44,
+                              color: const Color(0xFFF8FAFC),
                               padding: const EdgeInsets.symmetric(horizontal: 24),
-                              child: Row(
+                              child: const Row(
                                 children: [
-                                  SizedBox(
-                                    width: 150,
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 26,
-                                          height: 26,
-                                          decoration: const BoxDecoration(color: Color(0xFFDCE4F7), shape: BoxShape.circle),
-                                          alignment: Alignment.center,
-                                          child: Text(
-                                            log["initials"],
-                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            log["name"],
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w500),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  Expanded(
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            log["message"],
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: isUnread ? const Color(0xFF0F172A) : const Color(0xFF64748B),
-                                              fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          onPressed: () {
-                                            setState(() {
-                                              log["isFavorite"] = !log["isFavorite"];
-                                            });
-                                          },
-                                          icon: Icon(
-                                            log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
-                                            color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  SizedBox(
-                                    width: 120,
-                                    child: Text(
-                                      log["time"],
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: isUnread ? const Color(0xFF334155) : const Color(0xFF94A3B8),
-                                        fontWeight: isUnread ? FontWeight.bold : FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-
-                                  SizedBox(
-                                    width: 80,
-                                    child: Center(
-                                      child: IconButton(
-                                        onPressed: () {
-                                          setState(() {
-                                            notificationLogs.remove(log);
-                                          });
-                                        },
-                                        icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
-                                        hoverColor: Colors.red.shade50,
-                                        splashRadius: 20,
-                                      ),
-                                    ),
-                                  ),
+                                  SizedBox(width: 100, child: Text("TYPE", style: _headerStyle)),
+                                  Expanded(child: Text("MESSAGE", style: _headerStyle)),
+                                  SizedBox(width: 120, child: Text("TIME", textAlign: TextAlign.center, style: _headerStyle)),
+                                  SizedBox(width: 60, child: Text("STATUS", textAlign: TextAlign.center, style: _headerStyle)),
+                                  SizedBox(width: 60, child: Text("ACTION", textAlign: TextAlign.center, style: _headerStyle)),
                                 ],
                               ),
-                            );
-                          },
+                            ),
+                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                            // ── Notifications List ──
+                            Expanded(
+                              child: _loading
+                                  ? const Center(child: CircularProgressIndicator())
+                                  : _error != null
+                                      ? Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(_error!, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                                              const SizedBox(height: 10),
+                                              TextButton(onPressed: _fetchNotifications, child: const Text('Retry')),
+                                            ],
+                                          ),
+                                        )
+                                      : _filteredNotifications.isEmpty
+                                          ? const Center(
+                                              child: Text(
+                                                "No notifications found.",
+                                                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                                              ),
+                                            )
+                                          : ListView.separated(
+                                      itemCount: _filteredNotifications.length,
+                                      physics: const BouncingScrollPhysics(),
+                                      separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                      itemBuilder: (context, index) {
+                                        final log = _filteredNotifications[index];
+                                        final isSent = log["type"] == "SENT";
+                                        final isSeen = log["isSeen"] as bool;
+
+                                        return Container(
+                                          height: 60,
+                                          color: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                                          child: Row(
+                                            children: [
+                                              // ── TYPE BADGE (SENT/RECEIVED) ──
+                                              SizedBox(
+                                                width: 100,
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: isSent ? const Color(0xFFEFF6FF) : const Color(0xFFFFF7ED),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    isSent ? "Sent" : "Received",
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w700,
+                                                      color: isSent ? const Color(0xFF0052CC) : const Color(0xFFEA580C),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+
+                                              // ── MESSAGE ──
+                                              Expanded(
+                                                child: Padding(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                                  child: Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          log["message"],
+                                                          overflow: TextOverflow.ellipsis,
+                                                          maxLines: 2,
+                                                          style: const TextStyle(
+                                                            fontSize: 13,
+                                                            color: Color(0xFF334155),
+                                                            fontWeight: FontWeight.w500,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      IconButton(
+                                                        onPressed: () => _toggleFavorite(log),
+                                                        icon: Icon(
+                                                          log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
+                                                          color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
+                                                          size: 18,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+
+                                              // ── TIME ──
+                                              SizedBox(
+                                                width: 120,
+                                                child: Text(
+                                                  log["time"],
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFF64748B),
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ),
+
+                                              // ── STATUS (SEEN INDICATOR) ──
+                                              SizedBox(
+                                                width: 60,
+                                                child: Center(
+                                                  child: isSent
+                                                      ? isSeen
+                                                          ? Tooltip(
+                                                              message: "Seen",
+                                                              child: Column(
+                                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                                children: [
+                                                                  const SizedBox(
+                                                                    width: 16,
+                                                                    height: 16,
+                                                                    child: Stack(
+                                                                      alignment: Alignment.center,
+                                                                      children: [
+                                                                        Positioned(
+                                                                          left: -2,
+                                                                          child: Icon(Icons.check, size: 12, color: Color(0xFF0052CC)),
+                                                                        ),
+                                                                        Positioned(
+                                                                          right: -2,
+                                                                          child: Icon(Icons.check, size: 12, color: Color(0xFF0052CC)),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            )
+                                                          : Tooltip(
+                                                              message: "Sent",
+                                                              child: const Icon(Icons.check, size: 12, color: Color(0xFF94A3B8)),
+                                                            )
+                                                      : const SizedBox(),
+                                                ),
+                                              ),
+
+                                              // ── DELETE ACTION ──
+                                              SizedBox(
+                                                width: 60,
+                                                child: Center(
+                                                  child: IconButton(
+                                                    onPressed: () => _deleteNotification(log),
+                                                    icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
+                                                    hoverColor: Colors.red.shade50,
+                                                    splashRadius: 20,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
                         ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -349,51 +416,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildFilterTab(String label) {
-    bool isActive = activeFilter.toUpperCase() == label.toUpperCase();
-    return Container(
-      margin: const EdgeInsets.only(right: 4),
-      child: OutlinedButton(
-        onPressed: () {
-          setState(() {
-            activeFilter = label;
-          });
-        },
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isActive ? const Color(0xFF0052CC) : Colors.transparent,
-          side: BorderSide(color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          elevation: 0,
-        ),
+  // ── Build Employee Sidebar Item ──
+  Widget _buildEmployeeItem(String label, String? employeeName) {
+    final isSelected = _selectedEmployee == employeeName;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedEmployee = employeeName;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-            color: isActive ? Colors.white : const Color(0xFF64748B),
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+            color: isSelected ? const Color(0xFF0052CC) : const Color(0xFF475569),
           ),
         ),
       ),
     );
   }
 
-  static const TextStyle _headerStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569), letterSpacing: 0.8);
-}
-
-// ── CUSTOM LIGHTWEIGHT ANIMATED VISIBILITY HELPER WIDGET ──
-class AnimatedVisibility extends StatelessWidget {
-  final bool visible;
-  final Widget child;
-
-  const AnimatedVisibility({super.key, required this.visible, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      child: visible ? child : const SizedBox.shrink(),
-    );
-  }
+  static const TextStyle _headerStyle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    color: Color(0xFF475569),
+    letterSpacing: 0.8,
+  );
 }
