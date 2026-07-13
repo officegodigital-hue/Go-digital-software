@@ -1,0 +1,90 @@
+enum EmployeeRole {
+  designer,
+  pageHandler, 
+  adsHandler,
+  videographer,
+}
+
+extension EmployeeRoleExtension on EmployeeRole {
+  String get title {
+    switch (this) {
+      case EmployeeRole.designer:
+        return 'Designer';
+      case EmployeeRole.pageHandler:
+        return 'Page Handler';
+      case EmployeeRole.adsHandler:
+        return 'Ads Handler';
+      case EmployeeRole.videographer:
+        return 'Videographer';
+    }
+  }
+
+  String get employeeName {
+    switch (this) {
+      case EmployeeRole.designer:
+        return 'Designer';
+      case EmployeeRole.pageHandler:
+        return 'Arun';
+      case EmployeeRole.adsHandler:
+        return 'Susan';
+      case EmployeeRole.videographer:
+        return 'Susheel';
+    }
+  }
+
+  String get shortName {
+    switch (this) {
+      case EmployeeRole.designer:
+        return 'D';
+      case EmployeeRole.pageHandler:
+        return 'PH';
+      case EmployeeRole.adsHandler:
+        return 'AH';
+      case EmployeeRole.videographer:
+        return 'VG';
+    }
+  }
+
+  List<String> get menuItems {
+    switch (this) {
+      case EmployeeRole.designer:
+        return [
+          'Dashboard',
+          'Day Planner',
+          'Assigned Task',
+          'Notifications',
+        ];
+
+      case EmployeeRole.pageHandler:
+        return [
+          'Dashboard',
+          'Day Planner',
+          'Daily Reports',
+          'Assigned Task',
+          'Task Planner',
+          'Notifications',
+          'Feedback',
+        ];
+
+      case EmployeeRole.adsHandler:
+        return [
+          'Dashboard',
+          'Day Planner',
+          'Daily Reports',
+          'Assigned Task',
+          'Task Planner',
+          'Notifications',
+          'Feedback',
+        ];
+
+      case EmployeeRole.videographer:
+        return [
+          'Dashboard',
+          'Day Planner',
+          'Assigned Task',
+          'Video Task Planner',
+          'Notifications',
+        ];
+    }
+  }
+}
