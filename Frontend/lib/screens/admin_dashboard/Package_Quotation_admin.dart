@@ -12,7 +12,7 @@ class PackageQuotationAdmin extends StatefulWidget {
 }
 
 class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   bool _showAllPackages = true;
   List<Map<String, dynamic>> packagesData = [];

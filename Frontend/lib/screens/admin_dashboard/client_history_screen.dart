@@ -12,7 +12,7 @@ class ClientHistoryScreen extends StatefulWidget {
 }
 
 class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   List<Map<String, dynamic>> _clients = [];
   bool _loading = true;

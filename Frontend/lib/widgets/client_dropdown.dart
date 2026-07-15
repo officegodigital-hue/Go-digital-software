@@ -46,7 +46,7 @@ class _ClientDropdownState extends State<ClientDropdown> {
   Future<void> _loadClients() async {
     try {
       final response = await http.get(
-        Uri.parse('http://127.0.0.1:5000/api/clients/list'),
+        Uri.parse('/api/clients/list'),
       );
 
       if (response.statusCode == 200) {

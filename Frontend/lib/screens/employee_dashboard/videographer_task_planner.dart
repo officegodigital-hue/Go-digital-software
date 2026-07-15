@@ -16,8 +16,8 @@ class VideographerTaskPlannerPage extends StatefulWidget {
 }
 
 class _VideographerTaskPlannerPageState extends State<VideographerTaskPlannerPage> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api/videographer-planner';
-  static const String _employeesUrl = 'http://127.0.0.1:5000/api/employees';
+  static const String _baseUrl = '/api/videographer-planner';
+  static const String _employeesUrl = '/api/employees';
 
   List<_EmpModel> employees = [];
   List<_RowModel> rows = [];

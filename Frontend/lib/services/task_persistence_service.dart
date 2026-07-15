@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class TaskPersistenceService {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
   
   // Debounce timers for each field
   static final Map<String, Timer> _debounceTimers = {};

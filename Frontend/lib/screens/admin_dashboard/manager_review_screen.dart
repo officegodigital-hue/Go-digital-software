@@ -12,7 +12,7 @@ class ManagerReviewScreen extends StatefulWidget {
 }
 
 class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   // Current active filter category tab tracker
   String activeFilter = "All";

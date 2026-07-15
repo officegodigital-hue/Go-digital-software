@@ -17,7 +17,7 @@ class TaskPlannerPage extends StatefulWidget {
 }
 
 class _TaskPlannerPageState extends State<TaskPlannerPage> {
-  static const String _employeesUrl = 'http://127.0.0.1:5000/api/employees';
+  static const String _employeesUrl = '/api/employees';
 
   // Color mapping for roles
   static const Map<String, Color> roleColors = {

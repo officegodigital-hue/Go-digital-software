@@ -52,7 +52,7 @@ router.post('/', async (req, res) => {
   const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
   try {
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    // const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
     await db.query(
       `INSERT INTO employee_users
@@ -60,7 +60,7 @@ router.post('/', async (req, res) => {
           staff_id, email, username, password, role, user_type, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [firstName, middleName, lastName, fullName, initials,
-       staffId, email, username, hashedPassword, role, userType]
+       staffId, email, username, password, role, userType]
     );
     return res.status(201).json({ success: true, message: 'Employee created' });
   } catch (err) {
@@ -91,14 +91,14 @@ router.put('/:id', async (req, res) => {
       });
 
     if (password && password.trim() !== '') {
-      const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+      // const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
       await db.query(
         `UPDATE employee_users SET
            first_name=?, middle_name=?, last_name=?, full_name=?, initials=?,
            staff_id=?, email=?, username=?, password=?, role=?, user_type=?
          WHERE id=?`,
         [firstName, middleName, lastName, fullName, initials,
-         staffId, email, username, hashedPassword, role, userType, req.params.id]
+         staffId, email, username, password, role, userType, req.params.id]
       );
     } else {
       await db.query(

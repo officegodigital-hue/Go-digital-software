@@ -55,7 +55,7 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
   String? _error;
 
   // Backend API URL
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   List<DailyReportModel> _reports = [];
 

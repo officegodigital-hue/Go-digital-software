@@ -12,7 +12,7 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   String _selectedDateRange = "Today";
   final List<String> _dateOptions = ["Today", "This Week", "This Month"];

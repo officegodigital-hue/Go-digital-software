@@ -18,7 +18,7 @@ class FeedbackPage extends StatefulWidget {
 }
  
 class _FeedbackPageState extends State<FeedbackPage> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api/feedback';
+  static const String _baseUrl = '/api/feedback';
 
   List<FeedbackRowModel> feedbackRows = [];
   bool _loading = false;
@@ -524,7 +524,7 @@ class FeedbackHistoryPage extends StatefulWidget {
 }
 
 class _FeedbackHistoryPageState extends State<FeedbackHistoryPage> {
-  static const String _baseUrl = 'http://127.0.0.1:3000/api/feedback';
+  static const String _baseUrl = '/api/feedback';
 
   List<FeedbackHistoryItem> _allRecords = [];
   List<FeedbackHistoryItem> _filteredRecords = [];

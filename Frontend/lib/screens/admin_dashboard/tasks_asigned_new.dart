@@ -12,7 +12,7 @@ class TasksAssignScreen extends StatefulWidget {
 }
 
 class _TasksAssignScreenState extends State<TasksAssignScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   List<Map<String, dynamic>> taskRows  = [];
   List<String>               employees = [];

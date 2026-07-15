@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class TaskPlannerService {
-  static const String _base = 'http://127.0.0.1:5000/api/task-planner';
+  static const String _base = '/api/task-planner';
 
   // GET /api/task-planner?employee=NAME
   static Future<List<Map<String, dynamic>>> getPlannerRows(String employeeName) async {

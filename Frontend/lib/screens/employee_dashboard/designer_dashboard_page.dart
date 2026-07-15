@@ -24,7 +24,7 @@ class DesignerDashboardPage extends StatefulWidget {
 }
 
 class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   List<DesignerTaskModel> tasks = [];
 

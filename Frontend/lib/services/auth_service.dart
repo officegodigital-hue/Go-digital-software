@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService extends ChangeNotifier {
-  static const String baseUrl = 'http://127.0.0.1:5000/api';
+  static const String baseUrl = '/api';
 
   String? _token;
   Map<String, dynamic>? _user;

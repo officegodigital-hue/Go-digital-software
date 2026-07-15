@@ -33,7 +33,7 @@ class TimeManagerScreen extends StatefulWidget {
 class _TimeManagerScreenState extends State<TimeManagerScreen> {
 
   // ── API base URL ──────────────────────────────────────────────────────────────
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   bool _loading = true;
   String? _loadError;

@@ -13,7 +13,7 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   // Selected employee filter (i.e. which conversation thread to show)
   String? _selectedEmployee;

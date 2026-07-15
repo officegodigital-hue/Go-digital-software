@@ -11,7 +11,7 @@ class EmployeeStatusScreen extends StatefulWidget {
 }
 
 class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   // Active selected filter category tracker variable
   String activeFilter = "All";

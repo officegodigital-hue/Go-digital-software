@@ -29,7 +29,7 @@ class UpperCaseTextFormatter extends TextInputFormatter {
 
 class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   final companyNameController = TextEditingController();
   final contactPersonController = TextEditingController();

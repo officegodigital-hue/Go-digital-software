@@ -71,7 +71,7 @@ class UpperCaseTextFormatter extends TextInputFormatter {
 }
 
 class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
+  static const String _baseUrl = '/api';
 
   final quotationNoController = TextEditingController(text: "Loading...");
   final clientNameController = TextEditingController(text: "");
