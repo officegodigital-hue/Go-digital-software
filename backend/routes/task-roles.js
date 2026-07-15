@@ -21,6 +21,7 @@ const roleMapping = {
   'developer_task': 'Developer Tasks',
 };
 
+
 // GET /api/task-roles — Fetch all roles from task_roles TABLE
 // ✅ Query task_roles table directly (not task_master)
 router.get('/', async (req, res) => {

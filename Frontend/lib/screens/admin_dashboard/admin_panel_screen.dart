@@ -12,9 +12,10 @@ class AdminPanelScreen extends StatefulWidget {
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
-  static const String _baseUrl = '/api';
+  static const String _baseUrl = 'http://127.0.0.1:5000/api';
 
   List<Map<String, dynamic>> employeeUsers = [];
+  List<String> roleOptions = [];
   bool _loading = true;
   String? _error;
 
@@ -22,6 +23,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   void initState() {
     super.initState();
     _fetchEmployees();
+    _fetchRoles();
   }
 
   // ── FETCH ─────────────────────────────────────────────────────────────────────
@@ -138,6 +140,26 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     ));
   }
 
+ Future<void> _fetchRoles() async {
+  try {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/task-roles'),
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+
+      setState(() {
+        roleOptions = List<Map<String, dynamic>>.from(body['data'])
+            .map((e) => e['role_name'].toString())
+            .toList();
+      });
+    }
+  } catch (e) {
+    print(e);
+  }
+}
+
   // ── MODAL — used for both Create and Edit ─────────────────────────────────────
   // editEmployee: null = Create mode, non-null = Edit mode
 void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) {
@@ -151,16 +173,29 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
     final usernameCtrl   = TextEditingController(text: editEmployee?['username']    ?? '');
     final passwordCtrl   = TextEditingController();
 
-    String selectedRole = editEmployee?['role'] ?? 'Graphic Designer';
+    // String selectedRole = editEmployee?['role'] ?? 'Graphic Designer';
+
+    String selectedRole =
+    editEmployee?['role'] ??
+    (roleOptions.isNotEmpty ? roleOptions.first : '');
     String selectedUserType = editEmployee?['user_type'] ?? 'employee'; // NEW
 
-    final roleOptions = ['UI/ UX Designer', 'Graphic Designer', 'Digital Marketing',
-                         'Video Editor', 'Web Developer', 'Page Handler', 'Ads Handler'];
+    // final roleOptions = ['UI/ UX Designer', 'Graphic Designer', 'Digital Marketing',
+    //                      'Video Editor', 'Web Developer', 'Page Handler', 'Ads Handler'];
     final userTypeOptions = ['employee', 'admin']; // NEW
 
-    if (!roleOptions.contains(selectedRole)) selectedRole = 'Graphic Designer';
-    if (!userTypeOptions.contains(selectedUserType)) selectedUserType = 'employee'; // NEW
+    
 
+    // if (!roleOptions.contains(selectedRole)) selectedRole = 'Graphic Designer';
+
+    if (!roleOptions.contains(selectedRole) && roleOptions.isNotEmpty) {
+  selectedRole = roleOptions.first;
+}
+    if (!userTypeOptions.contains(selectedUserType)) selectedUserType = 'employee'; // NEW
+if (roleOptions.isEmpty) {
+  _showSnack("No roles found.");
+  return;
+}
     bool sendEmail    = true;
     bool isSubmitting = false;
     String? modalError;
@@ -295,17 +330,21 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
-                              value: selectedRole,
-                              isExpanded: true,
-                              icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                                  size: 18, color: Color(0xFF64748B)),
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
-                                  color: Color(0xFF0F172A)),
-                              items: roleOptions
-                                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                                  .toList(),
-                              onChanged: (v) => setModal(() => selectedRole = v!),
-                            ),
+  value: selectedRole.isEmpty ? null : selectedRole,
+  isExpanded: true,
+  hint: const Text("Select Role"),
+  items: roleOptions.map((role) {
+    return DropdownMenuItem<String>(
+      value: role,
+      child: Text(role),
+    );
+  }).toList(),
+  onChanged: (value) {
+    setModal(() {
+      selectedRole = value!;
+    });
+  },
+)
                           ),
                         ),
                       ])),
@@ -472,7 +511,13 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: () => _showUserModal(context),
+                  onPressed: () async {
+  await _fetchRoles();
+  if (context.mounted) {
+    _showUserModal(context);
+  }
+},
+                  // onPressed: () => _showUserModal(context),
                   icon: const Icon(Icons.add, size: 16, color: Colors.white),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0052CC),
@@ -618,11 +663,21 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
                                   Tooltip(
                                     message: 'Edit',
                                     child: GestureDetector(
-                                      onTap: () async {
-                                        // Fetch full employee data (includes first/last names)
-                                        final data = await _fetchSingleEmployee(id);
-                                        if (data != null && context.mounted) {
-                                          _showUserModal(context, editEmployee: data);
+                                      // onTap: () async {
+                                      //   // Fetch full employee data (includes first/last names)
+                                      //   final data = await _fetchSingleEmployee(id);
+                                      //   if (data != null && context.mounted) {
+                                      //     _showUserModal(context, editEmployee: data);
+                                        onTap: () async {
+  await _fetchRoles();
+
+  final data = await _fetchSingleEmployee(id);
+
+  if (data != null && context.mounted) {
+    _showUserModal(
+      context,
+      editEmployee: data,
+    );
                                         } else {
                                           _showSnack('Failed to load employee data');
                                         }
