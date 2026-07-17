@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/gestures.dart';
 import 'dart:async';
+import '../../services/api_config.dart';
+
 
 class DayPlannerScreen extends StatefulWidget {
   const DayPlannerScreen({super.key});
@@ -14,7 +16,8 @@ class DayPlannerScreen extends StatefulWidget {
 }
 
 class _DayPlannerScreenState extends State<DayPlannerScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   final ScrollController _horizontalController = ScrollController();
 
@@ -95,27 +98,27 @@ bool _hasDeliverable(int no) {
   // saved rows start locked (read-only) until Edit is tapped, then Save
   // locks them again. This is the Edit/Save workflow that was missing.
   List<Map<String, dynamic>> dayPlanRows = [
-    {
-      'id': 1,
-      'date': DateTime.now(),
-      'client': '',
-      'ads': '',
-      'today_leads': '',
-      'today_report': '',
-      'deliverables_1': '',
-      'complete_deliverables_1': '',
-      'balanced_deliverables_1': '',
-      'deliverables_2': '',
-      'complete_deliverables_2': '',
-      'balanced_deliverables_2': '',
-      'deliverables_3': '',
-      'complete_deliverables_3': '',
-      'balanced_deliverables_3': '',
-      'today_plan': '',
-      'status': '',
-      'remarks': '',
-      '_editing': true,
-    },
+    // {
+    //   'id': 1,
+    //   'date': DateTime.now(),
+    //   'client': '',
+    //   'ads': '',
+    //   'today_leads': '',
+    //   'today_report': '',
+    //   'deliverables_1': '',
+    //   'complete_deliverables_1': '',
+    //   'balanced_deliverables_1': '',
+    //   'deliverables_2': '',
+    //   'complete_deliverables_2': '',
+    //   'balanced_deliverables_2': '',
+    //   'deliverables_3': '',
+    //   'complete_deliverables_3': '',
+    //   'balanced_deliverables_3': '',
+    //   'today_plan': '',
+    //   'status': '',
+    //   'remarks': '',
+    //   '_editing': true,
+    // },
   ];
 
 bool _didInitialLoad = false;
@@ -380,31 +383,32 @@ Future<void> loadTodayDayPlan() async {
         }
 
         // Only add an empty row if the list is empty AND we are looking at today's date
-        if (dayPlanRows.isEmpty && isToday()) {
-          dayPlanRows.add({
-            'id': DateTime.now().millisecondsSinceEpoch,
-            'date': selectedDate, // Use selectedDate instead of DateTime.now()
-            'client': '',
-            'ads': '',
-            'today_leads': '',
-            'today_report': '',
-            'deliverables_1': '',
-            'complete_deliverables_1': '',
-            'balanced_deliverables_1': '',
-            'deliverables_2': '',
-            'complete_deliverables_2': '',
-            'balanced_deliverables_2': '',
-            'deliverables_3': '',
-            'complete_deliverables_3': '',
-            'balanced_deliverables_3': '',
-            'today_plan': '',
-            'status': '',
-            'remarks': '',
-            '_editing': true, // New rows start as editable
-          });
-        }
+      //   if (dayPlanRows.isEmpty && isToday()) {
+      //     dayPlanRows.add({
+      //       'id': DateTime.now().millisecondsSinceEpoch,
+      //       'date': selectedDate, // Use selectedDate instead of DateTime.now()
+      //       'client': '',
+      //       'ads': '',
+      //       'today_leads': '',
+      //       'today_report': '',
+      //       'deliverables_1': '',
+      //       'complete_deliverables_1': '',
+      //       'balanced_deliverables_1': '',
+      //       'deliverables_2': '',
+      //       'complete_deliverables_2': '',
+      //       'balanced_deliverables_2': '',
+      //       'deliverables_3': '',
+      //       'complete_deliverables_3': '',
+      //       'balanced_deliverables_3': '',
+      //       'today_plan': '',
+      //       'status': '',
+      //       'remarks': '',
+      //       '_editing': true, // New rows start as editable
+      //     });
+      //   }
       });
-    } else {
+    } 
+    else {
       debugPrint('Failed to load day plan: ${response.statusCode}');
     }
   } catch (e) {
@@ -573,9 +577,44 @@ Future<void> loadTodayDayPlan() async {
     }
   }
 
-  void _deleteRow(int id) {
-    setState(() => dayPlanRows.removeWhere((r) => r['id'] == id));
+  // void _deleteRow(int id) {
+  //   setState(() => dayPlanRows.removeWhere((r) => r['id'] == id));
+  // }
+
+  Future<void> _deleteRow(int id) async {
+  try {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/day-planner/$id'),
+    );
+
+    if (response.statusCode == 200) {
+      setState(() {
+        dayPlanRows.removeWhere((r) => r['id'] == id);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Row deleted successfully"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Delete failed : ${response.body}"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Error : $e"),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
+}
 
   void _editRow(Map<String, dynamic> row) {
     setState(() => row['_editing'] = true);
@@ -592,43 +631,68 @@ Future<void> loadTodayDayPlan() async {
 // backend, then locks the row (read-only) on success.
 Future<void> _saveRow(Map<String, dynamic> row) async {
   final id = row['id'];
+
   try {
-    final r = await http.put(
+    final body = {
+      'client': row['client'] ?? '',
+      'ads': row['ads'] ?? '',
+      'todayLeads': row['today_leads'] ?? '',
+      'todayReport': row['today_report'] ?? '',
+      'deliverables1': row['deliverables_1'] ?? '',
+      'completeDeliverables1': row['complete_deliverables_1'] ?? '',
+      'balancedDeliverables1': row['balanced_deliverables_1'] ?? '',
+      'deliverables2': row['deliverables_2'] ?? '',
+      'completeDeliverables2': row['complete_deliverables_2'] ?? '',
+      'balancedDeliverables2': row['balanced_deliverables_2'] ?? '',
+      'deliverables3': row['deliverables_3'] ?? '',
+      'completeDeliverables3': row['complete_deliverables_3'] ?? '',
+      'balancedDeliverables3': row['balanced_deliverables_3'] ?? '',
+      'todayPlan': row['today_plan'] ?? '',
+      'status': row['status'] ?? '',
+      'remarks': row['remarks'] ?? '',
+    };  
+
+    print("PUT URL : $_baseUrl/day-planner/$id");
+    print("BODY : ${jsonEncode(body)}");
+
+    final response = await http.put(
       Uri.parse('$_baseUrl/day-planner/$id'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'client': row['client'] ?? '',
-        'ads': row['ads'] ?? '',
-        'todayLeads': row['today_leads'] ?? '',
-        'todayReport': row['today_report'] ?? '',
-        'deliverables1': row['deliverables_1'] ?? '',
-        'completeDeliverables1': row['complete_deliverables_1'] ?? '',
-        'balancedDeliverables1': row['balanced_deliverables_1'] ?? '',
-        'deliverables2': row['deliverables_2'] ?? '',
-        'completeDeliverables2': row['complete_deliverables_2'] ?? '',
-        'balancedDeliverables2': row['balanced_deliverables_2'] ?? '',
-        'deliverables3': row['deliverables_3'] ?? '',
-        'completeDeliverables3': row['complete_deliverables_3'] ?? '',
-        'balancedDeliverables3': row['balanced_deliverables_3'] ?? '',
-        'todayPlan': row['today_plan'] ?? '',
-        'status': row['status'] ?? '',
-        'remarks': row['remarks'] ?? '',
-      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
     );
 
-    if (r.statusCode == 200) {
-      setState(() => row['_editing'] = false);
+    print("STATUS : ${response.statusCode}");
+    print("RESPONSE : ${response.body}");
+
+    if (response.statusCode == 200) {
+      setState(() {
+        row['_editing'] = false;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Row saved'), backgroundColor: Color(0xFF16A34A)),
+        const SnackBar(
+          content: Text("Saved Successfully"),
+          backgroundColor: Colors.green,
+        ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed (${r.statusCode})'), backgroundColor: const Color(0xFFDC2626)),
+        SnackBar(
+          content: Text(response.body),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   } catch (e) {
+    print(e);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Save error: $e'), backgroundColor: const Color(0xFFDC2626)),
+      SnackBar(
+        content: Text(e.toString()),
+        backgroundColor: Colors.red,
+      ),
     );
   }
 }
@@ -783,14 +847,16 @@ final showD1 = _hasDeliverable(1);
 final showD2 = _hasDeliverable(2);
 final showD3 = _hasDeliverable(3);
 
-    if (rows.isEmpty) {
+final displayRows = rows;
 
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        alignment: Alignment.center,
-        child: const Text('No rows for this date.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
-      );
-    }
+    // if (rows.isEmpty) {
+
+    //   return Container(
+    //     padding: const EdgeInsets.symmetric(vertical: 40),
+    //     alignment: Alignment.center,
+    //     child: const Text('No rows for this date.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+    //   );
+    // }
 
     return Container(
       decoration: BoxDecoration(
@@ -815,7 +881,8 @@ final showD3 = _hasDeliverable(3);
                   child: const Text('CLIENT NAME',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.4)),
                 ),
-                ...rows.map((row) => _clientCell(row, isTodayView)),
+                // ...rows.map((row) => _clientCell(row, isTodayView)),
+                ...displayRows.map((row) => _clientCell(row, isTodayView)),
               ]),
             ),
             const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
@@ -833,13 +900,14 @@ final showD3 = _hasDeliverable(3);
                     }
                   }
                 },
-                child: SingleChildScrollView(
-                  controller: _horizontalController,
-                  scrollDirection: Axis.horizontal,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                child: Scrollbar(
+      controller: _horizontalController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _horizontalController,
+        scrollDirection: Axis.horizontal,
+        child: Column(
+          children: [
                       SizedBox(
                         width: _totalGridWidth,
                         height: 48,
@@ -880,8 +948,13 @@ const _HeaderCell(width:130,label:'ACTION'),
 )
                       ),
                       const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                      ...rows.map((row) => SizedBox(width: _totalGridWidth, child: _buildDataRow(row, isTodayView, showAds, showD1, showD2, showD3))),
+                      // ...rows.map((row) => SizedBox(
+                      ...displayRows.map((row) => SizedBox(width: _totalGridWidth, child: _buildDataRow(row, isTodayView, showAds, showD1, showD2, showD3))),
                     ],
+        ),
+      
+                
+
                   ),
                 ),
               ),

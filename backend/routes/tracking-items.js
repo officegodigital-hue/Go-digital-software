@@ -19,7 +19,7 @@ router.get('/by-task-list/:taskListId', async (req, res) => {
     console.error('GET /tracking-items/by-task-list/:taskListId ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
-});
+}); 
 
 // GET /api/tracking-items/by-task-list-ids?ids=1,2,3 — bulk fetch for restoring state on page load
 router.get('/by-task-list-ids', async (req, res) => {

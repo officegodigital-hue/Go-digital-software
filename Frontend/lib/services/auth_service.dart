@@ -2,14 +2,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_config.dart';
 
-class AuthService extends ChangeNotifier {
-  static const String baseUrl = '/api';
+
+
+  class AuthService extends ChangeNotifier {
+  static String get baseUrl => ApiConfig.baseUrl;
 
   String? _token;
   Map<String, dynamic>? _user;
   bool _isLoading = false;
   String? _error;
+  
 
   // Getters
   String? get token => _token;
@@ -20,25 +24,36 @@ class AuthService extends ChangeNotifier {
   String? get userRole => _user?['role'];
   String? get userId => _user?['id'].toString();
 
+  bool _isInitialized = false; // Add this
+  bool get isInitialized => _isInitialized; // Add this getter
+
   AuthService() {
     _loadStoredToken();
-  }
+  } 
 
   // Load stored token from local storage
-  Future<void> _loadStoredToken() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString('auth_token');
-      final userJson = prefs.getString('user_data');
-      
-      if (userJson != null) {
-        _user = jsonDecode(userJson);
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Error loading stored token: $e');
+ Future<void> _loadStoredToken() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    _token = prefs.getString('auth_token');
+
+    final userJson = prefs.getString('user_data');
+
+    if (_token != null && userJson != null) {
+      _user = jsonDecode(userJson);
     }
+
+    _isInitialized = true;
+    notifyListeners();
+  } catch (e) {
+    debugPrint('Error loading stored token: $e');
+    _isInitialized = true;
+    notifyListeners();
   }
+}
+  
+
 
   // Login with email and password
   Future<bool> login(String email, String password, bool isAdmin) async {
@@ -68,6 +83,8 @@ class AuthService extends ChangeNotifier {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token', _token!);
           await prefs.setString('user_data', jsonEncode(_user));
+          await prefs.setBool('isLoggedIn', true);
+          await prefs.setString('role', _user?['role'] ?? '');
 
           _isLoading = false;
           notifyListeners();
@@ -98,6 +115,9 @@ class AuthService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
       await prefs.remove('user_data');
+      await prefs.remove('isLoggedIn');
+      await prefs.remove('role');
+      await prefs.remove('employeeMenu');
     } catch (e) {
       debugPrint('Error clearing preferences: $e');
     }
@@ -106,6 +126,8 @@ class AuthService extends ChangeNotifier {
     _user = null;
     notifyListeners();
   }
+
+
 
   // Verify token is still valid
   Future<bool> verifyToken() async {

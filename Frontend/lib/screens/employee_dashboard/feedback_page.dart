@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:my_first_app/core/constants/app_colors.dart';
 import 'package:my_first_app/core/constants/app_text_styles.dart';
 import 'package:my_first_app/services/auth_service.dart';
+import '../../services/api_config.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 // FEEDBACK PAGE - Main Page
@@ -18,7 +19,8 @@ class FeedbackPage extends StatefulWidget {
 }
  
 class _FeedbackPageState extends State<FeedbackPage> {
-  static const String _baseUrl = '/api/feedback';
+  // static const String _baseUrl = '/api/feedback';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<FeedbackRowModel> feedbackRows = [];
   bool _loading = false;
@@ -524,7 +526,8 @@ class FeedbackHistoryPage extends StatefulWidget {
 }
 
 class _FeedbackHistoryPageState extends State<FeedbackHistoryPage> {
-  static const String _baseUrl = '/api/feedback';
+  // static const String _baseUrl = '/api/feedback';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<FeedbackHistoryItem> _allRecords = [];
   List<FeedbackHistoryItem> _filteredRecords = [];

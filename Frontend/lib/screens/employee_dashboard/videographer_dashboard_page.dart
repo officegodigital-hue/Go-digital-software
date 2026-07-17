@@ -10,7 +10,8 @@ import 'package:my_first_app/core/widgets/status_badge.dart';
 import 'package:my_first_app/services/auth_service.dart';
 import 'package:my_first_app/widgets/alerts_section.dart';
 import 'package:my_first_app/widgets/productivity_card.dart';
-
+import '../../services/api_config.dart';
+ 
 class VideographerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
 
@@ -25,7 +26,8 @@ class VideographerDashboardPage extends StatefulWidget {
 }
 
 class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<VideographerTaskModel> tasks = [];
 
@@ -33,6 +35,11 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
   int activeClients = 0;
   int holdedShoots = 0;
   int rejectedClients = 0;
+
+  int approved = 0;
+int rejected = 0;
+int rework = 0;
+int changes = 0;
 
   bool _loading = true;
   String? _error;
@@ -63,13 +70,19 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final data = body['data'] as Map<String, dynamic>? ?? {};
-        final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
+      final productivity =
+    data['productivity'] as Map<String, dynamic>? ?? {};  
+      final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
 
         setState(() {
           assignedClients = data['assignedClients'] as int? ?? 0;
           activeClients     = data['activeClients'] as int? ?? 0;
           holdedShoots       = data['onHoldCount'] as int? ?? 0;
           rejectedClients    = data['rejectedClients'] as int? ?? 0;
+approved = productivity['approved'] ?? 0;
+rework = productivity['rework'] ?? 0;
+rejected = productivity['rejected'] ?? 0;
+changes = productivity['changes'] ?? 0;
           tasks = rawTasks.map((t) => VideographerTaskModel(
             clientName:      t['clientName'] as String? ?? '',
             task:            t['task'] as String? ?? '',
@@ -142,7 +155,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
           const SizedBox(height: 28),
           _taskStatusTable(),
           const SizedBox(height: 28),
-          const Row(
+           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
@@ -152,7 +165,13 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
               SizedBox(width: 22),
               Expanded(
                 flex: 3,
-                child: ProductivityCard(),
+                // child: ProductivityCard(),
+                child: ProductivityCard(
+  approved: approved,
+  rework: rework,
+  rejected: rejected,
+  changes: changes,
+),
               ),
             ],
           ),

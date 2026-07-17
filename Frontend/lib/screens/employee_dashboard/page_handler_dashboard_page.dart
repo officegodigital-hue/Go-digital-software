@@ -10,6 +10,7 @@ import 'package:my_first_app/core/widgets/status_badge.dart';
 import 'package:my_first_app/services/auth_service.dart';
 import 'package:my_first_app/widgets/alerts_section.dart';
 import 'package:my_first_app/widgets/productivity_card.dart';
+import '../../services/api_config.dart';
 
 class PageHandlerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
@@ -22,7 +23,8 @@ class PageHandlerDashboardPage extends StatefulWidget {
 }
 
 class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<PageHandlerTaskModel> tasks = [];
 
@@ -30,6 +32,11 @@ class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
   int activeClients = 0;
   int taskPending = 0;
   int upcomingDeadlines = 0;
+
+  int approved = 0;
+int rejected = 0;
+int rework = 0;
+int changes = 0;
 
   bool _loading = true;
   String? _error;
@@ -60,6 +67,8 @@ class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final data = body['data'] as Map<String, dynamic>? ?? {};
+        final productivity =
+    data['productivity'] as Map<String, dynamic>? ?? {};
         final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
 
         setState(() {
@@ -67,6 +76,10 @@ class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
           activeClients     = data['activeClients'] as int? ?? 0;
           taskPending        = data['taskPending'] as int? ?? 0;
           upcomingDeadlines  = data['upcomingDeadlines'] as int? ?? 0;
+          approved = productivity['approved'] ?? 0;
+rework = productivity['rework'] ?? 0;
+rejected = productivity['rejected'] ?? 0;
+changes = productivity['changes'] ?? 0;
           tasks = rawTasks.map((t) => PageHandlerTaskModel(
             clientName:      t['clientName'] as String? ?? '',
             task:            t['task'] as String? ?? '',
@@ -110,12 +123,19 @@ class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
           const SizedBox(height: 28),
           _taskStatusTable(),
           const SizedBox(height: 28),
-          const Row(
+           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(flex: 7, child: AlertsSection()),
               SizedBox(width: 22),
-              Expanded(flex: 3, child: ProductivityCard()),
+              Expanded(flex: 3, 
+                child: ProductivityCard(
+  approved: approved,
+  rework: rework,
+  rejected: rejected,
+  changes: changes,
+),
+              ),
             ],
           ),
         ],

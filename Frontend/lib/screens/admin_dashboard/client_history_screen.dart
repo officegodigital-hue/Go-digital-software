@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import 'client_onboarding_screen.dart';
+import '../../services/api_config.dart';
+
 
 class ClientHistoryScreen extends StatefulWidget {
   const ClientHistoryScreen({super.key});
@@ -12,7 +14,8 @@ class ClientHistoryScreen extends StatefulWidget {
 }
 
 class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<Map<String, dynamic>> _clients = [];
   bool _loading = true;

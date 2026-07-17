@@ -93,6 +93,34 @@ router.post('/', async (req, res) => {
   }
 });
 
+router.delete('/:id', async (req, res) => {
+  try {
+    const [result] = await db.query(
+      `DELETE FROM day_plan_rows WHERE id = ?`,
+      [req.params.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Row not found'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Row deleted'
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
 // PUT /api/day-planner/:id — update/save an existing row
 router.put('/:id', async (req, res) => {
   const { id } = req.params;

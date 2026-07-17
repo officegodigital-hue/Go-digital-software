@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
+import '../../services/api_config.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -12,8 +13,8 @@ class AdminPanelScreen extends StatefulWidget {
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
-  static const String _baseUrl = 'http://127.0.0.1:5000/api';
-
+  // static const String _baseUrl = 'http://127.0.0.1:5000/api';
+static String get _baseUrl => ApiConfig.baseUrl;
   List<Map<String, dynamic>> employeeUsers = [];
   List<String> roleOptions = [];
   bool _loading = true;

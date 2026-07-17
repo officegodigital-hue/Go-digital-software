@@ -6,6 +6,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../services/api_config.dart';
+
 
 class ClientDropdown extends StatefulWidget {
   final Function(String clientId, String clientName) onClientSelected;
@@ -46,7 +48,7 @@ class _ClientDropdownState extends State<ClientDropdown> {
   Future<void> _loadClients() async {
     try {
       final response = await http.get(
-        Uri.parse('/api/clients/list'),
+        Uri.parse('${ApiConfig.baseUrl}/clients/list'),
       );
 
       if (response.statusCode == 200) {

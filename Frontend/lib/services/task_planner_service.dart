@@ -2,9 +2,12 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../services/api_config.dart';
+
 
 class TaskPlannerService {
-  static const String _base = '/api/task-planner';
+  // static const String _base = '/api/task-planner';
+  static String get _base => ApiConfig.baseUrl + '/task-planner';
 
   // GET /api/task-planner?employee=NAME
   static Future<List<Map<String, dynamic>>> getPlannerRows(String employeeName) async {

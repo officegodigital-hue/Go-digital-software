@@ -7,6 +7,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter/services.dart';
+import '../../services/api_config.dart';
+
 
 import 'dart:async';
 
@@ -61,7 +63,8 @@ class UpperCaseTextFormatter extends TextInputFormatter {
 }
 
 class _AddInvoiceScreenState extends State<AddInvoiceScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   final invoiceNoController = TextEditingController(text: "Loading...");
   final dateController = TextEditingController();

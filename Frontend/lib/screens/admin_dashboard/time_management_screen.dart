@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
+import '../../services/api_config.dart';
+
 
 // ── Data model ─────────────────────────────────────────────────────────────────
 
@@ -33,7 +35,8 @@ class TimeManagerScreen extends StatefulWidget {
 class _TimeManagerScreenState extends State<TimeManagerScreen> {
 
   // ── API base URL ──────────────────────────────────────────────────────────────
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   bool _loading = true;
   String? _loadError;

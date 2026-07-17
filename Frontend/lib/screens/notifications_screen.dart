@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../layouts/admin_layout.dart';
 import '../services/auth_service.dart';
+import '../../services/api_config.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -13,8 +14,8 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  static const String _baseUrl = '/api';
-
+  // static const String _baseUrl = '/api';
+static String get _baseUrl => ApiConfig.baseUrl;
   // Selected employee filter (i.e. which conversation thread to show)
   String? _selectedEmployee;
 

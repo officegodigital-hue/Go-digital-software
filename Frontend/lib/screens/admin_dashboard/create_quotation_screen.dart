@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/client_dropdown.dart';
+import '../../services/api_config.dart';
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:async';
@@ -71,7 +73,8 @@ class UpperCaseTextFormatter extends TextInputFormatter {
 }
 
 class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   final quotationNoController = TextEditingController(text: "Loading...");
   final clientNameController = TextEditingController(text: "");

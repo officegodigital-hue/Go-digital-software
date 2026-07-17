@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import 'client_history_screen.dart';
+import '../../services/api_config.dart';
+
 
 class ClientOnboardingScreen extends StatefulWidget {
   final int? clientId;
@@ -29,7 +31,8 @@ class UpperCaseTextFormatter extends TextInputFormatter {
 
 class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   final companyNameController = TextEditingController();
   final contactPersonController = TextEditingController();

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:my_first_app/core/constants/app_colors.dart';
 import 'package:my_first_app/core/constants/app_text_styles.dart';
 import 'package:my_first_app/services/auth_service.dart';
+import '../../services/api_config.dart';
 
 final ScrollController _vidEmpScrollController = ScrollController();
 
@@ -16,8 +17,10 @@ class VideographerTaskPlannerPage extends StatefulWidget {
 }
 
 class _VideographerTaskPlannerPageState extends State<VideographerTaskPlannerPage> {
-  static const String _baseUrl = '/api/videographer-planner';
-  static const String _employeesUrl = '/api/employees';
+  // static const String _baseUrl = '/api/videographer-planner';
+  // static const String _employeesUrl = '/api/employees';
+  static String get _baseUrl => ApiConfig.baseUrl + '/videographer-planner';
+  static String get _employeesUrl => ApiConfig.baseUrl + '/employees';
 
   List<_EmpModel> employees = [];
   List<_RowModel> rows = [];

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:my_first_app/core/constants/app_colors.dart';
 import 'package:my_first_app/core/constants/employee_role.dart';
 import 'package:my_first_app/services/auth_service.dart';
+import '../../services/api_config.dart';
 
 enum TaskStatus { idle, running, held, completed, rejected }
 
@@ -18,7 +19,8 @@ class AssignedTasksContent extends StatefulWidget {
 }
 
 class _AssignedTasksContentState extends State<AssignedTasksContent> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   static const double snoWidth         = 50;
   static const double submitDateWidth  = 120;

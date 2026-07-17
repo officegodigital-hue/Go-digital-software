@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
+import '../../services/api_config.dart';
+
 
 class ManagerReviewScreen extends StatefulWidget {
   const ManagerReviewScreen({super.key});
@@ -12,7 +14,8 @@ class ManagerReviewScreen extends StatefulWidget {
 }
 
 class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   // Current active filter category tab tracker
   String activeFilter = "All";

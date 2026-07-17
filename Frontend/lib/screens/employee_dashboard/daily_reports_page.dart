@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:my_first_app/services/auth_service.dart';
+import '../../services/api_config.dart';
 
 // ── Data Model ─────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,8 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
   String? _error;
 
   // Backend API URL
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<DailyReportModel> _reports = [];
 

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../../layouts/admin_layout.dart';
+import '../../services/api_config.dart';
+
 
 class InvoiceAdminScreen extends StatefulWidget {
   const InvoiceAdminScreen({super.key});
@@ -13,7 +15,8 @@ class InvoiceAdminScreen extends StatefulWidget {
 }
 
 class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   String activeFilter = "All Logs";
   bool _isFilterMenuOpen = false;

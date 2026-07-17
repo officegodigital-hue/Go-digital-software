@@ -7,9 +7,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../../services/api_config.dart';
+
 
 class TaskPersistenceService {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
   
   // Debounce timers for each field
   static final Map<String, Timer> _debounceTimers = {};

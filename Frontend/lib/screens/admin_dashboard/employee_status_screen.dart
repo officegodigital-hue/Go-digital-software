@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
+import '../../services/api_config.dart';
+
 
 class EmployeeStatusScreen extends StatefulWidget {
   const EmployeeStatusScreen({super.key});
@@ -11,7 +13,8 @@ class EmployeeStatusScreen extends StatefulWidget {
 }
 
 class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   // Active selected filter category tracker variable
   String activeFilter = "All";

@@ -6,6 +6,7 @@ import 'package:my_first_app/core/constants/app_text_styles.dart';
 import 'package:my_first_app/services/task_planner_service.dart';
 import 'package:provider/provider.dart';
 import 'package:my_first_app/services/auth_service.dart';
+import '../../services/api_config.dart';
 
 final ScrollController _employeeScrollController = ScrollController();
 
@@ -17,7 +18,8 @@ class TaskPlannerPage extends StatefulWidget {
 }
 
 class _TaskPlannerPageState extends State<TaskPlannerPage> {
-  static const String _employeesUrl = '/api/employees';
+  // static const String _employeesUrl = '/api/employees';
+  static String get _employeesUrl => ApiConfig.baseUrl + '/employees';
 
   // Color mapping for roles
   static const Map<String, Color> roleColors = {

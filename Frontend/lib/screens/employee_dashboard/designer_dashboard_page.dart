@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import '../../services/api_config.dart';
 
 import 'package:my_first_app/core/constants/app_colors.dart';
 import 'package:my_first_app/core/constants/app_text_styles.dart';
@@ -24,7 +25,8 @@ class DesignerDashboardPage extends StatefulWidget {
 }
 
 class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<DesignerTaskModel> tasks = [];
 
@@ -32,6 +34,11 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
   int activeTasks = 0;
   int taskPending = 0;
   int rejectedTasks = 0;
+
+  int approved = 0;
+int rejected = 0;
+int rework = 0;
+int changes = 0;
 
   bool _loading = true;
   String? _error;
@@ -44,7 +51,10 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
   }
 
   Future<void> _fetchDashboardSummary() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+       _loading = true; _error = null; 
+      
+       });
 
     try {
       final user = context.read<AuthService>().user;
@@ -62,6 +72,9 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final data = body['data'] as Map<String, dynamic>? ?? {};
+         final productivity =
+    data['productivity'] as Map<String, dynamic>? ?? {};
+
         final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
 
         setState(() {
@@ -69,6 +82,13 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
           activeTasks       = data['activeTasks'] as int? ?? 0;
           taskPending        = data['taskPending'] as int? ?? 0;
           rejectedTasks      = data['rejectedTasks'] as int? ?? 0;
+
+          
+approved = productivity['approved'] ?? 0;
+rework = productivity['rework'] ?? 0;
+rejected = productivity['rejected'] ?? 0;
+changes = productivity['changes'] ?? 0;
+
           tasks = rawTasks.map((t) {
             final action = t['action'] as String? ?? 'IDLE';
             return DesignerTaskModel(
@@ -170,7 +190,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
           const SizedBox(height: 28),
           _taskStatusTable(),
           const SizedBox(height: 28),
-          const Row(
+           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
@@ -180,7 +200,15 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
               SizedBox(width: 22),
               Expanded(
                 flex: 3,
-                child: ProductivityCard(),
+                // child: ProductivityCard(),
+                child: ProductivityCard(
+  approved: approved,
+  rework: rework,
+  rejected: rejected,
+
+  changes: changes,
+
+),
               ),
             ],
           ),

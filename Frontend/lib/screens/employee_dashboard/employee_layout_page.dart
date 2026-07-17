@@ -19,6 +19,7 @@ import 'package:my_first_app/screens/employee_dashboard/task_planner_page.dart';
 import 'package:my_first_app/screens/employee_dashboard/feedback_page.dart';
 // ← ADD THIS IMPORT for the videographer task planner
 import 'package:my_first_app/screens/employee_dashboard/videographer_task_planner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class EmployeeLayoutPage extends StatefulWidget {
   const EmployeeLayoutPage({super.key});
@@ -29,6 +30,28 @@ class EmployeeLayoutPage extends StatefulWidget {
 
 class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   String selectedMenu = 'Dashboard';
+  Future<void> loadMenu() async {
+  final prefs = await SharedPreferences.getInstance();
+
+  setState(() {
+    selectedMenu = prefs.getString('employeeMenu') ?? 'Dashboard';
+  });
+}
+
+Future<void> saveMenu(String menu) async {
+  final prefs = await SharedPreferences.getInstance();
+
+  await prefs.setString('employeeMenu', menu);
+
+  setState(() {
+    selectedMenu = menu;
+  });
+}
+@override
+void initState() {
+  super.initState();
+  loadMenu();
+}
 
   EmployeeRole _getRoleFromString(String? roleString) {
     if (roleString == null) return EmployeeRole.designer;
@@ -112,10 +135,20 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
-        if (!authService.isAuthenticated || authService.user == null) {
-          Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
+
+        if (!authService.isInitialized) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      
+      if (!authService.isAuthenticated) {
+        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+
+        // if (!authService.isAuthenticated || authService.user == null) {
+        //   Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+        //   return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        // }
 
         final rawRole    = authService.userRole;
         final loggedInRole = _getRoleFromString(rawRole);
@@ -126,7 +159,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
             EmployeeSidebar(
               selectedMenu: selectedMenu,
               menuItems:    loggedInRole.menuItems,
-              onMenuTap:    (menu) => setState(() => selectedMenu = menu),
+              onMenuTap: saveMenu,
             ),
             Expanded(child: Column(children: [
               EmployeeTopbar(role: loggedInRole),

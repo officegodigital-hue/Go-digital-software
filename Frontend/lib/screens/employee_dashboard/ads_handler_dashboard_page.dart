@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import '../../services/api_config.dart';
+
 
 import 'package:my_first_app/core/constants/app_colors.dart';
 import 'package:my_first_app/core/constants/app_text_styles.dart';
@@ -25,7 +27,8 @@ class AdsHandlerDashboardPage extends StatefulWidget {
 }
 
 class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
 
   List<AdsHandlerTaskModel> tasks = [];
 
@@ -34,6 +37,11 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
   int activeClients = 0;
   int taskPending = 0;
   int upcomingDeadlines = 0;
+
+  int approved = 0;
+int rejected = 0;
+int rework = 0;
+int changes = 0;
 
   bool _loading = true;
   String? _error;
@@ -64,6 +72,8 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final data = body['data'] as Map<String, dynamic>? ?? {};
+        final productivity =
+    data['productivity'] as Map<String, dynamic>? ?? {};
         final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
 
         setState(() {
@@ -71,6 +81,10 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
           activeClients     = data['activeClients'] as int? ?? 0;
           taskPending        = data['taskPending'] as int? ?? 0;
           upcomingDeadlines  = data['upcomingDeadlines'] as int? ?? 0;
+          approved = productivity['approved'] ?? 0;
+rework = productivity['rework'] ?? 0;
+rejected = productivity['rejected'] ?? 0;
+changes = productivity['changes'] ?? 0;
           tasks = rawTasks.map((t) => AdsHandlerTaskModel(
             clientName:      t['clientName'] as String? ?? '',
             task:            t['task'] as String? ?? '',
@@ -149,7 +163,7 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
           const SizedBox(height: 28),
           _taskStatusTable(),
           const SizedBox(height: 28),
-          const Row(
+           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
@@ -159,7 +173,13 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
               SizedBox(width: 22),
               Expanded(
                 flex: 3,
-                child: ProductivityCard(),
+                // child: ProductivityCard(),
+                child: ProductivityCard(
+  approved: approved,
+  rework: rework,
+  rejected: rejected,
+  changes: changes,
+),
               ),
             ],
           ),

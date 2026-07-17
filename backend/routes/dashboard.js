@@ -20,22 +20,46 @@ router.get('/summary/:employeeName', async (req, res) => {
     // s_no = 1 is treated as the row that represents this task's overall
     // status for the dashboard card (the detailed per-row breakdown still
     // lives in the Assigned Tasks screen).
-    const [rows] = await db.query(
-      `SELECT
-         tl.id AS task_list_id,
-         tl.client_name,
-         tl.deliverables AS task,
-         tl.duration,
-         tl.submission_date,
-         tti.id AS tracking_item_id,
-         tti.status
-       FROM task_list tl
-       LEFT JOIN time_tracking_task_items tti
-         ON tti.task_list_id = tl.id AND tti.s_no = 1
-       WHERE tl.employee_name = ?
-       ORDER BY tl.submission_date ASC`,
-      [employeeName]
-    );
+   const [summaryRows] = await db.query(
+`SELECT
+    tl.id AS task_list_id,
+    tl.client_name,
+    tl.deliverables AS task,
+    tl.duration,
+    tl.submission_date,
+    tti.id AS tracking_item_id,
+    tti.status
+FROM task_list tl
+LEFT JOIN time_tracking_task_items tti
+ON tti.task_list_id=tl.id
+AND tti.s_no=1
+WHERE tl.employee_name=?`,
+[employeeName]
+);
+
+const [todayRows] = await db.query(
+`SELECT
+    tl.id AS task_list_id,
+    tl.client_name,
+    tl.deliverables AS task,
+    tl.duration,
+    tl.submission_date,
+    tti.updated_at,
+    tti.id AS tracking_item_id,
+    tti.status,
+    COALESCE(mr.manager_action,'ACTION') AS manager_action
+FROM task_list tl
+LEFT JOIN time_tracking_task_items tti
+ON tti.task_list_id=tl.id
+AND tti.s_no=1
+LEFT JOIN manager_review mr
+ON mr.tracking_item_id=tti.id
+WHERE tl.employee_name=?
+AND DATE(tti.updated_at)=CURDATE()
+ORDER BY tti.updated_at DESC
+LIMIT 6`,
+[employeeName]
+);
 
     const clientsSet = new Set();
     const activeClientsSet = new Set();
@@ -44,6 +68,9 @@ router.get('/summary/:employeeName', async (req, res) => {
     let taskPending = 0;
     let onHoldCount = 0;
     let rejectedTasks = 0;
+    let approved = 0;
+let rework = 0;
+let rejected = 0;
     let upcomingDeadlines = 0;
 
     const today = new Date();
@@ -51,7 +78,7 @@ router.get('/summary/:employeeName', async (req, res) => {
     const threeDaysOut = new Date(today);
     threeDaysOut.setDate(threeDaysOut.getDate() + 3);
 
-    const tasks = rows.map((r) => {
+    const tasks = summaryRows.map((r) => {
       const status = r.status || 'IDLE';
       clientsSet.add(r.client_name);
 
@@ -70,6 +97,17 @@ router.get('/summary/:employeeName', async (req, res) => {
         rejectedTasks++;
         rejectedClientsSet.add(r.client_name);
       }
+      if (r.manager_action === 'APPROVED') {
+    approved++;
+}
+
+if (r.manager_action === 'REWORK') {
+    rework++;
+}
+
+if (r.manager_action === 'REJECTED') {
+    rejected++;
+}
 
       if (r.submission_date) {
         const due = new Date(r.submission_date);
@@ -104,6 +142,11 @@ router.get('/summary/:employeeName', async (req, res) => {
         rejectedClients: rejectedClientsSet.size,
         upcomingDeadlines,
         tasks,
+        productivity:{
+    approved,
+    rework,
+    rejected
+},
       },
     });
   } catch (err) {

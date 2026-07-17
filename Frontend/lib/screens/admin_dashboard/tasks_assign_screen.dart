@@ -7,6 +7,8 @@ import '../../../layouts/admin_layout.dart';
 import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart'; 
 import 'package:flutter/gestures.dart';
+import '../../services/api_config.dart';
+
 
 class TasksAssignScreen extends StatefulWidget {
   const TasksAssignScreen({super.key});
@@ -17,7 +19,11 @@ class TasksAssignScreen extends StatefulWidget {
 
 
 class _TasksAssignScreenState extends State<TasksAssignScreen> {
-  static const String _baseUrl = '/api';
+  // static const String _baseUrl = '/api';
+  static String get _baseUrl => ApiConfig.baseUrl;
+
+  final ScrollController _horizontalController = ScrollController();
+
 
   List<Map<String, dynamic>> taskRows = [];
   List<String> employees = [];
@@ -45,6 +51,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         .toLowerCase()
         .trim();
   }
+
+     
 
  @override
   void initState() {
@@ -366,6 +374,7 @@ Future<void> _addRow() async {
     // Create controllers ONCE for the entire dialog lifecycle
     final roleController = TextEditingController();
     final taskController = TextEditingController();
+ 
 
     String newRoleName = '';
     String selectedRole = taskRoles.entries.isNotEmpty
@@ -1260,86 +1269,173 @@ Future<void> _toggleAssign(Map<String, dynamic> row) async {
                 ),
               ]),
             ))
-          else
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 200,
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        Container(
-                          height: 48,
-                          color: const Color(0xFF0052CC),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          alignment: Alignment.centerLeft,
-                          child: const Text("CLIENT NAME",
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-                        ),
-                        ...visibleRows.map((row) => _buildClientCell(row)),
-                        ...List.generate(4, (_) => _buildClientCell(null)),
-                      ]),
-                    ),
-                    const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        dragStartBehavior: DragStartBehavior.start, 
-  physics: const AlwaysScrollableScrollPhysics(),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 4400,
-                              height: 48,
-                              child: Row(children: const [
-                                _HeaderCell(width: 200, label: "DELIVERABLES"),
-                                _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
-                                _HeaderCell(width: 140, label: "ADS HANDLER"),
-                                _HeaderCell(width: 160, label: "ADS TASKS"),
-                                _HeaderCell(width: 140, label: "ADS DATE"),
-                                _HeaderCell(width: 140, label: "PAGE HANDLER"),
-                                _HeaderCell(width: 160, label: "PAGE TASKS"),
-                                _HeaderCell(width: 140, label: "PAGE DATE"),
-                                _HeaderCell(width: 140, label: "DESIGNER"),
-                                _HeaderCell(width: 160, label: "DESIGN TASKS"),
-                                _HeaderCell(width: 140, label: "DESIGN DATE"),
-                                _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
-                                _HeaderCell(width: 160, label: "VIDEO TASKS"),
-                                _HeaderCell(width: 140, label: "VIDEO DATE"),
-                                 _HeaderCell(width: 140, label: "VIDEO EDITOR"),
-                                _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-                                _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
+          // else
+          //   Container(
+          //     decoration: BoxDecoration(
+          //       color: Colors.white,
+          //       borderRadius: BorderRadius.circular(8),
+          //       border: Border.all(color: const Color(0xFFE2E8F0)),
+          //     ),
+          //     child: ClipRRect(
+          //       borderRadius: BorderRadius.circular(8),
+          //       child: Row(
+          //         crossAxisAlignment: CrossAxisAlignment.start,
+          //         children: [
+          //           SizedBox(
+          //             width: 200,
+          //             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          //               Container(
+          //                 height: 48,
+          //                 color: const Color(0xFF0052CC),
+          //                 padding: const EdgeInsets.symmetric(horizontal: 16),
+          //                 alignment: Alignment.centerLeft,
+          //                 child: const Text("CLIENT NAME",
+          //                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+          //               ),
+          //               ...visibleRows.map((row) => _buildClientCell(row)),
+          //               ...List.generate(4, (_) => _buildClientCell(null)),
+          //             ]),
+          //           ),
+          //           const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
+          //           Expanded(
+          //             child: SingleChildScrollView(
+          //               scrollDirection: Axis.horizontal,
+          //               dragStartBehavior: DragStartBehavior.start, 
+          //               physics: const AlwaysScrollableScrollPhysics(),
+          //               child: Column(
+          //                 crossAxisAlignment: CrossAxisAlignment.start,
+          //                 children: [
+          //                   SizedBox(
+          //                     width: 4400,
+          //                     height: 48,
+          //                     child: Row(children: const [
+          //                       _HeaderCell(width: 200, label: "DELIVERABLES"),
+          //                       _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
+          //                       _HeaderCell(width: 140, label: "ADS HANDLER"),
+          //                       _HeaderCell(width: 160, label: "ADS TASKS"),
+          //                       _HeaderCell(width: 140, label: "ADS DATE"),
+          //                       _HeaderCell(width: 140, label: "PAGE HANDLER"),
+          //                       _HeaderCell(width: 160, label: "PAGE TASKS"),
+          //                       _HeaderCell(width: 140, label: "PAGE DATE"),
+          //                       _HeaderCell(width: 140, label: "DESIGNER"),
+          //                       _HeaderCell(width: 160, label: "DESIGN TASKS"),
+          //                       _HeaderCell(width: 140, label: "DESIGN DATE"),
+          //                       _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
+          //                       _HeaderCell(width: 160, label: "VIDEO TASKS"),
+          //                       _HeaderCell(width: 140, label: "VIDEO DATE"),
+          //                        _HeaderCell(width: 140, label: "VIDEO EDITOR"),
+          //                       _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
+          //                       _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
                                
-                                _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
-                                _HeaderCell(width: 160, label: "UI/UX TASKS"),
-                                _HeaderCell(width: 140, label: "UI/UX DATE"),
-                                _HeaderCell(width: 140, label: "DEVELOPER"),
-                                _HeaderCell(width: 160, label: "DEV TASKS"),
-                                _HeaderCell(width: 140, label: "DEV `DATE"),
-                                _HeaderCell(width: 140, label: "DEADLINE"),
-                                _HeaderCell(width: 160, label: "COMMENTS"),
-                                _HeaderCell(width: 140, label: "ACTION"),
-                              ]),
-                            ),
-                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                            ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
-                            ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+          //                       _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
+          //                       _HeaderCell(width: 160, label: "UI/UX TASKS"),
+          //                       _HeaderCell(width: 140, label: "UI/UX DATE"),
+          //                       _HeaderCell(width: 140, label: "DEVELOPER"),
+          //                       _HeaderCell(width: 160, label: "DEV TASKS"),
+          //                       _HeaderCell(width: 140, label: "DEV `DATE"),
+          //                       _HeaderCell(width: 140, label: "DEADLINE"),
+          //                       _HeaderCell(width: 160, label: "COMMENTS"),
+          //                       _HeaderCell(width: 140, label: "ACTION"),
+          //                     ]),
+          //                   ),
+          //                   const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          //                   ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
+          //                   ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
+          //                 ],
+          //               ),
+          //             ),
+          //           ),
+          //         ],
+          //       ),
+          //     ),
+          //   ),
+
+          else
+  Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: const Color(0xFFE2E8F0)),
+    ),
+    child: Scrollbar(
+      controller: _horizontalController, 
+      thumbVisibility: true,
+      trackVisibility: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Client Name column 
+          SizedBox(
+            width: 200,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch, 
+              children: [
+                Container(
+                  height: 48,
+                  color: const Color(0xFF0052CC),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  alignment: Alignment.centerLeft,
+                  child: const Text("CLIENT NAME",
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
                 ),
+                ...visibleRows.map((row) => _buildClientCell(row)),
+                ...List.generate(4, (_) => _buildClientCell(null)),
+              ]
+            ),
+          ),
+          const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
+          
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _horizontalController, 
+              scrollDirection: Axis.horizontal,
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 4400,
+                    height: 48,
+                    child: Row(children: const [
+                       _HeaderCell(width: 200, label: "DELIVERABLES"),
+                       _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
+                       _HeaderCell(width: 140, label: "ADS HANDLER"),
+                       _HeaderCell(width: 160, label: "ADS TASKS"),
+                       _HeaderCell(width: 140, label: "ADS DATE"),
+                       _HeaderCell(width: 140, label: "PAGE HANDLER"),
+                       _HeaderCell(width: 160, label: "PAGE TASKS"),
+                       _HeaderCell(width: 140, label: "PAGE DATE"),
+                       _HeaderCell(width: 140, label: "DESIGNER"),
+                       _HeaderCell(width: 160, label: "DESIGN TASKS"),
+                       _HeaderCell(width: 140, label: "DESIGN DATE"),
+                       _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
+                       _HeaderCell(width: 160, label: "VIDEO TASKS"),
+                       _HeaderCell(width: 140, label: "VIDEO DATE"),
+                       _HeaderCell(width: 140, label: "VIDEO EDITOR"),
+                       _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
+                       _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
+                       _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
+                       _HeaderCell(width: 160, label: "UI/UX TASKS"),
+                       _HeaderCell(width: 140, label: "UI/UX DATE"),
+                       _HeaderCell(width: 140, label: "DEVELOPER"),
+                       _HeaderCell(width: 160, label: "DEV TASKS"),
+                       _HeaderCell(width: 140, label: "DEV DATE"),
+                       _HeaderCell(width: 140, label: "DEADLINE"),
+                       _HeaderCell(width: 160, label: "COMMENTS"),
+                       _HeaderCell(width: 140, label: "ACTION"),
+                    ]),
+                  ),
+                  const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                  ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
+                  ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
+                ],
               ),
             ),
+          ),
+        ],
+      ),
+    ),
+  ),
         ],
       ),
     );

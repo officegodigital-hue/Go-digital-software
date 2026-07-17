@@ -3,7 +3,18 @@ import 'dart:math' as math;
 import 'package:my_first_app/core/constants/app_colors.dart';
 
 class ProductivityCard extends StatelessWidget {
-  const ProductivityCard({super.key});
+  final int approved;
+  final int rejected;
+  final int rework;
+  final int changes;
+
+  const ProductivityCard({
+    super.key,
+    required this.approved,
+    required this.rejected,
+    required this.rework,
+    required this.changes,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +32,7 @@ class ProductivityCard extends StatelessWidget {
           ),
         ],
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -33,26 +44,50 @@ class ProductivityCard extends StatelessWidget {
             ),
           ),
           SizedBox(height: 24),
+          // _ProductivityItem(
+          //   title: 'Approved',
+          //   value: '62%',
+          //   color: AppColors.green,
+          // ),
+
           _ProductivityItem(
-            title: 'Approved',
-            value: '62%',
-            color: AppColors.green,
-          ),
+  title: 'Approved',
+  value: approved.toString(),
+  color: AppColors.green,
+),
+          // _ProductivityItem(
+          //   title: 'Rejected',
+          //   value: '8%',
+          //   color: AppColors.red,
+          // ),
+
           _ProductivityItem(
-            title: 'Rejected',
-            value: '8%',
-            color: AppColors.red,
-          ),
+  title: 'Rejected',
+  value: rejected.toString(),
+  color: AppColors.red,
+),
+          // _ProductivityItem(
+          //   title: 'Reworks',
+          //   value: '18%',
+          //   color: Colors.purple,
+          // ),
+
+         _ProductivityItem(
+  title: 'Reworks',
+  value: rework.toString(),
+  color: Colors.purple,
+),
+          // _ProductivityItem(
+          //   title: 'Changes',
+          //   value: '12%',
+          //   color: AppColors.textGrey,
+          // ),
+
           _ProductivityItem(
-            title: 'Reworks',
-            value: '18%',
-            color: Colors.purple,
-          ),
-          _ProductivityItem(
-            title: 'Changes',
-            value: '12%',
-            color: AppColors.textGrey,
-          ),
+  title: 'Changes',
+  value: changes.toString(),
+  color: AppColors.textGrey,
+),
         ],
       ),
     );
