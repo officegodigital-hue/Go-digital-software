@@ -124,7 +124,12 @@ router.post('/:id/start', async (req, res) => {
   const { id } = req.params;
   try {
     const [result] = await db.query(
-      `UPDATE time_tracking_task_items SET start_time = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
+      // `UPDATE time_tracking_task_items SET start_time = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
+      `UPDATE time_tracking_task_items
+SET
+start_time = IFNULL(start_time, NOW()),
+status='IN PROGRESS'
+WHERE id=?`,
       [id]
     );
     if (result.affectedRows === 0)
@@ -205,7 +210,8 @@ router.post('/:id/complete', async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE time_tracking_task_items
-       SET complete_time = NOW(), status = 'COMPLETED', performance = ?
+      complete_time = IFNULL(complete_time, NOW()),
+       status = 'COMPLETED', performance = ?
        WHERE id = ?`,
       [performance || 'N/A', id]
     );
@@ -246,7 +252,7 @@ router.post('/:id/reject', async (req, res) => {
   const { id } = req.params;
   try {
     const [result] = await db.query(
-      `UPDATE time_tracking_task_items SET reject_time = NOW(), status = 'REJECTED' WHERE id = ?`,
+      `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time,NOW()), status = 'REJECTED' WHERE id = ?`,
       [id]
     );
     if (result.affectedRows === 0)

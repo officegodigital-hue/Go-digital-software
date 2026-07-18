@@ -42,14 +42,26 @@ class TaskPlannerService {
   }
 
   // PUT /api/task-planner/:id
-  static Future<void> updatePlannerRow(int id, String contentType, String content) async {
-    final r = await http.put(
-      Uri.parse('$_base/$id'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'contentType': contentType, 'content': content}),
-    );
-    if (r.statusCode != 200) throw Exception('Failed to update row: ${r.statusCode}');
+  static Future<void> updatePlannerRow({
+  required int id,
+  required String contentType,
+  required String content,
+}) async {
+  final r = await http.put(
+    Uri.parse('$_base/$id'),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({
+      'contentType': contentType,
+      'content': content,
+    }),
+  );
+
+  if (r.statusCode != 200) {
+    throw Exception('Failed to update row');
   }
+}
 
   // PATCH /api/task-planner/:id/share
   // Every call = 1 new INSERT into task_planner_shares, never an update

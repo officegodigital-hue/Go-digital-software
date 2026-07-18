@@ -7,6 +7,7 @@ import 'package:my_first_app/services/task_planner_service.dart';
 import 'package:provider/provider.dart';
 import 'package:my_first_app/services/auth_service.dart';
 import '../../services/api_config.dart';
+import 'dart:async';
 
 final ScrollController _employeeScrollController = ScrollController();
 
@@ -19,7 +20,7 @@ class TaskPlannerPage extends StatefulWidget {
 
 class _TaskPlannerPageState extends State<TaskPlannerPage> {
   // static const String _employeesUrl = '/api/employees';
-  static String get _employeesUrl => ApiConfig.baseUrl + '/employees';
+  static String get _employeesUrl => '${ApiConfig.baseUrl}/employees';
 
   // Color mapping for roles
   static const Map<String, Color> roleColors = {
@@ -137,9 +138,11 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
         }
       }
       setState(() {
-        rows = loaded;
-        _loading = false;
-      });
+  rows = loaded;
+  _loading = false;
+});
+
+_attachListeners();
     } catch (e) {
       setState(() => _loading = false);
       _showErrorSnack('Failed to load tasks. Check your connection.');
@@ -147,12 +150,61 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
     }
   }
 
+void _attachListeners() {
+
+  for (final row in rows) {
+
+    if (row.saveListener != null) continue;
+
+    row.saveListener = () {
+
+      row.saveTimer?.cancel();
+
+      row.saveTimer = Timer(
+        const Duration(milliseconds: 700),
+        () {
+          _autoSaveRow(row);
+        },
+      );
+
+    };
+
+    row.contentTypeController.addListener(row.saveListener!);
+
+    row.contentController.addListener(row.saveListener!);
+
+  }
+
+}
+
+Future<void> _autoSaveRow(TaskPlannerRowModel row) async {
+
+  try {
+
+    await TaskPlannerService.updatePlannerRow(
+  id: row.id,
+  contentType: row.contentTypeController.text,
+  content: row.contentController.text,
+);
+
+  } catch (_) {}
+
+}
+
   Future<void> addSection() async {
     try {
       final id = await TaskPlannerService.createPlannerRow(
           _employeeName ?? '', 'New Content Type');
-      setState(() =>
-          rows.add(TaskPlannerRowModel(id: id, contentType: 'New Content Type')));
+     final newRow = TaskPlannerRowModel(
+  id: id,
+  contentType: 'New Content Type',
+);
+
+setState(() {
+  rows.add(newRow);
+});
+
+_attachListeners();
     } catch (e) {
       _showErrorSnack('Could not add section. Try again.');
     }
@@ -196,7 +248,13 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
 
       // ── Reset row to fresh state — Share button reappears ──────────────
       setState(() {
-        row.contentController.clear();
+       row.saveTimer?.cancel();
+
+row.contentController.removeListener(row.saveListener!);
+
+row.contentController.clear();
+
+row.contentController.addListener(row.saveListener!);
         row.isShared = false;
         row.showAvatars = false;
         row.sharedEmployee = null;
@@ -266,9 +324,18 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
   @override
   void dispose() {
     for (final row in rows) {
-      row.contentTypeController.dispose();
-      row.contentController.dispose();
-    }
+
+  row.contentTypeController.removeListener(
+      row.saveListener ?? () {});
+
+  row.contentController.removeListener(
+      row.saveListener ?? () {});
+
+  row.saveTimer?.cancel();
+
+  row.dispose();
+
+}
     _employeeScrollController.dispose();
     super.dispose();
   }
@@ -630,6 +697,8 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
 // TaskPlannerRowModel
 // ════════════════════════════════════════════════════════════════════════════
 class TaskPlannerRowModel {
+  VoidCallback? saveListener;
+Timer? saveTimer;
   final int id;
   final TextEditingController contentTypeController;
   final TextEditingController contentController;
@@ -642,6 +711,10 @@ class TaskPlannerRowModel {
   String? sharedToName;
   String? sharedToShort;
   DateTime? sharedAt;
+  bool isRunning = false;
+
+  bool isHold = false;
+ Duration elapsed = Duration.zero;
 
   TaskPlannerRowModel({
     required this.id,
