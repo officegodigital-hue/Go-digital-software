@@ -9,14 +9,15 @@ class ApiConfig {
       }
 
       // Running from EC2/server
-      // return 'http://${Uri.base.host}:5000/api';
+      // return 'http://${Uri.base.host}:3000/api';
        return '/api';
     }
 
     // Android Emulator
-    return 'http://10.0.2.2:5000/api';
+    return 'http://10.0.2.2:3000/api';
 
     // Physical Android Phone
     // return 'http://192.168.1.100:5000/api';
   }
 }
+

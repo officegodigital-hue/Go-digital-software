@@ -716,16 +716,53 @@ void _setDeliverableProgress(
   // FIX: bulk-locks every editable row for today at once — the "Submit"
   // button next to Add Row, for when you're done filling the whole sheet
   // and don't want to hit Save on each row individually.
-  void _submitDay() {
-    setState(() {
-      for (final row in filteredRows) {
-        row['_editing'] = false;
-      }
-    });
+  // void _submitDay() {
+  //   setState(() {
+  //     for (final row in filteredRows) {
+  //       row['_editing'] = false;
+  //     }
+  //   });
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     const SnackBar(content: Text('✅ Day plan submitted'), backgroundColor: Color(0xFF16A34A), duration: Duration(seconds: 2)),
+  //   );
+  // }
+
+  Future<void> _submitDay() async {
+  // 1. First, lock the rows locally
+  setState(() {
+    for (final row in filteredRows) {
+      row['_editing'] = false;
+    }
+  });
+
+  // 2. Call backend to lock in DB and send notification to Admin
+  try {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/day-planner/submit'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'employeeName': employeeName,
+        'date': '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Day plan submitted & Admin notified!'),
+          backgroundColor: Color(0xFF16A34A),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      throw Exception('Failed to submit');
+    }
+  } catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ Day plan submitted'), backgroundColor: Color(0xFF16A34A), duration: Duration(seconds: 2)),
+      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
     );
   }
+}
 
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 

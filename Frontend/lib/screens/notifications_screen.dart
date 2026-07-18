@@ -13,6 +13,143 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
+class DayPlanTableViewer extends StatefulWidget {
+  final String employeeName;
+  final String date;
+  const DayPlanTableViewer({super.key, required this.employeeName, required this.date});
+
+  @override
+  State<DayPlanTableViewer> createState() => _DayPlanTableViewerState();
+}
+
+class _DayPlanTableViewerState extends State<DayPlanTableViewer> {
+  List<Map<String, dynamic>> rows = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDayPlan();
+  }
+
+  Future<void> _fetchDayPlan() async {
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/day-planner/today/${Uri.encodeComponent(widget.employeeName)}?date=${widget.date}');
+      final res = await http.get(url);
+      if (res.statusCode == 200) {
+        setState(() {
+          rows = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+          isLoading = false;
+        });
+      }
+    } catch (e) { debugPrint("Error: $e"); }
+  }
+
+  // Column logic: Data irundha mattum column show aagum
+  List<DataColumn> _buildColumns() {
+    List<DataColumn> cols = [const DataColumn(label: Text("Client Name"))];
+
+    if (rows.any((r) => (r['deliverables_1'] ?? '').toString().isNotEmpty)) {
+      cols.addAll([
+        const DataColumn(label: Text("Deliverable 1")),
+        const DataColumn(label: Text("Completed Deliverable 1")),
+        const DataColumn(label: Text("Balanced Deliverable 1")),
+      ]);
+    }
+    if (rows.any((r) => (r['deliverables_2'] ?? '').toString().isNotEmpty)) {
+      cols.addAll([
+        const DataColumn(label: Text("Deliverable 2")),
+        const DataColumn(label: Text("Completed Deliverable 2")),
+        const DataColumn(label: Text("Balanced Deliverable 2")),
+      ]);
+    }
+    if (rows.any((r) => (r['deliverables_3'] ?? '').toString().isNotEmpty)) {
+      cols.addAll([
+        const DataColumn(label: Text("Deliverable 3")),
+        const DataColumn(label: Text("Completed Deliverable 3")),
+        const DataColumn(label: Text("Balanced Deliverable 3")),
+      ]);
+    }
+
+    cols.addAll([
+      const DataColumn(label: Text("Today Plan")),
+      const DataColumn(label: Text("Status")),
+      const DataColumn(label: Text("Remarks")),
+    ]);
+    return cols;
+  }
+
+  Widget _buildStatusBadge(String status) {
+    Color bgColor = const Color(0xFFF1F5F9);
+    Color textColor = const Color(0xFF64748B);
+    switch (status.toUpperCase()) {
+      case 'COMPLETE': bgColor = const Color(0xFFF0FDF4); textColor = const Color(0xFF16A34A); break;
+      case 'PENDING': bgColor = const Color(0xFFFEF3C7); textColor = const Color(0xFFB45309); break;
+      case 'PROCESSING': bgColor = const Color(0xFFEFF6FF); textColor = const Color(0xFF0369A1); break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(4)),
+      child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) return const Center(child: CircularProgressIndicator());
+final ScrollController _scrollController = ScrollController();
+    return Scrollbar(
+    controller: _scrollController,
+    thumbVisibility: true, // Permanent-a scrollbar theriyum
+    thickness: 8.0,
+    child: SingleChildScrollView(
+      controller: _scrollController,
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columnSpacing: 20,
+        columns: _buildColumns(),
+        rows: rows.map((r) {
+          // Row generation logic same-a irukkum...
+          List<DataCell> cells = [DataCell(Text(r['client'] ?? '-'))];
+
+          if (rows.any((row) => (row['deliverables_1'] ?? '').toString().isNotEmpty)) {
+            cells.addAll([
+              DataCell(Text(r['deliverables_1'] ?? '-')),
+              DataCell(Text(r['complete_deliverables_1'] ?? '-')),
+              DataCell(Text(r['balanced_deliverables_1'] ?? '-')),
+            ]);
+          }
+          if (rows.any((row) => (row['deliverables_2'] ?? '').toString().isNotEmpty)) {
+            cells.addAll([
+              DataCell(Text(r['deliverables_2'] ?? '-')),
+              DataCell(Text(r['complete_deliverables_2'] ?? '-')),
+              DataCell(Text(r['balanced_deliverables_2'] ?? '-')),
+            ]);
+          }
+          if (rows.any((row) => (row['deliverables_3'] ?? '').toString().isNotEmpty)) {
+            cells.addAll([
+              DataCell(Text(r['deliverables_3'] ?? '-')),
+              DataCell(Text(r['complete_deliverables_3'] ?? '-')),
+              DataCell(Text(r['balanced_deliverables_3'] ?? '-')),
+            ]);
+          }
+
+          cells.addAll([
+            DataCell(Text(r['today_plan'] ?? '-')),
+            DataCell(_buildStatusBadge(r['status'] ?? 'NOT START')),
+            DataCell(Text(r['remarks'] ?? '-')),
+          ]);
+
+          return DataRow(cells: cells);
+        }).toList(),
+      ),
+    ),
+  );
+}
+}
+
+
+
 class _NotificationsScreenState extends State<NotificationsScreen> {
   // static const String _baseUrl = '/api';
 static String get _baseUrl => ApiConfig.baseUrl;
@@ -159,6 +296,56 @@ static String get _baseUrl => ApiConfig.baseUrl;
     }).toList();
   }
 
+void _handleNotificationClick(Map<String, dynamic> log) {
+  final msg = log["message"].toString();
+
+  // 1. Mark as Seen (Idhu widget kulla illai, so error varathu)
+  if (!(log["isSeen"] as bool)) {
+    _markAsSeen(log);
+  }
+
+  // 2. Popup open panna
+  if (msg.startsWith("PLAN_SUBMITTED")) {
+    final parts = msg.split('|');
+    if (parts.length >= 3) {
+      final empName = parts[1];
+      final date = parts[2];
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text("Day Plan Details: $empName ($date)"),
+          content: SizedBox(
+            width: 900,
+            height: 500,
+            child: DayPlanTableViewer(employeeName: empName, date: date),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+}
+
+
+Future<void> _markAsSeen(Map<String, dynamic> log) async {
+  try {
+    await http.patch(
+      Uri.parse('${ApiConfig.baseUrl}/notifications/${log["id"]}'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'isSeen': true}),
+    );
+    setState(() => log["isSeen"] = true); // UI-la update panna
+  } catch (e) {
+    debugPrint("Error marking seen: $e");
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     return AdminLayout(
@@ -270,136 +457,119 @@ static String get _baseUrl => ApiConfig.baseUrl;
                                       physics: const BouncingScrollPhysics(),
                                       separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                       itemBuilder: (context, index) {
-                                        final log = _filteredNotifications[index];
-                                        final isSent = log["type"] == "SENT";
-                                        final isSeen = log["isSeen"] as bool;
+  final log = _filteredNotifications[index];
+  final isSent = log["type"] == "SENT";
+  final isSeen = log["isSeen"] as bool;
 
-                                        return Container(
-                                          height: 60,
-                                          color: Colors.white,
-                                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                                          child: Row(
-                                            children: [
-                                              // ── TYPE BADGE (SENT/RECEIVED) ──
-                                              SizedBox(
-                                                width: 100,
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                                  decoration: BoxDecoration(
-                                                    color: isSent ? const Color(0xFFEFF6FF) : const Color(0xFFFFF7ED),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
-                                                  child: Text(
-                                                    isSent ? "Sent" : "Received",
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight: FontWeight.w700,
-                                                      color: isSent ? const Color(0xFF0052CC) : const Color(0xFFEA580C),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
+  // InkWell wrap pannirukken for click effect
+  return InkWell(
+    onTap: () => _handleNotificationClick(log), 
+    child: Container(
+      height: 60,
+      color: Colors.transparent, // InkWell click effect-kaga transparent
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          // ── TYPE BADGE (SENT/RECEIVED) ──
+          SizedBox(
+            width: 100,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSent ? const Color(0xFFEFF6FF) : const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                isSent ? "Sent" : "Received",
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isSent ? const Color(0xFF0052CC) : const Color(0xFFEA580C),
+                ),
+              ),
+            ),
+          ),
 
-                                              // ── MESSAGE ──
-                                              Expanded(
-                                                child: Padding(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                                                  child: Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          log["message"],
-                                                          overflow: TextOverflow.ellipsis,
-                                                          maxLines: 2,
-                                                          style: const TextStyle(
-                                                            fontSize: 13,
-                                                            color: Color(0xFF334155),
-                                                            fontWeight: FontWeight.w500,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      IconButton(
-                                                        onPressed: () => _toggleFavorite(log),
-                                                        icon: Icon(
-                                                          log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
-                                                          color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
-                                                          size: 18,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
+          // ── MESSAGE ──
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      log["message"],
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF334155),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _toggleFavorite(log),
+                    icon: Icon(
+                      log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
+                      color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
+                      size: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
-                                              // ── TIME ──
-                                              SizedBox(
-                                                width: 120,
-                                                child: Text(
-                                                  log["time"],
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: Color(0xFF64748B),
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              ),
+          // ── TIME ──
+          SizedBox(
+            width: 120,
+            child: Text(
+              log["time"],
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
 
-                                              // ── STATUS (SEEN INDICATOR) ──
-                                              SizedBox(
-                                                width: 60,
-                                                child: Center(
-                                                  child: isSent
-                                                      ? isSeen
-                                                          ? Tooltip(
-                                                              message: "Seen",
-                                                              child: Column(
-                                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                                children: [
-                                                                  const SizedBox(
-                                                                    width: 16,
-                                                                    height: 16,
-                                                                    child: Stack(
-                                                                      alignment: Alignment.center,
-                                                                      children: [
-                                                                        Positioned(
-                                                                          left: -2,
-                                                                          child: Icon(Icons.check, size: 12, color: Color(0xFF0052CC)),
-                                                                        ),
-                                                                        Positioned(
-                                                                          right: -2,
-                                                                          child: Icon(Icons.check, size: 12, color: Color(0xFF0052CC)),
-                                                                        ),
-                                                                      ],
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                            )
-                                                          : Tooltip(
-                                                              message: "Sent",
-                                                              child: const Icon(Icons.check, size: 12, color: Color(0xFF94A3B8)),
-                                                            )
-                                                      : const SizedBox(),
-                                                ),
-                                              ),
+          // ── STATUS (SEEN INDICATOR) ──
+          SizedBox(
+            width: 60,
+            child: Center(
+              child: isSent
+                  ? isSeen
+                      ? Tooltip(
+                          message: "Seen",
+                          child: const Icon(Icons.done_all, size: 16, color: Color(0xFF0052CC)),
+                        )
+                      : Tooltip(
+                          message: "Sent",
+                          child: const Icon(Icons.check, size: 16, color: Color(0xFF94A3B8)),
+                        )
+                  : const SizedBox(),
+            ),
+          ),
 
-                                              // ── DELETE ACTION ──
-                                              SizedBox(
-                                                width: 60,
-                                                child: Center(
-                                                  child: IconButton(
-                                                    onPressed: () => _deleteNotification(log),
-                                                    icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
-                                                    hoverColor: Colors.red.shade50,
-                                                    splashRadius: 20,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
+          // ── DELETE ACTION ──
+          SizedBox(
+            width: 60,
+            child: Center(
+              child: IconButton(
+                onPressed: () => _deleteNotification(log),
+                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
+                hoverColor: Colors.red.shade50,
+                splashRadius: 20,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+},
                                     ),
                             ),
                           ],

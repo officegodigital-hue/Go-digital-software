@@ -195,7 +195,8 @@ router.post('/submit', async (req, res) => {
       await createNotification({
         senderName: employeeName,
         recipientName: 'Admin',
-        message: `${employeeName} submitted their Day Plan for ${date}.`,
+        // message: `${employeeName} submitted their Day Plan for ${date}.`,
+        message: `PLAN_SUBMITTED|${employeeName}|${date}`,
       });
     } catch (notifyErr) {
       console.error('⚠️ day-planner submit notification failed (non-fatal):', notifyErr.message);
