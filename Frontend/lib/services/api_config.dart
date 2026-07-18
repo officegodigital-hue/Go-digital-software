@@ -9,7 +9,8 @@ class ApiConfig {
       }
 
       // Running from EC2/server
-      return 'http://${Uri.base.host}:5000/api';
+      // return 'http://${Uri.base.host}:5000/api';
+       return '/api';
     }
 
     // Android Emulator
