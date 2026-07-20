@@ -117,10 +117,26 @@ if (submitDate) {
       );
       return res.status(201).json({ success: true, message: 'Tracking item created', data: { id: result.insertId } });
     }
-  } catch (err) {
-    console.error('POST /tracking-items ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
   }
+  //  catch (err) {
+  //   console.error('POST /tracking-items ERROR:', err.message);
+  //   return res.status(500).json({ success: false, message: err.message });
+  // }
+
+  catch (err) {
+  console.error("========== TRACKING ITEMS ERROR ==========");
+  console.error(err);
+  console.error("SQL Message:", err.message);
+  console.error("SQL Code:", err.code);
+  console.error("SQL Errno:", err.errno);
+  console.error("SQL State:", err.sqlState);
+  console.error("==========================================");
+
+  return res.status(500).json({
+    success: false,
+    message: err.message,
+  });
+}
 });
 
 // ── ACTION ENDPOINTS — replace routes/task-actions.js entirely ─────────────
