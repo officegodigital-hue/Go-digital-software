@@ -48,98 +48,162 @@ router.get('/by-task-list-ids', async (req, res) => {
 // dedicated endpoints below so a row can't be accidentally reset mid-action.
 router.post('/', async (req, res) => {
   const {
-    taskListId, sNo, submitDate, taskDescription,
-    durationSecs, comment, performance, status,
+    taskListId,
+    sNo,
+    submitDate,
+    taskDescription,
+    durationSecs,
+    comment,
+    performance,
+    status,
   } = req.body;
 
+  if (!taskListId || sNo === undefined) {
+    return res.status(400).json({
+      success: false,
+      message: "taskListId and sNo are required",
+    });
+  }
+
+  // Convert ISO datetime to YYYY-MM-DD
   let formattedSubmitDate = null;
 
-if (submitDate) {
-  formattedSubmitDate = submitDate.toString().split('T')[0];
-}
+  if (submitDate) {
+    formattedSubmitDate = submitDate.toString().split("T")[0];
+  }
 
-  if (!taskListId || sNo === undefined)
-    return res.status(400).json({ success: false, message: 'taskListId and sNo are required' });
+  console.log("======================================");
+  console.log("submitDate:", submitDate);
+  console.log("formattedSubmitDate:", formattedSubmitDate);
+  console.log("======================================");
 
   try {
+    // Get task timing id
     const [taskListRows] = await db.query(
       `SELECT task_timing_id FROM task_list WHERE id = ?`,
       [taskListId]
     );
 
     if (taskListRows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Task list entry not found' });
+      return res.status(404).json({
+        success: false,
+        message: "Task list entry not found",
+      });
     }
 
     const taskTimingId = taskListRows[0].task_timing_id;
 
+    // Check existing row
     const [existing] = await db.query(
-      `SELECT id FROM time_tracking_task_items WHERE task_list_id = ? AND s_no = ?`,
+      `SELECT id
+       FROM time_tracking_task_items
+       WHERE task_list_id = ? AND s_no = ?`,
       [taskListId, sNo]
     );
 
+    // =========================
+    // UPDATE
+    // =========================
     if (existing.length > 0) {
-      await db.query(
-        `UPDATE time_tracking_task_items SET
-          task_timing_id = ?, submit_date = ?, task_description = ?,
-          duration_secs = ?, comment = ?, performance = ?, status = ?
+
+      const params = [
+        taskTimingId,
+        formattedSubmitDate,
+        taskDescription || "",
+        durationSecs || 0,
+        comment || "",
+        performance || "N/A",
+        status || "IDLE",
+        existing[0].id,
+      ];
+
+      console.log("UPDATE PARAMS:", params);
+
+      const [updateResult] = await db.query(
+        `UPDATE time_tracking_task_items
+         SET
+           task_timing_id = ?,
+           submit_date = ?,
+           task_description = ?,
+           duration_secs = ?,
+           comment = ?,
+           performance = ?,
+           status = ?
          WHERE id = ?`,
-        [
-          taskTimingId,
-          // submitDate || null,
-          formattedSubmitDate,
-          taskDescription || '',
-          durationSecs || 0,
-          comment || '',
-          performance || 'N/A',
-          status || 'IDLE',
-          existing[0].id,
-        ]
+        params
       );
-      return res.json({ success: true, message: 'Tracking item updated', data: { id: existing[0].id } });
-    } else {
-      console.log("submitDate:", submitDate);
-console.log("formattedSubmitDate:", formattedSubmitDate);
 
-      const [result] = await db.query(
-        `INSERT INTO time_tracking_task_items
-          (task_list_id, task_timing_id, s_no, submit_date, task_description, duration_secs, comment, performance, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          taskListId,
-          taskTimingId,
-          sNo,
-          // submitDate || null,
-          formattedSubmitDate,
-          taskDescription || '',
-          durationSecs || 0,
-          comment || '',
-          performance || 'N/A',
-          status || 'IDLE',
-        ]
-      );
-      return res.status(201).json({ success: true, message: 'Tracking item created', data: { id: result.insertId } });
+      console.log("Updated Rows:", updateResult.affectedRows);
+
+      return res.json({
+        success: true,
+        message: "Tracking item updated",
+        data: {
+          id: existing[0].id,
+        },
+      });
     }
+
+    // =========================
+    // INSERT
+    // =========================
+
+    const params = [
+      taskListId,
+      taskTimingId,
+      sNo,
+      formattedSubmitDate,
+      taskDescription || "",
+      durationSecs || 0,
+      comment || "",
+      performance || "N/A",
+      status || "IDLE",
+    ];
+
+    console.log("INSERT PARAMS:", params);
+
+    const [result] = await db.query(
+      `INSERT INTO time_tracking_task_items
+      (
+        task_list_id,
+        task_timing_id,
+        s_no,
+        submit_date,
+        task_description,
+        duration_secs,
+        comment,
+        performance,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params
+    );
+
+    console.log("Inserted ID:", result.insertId);
+
+    return res.status(201).json({
+      success: true,
+      message: "Tracking item created",
+      data: {
+        id: result.insertId,
+      },
+    });
+
+  } catch (err) {
+
+    console.error("========== TRACKING ITEMS ERROR ==========");
+    console.error(err);
+    console.error("SQL Message:", err.message);
+    console.error("SQL Code:", err.code);
+    console.error("SQL Errno:", err.errno);
+    console.error("SQL State:", err.sqlState);
+    console.error("==========================================");
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
-  //  catch (err) {
-  //   console.error('POST /tracking-items ERROR:', err.message);
-  //   return res.status(500).json({ success: false, message: err.message });
-  // }
-
-  catch (err) {
-  console.error("========== TRACKING ITEMS ERROR ==========");
-  console.error(err);
-  console.error("SQL Message:", err.message);
-  console.error("SQL Code:", err.code);
-  console.error("SQL Errno:", err.errno);
-  console.error("SQL State:", err.sqlState);
-  console.error("==========================================");
-
-  return res.status(500).json({
-    success: false,
-    message: err.message,
-  });
-}
 });
 
 // ── ACTION ENDPOINTS — replace routes/task-actions.js entirely ─────────────
@@ -150,9 +214,6 @@ console.log("formattedSubmitDate:", formattedSubmitDate);
 router.post('/:id/start', async (req, res) => {
   const { id } = req.params;
   try {
-    console.log("submitDate:", submitDate);
-console.log("formattedSubmitDate:", formattedSubmitDate);
-
     const [result] = await db.query(
       // `UPDATE time_tracking_task_items SET start_time = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
       `UPDATE time_tracking_task_items
@@ -238,8 +299,6 @@ router.post('/:id/complete', async (req, res) => {
   const { id } = req.params;
   const { performance } = req.body;
   try {
-    console.log("submitDate:", submitDate);
-console.log("formattedSubmitDate:", formattedSubmitDate);
 
     const [result] = await db.query(
       // `UPDATE time_tracking_task_items
@@ -290,8 +349,6 @@ WHERE id = ?`,
 router.post('/:id/reject', async (req, res) => {
   const { id } = req.params;
   try {
-    console.log("submitDate:", submitDate);
-console.log("formattedSubmitDate:", formattedSubmitDate);
 
     const [result] = await db.query(
       `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time,NOW()), status = 'REJECTED' WHERE id = ?`,
