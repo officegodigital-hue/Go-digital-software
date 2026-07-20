@@ -98,6 +98,9 @@ if (submitDate) {
       );
       return res.json({ success: true, message: 'Tracking item updated', data: { id: existing[0].id } });
     } else {
+      console.log("submitDate:", submitDate);
+console.log("formattedSubmitDate:", formattedSubmitDate);
+
       const [result] = await db.query(
         `INSERT INTO time_tracking_task_items
           (task_list_id, task_timing_id, s_no, submit_date, task_description, duration_secs, comment, performance, status)
@@ -147,6 +150,9 @@ if (submitDate) {
 router.post('/:id/start', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("submitDate:", submitDate);
+console.log("formattedSubmitDate:", formattedSubmitDate);
+
     const [result] = await db.query(
       // `UPDATE time_tracking_task_items SET start_time = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
       `UPDATE time_tracking_task_items
@@ -232,6 +238,9 @@ router.post('/:id/complete', async (req, res) => {
   const { id } = req.params;
   const { performance } = req.body;
   try {
+    console.log("submitDate:", submitDate);
+console.log("formattedSubmitDate:", formattedSubmitDate);
+
     const [result] = await db.query(
       // `UPDATE time_tracking_task_items
       // complete_time = IFNULL(complete_time, NOW()),
@@ -281,6 +290,9 @@ WHERE id = ?`,
 router.post('/:id/reject', async (req, res) => {
   const { id } = req.params;
   try {
+    console.log("submitDate:", submitDate);
+console.log("formattedSubmitDate:", formattedSubmitDate);
+
     const [result] = await db.query(
       `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time,NOW()), status = 'REJECTED' WHERE id = ?`,
       [id]
@@ -299,6 +311,10 @@ router.post('/:id/reject', async (req, res) => {
 // DELETE /api/tracking-items/:id
 router.delete('/:id', async (req, res) => {
   try {
+
+    console.log("submitDate:", submitDate);
+console.log("formattedSubmitDate:", formattedSubmitDate);
+
     const [result] = await db.query(`DELETE FROM time_tracking_task_items WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
