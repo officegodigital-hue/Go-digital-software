@@ -2,7 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
-
+ 
 // ── Completion percentage rules ────────────────────────────────────────────────
 // 30% -> company details saved (Save Draft)
 // +20% -> bank details fully filled (all 4 fields)
@@ -119,7 +119,7 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const {
-    companyName, contactPerson, email, address,
+    companyName, industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
     clientPhone, gstNumber // Add these
   } = req.body;
@@ -130,11 +130,11 @@ router.post('/', async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO clients
-        (company_name, contact_person, email, address,
+        (company_name,  industry, contact_person, email, address,
          bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        companyName, contactPerson || '', email || '', address || '',
+        companyName,  industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
         status || 'draft', clientPhone || '', gstNumber || ''
       ]
@@ -160,7 +160,7 @@ router.post('/', async (req, res) => {
 // Updated PUT /api/clients/:id
 router.put('/:id', async (req, res) => {
   const {
-    companyName, contactPerson, email, address,
+    companyName,  industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
     clientPhone, gstNumber // Add these
   } = req.body;
@@ -171,12 +171,12 @@ router.put('/:id', async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE clients
-       SET company_name = ?, contact_person = ?, email = ?, address = ?,
+       SET company_name = ?,  industry = ?, contact_person = ?, email = ?, address = ?,
            bank_account_name = ?, bank_name = ?, bank_account_number = ?, bank_ifsc = ?,
            status = ?, client_phone = ?, gst_number = ?
        WHERE id = ?`,
       [
-        companyName, contactPerson || '', email || '', address || '',
+        companyName,  industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
         status || 'draft', clientPhone || '', gstNumber || '', req.params.id
       ]

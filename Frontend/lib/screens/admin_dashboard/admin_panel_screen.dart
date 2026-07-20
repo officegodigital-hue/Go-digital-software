@@ -16,7 +16,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   // static const String _baseUrl = 'http://127.0.0.1:5000/api';
 static String get _baseUrl => ApiConfig.baseUrl;
   List<Map<String, dynamic>> employeeUsers = [];
-  List<String> roleOptions = [];
+  // List<String> roleOptions = [];
+  final List<String> roleOptions = [
+  'UI/ UX Designer',
+  'Graphic Designer',
+  'Digital Marketing',
+  'Video Editor',
+  'Web Developer',
+  'Page Handler',
+  'Ads Handler',
+  'Manager',
+];
   bool _loading = true;
   String? _error;
 
@@ -24,7 +34,7 @@ static String get _baseUrl => ApiConfig.baseUrl;
   void initState() {
     super.initState();
     _fetchEmployees();
-    _fetchRoles();
+    // _fetchRoles();
   }
 
   // ── FETCH ─────────────────────────────────────────────────────────────────────
@@ -141,25 +151,25 @@ static String get _baseUrl => ApiConfig.baseUrl;
     ));
   }
 
- Future<void> _fetchRoles() async {
-  try {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/task-roles'),
-    );
+//  Future<void> _fetchRoles() async {
+//   try {
+//     final response = await http.get(
+//       Uri.parse('$_baseUrl/task-roles'),
+//     );
 
-    if (response.statusCode == 200) {
-      final body = jsonDecode(response.body);
+//     if (response.statusCode == 200) {
+//       final body = jsonDecode(response.body);
 
-      setState(() {
-        roleOptions = List<Map<String, dynamic>>.from(body['data'])
-            .map((e) => e['role_name'].toString())
-            .toList();
-      });
-    }
-  } catch (e) {
-    print(e);
-  }
-}
+//       setState(() {
+//         roleOptions = List<Map<String, dynamic>>.from(body['data'])
+//             .map((e) => e['role_name'].toString())
+//             .toList();
+//       });
+//     }
+//   } catch (e) {
+//     print(e);
+//   }
+// }
 
   // ── MODAL — used for both Create and Edit ─────────────────────────────────────
   // editEmployee: null = Create mode, non-null = Edit mode
@@ -182,7 +192,7 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
     String selectedUserType = editEmployee?['user_type'] ?? 'employee'; // NEW
 
     // final roleOptions = ['UI/ UX Designer', 'Graphic Designer', 'Digital Marketing',
-    //                      'Video Editor', 'Web Developer', 'Page Handler', 'Ads Handler'];
+    //                      'Video Editor', 'Web Developer', 'Page Handler', 'Ads Handler', 'Manager'];
     final userTypeOptions = ['employee', 'admin']; // NEW
 
     
@@ -193,10 +203,10 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
   selectedRole = roleOptions.first;
 }
     if (!userTypeOptions.contains(selectedUserType)) selectedUserType = 'employee'; // NEW
-if (roleOptions.isEmpty) {
-  _showSnack("No roles found.");
-  return;
-}
+// if (roleOptions.isEmpty) {
+//   _showSnack("No roles found.");
+//   return;
+// }
     bool sendEmail    = true;
     bool isSubmitting = false;
     String? modalError;
@@ -512,13 +522,13 @@ if (roleOptions.isEmpty) {
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: () async {
-  await _fetchRoles();
-  if (context.mounted) {
-    _showUserModal(context);
-  }
-},
-                  // onPressed: () => _showUserModal(context),
+  //                 onPressed: () async {
+  // await _fetchRoles();
+  // if (context.mounted) {
+  //   _showUserModal(context);
+  // }
+// },
+                  onPressed: () => _showUserModal(context),
                   icon: const Icon(Icons.add, size: 16, color: Colors.white),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0052CC),
@@ -664,21 +674,19 @@ if (roleOptions.isEmpty) {
                                   Tooltip(
                                     message: 'Edit',
                                     child: GestureDetector(
-                                      // onTap: () async {
-                                      //   // Fetch full employee data (includes first/last names)
-                                      //   final data = await _fetchSingleEmployee(id);
-                                      //   if (data != null && context.mounted) {
-                                      //     _showUserModal(context, editEmployee: data);
-                                        onTap: () async {
-  await _fetchRoles();
-
-  final data = await _fetchSingleEmployee(id);
-
-  if (data != null && context.mounted) {
-    _showUserModal(
-      context,
-      editEmployee: data,
-    );
+                                      onTap: () async {
+                                        // Fetch full employee data (includes first/last names)
+                                        final data = await _fetchSingleEmployee(id);
+                                        if (data != null && context.mounted) {
+                                          _showUserModal(context, editEmployee: data);
+                                        // onTap: () async {
+                                          // await _fetchRoles();
+                                          // final data = await _fetchSingleEmployee(id);
+                                          // if (data != null && context.mounted) {
+                                            // _showUserModal(
+                                            //   context,
+                                            //   editEmployee: data,
+                                            //   );
                                         } else {
                                           _showSnack('Failed to load employee data');
                                         }

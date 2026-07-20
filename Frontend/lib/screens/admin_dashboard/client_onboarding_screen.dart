@@ -755,7 +755,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
     final isEdit = existing != null;
 
     const basePlatforms = [
-      'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Meta Ads','LinkedIn', 'WhatsApp Business', 'Mail id'
+      'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Meta Ads','LinkedIn', 'WhatsApp Business', 'Mail id',
       'Google Business Profile', 'Server Login',
     ];
 

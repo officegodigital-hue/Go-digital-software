@@ -1955,3 +1955,4 @@ Widget _buildClientNameDropdown() {
 }
 
 // ✅ NEW: Custom TextInputFormatter to convert text to uppercase
+

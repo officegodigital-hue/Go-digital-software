@@ -357,7 +357,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-
+ 
               // Pending / Verify toggle button
               if (status == 'draft' || status == 'pending')
                 ElevatedButton(
