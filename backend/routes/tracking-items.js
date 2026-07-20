@@ -52,6 +52,12 @@ router.post('/', async (req, res) => {
     durationSecs, comment, performance, status,
   } = req.body;
 
+  let formattedSubmitDate = null;
+
+if (submitDate) {
+  formattedSubmitDate = submitDate.toString().split('T')[0];
+}
+
   if (!taskListId || sNo === undefined)
     return res.status(400).json({ success: false, message: 'taskListId and sNo are required' });
 
@@ -80,7 +86,8 @@ router.post('/', async (req, res) => {
          WHERE id = ?`,
         [
           taskTimingId,
-          submitDate || null,
+          // submitDate || null,
+          formattedSubmitDate,
           taskDescription || '',
           durationSecs || 0,
           comment || '',
@@ -99,7 +106,8 @@ router.post('/', async (req, res) => {
           taskListId,
           taskTimingId,
           sNo,
-          submitDate || null,
+          // submitDate || null,
+          formattedSubmitDate,
           taskDescription || '',
           durationSecs || 0,
           comment || '',
@@ -209,10 +217,16 @@ router.post('/:id/complete', async (req, res) => {
   const { performance } = req.body;
   try {
     const [result] = await db.query(
+      // `UPDATE time_tracking_task_items
+      // complete_time = IFNULL(complete_time, NOW()),
+      //  status = 'COMPLETED', performance = ?
+      //  WHERE id = ?`,
       `UPDATE time_tracking_task_items
-      complete_time = IFNULL(complete_time, NOW()),
-       status = 'COMPLETED', performance = ?
-       WHERE id = ?`,
+SET
+complete_time = IFNULL(complete_time, NOW()),
+status = 'COMPLETED',
+performance = ?
+WHERE id = ?`,
       [performance || 'N/A', id]
     );
     if (result.affectedRows === 0)
