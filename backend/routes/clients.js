@@ -132,7 +132,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO clients
         (company_name,  industry, contact_person, email, address,
          bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         companyName,  industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
@@ -159,6 +159,8 @@ router.post('/', async (req, res) => {
 
 // Updated PUT /api/clients/:id
 router.put('/:id', async (req, res) => {
+  console.log("BODY:", req.body);
+  console.log("Industry:", req.body.industry);
   const {
     companyName,  industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
