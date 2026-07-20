@@ -6,6 +6,43 @@ const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
+function calculateWorkingDuration(row) {
+
+  if (!row.start_time || !row.complete_time) {
+    return 0;
+  }
+
+  const start = new Date(row.start_time);
+  const complete = new Date(row.complete_time);
+
+  let totalSeconds =
+    Math.floor((complete - start) / 1000);
+
+  let holdSeconds = 0;
+
+  for (let i = 1; i <= 10; i++) {
+
+    const hold = row[`hold_time_${i}`];
+    const restart = row[`restart_time_${i}`];
+
+    if (hold && restart) {
+
+      holdSeconds += Math.floor(
+        (new Date(restart) - new Date(hold)) / 1000
+      );
+
+    }
+
+  }
+
+  totalSeconds -= holdSeconds;
+
+  if (totalSeconds < 0)
+    totalSeconds = 0;
+
+  return totalSeconds;
+}
+
 // GET /api/tracking-items/by-task-list/:taskListId — all rows for ONE task_list entry
 // All action timestamps are plain columns on this table now, so no JOIN is needed.
 router.get('/by-task-list/:taskListId', async (req, res) => {
@@ -295,54 +332,145 @@ router.post('/:id/restart', async (req, res) => {
 });
 
 // POST /api/tracking-items/:id/complete
+// POST /api/tracking-items/:id/complete
 router.post('/:id/complete', async (req, res) => {
   const { id } = req.params;
   const { performance } = req.body;
+
   try {
 
+    // 1. Update task as completed
     const [result] = await db.query(
-      // `UPDATE time_tracking_task_items
-      // complete_time = IFNULL(complete_time, NOW()),
-      //  status = 'COMPLETED', performance = ?
-      //  WHERE id = ?`,
       `UPDATE time_tracking_task_items
-SET
-complete_time = IFNULL(complete_time, NOW()),
-status = 'COMPLETED',
-performance = ?
-WHERE id = ?`,
+       SET
+       complete_time = IFNULL(complete_time, NOW()),
+       status = 'COMPLETED',
+       performance = ?
+       WHERE id = ?`,
       [performance || 'N/A', id]
     );
-    if (result.affectedRows === 0)
-      return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
-    const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
 
-    // FIX: this is the missing piece — a task being completed now creates a
-    // real notification instead of nothing happening. Look up who did the
-    // work and what it was, and log it as a SENT message from that employee.
-    try {
-      const [taskInfo] = await db.query(
-        `SELECT tl.employee_name, tl.deliverables
-         FROM task_list tl WHERE tl.id = ?`,
-        [rows[0].task_list_id]
-      );
-      if (taskInfo.length > 0 && taskInfo[0].employee_name) {
-        await createNotification({
-          senderName: taskInfo[0].employee_name,
-          recipientName: 'Admin',
-          message: `Task "${taskInfo[0].deliverables}" has been submitted for review.`,
-        });
-      }
-    } catch (notifyErr) {
-      console.error('⚠️ complete notification failed (non-fatal):', notifyErr.message);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tracking item not found'
+      });
     }
 
-    return res.json({ success: true, message: 'Task completed', data: rows[0] });
+
+    // 2. Get completed task data
+    const [rows] = await db.query(
+      `SELECT * 
+       FROM time_tracking_task_items 
+       WHERE id = ?`,
+      [id]
+    );
+
+
+    const row = rows[0];
+
+
+    // 3. Calculate working duration
+    const durationSecs = calculateWorkingDuration(row);
+
+
+    // 4. Save calculated duration
+    await db.query(
+      `UPDATE time_tracking_task_items
+       SET duration_secs = ?
+       WHERE id = ?`,
+      [durationSecs, id]
+    );
+
+
+
+    // 5. Create notification for admin
+    try {
+
+      const [taskInfo] = await db.query(
+        `SELECT 
+            tl.employee_name,
+            tl.deliverables
+         FROM task_list tl
+         WHERE tl.id = ?`,
+        [row.task_list_id]
+      );
+
+
+      if (taskInfo.length > 0 && taskInfo[0].employee_name) {
+
+
+        // Get all admins
+        const [admins] = await db.query(
+          `SELECT full_name
+           FROM employees
+           WHERE role = 'admin'`
+        );
+
+
+        // Send notification to every admin
+        for (const admin of admins) {
+
+          await createNotification({
+
+            senderName: taskInfo[0].employee_name,
+
+            recipientName: admin.full_name,
+
+            message:
+              `Task "${taskInfo[0].deliverables}" has been submitted for review.`
+
+          });
+
+        }
+
+      }
+
+
+    } catch (notifyErr) {
+
+      console.error(
+        '⚠️ complete notification failed (non-fatal):',
+        notifyErr.message
+      );
+
+    }
+
+
+
+    return res.json({
+
+      success: true,
+
+      message: 'Task completed',
+
+      data: {
+        ...row,
+        durationSecs
+      }
+
+    });
+
+
   } catch (err) {
-    console.error('POST /tracking-items/:id/complete ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+
+    console.error(
+      'POST /tracking-items/:id/complete ERROR:',
+      err.message
+    );
+
+
+    return res.status(500).json({
+
+      success: false,
+
+      message: err.message
+
+    });
+
   }
+
 });
 
 // POST /api/tracking-items/:id/reject
@@ -358,6 +486,10 @@ router.post('/:id/reject', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+     const row = rows[0];
+     const durationSecs = calculateWorkingDuration(row);
+
+
     return res.json({ success: true, message: 'Task rejected', data: rows[0] });
   } catch (err) {
     console.error('POST /tracking-items/:id/reject ERROR:', err.message);
