@@ -301,7 +301,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
           // Created date
           Expanded(flex: 2, child: Text(_formatDate(c['created_at']?.toString()),
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+              style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)))),
 
           // Completion %
           Expanded(flex: 3, child: Padding(
@@ -310,7 +310,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('$percent%',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
                 const SizedBox(height: 4),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -349,7 +349,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
               OutlinedButton.icon(
                 onPressed: () => _openOnboarding(clientId: id),
                 icon: const Icon(Icons.edit_outlined, size: 14, color: Color(0xFF475569)),
-                label: const Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                label: const Text('', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Color(0xFFCBD5E1)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
@@ -370,7 +370,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   ),
                   child: Text(
                     status == 'draft' ? 'Mark Pending' : 'Verify',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                 )
               else if (status == 'verified')
@@ -383,7 +383,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                     elevation: 0,
                   ),
                   child: const Text('Mark Complete',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
                 )
               else
                 Container(
@@ -394,8 +394,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   ),
                   child: const Row(children: [
                     Icon(Icons.check_circle, size: 14, color: Color(0xFF16A34A)),
-                    SizedBox(width: 6),
-                    Text('Done', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
+                    SizedBox(width: 7),
+                    Text('Done', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
                   ]),
                 ),
 

@@ -1369,7 +1369,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
                   width: selectedTabIndex == i ? 3 : 0,
                 ))),
                 child: Text(taskTabNames[i], style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w700,
+                  fontSize: 10, fontWeight: FontWeight.w700,
                   color: selectedTabIndex == i ? const Color(0xFF004AAD) : Colors.grey)),
               ),
             ),
@@ -1408,7 +1408,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
       return Column(children: [
         Container(
           margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(18),
           decoration: const BoxDecoration(color: Colors.white,
               border: Border(bottom: BorderSide(color: AppColors.border))),
           child: Row(children: [
@@ -1423,16 +1423,16 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
                   : Colors.grey,
             ),
             Expanded(flex: 2, child: Row(children: [
-              const Text('SUBMISSION DATE :', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-              const SizedBox(width: 5),
+              const Text('SUBMIT DATE :', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
+              const SizedBox(width: 4),
               _dateWithDaysLeft(task['assignedDate']),
             ])),
 
-            Expanded(flex: 2, child: Row(children: [
-              const Text('NO OF ROWS :', style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-              const SizedBox(width: 5),
-              Expanded(child: SizedBox(height: 34,
+            Expanded(flex: 1, child: Row(children: [
+              const Text('ROWS :', style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
+              const SizedBox(width: 3),
+              Expanded(child: SizedBox(height: 30,
                 child: TextFormField(
                   key: ValueKey('rowcount_${taskId}_${rowCounts[taskId] ?? 1}'),
                   initialValue: (rowCounts[taskId] ?? 1).toString(),
@@ -1542,12 +1542,12 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   }
 Widget _dateWithDaysLeft(String? isoOrDateString) {
     if (isoOrDateString == null || isoOrDateString.isEmpty) {
-      return const Text('N/A', style: TextStyle(fontSize: 12, color: AppColors.textGrey));
+      return const Text('N/A', style: TextStyle(fontSize: 10, color: AppColors.textGrey));
     }
 
     final date = _parseFlexibleDate(isoOrDateString);
     if (date == null) {
-      return Text(isoOrDateString, style: const TextStyle(fontSize: 12, color: AppColors.textGrey));
+      return Text(isoOrDateString, style: const TextStyle(fontSize: 10, color: AppColors.textGrey));
     }
 
     final now = DateTime.now();
@@ -1570,9 +1570,9 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-      Text(formattedDate, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+      Text(formattedDate, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
       const SizedBox(height: 2),
-      Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+      Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
     ]);
   }
 
@@ -1847,10 +1847,10 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
 
   Widget _detailItem(String label, String value, {required int flex, Color? color}) {
     return Expanded(flex: flex, child: Row(children: [
-      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-      const SizedBox(width: 5),
+      Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
+      const SizedBox(width: 4),
       Expanded(child: Text(value,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: color ?? AppColors.textGrey),
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w400, color: color ?? AppColors.textGrey),
         overflow: TextOverflow.ellipsis, maxLines: 2)),
     ]));
   }
@@ -1936,7 +1936,7 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
           onChanged: (v) => setState(() => submissionDate = v),
         )),
         const SizedBox(width: 60),
-        SizedBox(width: 80, height: 34,
+        SizedBox(width: 60, height: 30,
           child: ElevatedButton(
             onPressed: () => setState(() => showTimeTracker = !showTimeTracker),
             style: ElevatedButton.styleFrom(
@@ -1945,7 +1945,7 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), elevation: 0,
             ),
             child: Text(showTimeTracker ? 'HIDE' : 'OPEN',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
           ),
         ),
         const SizedBox(width: 8),
@@ -1983,7 +1983,7 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
                   () => _handleStart('additional_$i', additionalTasks[i], i, 'additional_$i')),
               const SizedBox(width: 12),
               Text(formatDuration(taskDurations['additional_$i']),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
             ])),
           ]),
         ),
@@ -1992,4 +1992,4 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
 }
 
 const TextStyle _headerStyle = TextStyle(
-    fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172554));
+    fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554));
