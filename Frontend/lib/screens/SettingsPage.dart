@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:my_first_app/services/auth_service.dart';
-import 'package:my_first_app/layouts/admin_layout.dart';
+import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/layouts/admin_layout.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});

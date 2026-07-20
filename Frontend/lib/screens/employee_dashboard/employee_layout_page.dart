@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:my_first_app/core/constants/employee_role.dart';
-import 'package:my_first_app/core/widgets/employee_sidebar.dart';
-import 'package:my_first_app/core/widgets/employee_topbar.dart';
-import 'package:my_first_app/services/auth_service.dart';
+import 'package:godigital_portal/core/constants/employee_role.dart';
+import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
+import 'package:godigital_portal/core/widgets/employee_topbar.dart';
+import 'package:godigital_portal/services/auth_service.dart';
 
-import 'package:my_first_app/screens/employee_dashboard/designer_dashboard_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/page_handler_dashboard_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/ads_handler_dashboard_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/videographer_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/designer_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/page_handler_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/ads_handler_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_dashboard_page.dart';
 
-import 'package:my_first_app/screens/employee_dashboard/assigned_tasks_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/day_planner_screen.dart';
-import 'package:my_first_app/screens/employee_dashboard/notification_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/daily_reports_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/task_planner_page.dart';
-import 'package:my_first_app/screens/employee_dashboard/feedback_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/assigned_tasks_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/day_planner_screen.dart';
+import 'package:godigital_portal/screens/employee_dashboard/notification_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/daily_reports_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_planner_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
 // ← ADD THIS IMPORT for the videographer task planner
-import 'package:my_first_app/screens/employee_dashboard/videographer_task_planner.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class EmployeeLayoutPage extends StatefulWidget {

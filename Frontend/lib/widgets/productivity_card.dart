@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import 'package:my_first_app/core/constants/app_colors.dart';
+import 'package:godigital_portal/core/constants/app_colors.dart';
 
 class ProductivityCard extends StatelessWidget {
   final int approved;

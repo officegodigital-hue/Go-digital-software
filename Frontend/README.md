@@ -1,4 +1,4 @@
-# my_first_app
+# godigital_portal
 
 A new Flutter project.
 

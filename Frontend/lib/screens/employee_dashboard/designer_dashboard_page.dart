@@ -4,13 +4,13 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../services/api_config.dart';
 
-import 'package:my_first_app/core/constants/app_colors.dart';
-import 'package:my_first_app/core/constants/app_text_styles.dart';
-import 'package:my_first_app/core/widgets/metric_card.dart';
-import 'package:my_first_app/core/widgets/status_badge.dart';
-import 'package:my_first_app/services/auth_service.dart';
-import 'package:my_first_app/widgets/alerts_section.dart';
-import 'package:my_first_app/widgets/productivity_card.dart';
+import 'package:godigital_portal/core/constants/app_colors.dart';
+import 'package:godigital_portal/core/constants/app_text_styles.dart';
+import 'package:godigital_portal/core/widgets/metric_card.dart';
+import 'package:godigital_portal/core/widgets/status_badge.dart';
+import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/widgets/alerts_section.dart';
+import 'package:godigital_portal/widgets/productivity_card.dart';
 
 class DesignerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;

@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
-import 'package:my_first_app/services/auth_service.dart';
-import 'package:my_first_app/screens/login_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/admin_dashboard.dart';
-import 'package:my_first_app/screens/employee_dashboard/employee_layout_page.dart';
-import 'package:my_first_app/screens/admin_dashboard/client_history_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/client_onboarding_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/Package_Quotation_admin.dart';
-import 'package:my_first_app/screens/admin_dashboard/create_quotation_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/invoice_admin_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/add_invoice_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/tasks_assign_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/employee_status_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/manager_review_screen.dart';
-import 'package:my_first_app/screens/notifications_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/admin_panel_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/time_management_screen.dart';
-import 'package:my_first_app/screens/admin_dashboard/performance_page.dart';
+import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/screens/login_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
+import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/Package_Quotation_admin.dart';
+import 'package:godigital_portal/screens/admin_dashboard/create_quotation_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/invoice_admin_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/add_invoice_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/tasks_assign_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/employee_status_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/manager_review_screen.dart';
+import 'package:godigital_portal/screens/notifications_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 
-import 'package:my_first_app/screens/SettingsPage.dart';
+import 'package:godigital_portal/screens/SettingsPage.dart';
 
 
 

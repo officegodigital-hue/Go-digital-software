@@ -9,7 +9,7 @@ class ApiConfig {
       }
 
       // Running from EC2/server
-      // return 'http://${Uri.base.host}:3000/api';
+      // return 'http://${Uri.base.host}:3000/api'; 
        return '/api';
     }
 

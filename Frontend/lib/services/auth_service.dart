@@ -56,58 +56,104 @@ import 'api_config.dart';
 
 
   // Login with email and password
-  Future<bool> login(String email, String password, bool isAdmin) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+  // Future<bool> login(String email, String password, bool isAdmin) async {
+  //   _isLoading = true;
+  //   _error = null;
+  //   notifyListeners();
 
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'userType': isAdmin ? 'admin' : 'employee',
-        }),
-      ).timeout(const Duration(seconds: 10));
+  //   try {
+  //     final response = await http.post(
+  //       Uri.parse('$baseUrl/auth/login'),
+  //       headers: {'Content-Type': 'application/json'},
+  //       body: jsonEncode({
+  //         'email': email,
+  //         'password': password,
+  //         'userType': isAdmin ? 'admin' : 'employee',
+  //       }),
+  //     ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+  //     if (response.statusCode == 200) {
+  //       final data = jsonDecode(response.body);
         
-        if (data['success'] == true && data['token'] != null) {
-          _token = data['token'];
-          _user = data['user'];
+  //       if (data['success'] == true && data['token'] != null) {
+  //         _token = data['token'];
+  //         _user = data['user'];
 
-          // Store token and user data
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('auth_token', _token!);
-          await prefs.setString('user_data', jsonEncode(_user));
-          await prefs.setBool('isLoggedIn', true);
-          await prefs.setString('role', _user?['role'] ?? '');
+  //         // Store token and user data
+  //         final prefs = await SharedPreferences.getInstance();
+  //         await prefs.setString('auth_token', _token!);
+  //         await prefs.setString('user_data', jsonEncode(_user));
+  //         await prefs.setBool('isLoggedIn', true);
+  //         await prefs.setString('role', _user?['role'] ?? '');
 
-          _isLoading = false;
-          notifyListeners();
-          return true;
-        } else {
-          _error = data['message'] ?? 'Login failed';
-          _isLoading = false;
-          notifyListeners();
-          return false;
-        }
-      } else {
-        _error = 'Server error: ${response.statusCode}';
-        _isLoading = false;
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _error = 'Connection error: $e';
+  //         _isLoading = false;
+  //         notifyListeners();
+  //         return true;
+  //       } else {
+  //         _error = data['message'] ?? 'Login failed';
+  //         _isLoading = false;
+  //         notifyListeners();
+  //         return false;
+  //       }
+  //     } else {
+  //       _error = 'Server error: ${response.statusCode}';
+  //       _isLoading = false;
+  //       notifyListeners();
+  //       return false;
+  //     }
+  //   } catch (e) {
+  //     _error = 'Connection error: $e';
+  //     _isLoading = false;
+  //     notifyListeners();
+  //     return false;
+  //   }
+  // }
+
+  Future<bool> login(String email, String password, bool isAdmin) async {
+  _isLoading = true;
+  _error = null;
+  notifyListeners();
+
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        'userType': isAdmin ? 'admin' : 'employee',
+      }),
+    ).timeout(const Duration(seconds: 10));
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200 && data['success'] == true) {
+      _token = data['token'];
+      _user = data['user'];
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_token', _token!);
+      await prefs.setString('user_data', jsonEncode(_user));
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('role', _user?['role'] ?? '');
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } else {
+      // Show the exact message from the backend
+      _error = data['message'] ?? 'Login failed';
       _isLoading = false;
       notifyListeners();
       return false;
     }
+  } catch (e) {
+    _error = 'Unable to connect to server.';
+    _isLoading = false;
+    notifyListeners();
+    return false;
   }
+}
 
   // Logout
   Future<void> logout() async {

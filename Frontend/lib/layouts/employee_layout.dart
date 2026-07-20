@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:my_first_app/core/constants/employee_role.dart';
-import 'package:my_first_app/core/widgets/employee_sidebar.dart';
-import 'package:my_first_app/core/widgets/employee_topbar.dart';
+import 'package:godigital_portal/core/constants/employee_role.dart';
+import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
+import 'package:godigital_portal/core/widgets/employee_topbar.dart';
 
 class EmployeeLayout extends StatelessWidget {
   final String selectedMenu;

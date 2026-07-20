@@ -1,6 +1,6 @@
 {
-    "name": "my_first_app",
-    "short_name": "my_first_app",
+    "name": "godigital_portal",
+    "short_name": "godigital_portal",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

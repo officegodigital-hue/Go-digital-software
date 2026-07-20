@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:my_first_app/core/constants/app_colors.dart';
+import 'package:godigital_portal/core/constants/app_colors.dart';
 
 class AlertsSection extends StatelessWidget {
   const AlertsSection({super.key});

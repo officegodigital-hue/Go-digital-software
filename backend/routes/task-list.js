@@ -40,6 +40,12 @@ router.post('/find-or-create', async (req, res) => {
     employeeId, employeeName,
   } = req.body;
 
+  let formattedSubmissionDate = null;
+
+if (submissionDate) {
+    formattedSubmissionDate = submissionDate.toString().split('T')[0];
+}
+
   if (!taskAssignmentId || !clientName || !deliverables)
     return res.status(400).json({ success: false, message: 'taskAssignmentId, clientName and deliverables are required' });
 
@@ -150,7 +156,9 @@ router.post('/find-or-create', async (req, res) => {
       [
         taskAssignmentId, employeeId || null, employeeName || null,
         resolvedTaskMasterId, resolvedTaskTimingId,
-        clientName, deliverables, resolvedDuration, submissionDate || null, noOfRows || 1,
+        // clientName, deliverables, resolvedDuration, submissionDate || null, noOfRows || 1,
+        
+        clientName, deliverables, resolvedDuration, formattedSubmissionDate, noOfRows || 1,
       ]
     );
 
@@ -245,6 +253,12 @@ router.get('/client/:clientName', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { taskAssignmentId, taskMasterId, taskTimingId, clientName, deliverables, duration, submissionDate, noOfRows } = req.body;
 
+  let formattedSubmissionDate = null;
+
+if (submissionDate) {
+    formattedSubmissionDate = submissionDate.toString().split('T')[0];
+}
+
   try {
     const [existing] = await db.query(`SELECT * FROM task_list WHERE id = ?`, [req.params.id]);
     if (existing.length === 0)
@@ -264,7 +278,8 @@ router.put('/:id', async (req, res) => {
         clientName !== undefined ? clientName : cur.client_name,
         deliverables !== undefined ? deliverables : cur.deliverables,
         duration !== undefined ? duration : cur.duration,
-        submissionDate !== undefined ? submissionDate : cur.submission_date,
+        // submissionDate !== undefined ? submissionDate : cur.submission_date,
+        submissionDate ? submissionDate.toString().split('T')[0] : cur.submission_date,
         noOfRows !== undefined ? noOfRows : cur.no_of_rows,
         req.params.id,
       ]

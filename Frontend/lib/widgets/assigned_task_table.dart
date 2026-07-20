@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:my_first_app/core/constants/app_colors.dart';
-import 'package:my_first_app/core/constants/app_text_styles.dart';
-import 'package:my_first_app/core/widgets/status_badge.dart';
-import 'package:my_first_app/models/task_model.dart';
+import 'package:godigital_portal/core/constants/app_colors.dart';
+import 'package:godigital_portal/core/constants/app_text_styles.dart';
+import 'package:godigital_portal/core/widgets/status_badge.dart';
+import 'package:godigital_portal/models/task_model.dart';
 
 class AssignedTaskTable extends StatelessWidget {
   const AssignedTaskTable({super.key});

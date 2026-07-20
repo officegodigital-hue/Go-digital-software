@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const db = require('../config/db'); 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production-to-random-key';
 const JWT_EXPIRY = '7d';
@@ -47,13 +47,21 @@ LIMIT 1
 [email, email, userType || 'employee']
 );
 
+    // if (rows.length === 0) {
+    //   console.log(`❌ Login failed: No user found with email "${email}"`);
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: 'Invalid email or password',
+    //   });
+    // }
+
     if (rows.length === 0) {
-      console.log(`❌ Login failed: No user found with email "${email}"`);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
-      });
-    }
+  console.log(`❌ Login failed: No user found with "${email}"`);
+  return res.status(401).json({
+    success: false,
+    message: 'Username or email not found.',
+  });
+}
 
     const user = rows[0];
     console.log(`📌 User found: ${user.full_name} (${user.role})`);
@@ -71,13 +79,21 @@ LIMIT 1
     // const passwordMatch = await bcrypt.compare(password, user.password);
     const passwordMatch = password === user.password;
 
+    // if (!passwordMatch) {
+    //   console.log(`❌ Login failed: Invalid password for "${email}"`);
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: 'Invalid email or password',
+    //   });
+    // }
+
     if (!passwordMatch) {
-      console.log(`❌ Login failed: Invalid password for "${email}"`);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
-      });
-    }
+  console.log(`❌ Login failed: Incorrect password for "${email}"`);
+  return res.status(401).json({
+    success: false,
+    message: 'Incorrect password.',
+  });
+}
 
     // Generate JWT token
     const token = jwt.sign(
