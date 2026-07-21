@@ -16,7 +16,7 @@ class PackageQuotationAdmin extends StatefulWidget {
 class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
   // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
-
+ 
   bool _showAllPackages = true;
   List<Map<String, dynamic>> packagesData = [];
   bool _loadingPackages = true;
@@ -139,11 +139,23 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
 
   Future<void> _updateQuotationStatus(int id, String status) async {
     try {
-      final response = await http.patch(
-        Uri.parse('$_baseUrl/quotations/$id/status'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'status': status}),
-      );
+print("Quotation ID: $id");
+print("Status: ACCEPTED");
+
+final response = await http.patch(
+  Uri.parse("$_baseUrl/quotations/$id/status"),
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: jsonEncode({
+    "status": "ACCEPTED",
+  }),
+);
+
+print("Status Code: ${response.statusCode}");
+print("Response Body: ${response.body}");
+
+
       if (response.statusCode == 200) {
         await _fetchQuotations();
         final body = jsonDecode(response.body) as Map<String, dynamic>;
