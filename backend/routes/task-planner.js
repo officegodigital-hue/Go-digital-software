@@ -7,6 +7,8 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
+const { createNotification } = require('./notifications');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/task-planner?employee=NAME
 // Returns all planner section rows for this employee
@@ -187,6 +189,18 @@ router.patch('/:id/share', async (req, res) => {
     );
 
     await connection.commit();
+
+    await createNotification({
+  senderName: senderEmployeeName,
+  recipientName: receiverEmployeeName,
+  message: JSON.stringify({
+    type: "TASK_PLANNER_SHARE",
+    title: "Important Task Planner",
+    sender: senderEmployeeName,
+    contentType: contentType,
+    content: content,
+  }),
+});
 
     return res.json({
       success: true,

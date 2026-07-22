@@ -526,35 +526,135 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+// void _handleNotificationClick(Map<String, dynamic> log) {
+//   final msg = log["message"].toString();
+  
+//   // 1. Debugging: Click work aagutha nu paakka
+//   debugPrint("DEBUG: Notification clicked. Message: $msg");
+
+//   // 2. Exact-a PLAN_SUBMITTED nu iruntha mattum execute aagum
+//   // contains() use pannuvom so that it catches if there's any extra text
+//   if (msg.contains("PLAN_SUBMITTED")) {
+    
+//     // Message structure: PLAN_SUBMITTED|EmployeeName|Date
+//     final parts = msg.split('|');
+    
+//     // Index 0: PLAN_SUBMITTED, Index 1: Name, Index 2: Date
+//     if (parts.length >= 3) {
+//       final empName = parts[1].trim(); // trim() add pannunga (spaces remove panna)
+//       final date = parts[2].trim();
+      
+//       debugPrint("DEBUG: Opening Popup for $empName on $date");
+      
+//       showDialog(
+//         context: context, 
+//         builder: (BuildContext dialogContext) {
+//           return AlertDialog(
+//             title: Text("Day Plan Details: $empName ($date)"),
+//             content: SizedBox(
+//               width: 900,
+//               height: 500,
+//               child: DayPlanTableViewer(employeeName: empName, date: date),
+//             ),
+//             actions: [
+//               TextButton(
+//                 onPressed: () => Navigator.pop(dialogContext),
+//                 child: const Text("Close"),
+//               ),
+//             ],
+//           );
+//         },
+//       );
+//     } else {
+//       debugPrint("DEBUG: Message format mismatch. Parts: ${parts.length}");
+//     }
+//   } else {
+//     debugPrint("DEBUG: Message does not contain PLAN_SUBMITTED");
+//   }
+// }
+
+
 void _handleNotificationClick(Map<String, dynamic> log) {
   final msg = log["message"].toString();
-  
-  // 1. Debugging: Click work aagutha nu paakka
-  debugPrint("DEBUG: Notification clicked. Message: $msg");
 
-  // 2. Exact-a PLAN_SUBMITTED nu iruntha mattum execute aagum
-  // contains() use pannuvom so that it catches if there's any extra text
-  if (msg.contains("PLAN_SUBMITTED")) {
-    
-    // Message structure: PLAN_SUBMITTED|EmployeeName|Date
-    final parts = msg.split('|');
-    
-    // Index 0: PLAN_SUBMITTED, Index 1: Name, Index 2: Date
-    if (parts.length >= 3) {
-      final empName = parts[1].trim(); // trim() add pannunga (spaces remove panna)
-      final date = parts[2].trim();
-      
-      debugPrint("DEBUG: Opening Popup for $empName on $date");
-      
+  // Mark as seen
+  if (!(log["isSeen"] as bool)) {
+    _markAsSeen(log);
+  }
+
+  debugPrint("DEBUG: Notification clicked: $msg");
+
+  // ============================
+  // TASK PLANNER SHARE
+  // ============================
+  try {
+    final data = jsonDecode(msg);
+
+    if (data["type"] == "TASK_PLANNER_SHARE") {
       showDialog(
-        context: context, 
-        builder: (BuildContext dialogContext) {
+        context: context,
+        builder: (dialogContext) {
           return AlertDialog(
-            title: Text("Day Plan Details: $empName ($date)"),
+            title: const Row(
+              children: [
+                Icon(Icons.priority_high, color: Colors.red),
+                SizedBox(width: 8),
+                Text("Important Task Planner"),
+              ],
+            ),
             content: SizedBox(
-              width: 900,
-              height: 500,
-              child: DayPlanTableViewer(employeeName: empName, date: date),
+              width: 650,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Shared By",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(data["sender"] ?? "-"),
+
+                  const SizedBox(height: 20),
+
+                  const Text(
+                    "Content Type",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(data["contentType"] ?? "-"),
+
+                  const SizedBox(height: 20),
+
+                  const Text(
+                    "Message",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(15),
+                    decoration: BoxDecoration(
+                      color: const Color(0xfff8fafc),
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SelectableText(
+                      data["content"] ?? "",
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -565,11 +665,105 @@ void _handleNotificationClick(Map<String, dynamic> log) {
           );
         },
       );
-    } else {
-      debugPrint("DEBUG: Message format mismatch. Parts: ${parts.length}");
+
+      return;
     }
-  } else {
-    debugPrint("DEBUG: Message does not contain PLAN_SUBMITTED");
+  } catch (_) {
+    // Not a JSON notification, continue checking below.
+  }
+
+  // ============================
+  // DAY PLANNER
+  // ============================
+  if (msg.contains("PLAN_SUBMITTED")) {
+    final parts = msg.split('|');
+
+    if (parts.length >= 3) {
+      final empName = parts[1].trim();
+      final date = parts[2].trim();
+
+      debugPrint("DEBUG: Opening Day Planner popup");
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text("Day Plan Details: $empName ($date)"),
+            content: SizedBox(
+              width: 900,
+              height: 500,
+              child: DayPlanTableViewer(
+                employeeName: empName,
+                date: date,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text("Close"),
+              ),
+            ],
+          );
+        },
+      );
+
+      return;
+    }
+  }
+
+  // ============================
+  // video shoot PLANNER
+  // ============================
+
+if (msg.startsWith("{")) {
+  final data = jsonDecode(msg);
+
+  if (data["type"] == "VIDEOGRAPHER_SHARE") {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Videographer Task"),
+        content: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Shared By : ${data["sender"]}"),
+              const SizedBox(height: 10),
+              Text("Client : ${data["client"]}"),
+              const SizedBox(height: 10),
+              Text("Scheduling Details :"),
+              const SizedBox(height: 5),
+              Text(data["schedulingDetails"]),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+  debugPrint("DEBUG: No popup matched.");
+}
+
+
+Future<void> _markAsSeen(Map<String, dynamic> log) async {
+  try {
+    await http.patch(
+      Uri.parse('${ApiConfig.baseUrl}/notifications/${log["id"]}'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'isSeen': true}),
+    );
+    setState(() => log["isSeen"] = true); // UI-la update panna
+  } catch (e) {
+    debugPrint("Error marking seen: $e");
   }
 }
 

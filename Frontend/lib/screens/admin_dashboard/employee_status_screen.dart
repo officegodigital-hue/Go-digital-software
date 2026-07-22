@@ -238,14 +238,45 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "Employee Status",
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
-                      ),
-                      const SizedBox(height: 20),
+                    //   const Text(
+                    //     "Employee Status",
+                    //     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                    //   ),
+                    //   const SizedBox(height: 20),
 
-SizedBox(
+// SizedBox(
+//   width: 350,
+//   child: TextField(
+//     onChanged: (value) {
+//       setState(() {
+//         searchText = value;
+//       });
+//     },
+//     decoration: InputDecoration(
+//       hintText: "Search Client / Employee / Task",
+//       prefixIcon: const Icon(Icons.search),
+//       border: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(8),
+//       ),
+//       contentPadding: const EdgeInsets.symmetric(vertical: 12),
+//     ),
+//   ),
+// ),
+
+Container(
   width: 350,
+  height: 42,
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(12),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.05),
+        blurRadius: 10,
+        offset: const Offset(0, 3),
+      ),
+    ],
+  ),
   child: TextField(
     onChanged: (value) {
       setState(() {
@@ -254,11 +285,26 @@ SizedBox(
     },
     decoration: InputDecoration(
       hintText: "Search Client / Employee / Task",
-      prefixIcon: const Icon(Icons.search),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+      hintStyle: TextStyle(
+        color: Colors.grey.shade500,
+        fontSize: 13,
       ),
-      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      prefixIcon: const Icon(
+        Icons.search_rounded,
+        color: Color.fromARGB(255, 158, 158, 158),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: Colors.grey.shade300,
+          width: 1,
+        ),
+      ),
+      border: InputBorder.none,
+      contentPadding: const EdgeInsets.symmetric(
+        vertical: 11,
+        horizontal: 10,
+      ),
     ),
   ),
 ),

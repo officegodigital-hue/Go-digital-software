@@ -3,6 +3,8 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
+const { createNotification } = require('./notifications');
+
 // ── Default sections for videographer ────────────────────────────────────────
 const DEFAULT_SECTIONS = 5; // 5 empty rows by default
 
@@ -105,6 +107,18 @@ router.patch('/:id/share', async (req, res) => {
         receiverRole, receiverShort || '',
       ]
     );
+
+    await createNotification({
+  senderName: senderEmployeeName,
+  recipientName: receiverEmployeeName,
+  message: JSON.stringify({
+    type: "VIDEOGRAPHER_SHARE",
+    sender: senderEmployeeName,
+    client: clientName,
+    schedulingDetails: schedulingDetails,
+    sharedAt: new Date(),
+  }),
+});
 
     // Clear fields on main row so it's ready for next entry
     await connection.query(

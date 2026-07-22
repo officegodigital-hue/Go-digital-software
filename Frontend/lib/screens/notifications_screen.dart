@@ -296,29 +296,159 @@ static String get _baseUrl => ApiConfig.baseUrl;
     }).toList();
   }
 
+// void _handleNotificationClick(Map<String, dynamic> log) {
+//   final msg = log["message"].toString();
+
+//   // 1. Mark as Seen (Idhu widget kulla illai, so error varathu)
+//   if (!(log["isSeen"] as bool)) {
+//     _markAsSeen(log);
+//   }
+
+//   // 2. Popup open panna
+//   if (msg.startsWith("PLAN_SUBMITTED")) {
+//     final parts = msg.split('|');
+//     if (parts.length >= 3) {
+//       final empName = parts[1];
+//       final date = parts[2];
+
+//       showDialog(
+//         context: context,
+//         builder: (context) => AlertDialog(
+//           title: Text("Day Plan Details: $empName ($date)"),
+//           content: SizedBox(
+//             width: 900,
+//             height: 500,
+//             child: DayPlanTableViewer(employeeName: empName, date: date),
+//           ),
+//           actions: [
+//             TextButton(
+//               onPressed: () => Navigator.pop(context),
+//               child: const Text("Close"),
+//             ),
+//           ],
+//         ),
+//       );
+//     }
+//   }
+// }
+
 void _handleNotificationClick(Map<String, dynamic> log) {
   final msg = log["message"].toString();
 
-  // 1. Mark as Seen (Idhu widget kulla illai, so error varathu)
+  // Mark notification as seen
   if (!(log["isSeen"] as bool)) {
     _markAsSeen(log);
   }
 
-  // 2. Popup open panna
+  // -------------------------------
+  // Task Planner Share Notification
+  // -------------------------------
+  try {
+    final data = jsonDecode(msg);
+
+    if (data["type"] == "TASK_PLANNER_SHARE") {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(
+            children: const [
+              Icon(Icons.priority_high, color: Colors.red),
+              SizedBox(width: 8),
+              Text("Important Task Planner"),
+            ],
+          ),
+          content: SizedBox(
+            width: 600,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                const Text(
+                  "Shared By",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 5),
+
+                Text(data["sender"] ?? "-"),
+
+                const SizedBox(height: 20),
+
+                const Text(
+                  "Content Type",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 5),
+
+                Text(data["contentType"] ?? "-"),
+
+                const SizedBox(height: 20),
+
+                const Text(
+                  "Message",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: const Color(0xfff8fafc),
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    data["content"] ?? "",
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            )
+          ],
+        ),
+      );
+
+      return;
+    }
+  } catch (_) {}
+
+  // -------------------------------
+  // Existing Day Planner Notification
+  // -------------------------------
   if (msg.startsWith("PLAN_SUBMITTED")) {
     final parts = msg.split('|');
+
     if (parts.length >= 3) {
       final empName = parts[1];
       final date = parts[2];
 
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (_) => AlertDialog(
           title: Text("Day Plan Details: $empName ($date)"),
           content: SizedBox(
             width: 900,
             height: 500,
-            child: DayPlanTableViewer(employeeName: empName, date: date),
+            child: DayPlanTableViewer(
+              employeeName: empName,
+              date: date,
+            ),
           ),
           actions: [
             TextButton(
@@ -331,7 +461,6 @@ void _handleNotificationClick(Map<String, dynamic> log) {
     }
   }
 }
-
 
 Future<void> _markAsSeen(Map<String, dynamic> log) async {
   try {
