@@ -744,7 +744,7 @@ Timer? saveTimer;
     );
   }
 
-  void dispose() {
+  void dispose() { 
     contentTypeController.dispose();
     contentController.dispose();
   }

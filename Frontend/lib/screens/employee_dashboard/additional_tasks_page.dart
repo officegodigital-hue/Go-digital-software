@@ -7,22 +7,22 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/constants/employee_role.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
-import 'additional_tasks_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'employee_layout_page.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 enum TaskStatus { idle, running, held, completed, rejected }
 
-class AssignedTasksContent extends StatefulWidget {
+class AdditionalTasksPage extends StatefulWidget {
   final EmployeeRole role;
-  const AssignedTasksContent({super.key, required this.role});
+  const AdditionalTasksPage({super.key, required this.role});
 
   @override
-  State<AssignedTasksContent> createState() => _AssignedTasksContentState();
+  State<AdditionalTasksPage> createState() => _AdditionalTasksPageState();
 }
 
-class _AssignedTasksContentState extends State<AssignedTasksContent> {
-  // static const String _baseUrl = '/api';
+class _AdditionalTasksPageState extends State<AdditionalTasksPage> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   static const double snoWidth         = 50;
@@ -43,12 +43,18 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
 
   List<Map<String, dynamic>> assignedTasks = [];
   List<String>               taskTabNames  = [];
-  final List<Map<String, dynamic>> additionalTasks = [];
 
   Map<String, int> expectedTimingMinutes = {};
-  Map<String, int> taskListIds = {};              // taskId -> task_list.id
-  Map<String, int> trackingItemIds = {};          // taskKey -> time_tracking_task_items.id
-  Map<String, String> taskListDurations = {};     // taskId -> task_list.duration (resolved from task_timings)
+  Map<String, int> taskListIds = {};             
+  Map<String, int> trackingItemIds = {};         
+  Map<String, String> taskListDurations = {};    
+
+  // Form Controllers for Adding Additional Tasks
+  final TextEditingController _addClientController = TextEditingController();
+  final TextEditingController _addDeliverableController = TextEditingController();
+  final TextEditingController _addDurationController = TextEditingController();
+  final TextEditingController _addSubmissionDateController = TextEditingController();
+  final TextEditingController _addRowController = TextEditingController(text: '1');
 
   Map<String, dynamic> _parseTaskWithCount(String raw) {
     final trimmed = raw.trim();
@@ -61,21 +67,23 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     return {'name': trimmed, 'count': 1};
   }
 
-  bool showAdditionalTask = false;
-  bool showTimeTracker    = false;
-  bool _isSaving          = false;
-  bool _loadingTasks      = true;
+  bool _isSaving     = false;
+  bool _loadingTasks = true;
   String? expandedTaskId;
   int? selectedTabIndex;
-   String? _selectedClientFilter;
-  // final TextEditingController _clientSearchController = TextEditingController();
+  String? _selectedClientFilter;
   TextEditingController? _clientSearchFieldController;
   String? _error;
 
-  String clientName      = '';
-  String deliverableName = '';
-  String durationValue   = '';
-  String submissionDate  = '';
+  String? selectedClient;
+String? selectedDeliverable;
+
+List<String> clients = [];
+
+bool _loadingClients = false;
+
+// List<Map<String, dynamic>> timings = [];
+
 
   List<String> get _assignedClientNames {
     final names = assignedTasks
@@ -87,10 +95,6 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     return names;
   }
 
-  // FIX: only tabs that actually have a task for the filtered client (or
-  // all tabs, when nothing is filtered) show up. Kept as full-list INDICES
-  // (not a separately-ordered list) so selectedTabIndex still correctly
-  // points into taskTabNames everywhere else in this file.
   List<int> get _visibleTabIndices {
     if (_selectedClientFilter == null || _selectedClientFilter!.isEmpty) {
       return List.generate(taskTabNames.length, (i) => i);
@@ -106,8 +110,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     return indices;
   }
 
-  // ── All state maps keyed by taskKey = '{taskId}_row_{rowIndex}' ───────────
-  Map<String, String>   taskComments            = {};
+  Map<String, String>    taskComments            = {};
   Map<String, DateTime> taskStartTimes          = {};
   Map<String, DateTime> taskCurrentSessionStart = {};
   Map<String, Timer>    taskTimers              = {};
@@ -125,14 +128,67 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   Map<String, List<DateTime>> taskRejectedTimes  = {};
 
   final Map<String, Map<String, dynamic>> _rowContext = {};
-  // Track saved DB ids so we can PUT instead of POST on updates
   Map<String, int> savedTrackerIds = {};
 
   String? currentRunningTaskKey;
   String? _employeeName;
-  // FIX: cache the logged-in employee's id once, resolved from whichever key
-  // AuthService actually exposes, so task_list.employee_id is reliably saved.
   dynamic _employeeId;
+
+
+Future<void> _fetchClientsFromInvoices() async {
+  setState(() => _loadingClients = true);
+
+  try {
+    final response =
+        await http.get(Uri.parse("$_baseUrl/invoices"));
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+
+      final data =
+          List<Map<String, dynamic>>.from(body["data"]);
+
+      final now = DateTime.now();
+
+      final currentMonth = now.month;
+      final currentYear = now.year;
+
+      final Set<String> uniqueClients = {};
+
+      for (final invoice in data) {
+        final invoiceDate =
+            invoice["invoice_date"]?.toString() ?? "";
+
+        if (invoiceDate.isEmpty) continue;
+
+        try {
+          final parts = invoiceDate.split("/");
+
+          final month = int.parse(parts[1]);
+          final year = int.parse(parts[2]);
+
+          if (month == currentMonth &&
+              year == currentYear) {
+            final client =
+                invoice["client_name"]?.toString() ?? "";
+
+            if (client.isNotEmpty) {
+              uniqueClients.add(client);
+            }
+          }
+        } catch (_) {}
+      }
+
+      setState(() {
+        clients = uniqueClients.toList();
+      });
+    }
+  } catch (e) {
+    debugPrint(e.toString());
+  }
+
+  setState(() => _loadingClients = false);
+}
 
   @override
   void initState() {
@@ -140,34 +196,61 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     _resolveLoggedInEmployee();
     _fetchTimingData();
     _fetchEmployeeAssignedTasks();
+   _fetchClientsFromInvoices();
+  _fetchTaskTimings();
   }
 
-  // FIX: centralised employee resolution — tries the common key variants so a
-  // schema/key rename in AuthService.user doesn't silently null out employeeId.
   void _resolveLoggedInEmployee() {
     final user = context.read<AuthService>().user;
     _employeeName = (user?['fullName'] ?? user?['name'] ?? '') as String? ?? '';
     _employeeId = user?['id'] ?? user?['employeeId'] ?? user?['employee_id'] ?? user?['userId'];
   }
 
-  // ── FIX: single source of truth for building a taskId. Every place that
-  // used to do '${client_name}_${singleTask}_$i' (with i computed differently
-  // in different functions) now calls this instead, so the same task always
-  // maps to the same taskId everywhere in the widget. ─────────────────────
   String _taskIdFor(Map<String, dynamic> task) {
-    final tab = task['singleTask'] as String? ?? '';
-    final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
-    // Prefer matching on the unique taskAssignmentId when available — this is
-    // the only field that reliably disambiguates two rows that share the same
-    // client_name + singleTask (e.g. the same client assigned "GMB" twice).
-    final idx = task['taskAssignmentId'] != null
-        ? tasksForTab.indexWhere((t) => t['taskAssignmentId'] == task['taskAssignmentId'])
-        : tasksForTab.indexWhere((t) => t['client_name'] == task['client_name']);
-    final safeIdx = idx < 0 ? 0 : idx;
-    return '${task['client_name']}_${task['singleTask']}_$safeIdx';
-  }
+  final tab = task['singleTask'] as String? ?? '';
 
-  // ── FETCH TIMING ──────────────────────────────────────────────────────────
+  final tasksForTab = assignedTasks
+      .where((t) => t['singleTask'] == tab)
+      .toList();
+
+  final idx = task['additionalTaskId'] != null
+      ? tasksForTab.indexWhere(
+          (t) => t['additionalTaskId'] == task['additionalTaskId'],
+        )
+      : tasksForTab.indexWhere(
+          (t) => t['client_name'] == task['client_name'],
+        );
+
+  final safeIdx = idx < 0 ? 0 : idx;
+
+  return '${task['client_name']}_${task['singleTask']}_$safeIdx';
+}
+
+ List<Map<String, dynamic>> taskTimings = [];
+
+Future<void> _fetchTaskTimings() async {
+  try {
+    final response = await http.get(
+      Uri.parse("$_baseUrl/timings"),
+    );
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+
+      setState(() {
+        taskTimings =
+            List<Map<String, dynamic>>.from(json["data"]);
+      });
+
+      debugPrint("Task Timings Loaded");
+      debugPrint(taskTimings.toString());
+    } else {
+      debugPrint("Failed : ${response.statusCode}");
+    }
+  } catch (e) {
+    debugPrint("Error : $e");
+  }
+}
   Future<void> _fetchTimingData() async {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/timings'));
@@ -214,276 +297,140 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   List<String> _splitTasks(String s) =>
       s.isEmpty ? [] : s.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
 
-  // ── FETCH ASSIGNED TASKS then load saved tracker data ─────────────────────
   Future<void> _fetchEmployeeAssignedTasks() async {
-    setState(() { _loadingTasks = true; _error = null; });
-    try {
-      _resolveLoggedInEmployee();
+  setState(() {
+    _loadingTasks = true;
+    _error = null;
+  });
 
-      if (_employeeName == null || _employeeName!.isEmpty) {
-        setState(() { _error = 'Employee name not found. Please re-login.'; _loadingTasks = false; });
-        return;
-      }
+  try {
+    _resolveLoggedInEmployee();
 
-      final r = await http.get(Uri.parse('$_baseUrl/employee-tasks/by-employee/$_employeeName'));
-
-      if (r.statusCode == 200) {
-        final data = List<dynamic>.from(jsonDecode(r.body)['data'] ?? []);
-        final allTabs   = <String>{};
-        final processed = <Map<String, dynamic>>[];
-        final nameUpper = _employeeName!.toUpperCase();
-
-        for (var task in data) {
-          final m = Map<String, dynamic>.from(task);
-
-          // void addRole(String? colVal, String tasksCol, String submitCol, String role, String typeLabel) {
-          //   if (colVal == null || colVal.toUpperCase() != nameUpper) return;
-          //   for (var st in _splitTasks(m[tasksCol]?.toString() ?? '')) {
-          //     final parsed    = _parseTaskWithCount(st);
-          //     final taskName  = parsed['name'] as String;
-          //     final taskCount = parsed['count'] as int;
-
-          //     allTabs.add(taskName);
-          //     processed.add({
-          //       'client_name':      m['client_name'],
-          //       'deliverables':     m['deliverables'],
-          //       'deadline':         m['deadline'],
-          //       'assignedRole':     role,
-          //       'singleTask':       taskName,
-          //       'rowCount':         taskCount,
-          //       'assignedDate':     m[submitCol],
-          //       'taskType':         typeLabel,
-          //       'taskAssignmentId': m['id'],
-          //     });
-          //   }
-          // }
-
-          // addRole(m['designer'],       'designer_tasks',    'designer_submit_date',     'designer',    'Designer');
-          // addRole(m['videographer'],   'videographer_tasks','videographer_submit_date', 'videographer','Videographer');
-          // addRole(m['video_editor'],   'video_editor_task', 'video_editor_submit_date', 'video_editor','Video Editor');
-          // addRole(m['ads_handling'],   'ads_platform',      'ads_submit_date',          'ads',         'Ads Handler');
-          // addRole(m['page_handling'],  'pages_platform',    'page_submit_date',         'page',        'Page Handler');
-          // addRole(m['ui_ux_designer'], 'ui_ux_tasks',       'ui_ux_submit_date',        'uiux',        'UI/UX Designer');
-          // addRole(m['developer'],      'developer_task',    'developer_submit_date',    'developer',   'Developer');
-        void addDesignerTasks() {
-            if (m['designer'] == null || m['designer'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['designer_tasks']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'designer',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['designer_submit_date'],   // ← literal, explicit
-                'taskType':         'Designer',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addVideographerTasks() {
-            if (m['videographer'] == null || m['videographer'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['videographer_tasks']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'videographer',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['videographer_submit_date'],
-                'taskType':         'Videographer',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addVideoEditorTasks() {
-            if (m['video_editor'] == null || m['video_editor'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['video_editor_task']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'video_editor',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['video_editor_submit_date'],
-                'taskType':         'Video Editor',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addAdsHandlingTasks() {
-            if (m['ads_handling'] == null || m['ads_handling'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['ads_platform']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'ads',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['ads_submit_date'],
-                'taskType':         'Ads Handler',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addPageHandlingTasks() {
-            if (m['page_handling'] == null || m['page_handling'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['pages_platform']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'page',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['page_submit_date'],
-                'taskType':         'Page Handler',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addUiUxTasks() {
-            if (m['ui_ux_designer'] == null || m['ui_ux_designer'].toString().toUpperCase() != nameUpper) return;
-            for (var st in _splitTasks(m['ui_ux_tasks']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'uiux',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['ui_ux_submit_date'],
-                'taskType':         'UI/UX Designer',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          void addDeveloperTasks() {
-            if (m['developer'] == null || m['developer'].toString().toUpperCase() != nameUpper) return;
-            // for (var st in _splitTasks(m['developer_task']?.toString() ?? '')) {
-            for (var st in _splitTasks(m['developer_tasks']?.toString() ?? '')) {
-              final parsed = _parseTaskWithCount(st);
-              allTabs.add(parsed['name'] as String);
-              processed.add({
-                'client_name':      m['client_name'],
-                'deliverables':     m['deliverables'],
-                'deadline':         m['deadline'],
-                'assignedRole':     'developer',
-                'singleTask':       parsed['name'] as String,
-                'rowCount':         parsed['count'] as int,
-                'assignedDate':     m['developer_submit_date'],
-                'taskType':         'Developer',
-                'taskAssignmentId': m['id'],
-              });
-            }
-          }
-
-          addDesignerTasks();
-          addVideographerTasks();
-          addVideoEditorTasks();
-          addAdsHandlingTasks();
-          addPageHandlingTasks();
-          addUiUxTasks();
-          addDeveloperTasks();
-        
-        }
-
-        // seed rowCounts using the SAME scheme as _taskIdFor (index within the
-        // tab, matched by taskAssignmentId first, client_name as fallback)
-        for (final tab in allTabs) {
-          final tasksForTab = processed.where((t) => t['singleTask'] == tab).toList();
-          for (int i = 0; i < tasksForTab.length; i++) {
-            final t = tasksForTab[i];
-            final taskId = '${t['client_name']}_${t['singleTask']}_$i';
-            rowCounts.putIfAbsent(taskId, () => (t['rowCount'] as int?) ?? 1);
-          }
-        }
-
-        setState(() {
-          assignedTasks = processed;
-          taskTabNames  = allTabs.toList();
-          if (taskTabNames.isNotEmpty) selectedTabIndex = 0;
-          _loadingTasks = false;
-        });
-        await Future.delayed(const Duration(milliseconds: 100));
-
-        // ── Pull real duration + no_of_rows from task_list for every task ────
-        await _prefetchTaskListData();
-
-        // ── After loading tasks, restore saved tracker data ─────────────────
-        await _loadSavedTrackerData();
-
-      } else {
-        setState(() { _error = 'Failed to load tasks (${r.statusCode})'; _loadingTasks = false; });
-      }
-    } catch (e) {
-      setState(() { _error = 'Connection error: $e'; _loadingTasks = false; });
+    if (_employeeName == null || _employeeName!.isEmpty) {
+      setState(() {
+        _error = 'Employee name not found. Please re-login.';
+        _loadingTasks = false;
+      });
+      return;
     }
-  }
 
-  // ── LOAD SAVED TRACKER DATA and restore all field states (legacy table) ────
-  // FIX: previously this hard-coded rowIndex 0 into the taskId
-  // ('${clientName}_${singleTask}_0'), so any client/task pair that wasn't
-  // the FIRST occurrence in the list silently restored into the wrong row
-  // (or overwrote row 0's data). It now resolves the same index that was
-  // used when the row was originally saved, matching on taskAssignmentId
-  // when the saved row has one.
+    final r = await http.get(
+      Uri.parse('$_baseUrl/task-list/additional/$_employeeName'),
+    );
+
+    if (r.statusCode != 200) {
+      setState(() {
+        _error = 'Failed to load tasks (${r.statusCode})';
+        _loadingTasks = false;
+      });
+      return;
+    }
+
+    final data = List<dynamic>.from(jsonDecode(r.body)['data'] ?? []);
+
+    final Set<String> allTabs = {};
+    final List<Map<String, dynamic>> processed = [];
+
+    /// Duplicate task avoid
+    final Set<String> addedKeys = {};
+
+    for (final item in data) {
+      final client = item['client_name']?.toString() ?? '';
+      final deliverable = item['deliverables']?.toString() ?? '';
+
+      /// additional_task_id
+      final uniqueKey = item['additional_task_id'] != null
+          ? '${item['additional_task_id']}_$deliverable'
+          : '${client}_$deliverable';
+
+      /// Same task already addedனா skip
+      if (addedKeys.contains(uniqueKey)) {
+        continue;
+      }
+
+      addedKeys.add(uniqueKey);
+
+      allTabs.add(deliverable);
+
+      processed.add({
+        "client_name": client,
+        "deliverables": deliverable,
+        "singleTask": deliverable,
+        "duration": item["duration"],
+        "assignedDate": item["submission_date"],
+        "rowCount": (item["no_of_rows"] ?? 1) as int,
+        "assignedRole": "additional",
+        "taskType": "Additional",
+        "additionalTaskId": item["additional_task_id"],
+        "taskListId": item["id"],
+      });
+    }
+
+    rowCounts.clear();
+
+    for (final tab in allTabs) {
+      final tasksForTab =
+          processed.where((t) => t['singleTask'] == tab).toList();
+
+      for (int i = 0; i < tasksForTab.length; i++) {
+        final t = tasksForTab[i];
+
+        final taskId =
+            '${t['client_name']}_${t['singleTask']}_$i';
+
+        rowCounts[taskId] = (t['rowCount'] ?? 1) as int;
+      }
+    }
+
+    setState(() {
+      assignedTasks = processed;
+      taskTabNames = allTabs.toList();
+      if (taskTabNames.isNotEmpty) {
+        selectedTabIndex = 0;
+      }
+      _loadingTasks = false;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    await _prefetchTaskListData();
+    await _loadSavedTrackerData();
+
+    debugPrint("Processed Tasks = ${processed.length}");
+    for (final p in processed) {
+      debugPrint(
+          "${p['client_name']} | ${p['singleTask']} | rows=${p['rowCount']}");
+    }
+  } catch (e) {
+    setState(() {
+      _error = 'Connection error: $e';
+      _loadingTasks = false;
+    });
+  }
+}
   Future<void> _loadSavedTrackerData() async {
     if (_employeeName == null || _employeeName!.isEmpty) return;
 
     try {
-      final r = await http.get(
-        Uri.parse('$_baseUrl/employee-tasks/tracker?employee=$_employeeName'),
-      );
-
-      debugPrint('📡 Tracker GET Status: ${r.statusCode}');
-
+      final r = await http.get(Uri.parse('$_baseUrl/employee-tasks/tracker?employee=$_employeeName'));
       if (r.statusCode != 200) return;
 
       final response = jsonDecode(r.body);
       final savedRows = List<dynamic>.from(response['data'] ?? []);
-
-      if (savedRows.isEmpty) {
-        debugPrint('⚠️ No saved rows found for this employee.');
-        return;
-      }
-
-      debugPrint('📦 Restoring ${savedRows.length} saved tracker rows...');
 
       setState(() {
         for (var saved in savedRows) {
           final clientName        = saved['client_name']  as String? ?? '';
           final singleTask        = saved['single_task']   as String? ?? '';
           final rowIndex          = saved['row_index']      as int? ?? 0;
-          final savedAssignmentId = saved['task_assignment_id'];
+         final savedAdditionalTaskId = saved['additional_task_id'];
 
-          final tasksForClient = assignedTasks
-              .where((t) => t['singleTask'] == singleTask &&
-                  (savedAssignmentId != null
-                      ? t['taskAssignmentId'] == savedAssignmentId
-                      : t['client_name'] == clientName))
-              .toList();
+final tasksForClient = assignedTasks.where((t) =>
+    t['singleTask'] == singleTask &&
+    (savedAdditionalTaskId != null
+        ? t['additionalTaskId'] == savedAdditionalTaskId
+        : t['client_name'] == clientName))
+    .toList();
           if (tasksForClient.isEmpty) continue;
 
           final matchedTask = tasksForClient.first;
@@ -521,39 +468,10 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
           if (totalSecs > 0) {
             taskTotalDurations[taskKey] = Duration(seconds: totalSecs);
           }
-
-          final startTimeStr = saved['start_time'] as String?;
-          if (startTimeStr != null && startTimeStr.isNotEmpty) {
-            try { taskStartTimes[taskKey] = DateTime.parse(startTimeStr).toLocal(); } catch (_) {}
-          }
-
-          final holdTimesJson = saved['hold_times'] as String? ?? '[]';
-          try {
-            final List holdList = jsonDecode(holdTimesJson);
-            taskHoldTimes[taskKey] = holdList.map((t) => DateTime.parse(t as String).toLocal()).toList();
-          } catch (_) {}
-
-          final restartTimesJson = saved['restart_times'] as String? ?? '[]';
-          try {
-            final List restartList = jsonDecode(restartTimesJson);
-            taskRestartTimes[taskKey] = restartList.map((t) => DateTime.parse(t as String).toLocal()).toList();
-          } catch (_) {}
-
-          final completedTimeStr = saved['completed_time'] as String?;
-          if (completedTimeStr != null && completedTimeStr.isNotEmpty) {
-            try { taskCompletedTimes[taskKey] = [DateTime.parse(completedTimeStr).toLocal()]; } catch (_) {}
-          }
-
-          final rejectedTimeStr = saved['rejected_time'] as String?;
-          if (rejectedTimeStr != null && rejectedTimeStr.isNotEmpty) {
-            try { taskRejectedTimes[taskKey] = [DateTime.parse(rejectedTimeStr).toLocal()]; } catch (_) {}
-          }
-
-          debugPrint('✅ Restored: $taskKey → status=$statusStr, secs=$totalSecs');
         }
       });
     } catch (e) {
-      debugPrint('❌ Error loading saved tracker data: $e');
+      debugPrint('Error loading saved tracker data: $e');
     }
   }
 
@@ -567,22 +485,22 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     }
   }
 
-  // ── Prefetch task_list rows for ALL assigned tasks ─────────────────────
   Future<void> _prefetchTaskListData() async {
     for (final tab in taskTabNames) {
       final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
       for (int i = 0; i < tasksForTab.length; i++) {
         final task = tasksForTab[i];
         final taskId = '${task['client_name']}_${task['singleTask']}_$i';
-        final taskAssignmentId = task['taskAssignmentId'];
+        final additionalTaskId = task['additionalTaskId'];
         final deliverables = task['singleTask'] as String?;
 
-        if (taskAssignmentId == null || deliverables == null) continue;
-
+        if (additionalTaskId == null || deliverables == null) continue;
         try {
-          final r = await http.get(
-            Uri.parse('$_baseUrl/task-list/by-assignment/$taskAssignmentId/${Uri.encodeComponent(deliverables)}'),
-          );
+final r = await http.get(
+  Uri.parse(
+    '$_baseUrl/task-list/by-additional/$additionalTaskId/${Uri.encodeComponent(deliverables)}',
+  ),
+);
           if (r.statusCode == 200) {
             final body = jsonDecode(r.body);
             final data = body['data'];
@@ -599,17 +517,59 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
             }
           }
         } catch (e) {
-          debugPrint('❌ _prefetchTaskListData error for $taskId: $e');
+          debugPrint('Error: $e');
         }
       }
     }
   }
 
-  // ── AUTO-SAVE — writes to time_tracking_task_items, sets trackingItemIds ───
-  // FIX: taskId is now passed in directly (from _buildRow's scope) instead of
-  // being recomputed via _taskIndexFor, which could resolve to a different
-  // row than the one actually being edited when duplicate client/task
-  // combinations exist.
+  Future<void> _createAdditionalTask(
+    Map<String,dynamic> task,
+    String taskId,
+) async {
+
+  final response = await http.post(
+
+    Uri.parse("$_baseUrl/task-list/additional-task"),
+
+    headers: {
+      "Content-Type":"application/json",
+    },
+
+    body: jsonEncode({
+
+      "clientName": task["client_name"],
+
+      "deliverables": task["singleTask"],
+
+      "submissionDate": task["assignedDate"],
+
+      "duration": task["duration"],
+
+      "noOfRows": rowCounts[taskId] ?? 1,
+
+      "employeeId": _employeeId,
+
+      "employeeName": _employeeName,
+
+    }),
+
+  );
+
+  if(response.statusCode==201){
+
+      final json=jsonDecode(response.body);
+
+      final id=json["data"]["id"];
+
+      taskListIds[taskId]=id;
+
+      print("TaskList Created : $id");
+
+  }
+
+}
+
   Future<void> _autoSaveRow(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
     if (_employeeName == null) return;
 
@@ -657,14 +617,12 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     }
   }
 
-  // ── MANUAL SAVE ALL (legacy — still supported alongside new tables) ────────
   Future<void> _saveAll() async {
     if (_employeeName == null) return;
     setState(() => _isSaving = true);
 
     try {
       final allRows = <Map<String, dynamic>>[];
-
       for (int ti = 0; ti < taskTabNames.length; ti++) {
         final tabName = taskTabNames[ti];
         final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
@@ -706,36 +664,86 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     }
   }
 
-  Map<String, dynamic> _buildPayload(String taskKey, Map<String, dynamic> task, int rowIndex) {
-    final status = taskStatus[taskKey] ?? TaskStatus.idle;
-    final total  = taskTotalDurations[taskKey];
-    final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
+Map<String, dynamic> _buildPayload(
+    String taskKey,
+    Map<String, dynamic> task,
+    int rowIndex,
+) {
+  final status = taskStatus[taskKey] ?? TaskStatus.idle;
+  final total = taskTotalDurations[taskKey];
+  final perf = _calculatePerformance(
+    task['singleTask'] ?? '',
+    total,
+  );
 
-    return {
-      'employeeName':      _employeeName,
-      'employeeId':        _employeeId,
-      'clientName':        task['client_name'] ?? '',
-      'singleTask':        task['singleTask']  ?? '',
-      'taskType':          task['taskType']    ?? '',
-      'assignedRole':      task['assignedRole'] ?? '',
-      'rowIndex':          rowIndex,
-      'submitDate':        editableSubmitDates[taskKey] ?? task['assignedDate'] ?? '',
-      'taskDescription':   editableTaskDescs[taskKey]   ?? task['singleTask']   ?? '',
-      'startTime':         taskStartTimes[taskKey]?.toIso8601String(),
-      'holdTimes':         jsonEncode((taskHoldTimes[taskKey]    ?? []).map((d) => d.toIso8601String()).toList()),
-      'restartTimes':      jsonEncode((taskRestartTimes[taskKey] ?? []).map((d) => d.toIso8601String()).toList()),
-      'completedTime':     (taskCompletedTimes[taskKey] ?? []).isNotEmpty
-                               ? taskCompletedTimes[taskKey]!.first.toIso8601String() : null,
-      'rejectedTime':      (taskRejectedTimes[taskKey]  ?? []).isNotEmpty
-                               ? taskRejectedTimes[taskKey]!.first.toIso8601String()  : null,
-      'totalDurationSecs': (taskTotalDurations[taskKey] ?? Duration.zero).inSeconds,
-      'status':            _statusString(status),
-      'performance':       perf,
-      'comment':           taskComments[taskKey] ?? '',
-      'isAdditional':      false,
-      'taskAssignmentId':  task['taskAssignmentId'],
-    };
-  }
+  return {
+    'employeeName': _employeeName,
+    'employeeId': _employeeId,
+
+    'clientName': task['client_name'] ?? '',
+    'singleTask': task['singleTask'] ?? '',
+
+    'taskType': task['taskType'] ?? '',
+    'assignedRole': task['assignedRole'] ?? '',
+
+    'rowIndex': rowIndex,
+
+    'submitDate':
+        editableSubmitDates[taskKey] ??
+        task['assignedDate'] ??
+        '',
+
+    'taskDescription':
+        editableTaskDescs[taskKey] ??
+        task['singleTask'] ??
+        '',
+
+    'startTime':
+        taskStartTimes[taskKey]?.toIso8601String(),
+
+    'holdTimes': jsonEncode(
+      (taskHoldTimes[taskKey] ?? [])
+          .map((d) => d.toIso8601String())
+          .toList(),
+    ),
+
+    'restartTimes': jsonEncode(
+      (taskRestartTimes[taskKey] ?? [])
+          .map((d) => d.toIso8601String())
+          .toList(),
+    ),
+
+    'completedTime':
+        (taskCompletedTimes[taskKey] ?? []).isNotEmpty
+            ? taskCompletedTimes[taskKey]!
+                .first
+                .toIso8601String()
+            : null,
+
+    'rejectedTime':
+        (taskRejectedTimes[taskKey] ?? []).isNotEmpty
+            ? taskRejectedTimes[taskKey]!
+                .first
+                .toIso8601String()
+            : null,
+
+    'totalDurationSecs':
+        (taskTotalDurations[taskKey] ??
+                Duration.zero)
+            .inSeconds,
+
+    'status': _statusString(status),
+
+    'performance': perf,
+
+    'comment': taskComments[taskKey] ?? '',
+
+    'isAdditional': true,
+
+    'additionalTaskId':
+        task['additionalTaskId'],
+  };
+}
 
   String _statusString(TaskStatus s) {
     switch (s) {
@@ -755,13 +763,6 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
       duration: const Duration(seconds: 2),
     ));
   }
-
-  // ── ACTION HANDLERS ─────────────────────────────────────────────────────
-  // FIX: all handlers now take taskId explicitly (passed straight through
-  // from _buildRow, which already knows it) instead of recomputing it later
-  // inside _autoSaveRow / _recordTaskAction. This removes the duplicate-index
-  // ambiguity that could route a Start/Hold/Complete click's save to the
-  // wrong task_list row.
 
   Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
@@ -884,109 +885,111 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
 
   @override
   void dispose() {
-    //  _clientSearchController.dispose();
     _horizontalController.dispose();
+    _addClientController.dispose();
+    _addDeliverableController.dispose();
+    _addDurationController.dispose();
+    _addSubmissionDateController.dispose();
+    _addRowController.dispose();
     for (final t in taskTimers.values) t.cancel();
     super.dispose();
   }
 
-  // ── ACTION RECORDER — start/hold/restart/complete/reject ───────────────────
-  // FIX: task_action table is gone. These now hit
-  // POST /api/tracking-items/:trackingItemId/{start|hold|restart|complete|reject},
-  // which writes the timestamp straight onto the time_tracking_task_items row.
-  Future<void> _recordTaskAction(
-      String taskKey, Map<String, dynamic> task, int rowIndex, String taskId, String action) async {
-    final taskListId = taskListIds[taskId];
-    final trackingItemId = trackingItemIds[taskKey];
+  Future<void> _addAdditionalTask() async {
+  if (selectedClient == null || selectedDeliverable == null) {
+    _showSnack(
+      "Please select Client and Deliverable",
+      success: false,
+    );
+    return;
+  }
 
-    if (taskListId == null || trackingItemId == null) {
-      debugPrint('⚠️ _recordTaskAction skipped ($action) — taskListId=$taskListId trackingItemId=$trackingItemId');
-      return;
-    }
+  _resolveLoggedInEmployee();
 
-    final validActions = {'start', 'hold', 'restart', 'complete', 'reject'};
-    if (!validActions.contains(action)) return;
+  final rowCount = int.tryParse(_addRowController.text) ?? 1;
 
-    final body = <String, dynamic>{};
-    if (action == 'complete') {
-      final total = taskTotalDurations[taskKey];
-      body['performance'] = _calculatePerformance(task['singleTask'] ?? '', total);
-    }
+  try {
+    final response = await http.post(
+      Uri.parse("$_baseUrl/task-list/additional-task"),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode({
+        "clientName": selectedClient,
+        "deliverables": selectedDeliverable,
+        "duration": _addDurationController.text,
+        "submissionDate": DateFormat("yyyy-MM-dd").format(
+          DateFormat("dd MMM yyyy").parse(
+            _addSubmissionDateController.text,
+          ),
+        ),
+        "noOfRows": rowCount,
+        "employeeId": _employeeId,
+        "employeeName": _employeeName,
+      }),
+    );
 
-    try {
-      final r = await http.post(
-        Uri.parse('$_baseUrl/tracking-items/$trackingItemId/$action'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final body = jsonDecode(response.body);
+      final task = body["data"];
+
+      setState(() {
+        for (int i = 0; i < rowCount; i++) {
+          assignedTasks.add({
+            "taskListId": task["id"],
+            "additionalTaskId": task["additional_task_id"],
+            "client_name": task["client_name"],
+            "singleTask": task["deliverables"],
+            "duration": task["duration"],
+            "assignedDate": task["submission_date"],
+            "rowNo": i + 1,
+            "taskType": "Additional",
+            "assignedRole": "additional",
+          });
+        }
+
+        if (!taskTabNames.contains(selectedDeliverable)) {
+          taskTabNames.add(selectedDeliverable!);
+        }
+
+        selectedClient = null;
+        selectedDeliverable = null;
+
+        _addClientController.clear();
+        _addDeliverableController.clear();
+        _addDurationController.clear();
+        _addSubmissionDateController.clear();
+        _addRowController.text = "1";
+      });
+
+      _showSnack(
+        "Additional Task Added Successfully",
+        success: true,
       );
-      if (r.statusCode == 200) {
-        debugPrint('✅ action recorded: $action for $taskKey');
-        await _loadTrackingItemsForTask(taskId, taskListId);
-      } else {
-        debugPrint('❌ action failed ($action, ${r.statusCode}): ${r.body}');
-      }
-    } catch (e) {
-      debugPrint('❌ action error ($action): $e');
+    } else {
+      final body = jsonDecode(response.body);
+
+      _showSnack(
+        body["message"] ?? "Failed to add task",
+        success: false,
+      );
     }
+  } catch (e) {
+    debugPrint(e.toString());
+
+    _showSnack(
+      "Server Error",
+      success: false,
+    );
   }
+}
 
-  // ── FIX: wipes all in-memory row state for one taskId before a fresh
-  // reload. Without this, once taskListIds[taskId] is cached, re-opening a
-  // task never re-fetched tracking items, so wiping the DB (e.g. TRUNCATE
-  // time_tracking_task_items) left old Start/Hold/Completed/Rejected state
-  // showing in the UI even though the backend now has nothing for that task.
-  void _clearLocalStateForTask(String taskId) {
-    final prefix = '${taskId}_row_';
-    final allKeys = <String>{
-      ...taskStatus.keys,
-      ...taskStartTimes.keys,
-      ...taskCurrentSessionStart.keys,
-      ...taskDurations.keys,
-      ...taskTotalDurations.keys,
-      ...editableSubmitDates.keys,
-      ...editableTaskDescs.keys,
-      ...taskComments.keys,
-      ...taskHoldTimes.keys,
-      ...taskRestartTimes.keys,
-      ...taskCompletedTimes.keys,
-      ...taskRejectedTimes.keys,
-      ...trackingItemIds.keys,
-    }.where((k) => k.startsWith(prefix)).toList();
-
-    for (final key in allKeys) {
-      taskTimers[key]?.cancel();
-      taskTimers.remove(key);
-      taskStatus.remove(key);
-      taskStartTimes.remove(key);
-      taskCurrentSessionStart.remove(key);
-      taskDurations.remove(key);
-      taskTotalDurations.remove(key);
-      editableSubmitDates.remove(key);
-      editableTaskDescs.remove(key);
-      taskComments.remove(key);
-      taskHoldTimes.remove(key);
-      taskRestartTimes.remove(key);
-      taskCompletedTimes.remove(key);
-      taskRejectedTimes.remove(key);
-      trackingItemIds.remove(key);
-    }
-    if (currentRunningTaskKey != null && currentRunningTaskKey!.startsWith(prefix)) {
-      currentRunningTaskKey = null;
-    }
-  }
-
-  // ── ensures a task_list row exists, then ALWAYS pulls fresh tracking items
-  // FIX: previously this returned early ("already resolved") whenever
-  // taskListIds already had an entry, which meant tracking items were only
-  // ever fetched once per session — stale even after the DB was truncated.
-  // Now it only skips the find-or-create network call when cached, but
-  // always clears local state and re-fetches tracking items fresh.
-  Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) async {
+Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) async {
     int? taskListId = taskListIds[taskId];
 
     if (taskListId == null) {
-      final taskAssignmentId = task['taskAssignmentId'];
-      if (taskAssignmentId == null) return;
+      final additionalTaskId = task['additionalTaskId'];
+      if (additionalTaskId == null) return;
 
       final expMins = expectedTimingMinutes[(task['singleTask'] as String).trim().toLowerCase()];
       final durationString = expMins != null ? _formatExpectedDuration(expMins) : null;
@@ -998,7 +1001,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
           Uri.parse('$_baseUrl/task-list/find-or-create'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'taskAssignmentId': taskAssignmentId,
+            'additionalTaskId': additionalTaskId,
             'taskMasterId': null,
             'taskTimingId': null,
             'clientName': task['client_name'] ?? '',
@@ -1038,6 +1041,43 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
       await _loadTrackingItemsForTask(taskId, taskListId);
     }
   }
+
+    Future<void> _recordTaskAction(
+      String taskKey, Map<String, dynamic> task, int rowIndex, String taskId, String action) async {
+    final taskListId = taskListIds[taskId];
+    final trackingItemId = trackingItemIds[taskKey];
+
+    if (taskListId == null || trackingItemId == null) {
+      debugPrint('⚠️ _recordTaskAction skipped ($action) — taskListId=$taskListId trackingItemId=$trackingItemId');
+      return;
+    }
+
+    final validActions = {'start', 'hold', 'restart', 'complete', 'reject'};
+    if (!validActions.contains(action)) return;
+
+    final body = <String, dynamic>{};
+    if (action == 'complete') {
+      final total = taskTotalDurations[taskKey];
+      body['performance'] = _calculatePerformance(task['singleTask'] ?? '', total);
+    }
+
+    try {
+      final r = await http.post(
+        Uri.parse('$_baseUrl/tracking-items/$trackingItemId/$action'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      if (r.statusCode == 200) {
+        debugPrint('✅ action recorded: $action for $taskKey');
+        await _loadTrackingItemsForTask(taskId, taskListId);
+      } else {
+        debugPrint('❌ action failed ($action, ${r.statusCode}): ${r.body}');
+      }
+    } catch (e) {
+      debugPrint('❌ action error ($action): $e');
+    }
+  }
+
 
   Future<void> _loadTrackingItemsForTask(String taskId, int taskListId) async {
     try {
@@ -1133,23 +1173,276 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     }
   }
 
-  // ── BUILD ─────────────────────────────────────────────────────────────────
+
+ void _clearLocalStateForTask(String taskId) {
+    final prefix = '${taskId}_row_';
+    final allKeys = <String>{
+      ...taskStatus.keys,
+      ...taskStartTimes.keys,
+      ...taskCurrentSessionStart.keys,
+      ...taskDurations.keys,
+      ...taskTotalDurations.keys,
+      ...editableSubmitDates.keys,
+      ...editableTaskDescs.keys,
+      ...taskComments.keys,
+      ...taskHoldTimes.keys,
+      ...taskRestartTimes.keys,
+      ...taskCompletedTimes.keys,
+      ...taskRejectedTimes.keys,
+      ...trackingItemIds.keys,
+    }.where((k) => k.startsWith(prefix)).toList();
+
+    for (final key in allKeys) {
+      taskTimers[key]?.cancel();
+      taskTimers.remove(key);
+      taskStatus.remove(key);
+      taskStartTimes.remove(key);
+      taskCurrentSessionStart.remove(key);
+      taskDurations.remove(key);
+      taskTotalDurations.remove(key);
+      editableSubmitDates.remove(key);
+      editableTaskDescs.remove(key);
+      taskComments.remove(key);
+      taskHoldTimes.remove(key);
+      taskRestartTimes.remove(key);
+      taskCompletedTimes.remove(key);
+      taskRejectedTimes.remove(key);
+      trackingItemIds.remove(key);
+    }
+    if (currentRunningTaskKey != null && currentRunningTaskKey!.startsWith(prefix)) {
+      currentRunningTaskKey = null;
+    }
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(38, 30, 38, 30),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _pageHeader(),
-          const SizedBox(height: 28),
-          // if (showAdditionalTask)
-          //   _additionalTaskSection()
-           
-            _clientSearchBox(),
-            _taskCategoryTabs(),
-            if (_loadingTasks)
+        padding: const EdgeInsets.fromLTRB(38, 30, 38, 30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _pageHeader(),
+            const SizedBox(height: 28),
             
+            // Additional Task Creation Form Box (Placed above search box/tabs)
+           Container(
+  padding: const EdgeInsets.all(20),
+  margin: const EdgeInsets.only(bottom: 24),
+  decoration: BoxDecoration(
+    color: Colors.white,
+    border: Border.all(color: AppColors.border),
+    borderRadius: BorderRadius.circular(6),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.04),
+        blurRadius: 10,
+        offset: const Offset(0, 3),
+      )
+    ],
+  ),
+  child: Row(
+    children: [
+
+      /// CLIENT
+     Expanded(
+  flex: 2,
+  child: DropdownButtonFormField<String>(
+    isExpanded: true,
+    value: selectedClient,
+    style: const TextStyle(
+      fontSize: 10,
+      color: Colors.black,
+    ),
+    decoration: const InputDecoration(
+      labelText: "CLIENT :",
+      labelStyle: TextStyle(fontSize: 10),
+      border: OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
+    ),
+    items: clients
+        .map<DropdownMenuItem<String>>((client) {
+      return DropdownMenuItem<String>(
+        value: client,
+        child: Text(
+          client,
+          style: const TextStyle(fontSize: 10),
+        ),
+      );
+    }).toList(),
+    onChanged: (value) {
+      setState(() {
+        selectedClient = value;
+        _addClientController.text = value ?? "";
+      });
+    },
+  ),
+),
+      const SizedBox(width: 14),
+
+      /// DELIVERABLE
+     Expanded(
+  flex: 3,
+  child: DropdownButtonFormField<String>(
+    isExpanded: true,
+    value: selectedDeliverable,
+    style: const TextStyle(
+      fontSize: 10,
+      color: Colors.black,
+    ),
+    decoration: const InputDecoration(
+      labelText: "DELIVERABLES :",
+      labelStyle: TextStyle(fontSize: 10),
+      border: OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
+    ),
+
+    items: taskTimings
+        .map<DropdownMenuItem<String>>((task) {
+      return DropdownMenuItem<String>(
+        value: task["task_name"].toString(),
+        child: Text(
+          task["task_name"].toString(),
+          style: const TextStyle(fontSize: 10),
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }).toList(),
+
+    onChanged: (value) {
+      if (value == null) return;
+
+      final task = taskTimings.firstWhere(
+        (e) => e["task_name"].toString() == value,
+      );
+
+      setState(() {
+        selectedDeliverable = value;
+
+        _addDeliverableController.text = value;
+
+        _addDurationController.text =
+            task["timing"].toString();
+      });
+    },
+  ),
+),
+
+      const SizedBox(width: 14),
+
+      /// DURATION
+      Expanded(
+  flex: 2,
+  child: TextField(
+    controller: _addDurationController,
+    readOnly: true,
+    style: const TextStyle(fontSize: 10),
+    decoration: const InputDecoration(
+      labelText: "DURATION :",
+      labelStyle: TextStyle(fontSize: 10),
+      border: OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
+    ),
+  ),
+),
+      const SizedBox(width: 14),
+
+      /// SUBMISSION DATE
+     Expanded(
+  flex: 2,
+  child: TextField(
+    controller: _addSubmissionDateController,
+    readOnly: true,
+    style: const TextStyle(fontSize: 10),
+    decoration: const InputDecoration(
+      labelText: "SUBMISSION DATE :",
+      labelStyle: TextStyle(fontSize: 10),
+      border: OutlineInputBorder(),
+      suffixIcon: Icon(Icons.calendar_today, size: 18),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
+    ),
+    onTap: () async {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: DateTime.now(),
+        firstDate: DateTime.now(),
+        lastDate: DateTime(2035),
+      );
+
+      if (picked != null) {
+        _addSubmissionDateController.text =
+            DateFormat("dd MMM yyyy").format(picked);
+      }
+    },
+  ),
+),
+      const SizedBox(width: 14),
+
+      /// ROWS
+      Expanded(
+  flex: 1,
+  child: TextField(
+    controller: _addRowController,
+    keyboardType: TextInputType.number,
+    style: const TextStyle(fontSize: 10),
+    inputFormatters: [
+      FilteringTextInputFormatter.digitsOnly,
+    ],
+    decoration: const InputDecoration(
+      labelText: "ROWS :",
+      labelStyle: TextStyle(fontSize: 10),
+      border: OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
+    ),
+  ),
+),
+      const SizedBox(width: 14),
+
+      /// ADD BUTTON
+      SizedBox(
+        height: 50,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF004AAD),
+            foregroundColor: Colors.white,
+          ),
+         onPressed: () async {
+  await _addAdditionalTask();
+},
+         child: const Text(
+            "ADD",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    ],
+  ),
+),
+          
+          
+            _clientSearchBox(),
+            const SizedBox(height: 20),
+            _taskCategoryTabs(),
+            const SizedBox(height: 20),
+
+            if (_loadingTasks)
               const Center(child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 60),
                 child: CircularProgressIndicator(),
@@ -1170,140 +1463,54 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
             else if (selectedTabIndex != null && assignedTasks.isNotEmpty)
               _taskDetailsContainer()
             else
-              Center(child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 60),
-                child: Text(
-                  taskTabNames.isEmpty ? 'No tasks assigned yet' : 'No tasks for this category',
-                  style: const TextStyle(color: AppColors.textGrey),
-                ),
+              const Center(child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 60),
+                child: Text('No tasks assigned yet', style: TextStyle(color: AppColors.textGrey)),
               )),
-          
-        
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    
   }
 
-  // ── PAGE HEADER ───────────────────────────────────────────────────────────
   Widget _pageHeader() {
-  return Row(
-    children: [
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
-            'Assigned Tasks',
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Monitor and manage tasks assigned to you with real-time progress updates.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textGrey,
-            ),
-          ),
-        ],
-      ),
-
+    return Row(children: [
+      const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          'Additional Tasks',
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textDark),
+        ), 
+        SizedBox(height: 6),
+        Text(
+          'Monitor and manage tasks assigned to you with real-time progress updates.',
+          style: TextStyle(fontSize: 14, color: AppColors.textGrey),
+        ),
+      ]),
       const Spacer(),
+      OutlinedButton(
+        // onPressed: () => Navigator.pop(context, true),
+        onPressed: () async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('employeeMenu', 'Assigned Task');
 
-      ElevatedButton.icon(
-        onPressed: _isSaving ? null : _saveAll,
-        icon: _isSaving
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(
-                Icons.save_rounded,
-                size: 16,
-                color: Colors.white,
-              ),
-        label: Text(
-          _isSaving ? 'Saving...' : 'Save',
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF00812B),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-      ),
+  if (!mounted) return;
 
-      const SizedBox(width: 10),
-
-// ElevatedButton(
-//   onPressed: () async {
-//     final result = await Navigator.push<bool>(
-//       context,
-//       MaterialPageRoute(
-//         builder: (_) => AdditionalTasksPage(
-//           role: widget.role,
-//         ),
-//       ),
-//     );
-
-//     if (result == true) {
-//       await _fetchEmployeeAssignedTasks();
-//     }
-//   },
-
-ElevatedButton(
-  onPressed: () async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('employeeMenu', 'Additional Task');
-
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const EmployeeLayoutPage(),
-      ),
-    );
-  },
-  
-  style: ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xFF004AAD),
-    foregroundColor: Colors.white,
-    padding: const EdgeInsets.symmetric(
-      horizontal: 22,
-      vertical: 14,
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const EmployeeLayoutPage(),
     ),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(3),
-    ),
-  ),
-  child: const Text(
-    '+ Add Additional Task',
-    style: TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.w800,
-    ),
-  ),
-),
-    ],
   );
-}
-  
+},
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        ),
+        child: const Text('← Back', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+      ),
+    ]);
+  }
+
   Widget _clientSearchBox() {
     return Container(
       height: 44,
@@ -1329,43 +1536,14 @@ ElevatedButton(
             onSelected: (String selected) {
               setState(() {
                 _selectedClientFilter = selected;
-                // FIX: jump to the first tab that actually has data for
-                // this client, instead of staying on a tab that just became
-                // hidden (which was showing "No tasks for POSTER" even
-                // though WEBSITE DESIGN had real data).
                 final visible = _visibleTabIndices;
                 if (visible.isNotEmpty && !visible.contains(selectedTabIndex)) {
                   selectedTabIndex = visible.first;
                 }
               });
             },
-            // fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-            //   // Keep our own controller in sync so we can clear it externally
-            //   controller.addListener(() {
-            //     if (controller.text.isEmpty && _selectedClientFilter != null) {
-            //       setState(() => _selectedClientFilter = null);
-            //     }
-            //   });
-            //   return TextField(
-            //     controller: controller,
-            //     focusNode: focusNode,
-            //     style: const TextStyle(fontSize: 13),
-            //     decoration: const InputDecoration(
-            //       isDense: true,
-            //       border: InputBorder.none,
-            //       hintText: 'Search client name...',
-            //       hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-            //     ),
-            //   );
-            // },
-
             fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-              // FIX: this IS the controller Autocomplete actually renders —
-              // save a reference so the external X button can clear it.
-              // (The old _clientSearchController was a different, unrelated
-              // controller that the visible TextField never used.)
               _clientSearchFieldController = controller;
-
               controller.addListener(() {
                 if (controller.text.isEmpty && _selectedClientFilter != null) {
                   setState(() => _selectedClientFilter = null);
@@ -1383,32 +1561,6 @@ ElevatedButton(
                 ),
               );
             },
-            optionsViewBuilder: (context, onSelected, options) {
-              return Align(
-                alignment: Alignment.topLeft,
-                child: Material(
-                  elevation: 4,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 220, minWidth: 300),
-                    child: ListView.builder(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      itemCount: options.length,
-                      itemBuilder: (context, index) {
-                        final option = options.elementAt(index);
-                        return InkWell(
-                          onTap: () => onSelected(option),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            child: Text(option, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              );
-            },
           ),
         ),
         if (_selectedClientFilter != null)
@@ -1423,22 +1575,16 @@ ElevatedButton(
     );
   }
 
-  // ── TASK TABS ─────────────────────────────────────────────────────────────
   Widget _taskCategoryTabs() {
     if (taskTabNames.isEmpty) {
       return Container(height: 50, color: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 28),
-        child: const Center(child: Text('No task categories assigned',
-            style: TextStyle(color: AppColors.textGrey))));
+        child: const Center(child: Text('No task categories assigned', style: TextStyle(color: AppColors.textGrey))));
     }
     return Container(height: 60, color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        // child: Row(children: [
-        //   for (int i = 0; i < taskTabNames.length; i++)
-        //     InkWell(
-        //       onTap: () => setState(() => selectedTabIndex = i),
         child: Row(children: [
           for (int i in _visibleTabIndices)
             InkWell(
@@ -1460,18 +1606,14 @@ ElevatedButton(
     );
   }
 
-  // ── TASK DETAILS ──────────────────────────────────────────────────────────
   Widget _taskDetailsContainer() {
-    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length)
+    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
       return const Center(child: Text('No task details available'));
+    }
 
-    // final tabName     = taskTabNames[selectedTabIndex!];
-    // final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
-
-      final tabName     = taskTabNames[selectedTabIndex!];
+    final tabName = taskTabNames[selectedTabIndex!];
     var tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
 
-    // FIX: narrows the list to just the searched/selected client, if any.
     if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
       tasksForTab = tasksForTab
           .where((t) => (t['client_name'] ?? '').toString() == _selectedClientFilter)
@@ -1494,7 +1636,7 @@ ElevatedButton(
           decoration: const BoxDecoration(color: Colors.white,
               border: Border(bottom: BorderSide(color: AppColors.border))),
           child: Row(children: [
-            _detailItem('CLIENT :',          task['client_name'] ?? 'N/A', flex: 2),
+            _detailItem('CLIENT :',       task['client_name'] ?? 'N/A', flex: 2),
             _detailItem('DELIVERABLES :',    task['singleTask']  ?? '',    flex: 2),
             _detailItem(
               'DURATION :',
@@ -1538,19 +1680,53 @@ ElevatedButton(
               )),
             ])),
 
+            // ElevatedButton(
+            //   onPressed: () async {
+            //     if (!isExpand) {
+            //       await _ensureTaskListEntry(task, taskId);
+            //     }
+            //     setState(() => expandedTaskId = isExpand ? null : taskId);
+            //   },
+            //   style: ElevatedButton.styleFrom(
+            //     backgroundColor: isExpand ? AppColors.red : const Color(0xFFD9E8FF),
+            //     foregroundColor: isExpand ? Colors.white : const Color(0xFF003A9B),
+            //   ),
+            //   child: Text(isExpand ? 'HIDE' : 'OPEN'),
+            // ),
             ElevatedButton(
-              onPressed: () async {
-                if (!isExpand) {
-                  await _ensureTaskListEntry(task, taskId);
-                }
-                setState(() => expandedTaskId = isExpand ? null : taskId);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isExpand ? AppColors.red : const Color(0xFFD9E8FF),
-                foregroundColor: isExpand ? Colors.white : const Color(0xFF003A9B),
-              ),
-              child: Text(isExpand ? 'HIDE' : 'OPEN'),
-            ),
+  onPressed: () async {
+
+    if (!isExpand) {
+
+      // Create task_list entry if not already created
+      await _ensureTaskListEntry(task, taskId);
+
+      // Debug
+      print("Task ID      : $taskId");
+      print("TaskList ID  : ${taskListIds[taskId]}");
+
+      if (taskListIds[taskId] == null) {
+        _showSnack(
+          "Task List Entry not created",
+          success: false,
+        );
+        return;
+      }
+    }
+
+    setState(() {
+      expandedTaskId = isExpand ? null : taskId;
+    });
+
+  },
+  style: ElevatedButton.styleFrom(
+    backgroundColor:
+        isExpand ? AppColors.red : const Color(0xFFD9E8FF),
+    foregroundColor:
+        isExpand ? Colors.white : const Color(0xFF003A9B),
+  ),
+  child: Text(isExpand ? "HIDE" : "OPEN"),
+),
           ]),
         ),
         if (isExpand) _buildTaskTable(task, taskId),
@@ -1558,8 +1734,7 @@ ElevatedButton(
     }).toList());
   }
 
-  // ── TASK TABLE ────────────────────────────────────────────────────────────
-Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
+ Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
   final rowCount = rowCounts[taskId] ?? 1;
 
   return Scrollbar(
@@ -1657,34 +1832,18 @@ Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
     ),
   );
 }
-
-// FIX: your DB stores designer_submit_date / ads_submit_date / etc. as
-  // "DD/MM/YYYY" text (e.g. "31/07/2026"), confirmed from the actual table
-  // rows — not ISO format. DateTime.parse() only understands ISO
-  // ("YYYY-MM-DD"), so it silently threw on every real value and fell
-  // through to just printing the raw string with no days-left calculation
-  // at all. This tries DD/MM/YYYY first (the format your data is actually
-  // in), then falls back to DateTime.parse for any value that IS already
-  // ISO, before giving up and returning null.
   DateTime? _parseFlexibleDate(String raw) {
     final ddmmyyyy = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(raw.trim());
     if (ddmmyyyy != null) {
       final day = int.parse(ddmmyyyy.group(1)!);
       final month = int.parse(ddmmyyyy.group(2)!);
       final year = int.parse(ddmmyyyy.group(3)!);
-      try {
-        return DateTime(year, month, day);
-      } catch (_) {
-        return null;
-      }
+      try { return DateTime(year, month, day); } catch (_) { return null; }
     }
-    try {
-      return DateTime.parse(raw);
-    } catch (_) {
-      return null;
-    }
+    try { return DateTime.parse(raw); } catch (_) { return null; }
   }
-Widget _dateWithDaysLeft(String? isoOrDateString) {
+
+  Widget _dateWithDaysLeft(String? isoOrDateString) {
     if (isoOrDateString == null || isoOrDateString.isEmpty) {
       return const Text('N/A', style: TextStyle(fontSize: 10, color: AppColors.textGrey));
     }
@@ -1720,45 +1879,27 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
     ]);
   }
 
-  
   String _monthName(int m) {
     const names = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return names[m];
   }
-  // FIX: this is what was missing. Given the taskKey of whatever's about to
-  // start, if a DIFFERENT task is currently running, this properly holds it
-  // — folding its elapsed time into its total (never overwriting/reducing,
-  // always +=) and persisting that hold to the backend — instead of just
-  // silently cancelling its timer and losing that session's time.
+
   Future<void> _autoHoldRunningTask(String excludeTaskKey) async {
     if (currentRunningTaskKey == null || currentRunningTaskKey == excludeTaskKey) return;
-
     final prevKey = currentRunningTaskKey!;
     final ctx = _rowContext[prevKey];
-
     if (ctx == null) {
-      // Row was never built in this session (shouldn't normally happen,
-      // since starting it requires the row to have been visible) — fall
-      // back to at least stopping the timer so it doesn't keep ticking.
       taskTimers[prevKey]?.cancel();
       taskTimers.remove(prevKey);
       return;
     }
-
-    await _handleHold(
-      prevKey,
-      ctx['task'] as Map<String, dynamic>,
-      ctx['rowIndex'] as int,
-      ctx['taskId'] as String,
-    );
+    await _handleHold(prevKey, ctx['task'] as Map<String, dynamic>, ctx['rowIndex'] as int, ctx['taskId'] as String);
   }
 
-  // ── SINGLE ROW ────────────────────────────────────────────────────────────
   Widget _buildRow(int index, Map<String, dynamic> task, String taskId) {
-    final taskKey   = '${taskId}_row_$index';
+    final taskKey    = '${taskId}_row_$index';
     _rowContext[taskKey] = {'task': task, 'rowIndex': index, 'taskId': taskId};
     final curStatus = taskStatus[taskKey] ?? TaskStatus.idle;
-    // final curStatus = taskStatus[taskKey] ?? TaskStatus.idle;
     final curDur    = taskDurations[taskKey] ?? Duration.zero;
     final totalDur  = taskTotalDurations[taskKey];
     final perf      = _calculatePerformance(task['singleTask'] ?? '', totalDur);
@@ -1771,13 +1912,10 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
       decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: Row(children: [
-
-        // S.NO
         SizedBox(width: snoWidth,
           child: Text('${index + 1}.', textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500))),
 
-        // SUBMIT DATE
         SizedBox(width: submitDateWidth,
           child: GestureDetector(
             onTap: () async {
@@ -1786,8 +1924,8 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
                 initialDate: _parseDate(editDate),
                 firstDate: DateTime(2020), lastDate: DateTime(2030),
                 builder: (c, child) => Theme(
-                  data: Theme.of(c).copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF004AAD))),
-                  child: child!),
+                    data: Theme.of(c).copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF004AAD))),
+                    child: child!),
               );
               if (picked != null) {
                 setState(() => editableSubmitDates[taskKey] =
@@ -1813,7 +1951,6 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
           ),
         ),
 
-        // TASK DESCRIPTION
         SizedBox(width: taskWidth,
           child: GestureDetector(
             onTap: () => _showEditDialog('Task Description', editDesc, (v) async {
@@ -1836,7 +1973,6 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
           ),
         ),
 
-        // ACTION BUTTONS
         SizedBox(width: actionWidth,
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -1908,13 +2044,11 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
           ),
         ),
 
-        // DURATION
         SizedBox(width: durationWidth,
           child: Text(formatDuration(totalDur),
           textAlign: TextAlign.left,
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF004AAD)))),
 
-        // COMMENT
         SizedBox(width: commentWidth, height: cellHeight,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
@@ -1934,29 +2068,29 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
               onChanged: (v) {
                 taskComments[taskKey] = v;
                 Future.delayed(const Duration(seconds: 2), () {
-                  if (taskComments[taskKey] == v) _autoSaveRow(taskKey, task, index, taskId);
+                  if (taskComments[taskKey] == v) {
+                    _autoSaveRow(taskKey, task, index, taskId);
+                  }
                 });
               },
             ),
           ),
         ),
 
-        // PERFORMANCE
         SizedBox(width: performanceWidth, height: 40,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: perfColor.withOpacity(0.1),
+              color: perfColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: perfColor.withOpacity(0.3)),
+              border: Border.all(color: perfColor.withValues(alpha: 0.3)),
             ),
             child: Text(perf, textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: perfColor)),
           ),
         ),
 
-        // STATUS
         SizedBox(width: statusWidth,
           child: Text(_statusString(curStatus), textAlign: TextAlign.center,
               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _statusColor(curStatus)))),
@@ -1964,7 +2098,6 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   Color _statusColor(TaskStatus s) {
     switch (s) {
       case TaskStatus.completed: return const Color(0xFF00812B);
@@ -1982,7 +2115,7 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: bg, borderRadius: BorderRadius.circular(2),
-          border: Border.all(color: fg.withOpacity(0.3), width: 0.5),
+          border: Border.all(color: fg.withValues(alpha: 0.3), width: 0.5),
         ),
         child: Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 9)),
       ),
@@ -2037,102 +2170,6 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
       ],
     ));
   }
-
-//   // ── ADDITIONAL TASK SECTION ───────────────────────────────────────────────
-//   Widget _additionalTaskSection() {
-//     return Container(
-//       decoration: BoxDecoration(
-//         color: Colors.white, border: Border.all(color: AppColors.border),
-//         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 3))],
-//       ),
-//       child: Column(children: [
-//         _additionalTaskHeader(),
-//         if (showTimeTracker) _timeTrackerSection(),
-//       ]),
-//     );
-//   }
-
-//   Widget _additionalTaskHeader() {
-//     return Container(
-//       height: 60, padding: const EdgeInsets.symmetric(horizontal: 28),
-//       child: Row(children: [
-//         Expanded(flex: 2, child: TextField(
-//           decoration: const InputDecoration(labelText: 'CLIENT :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => clientName = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 3, child: TextField(
-//           decoration: const InputDecoration(labelText: 'DELIVERABLES :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => deliverableName = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 3, child: TextField(
-//           decoration: const InputDecoration(labelText: 'DURATION :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => durationValue = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 4, child: TextField(
-//           decoration: const InputDecoration(labelText: 'SUBMISSION DATE :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => submissionDate = v),
-//         )),
-//         const SizedBox(width: 60),
-//         SizedBox(width: 60, height: 30,
-//           child: ElevatedButton(
-//             onPressed: () => setState(() => showTimeTracker = !showTimeTracker),
-//             style: ElevatedButton.styleFrom(
-//               backgroundColor: showTimeTracker ? AppColors.red : const Color(0xFFD9E8FF),
-//               foregroundColor: showTimeTracker ? Colors.white : const Color(0xFF003A9B),
-//               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), elevation: 0,
-//             ),
-//             child: Text(showTimeTracker ? 'HIDE' : 'OPEN',
-//                 style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-//           ),
-//         ),
-//         const SizedBox(width: 8),
-//         SizedBox(width: 80, height: 34,
-//           child: OutlinedButton(
-//             onPressed: () => setState(() { showAdditionalTask = false; showTimeTracker = false; }),
-//             child: const Text('← Back', style: TextStyle(fontSize: 11)),
-//           ),
-//         ),
-//       ]),
-//     );
-//   }
-
-//   Widget _timeTrackerSection() {
-//     return Column(children: [
-//       Container(height: 28, alignment: Alignment.center, color: AppColors.lightBlue,
-//         child: const Text('TIME TRACKER',
-//             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF172554)))),
-//       Container(height: 38, padding: const EdgeInsets.symmetric(horizontal: 30),
-//         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-//         child: const Row(children: [
-//           SizedBox(width: 80,  child: Text('S.NO',        style: _headerStyle, textAlign: TextAlign.center)),
-//           SizedBox(width: 140, child: Text('SUBMIT DATE', style: _headerStyle, textAlign: TextAlign.center)),
-//           Expanded(            child: Text('ACTION',      style: _headerStyle)),
-//         ]),
-//       ),
-//       for (int i = 0; i < additionalTasks.length; i++)
-//         Container(height: 42, padding: const EdgeInsets.symmetric(horizontal: 30),
-//           decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-//           child: Row(children: [
-//             SizedBox(width: 80,  child: Text('$i.', textAlign: TextAlign.center)),
-//             SizedBox(width: 140, child: Text(submissionDate, textAlign: TextAlign.center)),
-//             Expanded(child: Row(children: [
-//               _btn("START", const Color(0xFFD9E8FF), const Color(0xFF004AAD),
-//                   () => _handleStart('additional_$i', additionalTasks[i], i, 'additional_$i')),
-//               const SizedBox(width: 12),
-//               Text(formatDuration(taskDurations['additional_$i']),
-//                   style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-//             ])),
-//           ]),
-//         ),
-//     ]);
-//   }
 }
 
 const TextStyle _headerStyle = TextStyle(

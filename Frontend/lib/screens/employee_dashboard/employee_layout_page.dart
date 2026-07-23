@@ -21,6 +21,8 @@ import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
+
 class EmployeeLayoutPage extends StatefulWidget {
   const EmployeeLayoutPage({super.key});
 
@@ -105,6 +107,9 @@ void initState() {
 
       case 'Assigned Task':
         return AssignedTasksContent(role: loggedInRole);
+
+        case 'Additional Task':
+  return AdditionalTasksPage(role: loggedInRole);
 
       case 'Daily Reports':
         return const DailyReportsPage();

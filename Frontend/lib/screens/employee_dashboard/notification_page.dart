@@ -767,30 +767,92 @@ Future<void> _markAsSeen(Map<String, dynamic> log) async {
   }
 }
 
-  // ── Build Employee Sidebar Item ──
-  Widget _buildEmployeeItem(String label, String? employeeName) {
-    final isSelected = _selectedEmployee == employeeName;
+int _unreadCount(String employee) {
+  return notificationLogs.where((log) {
+    return log["name"] == employee &&
+        (log["isSeen"] == false);
+  }).length;
+}
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedEmployee = employeeName;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? const Color(0xFF0052CC) : const Color(0xFF475569),
+  // ── Build Employee Sidebar Item ──
+
+  Widget _buildEmployeeItem(String label, String? employeeName) {
+  final isSelected = _selectedEmployee == employeeName;
+
+  return InkWell(
+    onTap: () {
+      setState(() {
+        _selectedEmployee = employeeName;
+      });
+    },
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      color: isSelected
+          ? const Color(0xFFEFF6FF)
+          : Colors.transparent,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight:
+                    isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected
+                    ? const Color(0xFF0052CC)
+                    : const Color(0xFF475569),
+              ),
+            ),
           ),
-        ),
+
+          // Unread Count
+          if (employeeName != null && _unreadCount(employeeName) > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 7, vertical: 2),
+              decoration: const BoxDecoration(
+                color: Color.fromARGB(255, 54, 70, 244),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                "${_unreadCount(employeeName)}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+  // Widget _buildEmployeeItem(String label, String? employeeName) {
+  //   final isSelected = _selectedEmployee == employeeName;
+
+  //   return InkWell(
+  //     onTap: () {
+  //       setState(() {
+  //         _selectedEmployee = employeeName;
+  //       });
+  //     },
+  //     child: Container(
+  //       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+  //       color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+  //       child: Text(
+  //         label,
+  //         style: TextStyle(
+  //           fontSize: 13,
+  //           fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+  //           color: isSelected ? const Color(0xFF0052CC) : const Color(0xFF475569),
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   static const TextStyle _headerStyle = TextStyle(
     fontSize: 11,

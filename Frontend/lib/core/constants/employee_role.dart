@@ -52,6 +52,7 @@ extension EmployeeRoleExtension on EmployeeRole {
           'Dashboard',
           'Day Planner',
           'Assigned Task',
+          
           'Notifications',
         ];
 
@@ -61,6 +62,7 @@ extension EmployeeRoleExtension on EmployeeRole {
           'Day Planner',
           'Daily Reports',
           'Assigned Task',
+          
           'Task Planner',
           'Notifications',
           'Feedback',
@@ -72,6 +74,7 @@ extension EmployeeRoleExtension on EmployeeRole {
           'Day Planner',
           'Daily Reports',
           'Assigned Task',
+          
           'Task Planner',
           'Notifications',
           'Feedback',
@@ -82,6 +85,7 @@ extension EmployeeRoleExtension on EmployeeRole {
           'Dashboard',
           'Day Planner',
           'Assigned Task',
+          
           'Video Task Planner',
           'Notifications',
         ];

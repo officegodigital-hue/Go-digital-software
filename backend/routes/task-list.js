@@ -36,78 +36,40 @@ router.get('/by-assignment/:taskAssignmentId/:deliverables', async (req, res) =>
 
 router.post('/find-or-create', async (req, res) => {
   const {
-    taskAssignmentId, clientName, deliverables, submissionDate, noOfRows,
-    employeeId, employeeName,
+    taskAssignmentId, additionalTaskId, clientName, deliverables,
+    submissionDate, noOfRows, employeeId, employeeName
   } = req.body;
 
-  let formattedSubmissionDate = null;
-
-if (submissionDate) {
-    formattedSubmissionDate = submissionDate.toString().split('T')[0];
-}
-
-  if (!taskAssignmentId || !clientName || !deliverables)
-    return res.status(400).json({ success: false, message: 'taskAssignmentId, clientName and deliverables are required' });
+  if ((!taskAssignmentId && !additionalTaskId) || !clientName || !deliverables) {
+    return res.status(400).json({ success: false, message: "Task Id, Client and Deliverables are required" });
+  }
 
   try {
-    const [existing] = await db.query(
-      `SELECT * FROM task_list WHERE task_assignment_id = ? AND deliverables = ? LIMIT 1`,
-      [taskAssignmentId, deliverables]
-    );
+    let existing;
+    if (additionalTaskId) {
+      [existing] = await db.query(
+        `SELECT * FROM task_list WHERE additional_task_id = ? AND deliverables = ? LIMIT 1`,
+        [additionalTaskId, deliverables]
+      );
+    } else {
+      [existing] = await db.query(
+        `SELECT * FROM task_list WHERE task_assignment_id = ? AND deliverables = ? LIMIT 1`,
+        [taskAssignmentId, deliverables]
+      );
+    }
 
     if (existing.length > 0) {
+      // update existing
       const updates = [];
       const values = [];
 
       if (noOfRows !== undefined && noOfRows !== existing[0].no_of_rows) {
         updates.push('no_of_rows = ?');
         values.push(noOfRows);
-        existing[0].no_of_rows = noOfRows;
       }
-
       if (employeeName !== undefined) {
         updates.push('employee_id = ?', 'employee_name = ?');
         values.push(employeeId || null, employeeName || null);
-        existing[0].employee_id = employeeId || null;
-        existing[0].employee_name = employeeName || null;
-      }
-
-      if (existing[0].task_master_id === null) {
-        const [masterRows] = await db.query(
-          `SELECT id FROM task_master WHERE LOWER(task_name) = LOWER(?) LIMIT 1`,
-          [deliverables]
-        );
-        if (masterRows.length > 0) {
-          updates.push('task_master_id = ?');
-          values.push(masterRows[0].id);
-          existing[0].task_master_id = masterRows[0].id;
-        }
-      }
-
-      if (existing[0].task_timing_id === null) {
-        let timingId = null;
-        let timingStr = null;
-
-        if (existing[0].task_master_id !== null) {
-          const [t] = await db.query(
-            `SELECT id, timing FROM task_timings WHERE task_master_id = ? LIMIT 1`,
-            [existing[0].task_master_id]
-          );
-          if (t.length > 0) { timingId = t[0].id; timingStr = t[0].timing; }
-        }
-        if (timingId === null) {
-          const [t2] = await db.query(
-            `SELECT id, timing FROM task_timings WHERE LOWER(task_name) = LOWER(?) LIMIT 1`,
-            [deliverables]
-          );
-          if (t2.length > 0) { timingId = t2[0].id; timingStr = t2[0].timing; }
-        }
-        if (timingId !== null) {
-          updates.push('task_timing_id = ?', 'duration = ?');
-          values.push(timingId, timingStr);
-          existing[0].task_timing_id = timingId;
-          existing[0].duration = timingStr;
-        }
       }
 
       if (updates.length > 0) {
@@ -118,47 +80,22 @@ if (submissionDate) {
       return res.json({ success: true, message: 'Existing task list entry found', data: existing[0] });
     }
 
-    const [masterRows] = await db.query(
-      `SELECT id FROM task_master WHERE LOWER(task_name) = LOWER(?) LIMIT 1`,
-      [deliverables]
-    );
-    const resolvedTaskMasterId = masterRows.length > 0 ? masterRows[0].id : null;
-
-    let resolvedTaskTimingId = null;
-    let resolvedDuration = null;
-
-    if (resolvedTaskMasterId !== null) {
-      const [timingRows] = await db.query(
-        `SELECT id, timing FROM task_timings WHERE task_master_id = ? LIMIT 1`,
-        [resolvedTaskMasterId]
-      );
-      if (timingRows.length > 0) {
-        resolvedTaskTimingId = timingRows[0].id;
-        resolvedDuration = timingRows[0].timing;
-      }
-    }
-
-    if (resolvedTaskTimingId === null) {
-      const [timingRowsByName] = await db.query(
-        `SELECT id, timing FROM task_timings WHERE LOWER(task_name) = LOWER(?) LIMIT 1`,
-        [deliverables]
-      );
-      if (timingRowsByName.length > 0) {
-        resolvedTaskTimingId = timingRowsByName[0].id;
-        resolvedDuration = timingRowsByName[0].timing;
-      }
-    }
-
+    // insert new
     const [result] = await db.query(
       `INSERT INTO task_list
-        (task_assignment_id, employee_id, employee_name, task_master_id, task_timing_id, client_name, deliverables, duration, submission_date, no_of_rows)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (additional_task_id, task_assignment_id, employee_id, employee_name,
+         client_name, deliverables, duration, submission_date, no_of_rows)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        taskAssignmentId, employeeId || null, employeeName || null,
-        resolvedTaskMasterId, resolvedTaskTimingId,
-        // clientName, deliverables, resolvedDuration, submissionDate || null, noOfRows || 1,
-        
-        clientName, deliverables, resolvedDuration, formattedSubmissionDate, noOfRows || 1,
+        additionalTaskId || null,
+        taskAssignmentId || null,
+        employeeId || null,
+        employeeName || null,
+        clientName,
+        deliverables,
+        null, // duration can be resolved later
+        submissionDate ? submissionDate.toString().split('T')[0] : null,
+        noOfRows || 1,
       ]
     );
 
@@ -167,6 +104,141 @@ if (submissionDate) {
   } catch (err) {
     console.error('POST /task-list/find-or-create ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/task-list
+// POST /api/task-list/additional-task
+router.post('/additional-task', async (req, res) => {
+  const {
+    clientName,
+    deliverables,
+    submissionDate,
+    noOfRows,
+    employeeId,
+    employeeName,
+    duration,
+  } = req.body;
+
+  if (!clientName || !deliverables) {
+    return res.status(400).json({
+      success: false,
+      message: "Client and Deliverables are required",
+    });
+  }
+
+  try {
+
+    // Insert first
+    const [result] = await db.query(
+      `INSERT INTO task_list
+      (
+        task_assignment_id,
+        additional_task_id,
+        employee_id,
+        employee_name,
+        client_name,
+        deliverables,
+        duration,
+        submission_date,
+        no_of_rows
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        null,
+        null,
+        employeeId || null,
+        employeeName || null,
+        clientName,
+        deliverables,
+        duration || null,
+        submissionDate,
+        noOfRows || 1,
+      ]
+    );
+
+    const insertedId = result.insertId;
+
+    // Make additional_task_id = task_list.id
+    await db.query(
+      `UPDATE task_list
+       SET additional_task_id = ?
+       WHERE id = ?`,
+      [insertedId, insertedId]
+    );
+
+    const [rows] = await db.query(
+      `SELECT * FROM task_list WHERE id = ?`,
+      [insertedId]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Additional Task Created",
+      data: rows[0],
+    });
+
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+router.get('/by-additional/:additionalTaskId/:deliverables', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT *
+       FROM task_list
+       WHERE additional_task_id = ?
+       AND deliverables = ?
+       LIMIT 1`,
+      [req.params.additionalTaskId, req.params.deliverables]
+    );
+
+    return res.json({
+      success: true,
+      data: rows[0] || null,
+    });
+
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+// GET /api/task-list/additional/:employeeName
+router.get('/additional/:employeeName', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT *
+      FROM task_list
+      WHERE employee_name = ?
+        AND additional_task_id IS NOT NULL
+      ORDER BY id DESC
+      `,
+      [req.params.employeeName]
+    );
+
+    return res.json({
+      success: true,
+      data: rows,
+    });
+
+  } catch (err) {
+    console.error('GET /task-list/additional ERROR:', err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 

@@ -53,6 +53,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
 
   // ── SAVE FEEDBACK TO BACKEND ──────────────────────────────────────────
   Future<void> saveFeedback(FeedbackRowModel row) async {
+     Future<void> saveFeedback(FeedbackRowModel row) async {
     if (row.clientNameController.text.trim().isEmpty) {
       _showSnack('Please enter client name.', success: false);
       return;
@@ -77,8 +78,84 @@ class _FeedbackPageState extends State<FeedbackPage> {
       debugPrint('📤 Sending POST to: $_baseUrl');
       debugPrint('📦 Body: { clientName: "$clientName", feedback: "..." }');
 
+      // final r = await http.post(
+      //   Uri.parse(_baseUrl),
+
       final r = await http.post(
-        Uri.parse(_baseUrl),
+  Uri.parse('$_baseUrl/feedback'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_authToken',
+        },
+        body: jsonEncode({
+          'clientName': clientName,
+          'feedback': feedback,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint('📥 Status: ${r.statusCode}');
+      debugPrint('📦 Response: ${r.body}');
+
+      if (r.statusCode == 201) {
+        final responseData = jsonDecode(r.body)['data'];
+        setState(() {
+          row.isSaved = true;
+          row.feedbackId = responseData['id'] as int?;
+          row.createdAt = responseData['createdAt'] as String?;
+        });
+        _showSnack('✅ Feedback saved for $clientName', success: true);
+        debugPrint('✅ Saved ID: ${row.feedbackId}');
+      } else if (r.statusCode == 401) {
+        _showSnack('❌ Unauthorized - Please login again', success: false);
+      } else if (r.statusCode == 400) {
+        final error = jsonDecode(r.body)['message'] ?? 'Bad request';
+        _showSnack('❌ Error: $error', success: false);
+      } else if (r.statusCode == 500) {
+        _showSnack('❌ Server Error (500) - Check backend & database', success: false);
+        debugPrint('❌ 500 Error: ${r.body}');
+      } else {
+        _showSnack('❌ Failed (${r.statusCode})', success: false);
+      }
+    } catch (e) {
+      if (e is TimeoutException) {
+        _showSnack('❌ Timeout - Backend not responding', success: false);
+      } else {
+        _showSnack('❌ Error: ${e.toString()}', success: false);
+      }
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+    if (row.clientNameController.text.trim().isEmpty) {
+      _showSnack('Please enter client name.', success: false);
+      return;
+    }
+
+    if (row.feedbackController.text.trim().isEmpty) {
+      _showSnack('Please enter feedback before saving.', success: false);
+      return;
+    }
+
+    if (_authToken == null) {
+      _showSnack('❌ Authentication error - No token found', success: false);
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      final clientName = row.clientNameController.text.trim();
+      final feedback = row.feedbackController.text.trim();
+
+      debugPrint('📤 Sending POST to: $_baseUrl');
+      debugPrint('📦 Body: { clientName: "$clientName", feedback: "..." }');
+
+      // final r = await http.post(
+      //   Uri.parse(_baseUrl),
+
+      final r = await http.post(
+  Uri.parse('$_baseUrl/feedback'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_authToken',

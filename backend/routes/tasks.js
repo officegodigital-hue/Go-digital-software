@@ -44,6 +44,10 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       employeeColumn = 'videographer';
       taskColumn = 'videographer_tasks';
       break;
+      case 'video editor':
+  employeeColumn = 'video_editor';
+  taskColumn = 'video_editor_task';
+  break;
 
     case 'developer':
       employeeColumn = 'developer';
@@ -114,6 +118,7 @@ router.post('/', async (req, res) => {
     pageHandling = '', pagesPlatform = '', pageSubmitDate = '',
     designer = '', designerTasks = '', designerSubmitDate = '',
     videographer = '', videographerTasks = '', videographerSubmitDate = '',
+    videoEditor = '', videoEditorTask = '', videoEditorSubmitDate = '',
     uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = '',
     developer = '', developerTasks = '', developerSubmitDate = '',
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
@@ -129,12 +134,14 @@ router.post('/', async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO task_assignments (client_name, deliverables, ads_handling, ads_platform, ads_submit_date, 
        page_handling, pages_platform, page_submit_date, designer, designer_tasks, designer_submit_date, 
-       videographer, videographer_tasks, videographer_submit_date, ui_ux_designer, ui_ux_tasks, ui_ux_submit_date, 
+       videographer, videographer_tasks, videographer_submit_date, 
+       video_editor, video_editor_task, video_editor_submit_date, ui_ux_designer, ui_ux_tasks, ui_ux_submit_date, 
        developer, developer_tasks, developer_submit_date, deadline, maintenance_date, comments, is_assigned) 
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate, 
        pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate, 
-       videographer, videographerTasks, videographerSubmitDate, uiUxDesigner, uiUxTasks, uiUxSubmitDate, 
+       videographer, videographerTasks, videographerSubmitDate, videoEditor, videoEditorTask, videoEditorSubmitDate, 
+       uiUxDesigner, uiUxTasks, uiUxSubmitDate, 
        developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0]
     );
 
@@ -143,6 +150,7 @@ router.post('/', async (req, res) => {
     const assignments = {
       designer:     { employeeName: designer,     tasks: designerTasks },
       videographer: { employeeName: videographer, tasks: videographerTasks },
+      videoEditor: { employeeName: videoEditor, tasks: videoEditorTasks },
       uiUxDesigner: { employeeName: uiUxDesigner, tasks: uiUxTasks },
       developer:    { employeeName: developer,    tasks: developerTasks },
       adsHandling:  { employeeName: adsHandling,  tasks: adsPlatform },
@@ -177,6 +185,9 @@ router.put('/:id', async (req, res) => {
     pageHandling = '', pagesPlatform = '', pageSubmitDate = '',
     designer = '', designerTasks = '', designerSubmitDate = '',
     videographer = '', videographerTasks = '', videographerSubmitDate = '',
+    videoEditor = '',
+videoEditorTask = '',
+videoEditorSubmitDate = '',
     uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = '',
     developer = '', developerTasks = '', developerSubmitDate = '',
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
@@ -196,12 +207,15 @@ router.put('/:id', async (req, res) => {
     const [result] = await db.query(
       `UPDATE task_assignments SET client_name=?, deliverables=?, ads_handling=?, ads_platform=?, ads_submit_date=?,
        page_handling=?, pages_platform=?, page_submit_date=?, designer=?, designer_tasks=?, designer_submit_date=?,
-       videographer=?, videographer_tasks=?, videographer_submit_date=?, ui_ux_designer=?, ui_ux_tasks=?, ui_ux_submit_date=?,
+       videographer=?, videographer_tasks=?, videographer_submit_date=?, video_editor=?, video_editor_task=?, video_editor_submit_date=?, 
+       ui_ux_designer=?, ui_ux_tasks=?, ui_ux_submit_date=?,
        developer=?, developer_tasks=?, developer_submit_date=?, deadline=?, maintenance_date=?, comments=?, is_assigned=?
        WHERE id=?`,
       [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate,
        pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate,
-       videographer, videographerTasks, videographerSubmitDate, uiUxDesigner, uiUxTasks, uiUxSubmitDate,
+       videographer, videographerTasks, videographerSubmitDate, 
+       videoEditor, videoEditorTask, videoEditorSubmitDate,
+       uiUxDesigner, uiUxTasks, uiUxSubmitDate,
        developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Task not found' });
@@ -211,6 +225,7 @@ router.put('/:id', async (req, res) => {
     const roleChanges = [
       { employeeName: designer,     tasks: designerTasks,     oldEmployee: existing.designer,     oldTasks: existing.designer_tasks },
       { employeeName: videographer, tasks: videographerTasks, oldEmployee: existing.videographer, oldTasks: existing.videographer_tasks },
+      { employeeName: videoEditor, tasks: videoEditorTasks, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_tasks },
       { employeeName: uiUxDesigner, tasks: uiUxTasks,         oldEmployee: existing.ui_ux_designer, oldTasks: existing.ui_ux_tasks },
       { employeeName: developer,    tasks: developerTasks,    oldEmployee: existing.developer,    oldTasks: existing.developer_tasks },
       { employeeName: adsHandling,  tasks: adsPlatform,       oldEmployee: existing.ads_handling,  oldTasks: existing.ads_platform },

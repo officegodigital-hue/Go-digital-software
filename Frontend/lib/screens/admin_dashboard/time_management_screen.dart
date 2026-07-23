@@ -68,7 +68,7 @@ bool _loadingTaskMaster = true;
     super.initState();
     _fetchTaskMaster();
     _fetchEntries();
-  }
+  } 
 
   Future<void> _fetchTaskMaster() async {
     setState(() => _loadingTaskMaster = true);

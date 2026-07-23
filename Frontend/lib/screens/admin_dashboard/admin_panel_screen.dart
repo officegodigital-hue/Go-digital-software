@@ -25,6 +25,9 @@ static String get _baseUrl => ApiConfig.baseUrl;
   'Web Developer',
   'Page Handler',
   'Ads Handler',
+  'Video Grapher',
+  'Web Designer'
+  'Intern'
   'Manager',
 ];
   bool _loading = true;

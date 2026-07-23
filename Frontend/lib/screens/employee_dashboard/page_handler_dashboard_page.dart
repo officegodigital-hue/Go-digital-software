@@ -152,7 +152,6 @@ changes = productivity['changes'] ?? 0;
             const Row(
               children: [
                 Text('Welcome - Arun ', style: AppTextStyles.heading),
-                Text('(Page Handler)', style: TextStyle(fontSize: 14, color: AppColors.textDark, fontWeight: FontWeight.w500)),
               ],
             ),
             const SizedBox(height: 6),
@@ -160,18 +159,18 @@ changes = productivity['changes'] ?? 0;
           ],
         ),
         const Spacer(),
-        Container(
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(4)),
-          child: const Row(
-            children: [
-              Icon(Icons.calendar_month, size: 17, color: AppColors.primary),
-              SizedBox(width: 8),
-              Text('June 01, 2026 - Today', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ),
+        // Container(
+        //   height: 38,
+        //   padding: const EdgeInsets.symmetric(horizontal: 14),
+        //   decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(4)),
+        //   // child: const Row(
+        //   //   children: [
+        //   //     Icon(Icons.calendar_month, size: 17, color: AppColors.primary),
+        //   //     SizedBox(width: 8),
+        //   //     Text('June 01, 2026 - Today', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        //   //   ],
+        //   // ),
+        // ),
       ],
     );
   }

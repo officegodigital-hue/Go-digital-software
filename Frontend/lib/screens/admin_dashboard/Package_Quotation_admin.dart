@@ -1073,7 +1073,7 @@ print("Response Body: ${response.body}");
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 600, maxHeight: 640),
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
               child: Column(
@@ -1160,30 +1160,59 @@ print("Response Body: ${response.body}");
                               child: Row(children: [
                                 const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF22C55E)),
                                 const SizedBox(width: 8),
-                                Expanded(
-                                  child: SizedBox(
-                                    height: 38,
-                                    child: TextField(
-                                      controller: ctrl,
-                                      decoration: InputDecoration(
-                                        hintText: "Feature description",
-                                        filled: true,
-                                        fillColor: const Color(0xFFF8FAFC),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFDC2626)),
-                                  onPressed: featureCtrls.length > 1 ? () => removeFeatureRow(idx) : null,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                              ]),
+                              Expanded(
+  child: SizedBox(
+    height: 40,
+    child: TextField(
+      controller: ctrl,
+      decoration: InputDecoration(
+        hintText: "Feature description",
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+
+        // ↓ Smaller horizontal padding
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
+
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: const BorderSide(
+            color: Color(0xFFCBD5E1),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: const BorderSide(
+            color: Color(0xFF0052CC),
+          ),
+        ),
+      ),
+    ),
+  ),
+),
+
+const SizedBox(width: 14),
+
+SizedBox(
+  width: 34,
+  child: IconButton(
+    icon: const Icon(
+      Icons.delete_outline_rounded,
+      color: Color(0xFFDC2626),
+      size: 20,
+    ),
+    splashRadius: 18,
+    padding: EdgeInsets.zero,
+    onPressed: featureCtrls.length > 1
+        ? () => removeFeatureRow(idx)
+        : null,
+  ),
+),
+
+const SizedBox(width: 10),
+]),
                             );
                           }).toList(),
                         ],
