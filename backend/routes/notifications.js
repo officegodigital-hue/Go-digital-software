@@ -16,15 +16,23 @@ async function createNotification({ senderName, recipientName, message }) {
 
 function formatTime(dateVal) {
   if (!dateVal) return '';
-  const d = new Date(dateVal);
+
+  const created = new Date(dateVal);
   const now = new Date();
-  const diffMins = Math.round((now - d) / 60000);
-  if (diffMins < 5) return 'Just Now';
-  let hours = d.getHours();
-  const minutes = d.getMinutes().toString().padStart(2, '0');
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  hours = hours % 12 || 12;
-  return `${hours}.${minutes}${ampm}`;
+
+  // Difference in minutes
+  const diffMins = Math.floor((now.getTime() - created.getTime()) / 60000);
+
+  if (diffMins < 1) return 'Just Now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+
+  // Convert to IST
+  return created.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 // GET /api/notifications/:employeeName — every message this person sent or

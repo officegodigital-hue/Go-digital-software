@@ -182,75 +182,63 @@ static String get _baseUrl => ApiConfig.baseUrl;
     });
   }
 
-  Future<void> _fetchNotifications() async {
+   Future<void> _fetchNotifications() async {
     if (_loggedInEmployee == null || _loggedInEmployee!.isEmpty) return;
     setState(() { _loading = true; _error = null; });
 
     try {
-      // FIX: some backend events (e.g. an employee completing a task) still
-      // address their notification to the literal string "Admin" rather
-      // than a specific admin's real name — there's no per-task "who's the
-      // responsible admin" column yet to target correctly. Until that's
-      // added, we fetch both this admin's personal thread AND the generic
-      // "Admin" bucket, and merge them, so those messages are still visible
-      // no matter which real admin account is logged in.
-      final personalFuture = http.get(
+      final r = await http.get(
         Uri.parse('$_baseUrl/notifications/${Uri.encodeComponent(_loggedInEmployee!)}'),
       );
-
-      final needsAdminBucket = _loggedInEmployee!.toLowerCase() != 'admin';
-      final adminFuture = needsAdminBucket
-          ? http.get(Uri.parse('$_baseUrl/notifications/Admin'))
-          : null;
-
-      final personalResponse = await personalFuture;
-      final adminResponse = adminFuture != null ? await adminFuture : null;
-
-      if (personalResponse.statusCode == 200) {
-        final personalRows = List<dynamic>.from(
-          jsonDecode(personalResponse.body)['data'] ?? [],
-        );
-
-        List<dynamic> adminRows = [];
-        if (adminResponse != null && adminResponse.statusCode == 200) {
-          adminRows = List<dynamic>.from(
-            jsonDecode(adminResponse.body)['data'] ?? [],
-          );
-        }
-
-        // Merge + dedupe by id (a row could theoretically appear in both
-        // fetches if otherParty happened to literally be "Admin").
-        final merged = <int, Map<String, dynamic>>{};
-        for (final row in [...personalRows, ...adminRows]) {
-          merged[row['id'] as int] = row as Map<String, dynamic>;
-        }
-        final rows = merged.values.toList()
-          ..sort((a, b) => (b['id'] as int).compareTo(a['id'] as int));
-
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final rows = List<dynamic>.from(body['data'] ?? []);
         setState(() {
           notificationLogs = rows.map((row) {
-            final otherParty = row['otherParty'] as String? ?? 'Unknown';
-            return {
-              "id": row['id'],
-              "initials": _initialsFor(otherParty),
-              "name": otherParty,
-              "message": row['message'] ?? '',
-              "time": row['time'] ?? '',
-              "type": row['type'] ?? 'RECEIVED',
-              "isSeen": row['isSeen'] as bool? ?? false,
-              "isFavorite": row['isFavorite'] as bool? ?? false,
-              "isArchived": row['isArchived'] as bool? ?? false,
-            };
-          }).toList();
+  final otherParty = row['otherParty'] as String? ?? 'Unknown';
+
+  String rawMessage = row['message'] ?? '';
+  String displayMessage = rawMessage;
+
+  // JSON notification-na preview mattum list-la kaatu
+  try {
+    final obj = jsonDecode(rawMessage);
+
+    if (obj is Map && obj["preview"] != null) {
+      displayMessage = obj["preview"];
+    }
+  } catch (_) {
+    // PLAN_SUBMITTED mathiri plain text notifications-ku onnum panna vendam
+  }
+
+  return {
+    "id": row['id'],
+    "initials": _initialsFor(otherParty),
+    "name": otherParty,
+
+    // Notification list-la idhu dhaan theriyum
+    "message": displayMessage,
+
+    // Popup open panna full JSON idhula irukkum
+    "rawMessage": rawMessage,
+
+    "time": row['time'] ?? '',
+    "type": row['type'] ?? 'RECEIVED',
+    "isSeen": row['isSeen'] as bool? ?? false,
+    "isFavorite": row['isFavorite'] as bool? ?? false,
+    "isArchived": row['isArchived'] as bool? ?? false,
+  };
+}).toList();
           _loading = false;
         });
       } else {
-        setState(() { _error = 'Failed to load notifications (${personalResponse.statusCode})'; _loading = false; });
+        setState(() { _error = 'Failed to load notifications (${r.statusCode})'; _loading = false; });
       }
     } catch (e) {
       setState(() { _error = 'Connection error: $e'; _loading = false; });
     }
   }
+
 
   String _initialsFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
@@ -331,92 +319,106 @@ static String get _baseUrl => ApiConfig.baseUrl;
 //     }
 //   }
 // }
+  void _showDayPlanPopup(String empName, String date) {
+    showDialog(
+      context: context, // Ippo error varathu
+      builder: (context) => AlertDialog(
+        title: Text("Day Plan Details: $empName ($date)"),
+        content: SizedBox(
+          width: 900,
+          height: 500,
+          child: DayPlanTableViewer(employeeName: empName, date: date),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
+        ],
+      ),
+    );
+  }
 
 void _handleNotificationClick(Map<String, dynamic> log) {
-  final msg = log["message"].toString();
+  final msg = (log["rawMessage"] ?? log["message"]).toString();
 
-  // Mark notification as seen
   if (!(log["isSeen"] as bool)) {
     _markAsSeen(log);
   }
 
-  // -------------------------------
-  // Task Planner Share Notification
-  // -------------------------------
-  try {
-    final data = jsonDecode(msg);
+  debugPrint("Notification : $msg");
 
-    if (data["type"] == "TASK_PLANNER_SHARE") {
+  // -----------------------------
+  // DAY PLANNER (non JSON)
+  // -----------------------------
+  if (msg.startsWith("PLAN_SUBMITTED")) {
+    final parts = msg.split("|");
+
+    if (parts.length >= 3) {
+      final empName = parts[1].trim();
+      final date = parts[2].trim();
+
+      _showDayPlanPopup(empName, date);
+      return;
+    }
+  }
+
+  // -----------------------------
+  // JSON Notifications
+  // -----------------------------
+// -----------------------------
+// JSON Notifications
+// -----------------------------
+if (!msg.startsWith("{")) {
+  debugPrint("Not JSON notification");
+  return;
+}
+
+try {
+  final json = jsonDecode(msg);
+
+  final data = json;
+
+  switch (data["type"]) {
+
+    // ===========================
+    // TASK PLANNER
+    // ===========================
+    case "TASK_PLANNER_SHARE":
+
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: Row(
-            children: const [
-              Icon(Icons.priority_high, color: Colors.red),
-              SizedBox(width: 8),
-              Text("Important Task Planner"),
-            ],
-          ),
+          title: const Text("Task Planner"),
           content: SizedBox(
-            width: 600,
+            width: 650,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
 
-                const Text(
-                  "Shared By",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
+                Text("Shared By : ${data["sender"]}"),
+
+                const SizedBox(height: 15),
+
+                Text("Content Type : ${data["contentType"]}"),
+
+                const SizedBox(height: 15),
+
+                const Text("Message"),
+
                 const SizedBox(height: 5),
-
-                Text(data["sender"] ?? "-"),
-
-                const SizedBox(height: 20),
-
-                const Text(
-                  "Content Type",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-                const SizedBox(height: 5),
-
-                Text(data["contentType"] ?? "-"),
-
-                const SizedBox(height: 20),
-
-                const Text(
-                  "Message",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-                const SizedBox(height: 8),
 
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: const Color(0xfff8fafc),
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: SelectableText(
-                    data["content"] ?? "",
-                    style: const TextStyle(fontSize: 14),
-                  ),
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(data["content"] ?? ""),
                 ),
               ],
             ),
           ),
           actions: [
-            ElevatedButton(
+            TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text("Close"),
             )
@@ -425,42 +427,59 @@ void _handleNotificationClick(Map<String, dynamic> log) {
       );
 
       return;
-    }
-  } catch (_) {}
 
-  // -------------------------------
-  // Existing Day Planner Notification
-  // -------------------------------
-  if (msg.startsWith("PLAN_SUBMITTED")) {
-    final parts = msg.split('|');
-
-    if (parts.length >= 3) {
-      final empName = parts[1];
-      final date = parts[2];
+    // ===========================
+    // VIDEOGRAPHER
+    // ===========================
+    case "VIDEOGRAPHER_SHARE":
 
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: Text("Day Plan Details: $empName ($date)"),
+          title: const Text("Videographer Planner"),
           content: SizedBox(
-            width: 900,
-            height: 500,
-            child: DayPlanTableViewer(
-              employeeName: empName,
-              date: date,
+            width: 600,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                Text("Shared By : ${data["sender"]}"),
+
+                const SizedBox(height: 10),
+
+                Text("Client : ${data["client"]}"),
+
+                const SizedBox(height: 10),
+
+                const Text("Scheduling Details"),
+
+                const SizedBox(height: 5),
+
+                Text(data["schedulingDetails"] ?? ""),
+              ],
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text("Close"),
-            ),
+            )
           ],
         ),
       );
-    }
+
+      return;
+
+    default:
+      debugPrint("Unknown notification type");
   }
+
+} catch (e) {
+  debugPrint("Notification JSON Error : $e");
 }
+}
+
 
 Future<void> _markAsSeen(Map<String, dynamic> log) async {
   try {
@@ -718,29 +737,66 @@ Future<void> _markAsSeen(Map<String, dynamic> log) async {
 
   // ── Build Employee Sidebar Item ──
   Widget _buildEmployeeItem(String label, String? employeeName) {
-    final isSelected = _selectedEmployee == employeeName;
+  final isSelected = _selectedEmployee == employeeName;
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedEmployee = employeeName;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? const Color(0xFF0052CC) : const Color(0xFF475569),
+  return InkWell(
+    onTap: () {
+      setState(() {
+        _selectedEmployee = employeeName;
+      });
+    },
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      color: isSelected
+          ? const Color(0xFFEFF6FF)
+          : Colors.transparent,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight:
+                    isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected
+                    ? const Color(0xFF0052CC)
+                    : const Color(0xFF475569),
+              ),
+            ),
           ),
-        ),
-      ),
-    );
-  }
 
+          // Unread Count
+          if (employeeName != null && _unreadCount(employeeName) > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 7, vertical: 2),
+              decoration: const BoxDecoration(
+                color: Color.fromARGB(255, 54, 70, 244),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                "${_unreadCount(employeeName)}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+int _unreadCount(String employee) {
+  return notificationLogs.where((log) {
+    return log["name"] == employee &&
+        (log["isSeen"] == false);
+  }).length;
+}
+ 
   static const TextStyle _headerStyle = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w700,

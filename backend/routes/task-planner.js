@@ -190,15 +190,17 @@ router.patch('/:id/share', async (req, res) => {
 
     await connection.commit();
 
-    await createNotification({
+await createNotification({
   senderName: senderEmployeeName,
   recipientName: receiverEmployeeName,
   message: JSON.stringify({
-    type: "TASK_PLANNER_SHARE",
-    title: "Important Task Planner",
-    sender: senderEmployeeName,
-    contentType: contentType,
-    content: content,
+    preview: `Task Planner shared by ${senderEmployeeName}`,
+    payload: {
+      type: "TASK_PLANNER_SHARE",
+      sender: senderEmployeeName,
+      contentType: contentType,
+      content: content,
+    }
   }),
 });
 

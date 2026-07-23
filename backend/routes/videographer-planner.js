@@ -108,15 +108,18 @@ router.patch('/:id/share', async (req, res) => {
       ]
     );
 
-    await createNotification({
+await createNotification({
   senderName: senderEmployeeName,
   recipientName: receiverEmployeeName,
   message: JSON.stringify({
-    type: "VIDEOGRAPHER_SHARE",
-    sender: senderEmployeeName,
-    client: clientName,
-    schedulingDetails: schedulingDetails,
-    sharedAt: new Date(),
+    preview: `Video Task shared by ${senderEmployeeName}`,
+    payload: {
+      type: "VIDEOGRAPHER_SHARE",
+      sender: senderEmployeeName,
+      client: clientName,
+      schedulingDetails: schedulingDetails,
+      sharedAt: new Date(),
+    }
   }),
 });
 

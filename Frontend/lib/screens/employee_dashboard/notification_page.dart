@@ -195,19 +195,40 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         final rows = List<dynamic>.from(body['data'] ?? []);
         setState(() {
           notificationLogs = rows.map((row) {
-            final otherParty = row['otherParty'] as String? ?? 'Unknown';
-            return {
-              "id": row['id'],
-              "initials": _initialsFor(otherParty),
-              "name": otherParty,
-              "message": row['message'] ?? '',
-              "time": row['time'] ?? '',
-              "type": row['type'] ?? 'RECEIVED',
-              "isSeen": row['isSeen'] as bool? ?? false,
-              "isFavorite": row['isFavorite'] as bool? ?? false,
-              "isArchived": row['isArchived'] as bool? ?? false,
-            };
-          }).toList();
+  final otherParty = row['otherParty'] as String? ?? 'Unknown';
+
+  String rawMessage = row['message'] ?? '';
+  String displayMessage = rawMessage;
+
+  // JSON notification-na preview mattum list-la kaatu
+  try {
+    final obj = jsonDecode(rawMessage);
+
+    if (obj is Map && obj["preview"] != null) {
+      displayMessage = obj["preview"];
+    }
+  } catch (_) {
+    // PLAN_SUBMITTED mathiri plain text notifications-ku onnum panna vendam
+  }
+
+  return {
+    "id": row['id'],
+    "initials": _initialsFor(otherParty),
+    "name": otherParty,
+
+    // Notification list-la idhu dhaan theriyum
+    "message": displayMessage,
+
+    // Popup open panna full JSON idhula irukkum
+    "rawMessage": rawMessage,
+
+    "time": row['time'] ?? '',
+    "type": row['type'] ?? 'RECEIVED',
+    "isSeen": row['isSeen'] as bool? ?? false,
+    "isFavorite": row['isFavorite'] as bool? ?? false,
+    "isArchived": row['isArchived'] as bool? ?? false,
+  };
+}).toList();
           _loading = false;
         });
       } else {
@@ -575,184 +596,145 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
 
 void _handleNotificationClick(Map<String, dynamic> log) {
-  final msg = log["message"].toString();
+  final msg = (log["rawMessage"] ?? log["message"]).toString();
 
-  // Mark as seen
   if (!(log["isSeen"] as bool)) {
     _markAsSeen(log);
   }
 
-  debugPrint("DEBUG: Notification clicked: $msg");
+  debugPrint("Notification : $msg");
 
-  // ============================
-  // TASK PLANNER SHARE
-  // ============================
-  try {
-    final data = jsonDecode(msg);
-
-    if (data["type"] == "TASK_PLANNER_SHARE") {
-      showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.priority_high, color: Colors.red),
-                SizedBox(width: 8),
-                Text("Important Task Planner"),
-              ],
-            ),
-            content: SizedBox(
-              width: 650,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Shared By",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(data["sender"] ?? "-"),
-
-                  const SizedBox(height: 20),
-
-                  const Text(
-                    "Content Type",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(data["contentType"] ?? "-"),
-
-                  const SizedBox(height: 20),
-
-                  const Text(
-                    "Message",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(15),
-                    decoration: BoxDecoration(
-                      color: const Color(0xfff8fafc),
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SelectableText(
-                      data["content"] ?? "",
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text("Close"),
-              ),
-            ],
-          );
-        },
-      );
-
-      return;
-    }
-  } catch (_) {
-    // Not a JSON notification, continue checking below.
-  }
-
-  // ============================
-  // DAY PLANNER
-  // ============================
-  if (msg.contains("PLAN_SUBMITTED")) {
-    final parts = msg.split('|');
+  // -----------------------------
+  // DAY PLANNER (non JSON)
+  // -----------------------------
+  if (msg.startsWith("PLAN_SUBMITTED")) {
+    final parts = msg.split("|");
 
     if (parts.length >= 3) {
       final empName = parts[1].trim();
       final date = parts[2].trim();
 
-      debugPrint("DEBUG: Opening Day Planner popup");
-
-      showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text("Day Plan Details: $empName ($date)"),
-            content: SizedBox(
-              width: 900,
-              height: 500,
-              child: DayPlanTableViewer(
-                employeeName: empName,
-                date: date,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text("Close"),
-              ),
-            ],
-          );
-        },
-      );
-
+      _showDayPlanPopup(empName, date);
       return;
     }
   }
 
-  // ============================
-  // video shoot PLANNER
-  // ============================
+  // -----------------------------
+  // JSON Notifications
+  // -----------------------------
+// -----------------------------
+// JSON Notifications
+// -----------------------------
+if (!msg.startsWith("{")) {
+  debugPrint("Not JSON notification");
+  return;
+}
 
-if (msg.startsWith("{")) {
-  final data = jsonDecode(msg);
+try {
+  final json = jsonDecode(msg);
 
-  if (data["type"] == "VIDEOGRAPHER_SHARE") {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Videographer Task"),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Shared By : ${data["sender"]}"),
-              const SizedBox(height: 10),
-              Text("Client : ${data["client"]}"),
-              const SizedBox(height: 10),
-              Text("Scheduling Details :"),
-              const SizedBox(height: 5),
-              Text(data["schedulingDetails"]),
-            ],
+  final data = json;
+
+  switch (data["type"]) {
+
+    // ===========================
+    // TASK PLANNER
+    // ===========================
+    case "TASK_PLANNER_SHARE":
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Task Planner"),
+          content: SizedBox(
+            width: 650,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                Text("Shared By : ${data["sender"]}"),
+
+                const SizedBox(height: 15),
+
+                Text("Content Type : ${data["contentType"]}"),
+
+                const SizedBox(height: 15),
+
+                const Text("Message"),
+
+                const SizedBox(height: 5),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(data["content"] ?? ""),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            )
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
-          )
-        ],
-      ),
-    );
+      );
+
+      return;
+
+    // ===========================
+    // VIDEOGRAPHER
+    // ===========================
+    case "VIDEOGRAPHER_SHARE":
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Videographer Planner"),
+          content: SizedBox(
+            width: 600,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                Text("Shared By : ${data["sender"]}"),
+
+                const SizedBox(height: 10),
+
+                Text("Client : ${data["client"]}"),
+
+                const SizedBox(height: 10),
+
+                const Text("Scheduling Details"),
+
+                const SizedBox(height: 5),
+
+                Text(data["schedulingDetails"] ?? ""),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            )
+          ],
+        ),
+      );
+
+      return;
+
+    default:
+      debugPrint("Unknown notification type");
   }
-}
 
-  debugPrint("DEBUG: No popup matched.");
+} catch (e) {
+  debugPrint("Notification JSON Error : $e");
 }
-
+}
 
 Future<void> _markAsSeen(Map<String, dynamic> log) async {
   try {
@@ -830,6 +812,7 @@ int _unreadCount(String employee) {
     ),
   );
 }
+ 
   // Widget _buildEmployeeItem(String label, String? employeeName) {
   //   final isSelected = _selectedEmployee == employeeName;
 
