@@ -182,63 +182,85 @@ static String get _baseUrl => ApiConfig.baseUrl;
     });
   }
 
-   Future<void> _fetchNotifications() async {
-    if (_loggedInEmployee == null || _loggedInEmployee!.isEmpty) return;
-    setState(() { _loading = true; _error = null; });
+Future<void> _fetchNotifications() async {
+  if (_loggedInEmployee == null || _loggedInEmployee!.isEmpty) return;
 
-    try {
-      final r = await http.get(
-        Uri.parse('$_baseUrl/notifications/${Uri.encodeComponent(_loggedInEmployee!)}'),
-      );
-      if (r.statusCode == 200) {
-        final body = jsonDecode(r.body);
-        final rows = List<dynamic>.from(body['data'] ?? []);
-        setState(() {
-          notificationLogs = rows.map((row) {
-  final otherParty = row['otherParty'] as String? ?? 'Unknown';
+  setState(() {
+    _loading = true;
+    _error = null;
+  });
 
-  String rawMessage = row['message'] ?? '';
-  String displayMessage = rawMessage;
-
-  // JSON notification-na preview mattum list-la kaatu
   try {
-    final obj = jsonDecode(rawMessage);
+    final response = await http.get(
+      Uri.parse(
+        '$_baseUrl/notifications/${Uri.encodeComponent(_loggedInEmployee!)}',
+      ),
+    );
 
-    if (obj is Map && obj["preview"] != null) {
-      displayMessage = obj["preview"];
+    if (response.statusCode != 200) {
+      setState(() {
+        _loading = false;
+        _error = "Failed to load notifications";
+      });
+      return;
     }
-  } catch (_) {
-    // PLAN_SUBMITTED mathiri plain text notifications-ku onnum panna vendam
-  }
 
-  return {
-    "id": row['id'],
-    "initials": _initialsFor(otherParty),
-    "name": otherParty,
+    final body = jsonDecode(response.body);
 
-    // Notification list-la idhu dhaan theriyum
-    "message": displayMessage,
+    final List rows = body["data"] ?? [];
 
-    // Popup open panna full JSON idhula irukkum
-    "rawMessage": rawMessage,
+    notificationLogs = [];
 
-    "time": row['time'] ?? '',
-    "type": row['type'] ?? 'RECEIVED',
-    "isSeen": row['isSeen'] as bool? ?? false,
-    "isFavorite": row['isFavorite'] as bool? ?? false,
-    "isArchived": row['isArchived'] as bool? ?? false,
-  };
-}).toList();
-          _loading = false;
-        });
-      } else {
-        setState(() { _error = 'Failed to load notifications (${r.statusCode})'; _loading = false; });
-      }
-    } catch (e) {
-      setState(() { _error = 'Connection error: $e'; _loading = false; });
+    for (final row in rows) {
+      final otherParty = row["otherParty"] ?? "Unknown";
+
+      final rawMessage = (row["message"] ?? "").toString();
+
+      String displayMessage = rawMessage;
+
+      try {
+        final json = jsonDecode(rawMessage);
+
+        if (json is Map<String, dynamic>) {
+          displayMessage =
+              json["preview"] ??
+              json["title"] ??
+              json["contentType"] ??
+              "Notification";
+        }
+      } catch (_) {}
+
+      notificationLogs.add({
+        "id": row["id"],
+        "initials": _initialsFor(otherParty),
+        "name": otherParty,
+
+        // Popup use pannuradhu
+        "rawMessage": rawMessage,
+
+        // List-la kaaturadhu
+        "message": displayMessage,
+
+        "time": row["time"],
+        "type": row["type"],
+        "isSeen": row["isSeen"],
+        "isFavorite": row["isFavorite"],
+        "isArchived": row["isArchived"],
+      });
+
+      debugPrint("RAW MESSAGE = $rawMessage");
     }
-  }
 
+    setState(() {
+      _loading = false;
+    });
+  } catch (e) {
+    setState(() {
+      _loading = false;
+      _error = e.toString();
+    });
+  }
+}
 
   String _initialsFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
@@ -339,147 +361,206 @@ static String get _baseUrl => ApiConfig.baseUrl;
     );
   }
 
-void _handleNotificationClick(Map<String, dynamic> log) {
-  final msg = (log["rawMessage"] ?? log["message"]).toString();
+void _handleNotificationClick(Map<String, dynamic> log) async {
+  final String msg =
+      ((log["rawMessage"] ?? log["message"])?.toString() ?? "").trim();
 
   if (!(log["isSeen"] as bool)) {
-    _markAsSeen(log);
+    await _markAsSeen(log);
   }
 
-  debugPrint("Notification : $msg");
+  debugPrint("========== NOTIFICATION ==========");
+  debugPrint(msg);
 
-  // -----------------------------
-  // DAY PLANNER (non JSON)
-  // -----------------------------
+  // -----------------------------------------
+  // DAY PLANNER
+  // -----------------------------------------
   if (msg.startsWith("PLAN_SUBMITTED")) {
     final parts = msg.split("|");
 
     if (parts.length >= 3) {
-      final empName = parts[1].trim();
-      final date = parts[2].trim();
-
-      _showDayPlanPopup(empName, date);
-      return;
+      _showDayPlanPopup(
+        parts[1].trim(),
+        parts[2].trim(),
+      );
     }
+
+    return;
   }
 
-  // -----------------------------
-  // JSON Notifications
-  // -----------------------------
-// -----------------------------
-// JSON Notifications
-// -----------------------------
-if (!msg.startsWith("{")) {
-  debugPrint("Not JSON notification");
-  return;
-}
+  // -----------------------------------------
+  // NORMAL TEXT
+  // -----------------------------------------
+  if (!msg.trimLeft().startsWith("{")) {
+    debugPrint("Normal notification");
+    return;
+  }
 
-try {
-  final json = jsonDecode(msg);
+  try {
+    final Map<String, dynamic> data =
+        jsonDecode(msg.trim()) as Map<String, dynamic>;
 
-  final data = json;
+    debugPrint("TYPE = ${data["type"]}");
 
-  switch (data["type"]) {
+    if (!mounted) return;
 
-    // ===========================
-    // TASK PLANNER
-    // ===========================
-    case "TASK_PLANNER_SHARE":
+    switch ((data["type"] ?? "").toString()) {
+      //==========================================================
+      // TASK PLANNER
+      //==========================================================
+      case "TASK_PLANNER_SHARE":
 
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text("Task Planner"),
-          content: SizedBox(
-            width: 650,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        showDialog(
+          context: context,
+          builder: (_) {
+            return AlertDialog(
+              title: Row(
+                children: const [
+                  Icon(Icons.campaign, color: Colors.blue),
+                  SizedBox(width: 10),
+                  Text("Important Task Planner"),
+                ],
+              ),
+              content: SizedBox(
+                width: 650,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
 
-                Text("Shared By : ${data["sender"]}"),
+                    Text(
+                      "Shared By",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
 
-                const SizedBox(height: 15),
+                    const SizedBox(height: 5),
 
-                Text("Content Type : ${data["contentType"]}"),
+                    Text(data["sender"]?.toString() ?? "-"),
 
-                const SizedBox(height: 15),
+                    const SizedBox(height: 20),
 
-                const Text("Message"),
+                    Text(
+                      "Content Type",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
 
-                const SizedBox(height: 5),
+                    const SizedBox(height: 5),
 
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  child: SelectableText(data["content"] ?? ""),
+                    Text(data["contentType"]?.toString() ?? "-"),
+
+                    const SizedBox(height: 20),
+
+                    Text(
+                      "Message",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: SelectableText(
+                        data["content"]?.toString() ?? "",
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close"),
                 ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close"),
-            )
-          ],
-        ),
-      );
+            );
+          },
+        );
 
-      return;
+        return;
 
-    // ===========================
-    // VIDEOGRAPHER
-    // ===========================
-    case "VIDEOGRAPHER_SHARE":
+      //==========================================================
+      // VIDEOGRAPHER
+      //==========================================================
+      case "VIDEOGRAPHER_SHARE":
 
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text("Videographer Planner"),
-          content: SizedBox(
-            width: 600,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        showDialog(
+          context: context,
+          builder: (_) {
+            return AlertDialog(
+              title: const Text("Videographer Planner"),
+              content: SizedBox(
+                width: 650,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
 
-                Text("Shared By : ${data["sender"]}"),
+                    Text("Shared By : ${data["sender"]}"),
 
-                const SizedBox(height: 10),
+                    const SizedBox(height: 15),
 
-                Text("Client : ${data["client"]}"),
+                    Text("Client : ${data["client"]}"),
 
-                const SizedBox(height: 10),
+                    const SizedBox(height: 15),
 
-                const Text("Scheduling Details"),
+                    const Text(
+                      "Scheduling Details",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
 
-                const SizedBox(height: 5),
+                    const SizedBox(height: 5),
 
-                Text(data["schedulingDetails"] ?? ""),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SelectableText(
+                        data["schedulingDetails"]?.toString() ?? "",
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close"),
+                ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close"),
-            )
-          ],
-        ),
-      );
+            );
+          },
+        );
 
-      return;
+        return;
 
-    default:
-      debugPrint("Unknown notification type");
+      default:
+        debugPrint("Unknown Notification Type : ${data["type"]}");
+    }
+  } catch (e, s) {
+    debugPrint("JSON ERROR : $e");
+    debugPrint(s.toString());
   }
-
-} catch (e) {
-  debugPrint("Notification JSON Error : $e");
 }
-}
-
 
 Future<void> _markAsSeen(Map<String, dynamic> log) async {
   try {
