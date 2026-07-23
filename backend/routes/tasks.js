@@ -150,7 +150,7 @@ router.post('/', async (req, res) => {
     const assignments = {
       designer:     { employeeName: designer,     tasks: designerTasks },
       videographer: { employeeName: videographer, tasks: videographerTasks },
-      videoEditor: { employeeName: videoEditor, tasks: videoEditorTasks },
+      videoEditor: { employeeName: videoEditor, tasks: videoEditorTask },
       uiUxDesigner: { employeeName: uiUxDesigner, tasks: uiUxTasks },
       developer:    { employeeName: developer,    tasks: developerTasks },
       adsHandling:  { employeeName: adsHandling,  tasks: adsPlatform },
@@ -225,7 +225,7 @@ videoEditorSubmitDate = '',
     const roleChanges = [
       { employeeName: designer,     tasks: designerTasks,     oldEmployee: existing.designer,     oldTasks: existing.designer_tasks },
       { employeeName: videographer, tasks: videographerTasks, oldEmployee: existing.videographer, oldTasks: existing.videographer_tasks },
-      { employeeName: videoEditor, tasks: videoEditorTasks, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_tasks },
+      { employeeName: videoEditor, tasks: videoEditorTask, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_tasks },
       { employeeName: uiUxDesigner, tasks: uiUxTasks,         oldEmployee: existing.ui_ux_designer, oldTasks: existing.ui_ux_tasks },
       { employeeName: developer,    tasks: developerTasks,    oldEmployee: existing.developer,    oldTasks: existing.developer_tasks },
       { employeeName: adsHandling,  tasks: adsPlatform,       oldEmployee: existing.ads_handling,  oldTasks: existing.ads_platform },
