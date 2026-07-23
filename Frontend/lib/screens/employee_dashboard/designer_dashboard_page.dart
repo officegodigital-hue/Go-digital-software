@@ -224,7 +224,7 @@ changes = productivity['changes'] ?? 0;
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Welcome - Pavithra',
+              'Welcome',
               style: AppTextStyles.heading,
             ),
             SizedBox(height: 6),

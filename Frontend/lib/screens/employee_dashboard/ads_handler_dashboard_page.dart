@@ -197,7 +197,7 @@ changes = productivity['changes'] ?? 0;
             Row(
               children: [
                 Text(
-                  'Welcome - Susan',
+                  'Welcome ',
                   style: AppTextStyles.heading,
                 ),
                 SizedBox(width: 6),

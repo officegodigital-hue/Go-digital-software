@@ -151,7 +151,7 @@ changes = productivity['changes'] ?? 0;
           children: [
             const Row(
               children: [
-                Text('Welcome - Arun ', style: AppTextStyles.heading),
+                Text('Welcome ', style: AppTextStyles.heading),
               ],
             ),
             const SizedBox(height: 6),
