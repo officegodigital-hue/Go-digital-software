@@ -21,25 +21,34 @@ router.get('/by-employee/:name', async (req, res) => {
   try {
     // Find rows where employee appears in any role column (case-insensitive)
     const [rows] = await db.query(
-      `SELECT
-         ta.*,
-         -- include submit dates from each column if you add them later
-         ta.created_at AS designer_submit_date,
-         ta.created_at AS videographer_submit_date,
-         ta.created_at AS ads_submit_date,
-         ta.created_at AS page_submit_date,
-         ta.created_at AS ui_ux_submit_date,
-         ta.created_at AS developer_submit_date
-       FROM task_assignments ta
-       WHERE
-         UPPER(ta.designer)        LIKE ? OR
-         UPPER(ta.videographer)    LIKE ? OR
-         UPPER(ta.ads_handling)    LIKE ? OR
-         UPPER(ta.page_handling)   LIKE ? OR
-         UPPER(ta.ui_ux_designer)  LIKE ?
-       ORDER BY ta.created_at DESC`,
-      [`%${name}%`, `%${name}%`, `%${name}%`, `%${name}%`, `%${name}%`]
-    );
+  `SELECT
+      ta.*,
+      ta.designer_submit_date,
+      ta.videographer_submit_date,
+      ta.video_editor_submit_date,
+      ta.ads_submit_date,
+      ta.page_submit_date,
+      ta.ui_ux_submit_date,
+      ta.developer_submit_date
+   FROM task_assignments ta
+   WHERE
+      UPPER(ta.designer)       LIKE ? OR
+      UPPER(ta.videographer)   LIKE ? OR
+      UPPER(ta.video_editor)   LIKE ? OR
+      UPPER(ta.ads_handling)   LIKE ? OR
+      UPPER(ta.page_handling)  LIKE ? OR
+      UPPER(ta.ui_ux_designer) LIKE ? OR
+      UPPER(ta.developer)      LIKE ?
+   ORDER BY ta.created_at DESC`,
+[
+  `%${name}%`,
+  `%${name}%`,
+  `%${name}%`,
+  `%${name}%`,
+  `%${name}%`,
+  `%${name}%`,
+  `%${name}%`
+]);
 
     return res.json({ success: true, data: rows });
   } catch (err) {

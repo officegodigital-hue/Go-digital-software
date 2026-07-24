@@ -190,7 +190,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     if (u.startsWith('hr'))  return v * 60;
     if (u.startsWith('day')) return v * 1440;
     return 0;
-  }
+  } 
 
   String _calculatePerformance(String singleTask, Duration? actual) {
     if (actual == null) return 'N/A';
@@ -225,7 +225,13 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
         return;
       }
 
-      final r = await http.get(Uri.parse('$_baseUrl/employee-tasks/by-employee/$_employeeName'));
+      // final r = await http.get(Uri.parse('$_baseUrl/employee-tasks/by-employee/$_employeeName'));
+
+final r = await http.get(
+  Uri.parse('$_baseUrl/employee-tasks/by-employee/$_employeeName')
+);
+
+print(r.body);
 
       if (r.statusCode == 200) {
         final data = List<dynamic>.from(jsonDecode(r.body)['data'] ?? []);
@@ -381,7 +387,6 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
 
           void addDeveloperTasks() {
             if (m['developer'] == null || m['developer'].toString().toUpperCase() != nameUpper) return;
-            // for (var st in _splitTasks(m['developer_task']?.toString() ?? '')) {
             for (var st in _splitTasks(m['developer_tasks']?.toString() ?? '')) {
               final parsed = _parseTaskWithCount(st);
               allTabs.add(parsed['name'] as String);

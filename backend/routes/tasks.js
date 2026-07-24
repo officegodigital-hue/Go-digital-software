@@ -10,6 +10,7 @@ const { createNotification } = require('./notifications');
 const ROLE_FIELDS = [
   { employeeField: 'designer',     tasksField: 'designerTasks',     label: 'designer_tasks_col' },
   { employeeField: 'videographer', tasksField: 'videographerTasks', label: 'videographer_tasks_col' },
+  { employeeField: 'videoEditor',  tasksField: 'videoEditorTask',   label: 'video_editor_task_col' },
   { employeeField: 'uiUxDesigner', tasksField: 'uiUxTasks',         label: 'ui_ux_tasks_col' },
   { employeeField: 'developer',    tasksField: 'developerTasks',    label: 'developer_tasks_col' },
   { employeeField: 'adsHandling',  tasksField: 'adsPlatform',       label: 'ads_platform_col' },
@@ -39,7 +40,7 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       employeeColumn = 'designer';
       taskColumn = 'designer_tasks';
       break;
-
+ 
     case 'videographer':
       employeeColumn = 'videographer';
       taskColumn = 'videographer_tasks';
@@ -85,13 +86,15 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
         id,
         client_name,
         deliverables,
-        ${taskColumn} as task
+        ${taskColumn} as task,
+        ${employeeColumn} as employee
       FROM task_assignments
       WHERE ${employeeColumn}=?
       ORDER BY created_at DESC
       `,
       [employeeName]
     );
+    console.log(rows);
 
     res.json({
       success: true,
@@ -122,9 +125,6 @@ router.post('/', async (req, res) => {
     uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = '',
     developer = '', developerTasks = '', developerSubmitDate = '',
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
-    // NOTE: no auth middleware on this route yet, so the admin's name has to
-    // come from the request body until authenticateToken is added here.
-    // Falls back to 'Admin' if the frontend doesn't send it.
     assignedByName = 'Admin',
   } = req.body;
 
@@ -225,7 +225,7 @@ videoEditorSubmitDate = '',
     const roleChanges = [
       { employeeName: designer,     tasks: designerTasks,     oldEmployee: existing.designer,     oldTasks: existing.designer_tasks },
       { employeeName: videographer, tasks: videographerTasks, oldEmployee: existing.videographer, oldTasks: existing.videographer_tasks },
-      { employeeName: videoEditor, tasks: videoEditorTask, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_tasks },
+      { employeeName: videoEditor, tasks: videoEditorTask, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_task },
       { employeeName: uiUxDesigner, tasks: uiUxTasks,         oldEmployee: existing.ui_ux_designer, oldTasks: existing.ui_ux_tasks },
       { employeeName: developer,    tasks: developerTasks,    oldEmployee: existing.developer,    oldTasks: existing.developer_tasks },
       { employeeName: adsHandling,  tasks: adsPlatform,       oldEmployee: existing.ads_handling,  oldTasks: existing.ads_platform },

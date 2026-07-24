@@ -74,6 +74,8 @@ class _AdditionalTasksPageState extends State<AdditionalTasksPage> {
   String? _selectedClientFilter;
   TextEditingController? _clientSearchFieldController;
   String? _error;
+  bool _isEditing = false;
+int? _editingTaskListId;
 
   String? selectedClient;
 String? selectedDeliverable;
@@ -297,8 +299,10 @@ Future<void> _fetchTaskTimings() async {
   List<String> _splitTasks(String s) =>
       s.isEmpty ? [] : s.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
 
-  Future<void> _fetchEmployeeAssignedTasks() async {
-  setState(() {
+ Future<void> _fetchEmployeeAssignedTasks({
+  bool showLoader = true,
+}) async {
+   setState(() {
     _loadingTasks = true;
     _error = null;
   });
@@ -895,6 +899,8 @@ Map<String, dynamic> _buildPayload(
     super.dispose();
   }
 
+
+
   Future<void> _addAdditionalTask() async {
   if (selectedClient == null || selectedDeliverable == null) {
     _showSnack(
@@ -1041,6 +1047,186 @@ Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) asyn
       await _loadTrackingItemsForTask(taskId, taskListId);
     }
   }
+
+Future<void> _showEditTaskDialog(
+  Map<String, dynamic> task,
+  String taskId,
+) async {
+
+  setState(() {
+
+    _isEditing = true;
+
+    _editingTaskListId = taskListIds[taskId];
+
+    selectedClient = task["client_name"];
+    selectedDeliverable = task["singleTask"];
+
+    _addClientController.text =
+        task["client_name"] ?? "";
+
+    _addDeliverableController.text =
+        task["singleTask"] ?? "";
+
+    _addDurationController.text =
+        task["duration"] ?? "";
+
+    if (task["assignedDate"] != null) {
+      _addSubmissionDateController.text =
+          DateFormat("dd MMM yyyy").format(
+        DateTime.parse(task["assignedDate"]),
+      );
+    }
+
+    _addRowController.text =
+        (rowCounts[taskId] ?? 1).toString();
+  });
+
+  _showSnack(
+    "Edit Mode Enabled",
+    success: true,
+  );
+}
+
+Future<void> _updateAdditionalTask() async {
+
+  if (_editingTaskListId == null) return;
+
+  try {
+
+    final response = await http.put(
+
+      Uri.parse(
+        "$_baseUrl/task-list/$_editingTaskListId",
+      ),
+
+      headers: {
+        "Content-Type":"application/json"
+      },
+
+      body: jsonEncode({
+
+        "clientName": selectedClient,
+
+        "deliverables": selectedDeliverable,
+
+        "duration": _addDurationController.text,
+
+        "submissionDate":
+            DateFormat("yyyy-MM-dd").format(
+          DateFormat("dd MMM yyyy").parse(
+            _addSubmissionDateController.text,
+          ),
+        ),
+
+        "noOfRows":
+            int.parse(_addRowController.text),
+
+      }),
+
+    );
+
+    if(response.statusCode==200){
+
+      await _fetchEmployeeAssignedTasks();
+
+      setState((){
+
+        _isEditing=false;
+
+        _editingTaskListId=null;
+
+        selectedClient=null;
+
+        selectedDeliverable=null;
+
+        _addClientController.clear();
+
+        _addDeliverableController.clear();
+
+        _addDurationController.clear();
+
+        _addSubmissionDateController.clear();
+
+        _addRowController.text="1";
+
+      });
+
+      _showSnack(
+        "Task Updated Successfully",
+        success:true,
+      );
+
+    }
+
+  } catch(e){
+
+    _showSnack(
+      e.toString(),
+      success:false,
+    );
+
+  }
+
+}
+
+Future<void> _deleteAdditionalTask(
+    Map<String, dynamic> task,
+    String taskId,
+) async {
+  final taskListId = taskListIds[taskId];
+
+  if (taskListId == null) {
+    _showSnack("Task not found", success: false);
+    return;
+  }
+
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text("Delete Task"),
+      content: const Text(
+          "Are you sure you want to delete this additional task?"),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text("Delete"),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  try {
+    final r = await http.delete(
+      Uri.parse("$_baseUrl/task-list/$taskListId"),
+    );
+
+    if (r.statusCode == 200) {
+      setState(() {
+        assignedTasks.remove(task);
+        taskListIds.remove(taskId);
+        rowCounts.remove(taskId);
+      });
+
+      _showSnack(
+  "Task deleted successfully",
+  success: true,
+);
+    } else {
+      _showSnack("Delete failed", success: false);
+    }
+  } catch (e) {
+    _showSnack(e.toString(), success: false);
+  }
+}
+
 
     Future<void> _recordTaskAction(
       String taskKey, Map<String, dynamic> task, int rowIndex, String taskId, String action) async {
@@ -1422,10 +1608,15 @@ Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) asyn
             foregroundColor: Colors.white,
           ),
          onPressed: () async {
-  await _addAdditionalTask();
+   if (_isEditing) {
+    await _updateAdditionalTask();
+  } else {
+    await _addAdditionalTask();
+  }
 },
-         child: const Text(
-            "ADD",
+         child: Text(
+  _isEditing ? "UPDATE" : "ADD",
+
             style: TextStyle(
               fontWeight: FontWeight.bold,
             ),
@@ -1473,43 +1664,139 @@ Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) asyn
     
   }
 
-  Widget _pageHeader() {
-    return Row(children: [
-      const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(
-          'Additional Tasks',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textDark),
-        ), 
-        SizedBox(height: 6),
-        Text(
-          'Monitor and manage tasks assigned to you with real-time progress updates.',
-          style: TextStyle(fontSize: 14, color: AppColors.textGrey),
-        ),
-      ]),
-      const Spacer(),
-      OutlinedButton(
-        // onPressed: () => Navigator.pop(context, true),
-        onPressed: () async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('employeeMenu', 'Assigned Task');
+//   Widget _pageHeader() {
+//     return Row(children: [
+//       const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+//         Text(
+//           'Additional Tasks',
+//           style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textDark),
+//         ), 
+//         SizedBox(height: 6),
+//         Text(
+//           'Monitor and manage tasks assigned to you with real-time progress updates.',
+//           style: TextStyle(fontSize: 14, color: AppColors.textGrey),
+//         ),
+//       ]),
+//       const Spacer(),
+//       OutlinedButton(
+//         // onPressed: () => Navigator.pop(context, true),
+//         onPressed: () async {
+//   final prefs = await SharedPreferences.getInstance();
+//   await prefs.setString('employeeMenu', 'Assigned Task');
 
-  if (!mounted) return;
+//   if (!mounted) return;
 
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const EmployeeLayoutPage(),
-    ),
-  );
-},
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-        ),
-        child: const Text('← Back', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+//   Navigator.pushReplacement(
+//     context,
+//     MaterialPageRoute(
+//       builder: (_) => const EmployeeLayoutPage(),
+//     ),
+//   );
+// },
+//         style: OutlinedButton.styleFrom(
+//           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+//           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+//         ),
+//         child: const Text('← Back', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+//       ),
+//     ]);
+//   }
+
+Widget _pageHeader() {
+  return Row(
+    children: [
+      const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Additional Tasks',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Monitor and manage tasks assigned to you with real-time progress updates.',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textGrey,
+            ),
+          ),
+        ],
       ),
-    ]);
-  }
+
+      const Spacer(),
+
+      // Refresh Button
+      ElevatedButton.icon(
+        onPressed: () async {
+          await _fetchEmployeeAssignedTasks(showLoader: false);
+
+          _showSnack(
+            "Tasks refreshed successfully",
+            success: true,
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color.fromARGB(255, 0, 43, 136),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 12,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        icon: const Icon(Icons.refresh, size: 18),
+        label: const Text(
+          "Refresh",
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+
+      const SizedBox(width: 10),
+
+      // Back Button
+      OutlinedButton(
+        onPressed: () async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('employeeMenu', 'Assigned Task');
+
+          if (!mounted) return;
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const EmployeeLayoutPage(),
+            ),
+          );
+        },
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 12,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        child: const Text(
+          '← Back',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    ],
+  );
+}
 
   Widget _clientSearchBox() {
     return Container(
@@ -1727,6 +2014,26 @@ Future<void> _ensureTaskListEntry(Map<String, dynamic> task, String taskId) asyn
   ),
   child: Text(isExpand ? "HIDE" : "OPEN"),
 ),
+
+ const SizedBox(width: 6),
+
+    // EDIT
+    IconButton(
+      icon: const Icon(Icons.edit, color: Colors.blue),
+      tooltip: "Edit",
+      onPressed: () {
+        _showEditTaskDialog(task, taskId);
+      },
+    ),
+
+    // DELETE
+    IconButton(
+      icon: const Icon(Icons.delete, color: Colors.red),
+      tooltip: "Delete",
+      onPressed: () {
+        _deleteAdditionalTask(task, taskId);
+      },
+    ),
           ]),
         ),
         if (isExpand) _buildTaskTable(task, taskId),

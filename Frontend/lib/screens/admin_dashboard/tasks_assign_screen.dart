@@ -1003,7 +1003,7 @@ Future<void> _addRow() async {
         ),
       ),
     );
-  }
+  } 
 
 Future<void> _saveRow(Map<String, dynamic> row) async {
   try {
