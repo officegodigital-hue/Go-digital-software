@@ -1225,7 +1225,7 @@ content: SizedBox(
                                                             ),
                                                           ),
                                                         ),
-                                                        const Spacer(),
+                                                        SizedBox(width:10),
                                                         Text(
                                                           log["name"],
                                                           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
