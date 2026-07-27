@@ -3,6 +3,17 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
+function formatDuration(seconds) {
+    if (!seconds) return '0 mins';
+
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+
+    if (hrs > 0 && mins > 0) return `${hrs} hrs ${mins} mins`;
+    if (hrs > 0) return `${hrs} hrs`;
+    return `${mins} mins`;
+}
+
 // GET /api/dashboard/summary/:employeeName
 // Returns:
 //   assignedClients      — distinct clients this employee has any task_list row for
@@ -25,15 +36,38 @@ router.get('/summary/:employeeName', async (req, res) => {
     tl.id AS task_list_id,
     tl.client_name,
     tl.deliverables AS task,
-    tl.duration,
+    tl.duration AS estimated_duration,
     tl.submission_date,
+    tl.no_of_rows,
+
     tti.id AS tracking_item_id,
-    tti.status
+    tti.status,
+
+    (
+    SELECT COALESCE(SUM(duration_secs), 0)
+    FROM time_tracking_task_items t
+    WHERE t.task_list_id = tl.id
+) AS total_duration_secs,
+
+    COALESCE(mr.manager_action,'ACTION') AS manager_action,
+
+    (
+        SELECT COUNT(*)
+        FROM time_tracking_task_items t
+        WHERE t.task_list_id = tl.id
+          AND t.status = 'COMPLETED'
+    ) AS completed_rows
+
 FROM task_list tl
+
 LEFT JOIN time_tracking_task_items tti
-ON tti.task_list_id=tl.id
-AND tti.s_no=1
-WHERE tl.employee_name=?`,
+    ON tti.task_list_id = tl.id
+   AND tti.s_no = 1
+
+LEFT JOIN manager_review mr
+    ON mr.tracking_item_id = tti.id
+
+WHERE tl.employee_name = ?`,
 [employeeName]
 );
 
@@ -42,7 +76,7 @@ const [todayRows] = await db.query(
     tl.id AS task_list_id,
     tl.client_name,
     tl.deliverables AS task,
-    tl.duration,
+    tl.duration AS estimated_duration,
     tl.submission_date,
     tti.updated_at,
     tti.id AS tracking_item_id,
@@ -69,6 +103,7 @@ LIMIT 6`,
     let onHoldCount = 0;
     let rejectedTasks = 0;
     let approved = 0;
+    let review = 0;
 let rework = 0;
 let rejected = 0;
     let upcomingDeadlines = 0;
@@ -97,37 +132,91 @@ let rejected = 0;
         rejectedTasks++;
         rejectedClientsSet.add(r.client_name);
       }
-      if (r.manager_action === 'APPROVED') {
+if (r.manager_action === 'APPROVED') {
     approved++;
-}
-
-if (r.manager_action === 'REWORK') {
+} else if (r.manager_action === 'REWORK') {
     rework++;
-}
-
-if (r.manager_action === 'REJECTED') {
+} else if (r.manager_action === 'REJECTED') {
     rejected++;
+} else {
+    review++;
 }
 
-      if (r.submission_date) {
-        const due = new Date(r.submission_date);
-        if (!isNaN(due) && due >= today && due <= threeDaysOut && status !== 'COMPLETED') {
-          upcomingDeadlines++;
-        }
-      }
+      if (
+    r.submission_date &&
+    r.submission_date !== '0000-00-00'
+) {
+    const due = new Date(r.submission_date);
 
-      return {
-        taskListId: r.task_list_id,
-        trackingItemId: r.tracking_item_id,
-        clientName: r.client_name,
-        task: r.task,
-        duration: r.duration || 'N/A',
-        submissionDate: r.submission_date,
-        action: status,
-        // Mirrors the original hardcoded UI: only a COMPLETED action shows
-        // a REVIEW badge in the STATUS column, everything else shows '-'.
-        status: status === 'COMPLETED' ? 'REVIEW' : '-',
-      };
+    if (!isNaN(due) &&
+        due >= today &&
+        due <= threeDaysOut &&
+        status !== 'COMPLETED') {
+        upcomingDeadlines++;
+    }
+}
+
+      // return {
+      //   taskListId: r.task_list_id,
+      //   trackingItemId: r.tracking_item_id,
+      //   clientName: r.client_name,
+      //   task: r.task,
+      //   duration: r.duration || 'N/A',
+      //   submissionDate: r.submission_date,
+      //   action: status,
+      //   status: status === 'COMPLETED' ? 'REVIEW' : '-',
+
+      //   completedRows: r.completed_rows || 0,
+      //   totalRows: r.no_of_rows || 0,
+      // };
+      let reviewStatus = '-';
+      let duration = r.estimated_duration;
+
+      if (
+    r.status === 'IN PROGRESS' ||
+    r.status === 'COMPLETED'
+) {
+    duration = formatDuration(r.total_duration_secs);
+}
+
+if (status === 'COMPLETED') {
+  switch (r.manager_action) {
+    case 'APPROVED':
+      reviewStatus = 'APPROVED';
+      break;
+
+    case 'REWORK':
+      reviewStatus = 'REWORK';
+      break;
+
+    case 'REJECTED':
+      reviewStatus = 'REJECTED';
+      break;
+
+    default:
+      reviewStatus = 'REVIEW';
+      break;
+  }
+}
+
+return {
+  taskListId: r.task_list_id,
+  trackingItemId: r.tracking_item_id,
+  clientName: r.client_name,
+  task: r.task,
+  // duration: r.duration || 'N/A',
+  duration: duration,
+  submissionDate:
+    !r.submission_date ||
+    r.submission_date === '0000-00-00'
+        ? null
+        : r.submission_date,
+  action: status,
+  status: reviewStatus,
+
+  completedRows: r.completed_rows || 0,
+  totalRows: r.no_of_rows || 0,
+};
     });
 
     return res.json({
@@ -145,13 +234,179 @@ if (r.manager_action === 'REJECTED') {
         productivity:{
     approved,
     rework,
-    rejected
+    rejected,
+    review
 },
       },
     });
   } catch (err) {
     console.error('GET /dashboard/summary ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/employee-status', async (req, res) => {
+  try {
+    // FIX: added a completed/total row count per task, pulled from
+    // time_tracking_task_items — "5/12" means 5 of the 12 rows on that
+    // task_list entry currently have status = COMPLETED.
+    const [rows] = await db.query(`
+      SELECT
+        tl.id AS task_list_id,
+        tl.client_name,
+        tl.employee_name,
+        tl.deliverables AS task,
+        tl.duration,
+        tl.submission_date,
+        tl.no_of_rows,
+        tti.status,
+        (
+          SELECT COUNT(*)
+          FROM time_tracking_task_items
+          WHERE task_list_id = tl.id AND status = 'COMPLETED'
+        ) AS completed_rows
+      FROM task_list tl
+      LEFT JOIN time_tracking_task_items tti
+        ON tti.task_list_id = tl.id AND tti.s_no = 1
+      ORDER BY tl.submission_date ASC
+    `);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const data = rows.map((r) => {
+      let daysLeft = null;
+      if (r.submission_date) {
+        const due = new Date(r.submission_date);
+        if (!isNaN(due)) {
+          due.setHours(0, 0, 0, 0);
+          daysLeft = Math.round((due - today) / 86400000);
+        }
+      }
+
+      // No priority column exists yet — derived from urgency of the deadline.
+      let priority = 'LOW';
+      if (daysLeft !== null) {
+        if (daysLeft <= 0) priority = 'URGENT';
+        else if (daysLeft <= 2) priority = 'HIGH';
+        else if (daysLeft <= 5) priority = 'MEDIUM';
+      }
+
+      return {
+        taskListId: r.task_list_id,
+        clientName: r.client_name,
+        employeeName: r.employee_name || 'Unassigned',
+        task: r.task,
+        duration: r.duration || 'N/A',
+        submissionDate: r.submission_date,
+        daysLeft,
+        priority,
+        status: r.status || 'IDLE',
+        completedRows: r.completed_rows || 0,
+        totalRows: r.no_of_rows || 0,
+      };
+    });
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /admin/employee-status ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+// GET /api/dashboard/recent-notifications/:employeeName
+router.get('/recent-notifications/:employeeName', async (req, res) => {
+  const { employeeName } = req.params;
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        id,
+        sender_name,
+        recipient_name,
+        message,
+        is_seen,
+        created_at
+      FROM notifications
+      WHERE sender_name = ?
+         OR recipient_name = ?
+      ORDER BY created_at DESC
+      LIMIT 3
+      `,
+      [employeeName, employeeName]
+    );
+
+    const notifications = rows.map((row) => {
+      let preview = "Notification";
+      let category = "General";
+
+      try {
+        const msg = JSON.parse(row.message);
+
+        preview =
+          msg.preview ||
+          msg.message ||
+          msg.title ||
+          "Notification";
+
+        const payload = msg.payload || {};
+
+        const type = (payload.type || "").toUpperCase();
+
+        switch (type) {
+          case "TASK_ASSIGNED":
+          case "TASK_ASSIGN":
+            category = "Task Assigned";
+            break;
+
+          case "TASK_REVIEW":
+          case "MANAGER_REVIEW":
+            category = "Task Review";
+            break;
+
+          case "PLAN_SUBMITTED":
+          case "DAY_PLAN_SUBMITTED":
+            category = "Daily Planner";
+            break;
+
+          case "DAY_PLANNER_WARNING":
+          case "DAY_PLANNER_ALERT":
+          case "DAY_PLANNER_ADMIN_WARNING":
+            category = "Warning & Alert";
+            break;
+
+          case "TASK_PLANNER_SHARE":
+          case "VIDEOGRAPHER_SHARE":
+            category = "Content Shared";
+            break;
+        }
+      } catch (e) {
+        preview = row.message;
+      }
+
+      return {
+        id: row.id,
+        sender: row.sender_name,
+        recipient: row.recipient_name,
+        preview,
+        category,
+        isSeen: row.is_seen,
+        createdAt: row.created_at,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: notifications,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 

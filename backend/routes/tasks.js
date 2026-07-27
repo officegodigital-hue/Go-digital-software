@@ -4,6 +4,31 @@ const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
+
+const formatDate = (date) => {
+  if (!date || date.trim() === '' || date === '—') {
+    return null;
+  }
+  
+  // If the date is already in YYYY-MM-DD format, return it
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return date;
+  }
+
+  // Convert DD/MM/YYYY to YYYY-MM-DD
+  if (date.includes('/')) {
+    const parts = date.split('/');
+    if (parts.length === 3) {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = parts[2];
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  return null;
+};
+
 // Every role column + its matching "what was assigned" text column.
 // Used by both POST (new assignment) and PUT (reassignment) to loop over
 // all six possible assignees on a task_assignments row.
@@ -117,13 +142,13 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
 // POST /api/tasks — create a new task row
 router.post('/', async (req, res) => {
   const {
-    clientName, deliverables = '', adsHandling = '', adsPlatform = '', adsSubmitDate = '',
-    pageHandling = '', pagesPlatform = '', pageSubmitDate = '',
-    designer = '', designerTasks = '', designerSubmitDate = '',
-    videographer = '', videographerTasks = '', videographerSubmitDate = '',
-    videoEditor = '', videoEditorTask = '', videoEditorSubmitDate = '',
-    uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = '',
-    developer = '', developerTasks = '', developerSubmitDate = '',
+    clientName, deliverables = '', adsHandling = '', adsPlatform = '', adsSubmitDate = null,
+    pageHandling = '', pagesPlatform = '', pageSubmitDate = null,
+    designer = '', designerTasks = '', designerSubmitDate = null,
+    videographer = '', videographerTasks = '', videographerSubmitDate = null,
+    videoEditor = '', videoEditorTask = '', videoEditorSubmitDate = null,
+    uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = null,
+    developer = '', developerTasks = '', developerSubmitDate = null,
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
     assignedByName = 'Admin',
   } = req.body;
@@ -138,11 +163,47 @@ router.post('/', async (req, res) => {
        video_editor, video_editor_task, video_editor_submit_date, ui_ux_designer, ui_ux_tasks, ui_ux_submit_date, 
        developer, developer_tasks, developer_submit_date, deadline, maintenance_date, comments, is_assigned) 
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate, 
-       pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate, 
-       videographer, videographerTasks, videographerSubmitDate, videoEditor, videoEditorTask, videoEditorSubmitDate, 
-       uiUxDesigner, uiUxTasks, uiUxSubmitDate, 
-       developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0]
+      // [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate, 
+      //  pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate, 
+      //  videographer, videographerTasks, videographerSubmitDate, videoEditor, videoEditorTask, videoEditorSubmitDate, 
+      //  uiUxDesigner, uiUxTasks, uiUxSubmitDate, 
+      //  developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0]
+      [
+ clientName,
+ deliverables,
+ adsHandling,
+ adsPlatform,
+ formatDate(adsSubmitDate),
+
+ pageHandling,
+ pagesPlatform,
+ formatDate(pageSubmitDate),
+
+ designer,
+ designerTasks,
+ formatDate(designerSubmitDate),
+
+ videographer,
+ videographerTasks,
+ formatDate(videographerSubmitDate),
+
+ videoEditor,
+ videoEditorTask,
+ formatDate(videoEditorSubmitDate),
+
+ uiUxDesigner,
+ uiUxTasks,
+ formatDate(uiUxSubmitDate),
+
+ developer,
+ developerTasks,
+ formatDate(developerSubmitDate),
+
+ deadline,
+ maintenanceDate,
+ comments,
+ isAssigned ? 1 : 0
+]
     );
 
     // FIX: this is the missing piece — every employee named in any role
@@ -181,15 +242,15 @@ router.post('/', async (req, res) => {
 // PUT /api/tasks/:id — update a task row
 router.put('/:id', async (req, res) => {
   const {
-    clientName, deliverables = '', adsHandling = '', adsPlatform = '', adsSubmitDate = '',
-    pageHandling = '', pagesPlatform = '', pageSubmitDate = '',
-    designer = '', designerTasks = '', designerSubmitDate = '',
-    videographer = '', videographerTasks = '', videographerSubmitDate = '',
+    clientName, deliverables = '', adsHandling = '', adsPlatform = '', adsSubmitDate =null,
+    pageHandling = '', pagesPlatform = '', pageSubmitDate = null,
+    designer = '', designerTasks = '', designerSubmitDate = null,
+    videographer = '', videographerTasks = '', videographerSubmitDate = null,
     videoEditor = '',
 videoEditorTask = '',
-videoEditorSubmitDate = '',
-    uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = '',
-    developer = '', developerTasks = '', developerSubmitDate = '',
+videoEditorSubmitDate = null,
+    uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = null,
+    developer = '', developerTasks = '', developerSubmitDate = null,
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
     assignedByName = 'Admin',
   } = req.body;
@@ -211,12 +272,52 @@ videoEditorSubmitDate = '',
        ui_ux_designer=?, ui_ux_tasks=?, ui_ux_submit_date=?,
        developer=?, developer_tasks=?, developer_submit_date=?, deadline=?, maintenance_date=?, comments=?, is_assigned=?
        WHERE id=?`,
-      [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate,
-       pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate,
-       videographer, videographerTasks, videographerSubmitDate, 
-       videoEditor, videoEditorTask, videoEditorSubmitDate,
-       uiUxDesigner, uiUxTasks, uiUxSubmitDate,
-       developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0, req.params.id]
+      // [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate,
+      //  pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate,
+      //  videographer, videographerTasks, videographerSubmitDate, 
+      //  videoEditor, videoEditorTask, videoEditorSubmitDate,
+      //  uiUxDesigner, uiUxTasks, uiUxSubmitDate,
+      //  developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0, req.params.id]
+[
+  clientName,
+  deliverables,
+  adsHandling,
+  adsPlatform,
+  formatDate(adsSubmitDate),
+
+  pageHandling,
+  pagesPlatform,
+  formatDate(pageSubmitDate),
+
+  designer,
+  designerTasks,
+  formatDate(designerSubmitDate),
+
+  videographer,
+  videographerTasks,
+  formatDate(videographerSubmitDate),
+
+  videoEditor,
+  videoEditorTask,
+  formatDate(videoEditorSubmitDate),
+
+  uiUxDesigner,
+  uiUxTasks,
+  formatDate(uiUxSubmitDate),
+
+  developer,
+  developerTasks,
+  formatDate(developerSubmitDate),
+
+  deadline,
+  maintenanceDate,
+  comments,
+  isAssigned ? 1 : 0,
+
+  req.params.id
+]
+
+
     );
     if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Task not found' });
 

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
+import 'package:provider/provider.dart';
+import '../../services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 
 class ManagerReviewScreen extends StatefulWidget {
@@ -20,6 +23,8 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
   // Current active filter category tab tracker
   String activeFilter = "All";
 
+  String loggedInEmployeeName = "";
+
   // ── FILTER VISIBILITY TOGGLE TRACKER FLAG ──
   bool _isFilterMenuOpen = false;
 
@@ -30,20 +35,55 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
 
   bool _loading = true;
   String? _error;
+  Timer? _commentTimer;
 
   final List<String> actionOptions = ["ACTION", "APPROVED", "REWORK", "REJECTED"];
 
   @override
-  void initState() {
-    super.initState();
-    _fetchReviewData();
-  }
+@override
+void initState() {
+  super.initState();
 
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+
+    final authService = context.read<AuthService>();
+
+    final user = authService.user;
+
+    setState(() {
+      loggedInEmployeeName =
+          user?['fullName'] ??
+          user?['name'] ??
+          user?['username'] ??
+          '';
+    });
+
+    print("LOGIN USER NAME => $loggedInEmployeeName");
+
+    _fetchReviewData();
+
+  });
+}
+
+
+Future<void> loadUser() async {
+
+ final prefs = await SharedPreferences.getInstance();
+
+ setState(() {
+   loggedInEmployeeName =
+       prefs.getString("employeeName") ?? " ";
+ });
+
+ _fetchReviewData();
+
+}
   Future<void> _fetchReviewData() async {
     setState(() { _loading = true; _error = null; });
     try {
       final r = await http.get(Uri.parse('$_baseUrl/manager-review'));
       if (r.statusCode == 200) {
+        _showSnack("Comment saved successfully");
         final body = jsonDecode(r.body);
         final rows = List<dynamic>.from(body['data'] ?? []);
 
@@ -87,41 +127,180 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
   }
 
   // Fires immediately when the dropdown changes.
-  Future<void> _saveAction(Map<String, dynamic> row, String action) async {
-    final trackingItemId = row['trackingItemId'];
-    if (trackingItemId == null) return;
-    try {
-      final r = await http.patch(
-        Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'action': action}),
-      );
-      if (r.statusCode != 200) {
-        _showSnack('Failed to save action (${r.statusCode})');
+Future<void> _saveAction(Map<String, dynamic> row, String action) async {
+  final trackingItemId = row['trackingItemId'];
+
+  if (trackingItemId == null) return;
+
+  try {
+
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'action': action,
+        'senderEmployeeName': loggedInEmployeeName,
+      }),
+    );
+
+
+    if (response.statusCode == 200) {
+
+      final body = jsonDecode(response.body);
+
+
+      if (body['success'] == true) {
+
+        setState(() {
+          row['action'] = action;
+        });
+
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(
+                  Icons.check_circle,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '$action updated successfully',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+
+      } else {
+
+        _showSnack(
+          body['message'] ?? 'Failed to save action'
+        );
+
       }
-    } catch (e) {
-      _showSnack('Error saving action: $e');
+
+    } else {
+
+      _showSnack(
+        'Failed to save action (${response.statusCode})'
+      );
+
     }
+
+
+  } catch(e) {
+
+    _showSnack(
+      'Error saving action: $e'
+    );
+
   }
+}
 
   // Debounced like the comment fields elsewhere in the app — fires 2s after
   // typing stops, and only if the text hasn't changed again since.
-  Future<void> _saveComment(Map<String, dynamic> row, String comment) async {
-    final trackingItemId = row['trackingItemId'];
-    if (trackingItemId == null) return;
-    try {
-      final r = await http.patch(
-        Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'comment': comment}),
-      );
-      if (r.statusCode != 200) {
-        _showSnack('Failed to save comment (${r.statusCode})');
+Future<void> _saveComment(
+    Map<String, dynamic> row,
+    String comment,
+) async {
+
+  print("COMMENT SENDER NAME => $loggedInEmployeeName");
+
+  final trackingItemId = row['trackingItemId'];
+
+  if (trackingItemId == null) return;
+
+  try {
+
+    final r = await http.patch(
+      Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'comment': comment,
+        'senderEmployeeName': loggedInEmployeeName,
+      }),
+    );
+
+
+    if (r.statusCode == 200) {
+
+      final body = jsonDecode(r.body);
+
+
+      if (body['success'] == true) {
+
+        setState(() {
+          row['comment'] = comment;
+        });
+
+
+        if (!mounted) return;
+
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.white,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Comment updated successfully',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+
+      } else {
+
+        _showSnack(
+          body['message'] ?? 'Failed to save comment'
+        );
+
       }
-    } catch (e) {
-      _showSnack('Error saving comment: $e');
+
+
+    } else {
+
+      _showSnack(
+        'Failed to save comment (${r.statusCode})'
+      );
+
     }
+
+
+  } catch (e) {
+
+    _showSnack(
+      'Error saving comment: $e'
+    );
+
   }
+}
 
   void _showSnack(String msg) {
     if (!mounted) return;

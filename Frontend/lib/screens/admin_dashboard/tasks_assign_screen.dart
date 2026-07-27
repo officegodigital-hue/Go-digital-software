@@ -1741,57 +1741,38 @@ Widget _buildClientCell(Map<String, dynamic>? row) {
     );
   }
 
-  // Widget _deadlineCell(double width, Map<String, dynamic> row) {
-  //   return Container(
-  //     width: width,
-  //     padding: const EdgeInsets.symmetric(horizontal: 10),
-  //     decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-  //     child: DropdownButtonHideUnderline(
-  //       child: DropdownButton<String>(
-  //         value: (row['deadline'] ?? '').isEmpty ? null : row['deadline'],
-  //         isExpanded: true,
-  //         hint: const Text('—', style: TextStyle(fontSize: 11, color: Color(0xFFCBD5E1))),
-  //         icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B), size: 16),
-  //         items: ['1 WEEK', '15 DAYS', '1 MONTH', '2 MONTHS'].map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
-  //         onChanged: (v) {
-  //           if (v != null) {
-  //             setState(() => row['deadline'] = v);
-  //             _saveRow(row);
-  //           }
-  //         },
-  //       ),
-  //     ),
-  //   );
-  // }
 
-  Widget _deadlineCell(double width, Map<String, dynamic> row) {
-    final current = (row['deadline'] ?? '').toString();
-    final bool isUnselected = current.isEmpty;
-    return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        border: const Border(right: BorderSide(color: Color(0xFFE2E8F0))),
-        color: isUnselected ? const Color(0xFFFFF7ED) : null,
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: current.isEmpty ? null : current,
-          isExpanded: true,
-          hint: const Text('— Select —', style: TextStyle(fontSize: 11, color: Color(0xFFCBD5E1))),
-          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B), size: 16),
-          items: [
-            const DropdownMenuItem(
-              value: 'NONE',
-              child: Text('None', style: TextStyle(color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
+Widget _deadlineCell(double width, Map<String, dynamic> row) {
+    final value = row['deadline'] ?? '';
+    return GestureDetector(
+      onTap: () => _pickDate(row, 'deadline'),
+      child: Container(
+        width: width,
+        height: 54,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: const BoxDecoration(
+          border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                value.isEmpty ? '—' : value,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                  fontWeight: value.isEmpty ? FontWeight.normal : FontWeight.w600,
+                ),
+              ),
             ),
-            ...['1 WEEK', '15 DAYS', '1 MONTH', '2 MONTHS'].map((o) => DropdownMenuItem(value: o, child: Text(o))),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.calendar_today,
+              size: 14,
+              color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC),
+            ),
           ],
-          onChanged: (v) {
-            if (v != null) {
-              setState(() => row['deadline'] = v);
-            }
-          },
         ),
       ),
     );

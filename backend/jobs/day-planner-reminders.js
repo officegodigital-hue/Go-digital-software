@@ -1,100 +1,219 @@
-// jobs/day-planner-reminders.js — scheduled deadline checks for Day Plan
-// submission. Requires the `node-cron` package: npm install node-cron
-//
-// Register this once at server startup, e.g. in your main server file:
-//   require('./jobs/day-planner-reminders')(db);
-//
-const cron = require('node-cron');
-const { createNotification } = require('../routes/notifications');
+const cron = require("node-cron");
+const { createNotification } = require("../routes/notifications");
 
-function todayDateString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+module.exports = function (db) {
 
-// Every employee who's expected to submit a Day Plan today — anyone with
-// an active task_list assignment. Adjust this query if you have a
-// different definition of "active employee."
-async function getActiveEmployeeNames(db) {
-  const [rows] = await db.query(
-    `SELECT DISTINCT employee_name FROM task_list WHERE employee_name IS NOT NULL AND employee_name != ''`
-  );
-  return rows.map((r) => r.employee_name);
-}
+  async function checkEmployees(level) {
 
-// Employees from that list who have NOT submitted today's Day Plan yet.
-// "Not submitted" = no day_plan_rows row for today with is_submitted = 1.
-async function getUnsubmittedEmployees(db, date) {
-  const activeEmployees = await getActiveEmployeeNames(db);
-  if (activeEmployees.length === 0) return [];
-
-  const [submittedRows] = await db.query(
-    `SELECT DISTINCT employee_name FROM day_plan_rows WHERE plan_date = ? AND is_submitted = 1`,
-    [date]
-  );
-  const submittedSet = new Set(submittedRows.map((r) => r.employee_name));
-
-  return activeEmployees.filter((name) => !submittedSet.has(name));
-}
-
-module.exports = function registerDayPlannerReminders(db) {
-  // ── 9:30 AM — first warning, sent to the employee ──────────────────────
-  cron.schedule('30 9 * * *', async () => {
     try {
-      const date = todayDateString();
-      const unsubmitted = await getUnsubmittedEmployees(db, date);
 
-      for (const employeeName of unsubmitted) {
-        await createNotification({
-          senderName: 'System',
-          recipientName: employeeName,
-          message: `Reminder: your Day Plan for today hasn't been submitted yet. Please submit it before 9:30 AM.`,
-        });
+      const today = new Date().toISOString().slice(0, 10);
+
+      // All Active Employees
+      const [employees] = await db.query(`
+        SELECT full_name
+        FROM employees
+        WHERE status='Active'
+      `);
+
+      for (const emp of employees) {
+
+        const employee = emp.full_name;
+
+        // Did employee submit today's planner?
+        const [planner] = await db.query(
+          `
+          SELECT id
+          FROM day_planner
+          WHERE employee_name=?
+          AND DATE(created_at)=?
+          LIMIT 1
+          `,
+          [employee, today]
+        );
+
+        if (planner.length > 0) continue;
+
+        //-----------------------------------------------------
+        // 9:15 Reminder
+        //-----------------------------------------------------
+
+        if (level == "REMINDER") {
+
+          await createNotification({
+
+            senderName: "Admin",
+
+            recipientName: employee,
+
+            message: JSON.stringify({
+
+              preview:
+                  "Reminder: Submit today's Day Planner before work begins.",
+
+              payload:{
+
+                type:"DAY_PLANNER_REMINDER",
+
+                level:"REMINDER"
+
+              }
+
+            })
+
+          });
+
+        }
+
+        //-----------------------------------------------------
+        // 9:30 Alert
+        //-----------------------------------------------------
+
+        if (level == "ALERT") {
+
+          await createNotification({
+
+            senderName:"Admin",
+
+            recipientName:employee,
+
+            message:JSON.stringify({
+
+              preview:
+                "Alert: Your Day Planner has still not been submitted.",
+
+              payload:{
+
+                type:"DAY_PLANNER_ALERT",
+
+                level:"ALERT"
+
+              }
+
+            })
+
+          });
+
+        }
+
+        //-----------------------------------------------------
+        //10:00 Warning
+        //-----------------------------------------------------
+
+        if(level=="WARNING"){
+
+          // Employee
+
+          await createNotification({
+
+            senderName:"Admin",
+
+            recipientName:employee,
+
+            message:JSON.stringify({
+
+              preview:
+                  "Warning: Day Planner not submitted even after 10:00 AM.",
+
+              payload:{
+
+                type:"DAY_PLANNER_WARNING",
+
+                level:"WARNING"
+
+              }
+
+            })
+
+          });
+
+          //--------------------------------------------------
+          // Admin Notification
+          //--------------------------------------------------
+
+          await createNotification({
+
+            senderName:"System",
+
+            recipientName:"Admin",
+
+            message:JSON.stringify({
+
+              preview:
+                `${employee} has NOT submitted today's Day Planner.`,
+
+              payload:{
+
+                type:"DAY_PLANNER_ADMIN_WARNING",
+
+                employee
+
+              }
+
+            })
+
+          });
+
+        }
+
       }
-      console.log(`⏰ 9:30 Day Plan reminder sent to ${unsubmitted.length} employee(s).`);
-    } catch (err) {
-      console.error('❌ 9:30 Day Plan reminder job failed:', err.message);
+
     }
+
+    catch(err){
+
+      console.log(err);
+
+    }
+
+  }
+
+  //----------------------------------------------------------
+  //9:15
+  //----------------------------------------------------------
+
+  cron.schedule("15 9 * * *", () => {
+
+    console.log("Checking Reminder");
+
+    checkEmployees("REMINDER");
+
+  },{
+
+    timezone:"Asia/Kolkata"
+
   });
 
-  // ── 9:45 AM — escalated warning (also drives the in-app banner via the
-  // status endpoint below — this notification is a backup channel) ───────
-  cron.schedule('45 9 * * *', async () => {
-    try {
-      const date = todayDateString();
-      const unsubmitted = await getUnsubmittedEmployees(db, date);
+  //----------------------------------------------------------
+  //9:30
+  //----------------------------------------------------------
 
-      for (const employeeName of unsubmitted) {
-        await createNotification({
-          senderName: 'System',
-          recipientName: employeeName,
-          message: `⚠️ URGENT: your Day Plan for today is still not submitted. Submit immediately to avoid being reported to Admin.`,
-        });
-      }
-      console.log(`⚠️ 9:45 Day Plan escalation sent to ${unsubmitted.length} employee(s).`);
-    } catch (err) {
-      console.error('❌ 9:45 Day Plan escalation job failed:', err.message);
-    }
+  cron.schedule("30 9 * * *", () => {
+
+    console.log("Checking Alert");
+
+    checkEmployees("ALERT");
+
+  },{
+
+    timezone:"Asia/Kolkata"
+
   });
 
-  // ── 10:00 AM — notify Admin about anyone still unsubmitted ──────────────
-  cron.schedule('0 10 * * *', async () => {
-    try {
-      const date = todayDateString();
-      const unsubmitted = await getUnsubmittedEmployees(db, date);
+  //----------------------------------------------------------
+  //10:00
+  //----------------------------------------------------------
 
-      for (const employeeName of unsubmitted) {
-        await createNotification({
-          senderName: 'System',
-          recipientName: 'Admin',
-          message: `${employeeName} has not submitted their Day Plan report for ${date}.`,
-        });
-      }
-      console.log(`🚨 10:00 Admin alert sent for ${unsubmitted.length} unsubmitted employee(s).`);
-    } catch (err) {
-      console.error('❌ 10:00 Day Plan admin-alert job failed:', err.message);
-    }
+  cron.schedule("0 10 * * *", () => {
+
+    console.log("Checking Warning");
+
+    checkEmployees("WARNING");
+
+  },{
+
+    timezone:"Asia/Kolkata"
+
   });
 
-  console.log('✅ Day Planner reminder cron jobs registered (9:30 / 9:45 / 10:00).');
 };

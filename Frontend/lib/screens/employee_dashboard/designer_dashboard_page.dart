@@ -14,10 +14,13 @@ import 'package:godigital_portal/widgets/productivity_card.dart';
 
 class DesignerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
+  final VoidCallback? onViewAllNotifications;
 
   const DesignerDashboardPage({
     super.key,
-    this.onOpenAssignedTask,
+    
+  this.onOpenAssignedTask,
+  this.onViewAllNotifications,
   });
 
   @override
@@ -29,6 +32,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   List<DesignerTaskModel> tasks = [];
+  List<Map<String, dynamic>> recentNotifications = [];
 
   int assignedClients = 0;
   int activeTasks = 0;
@@ -38,7 +42,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
   int approved = 0;
 int rejected = 0;
 int rework = 0;
-int changes = 0;
+int review  = 0;
 
   bool _loading = true;
   String? _error;
@@ -50,68 +54,132 @@ int changes = 0;
     _fetchDashboardSummary();
   }
 
-  Future<void> _fetchDashboardSummary() async {
-    setState(() {
-       _loading = true; _error = null; 
-      
-       });
+ Future<void> _fetchDashboardSummary() async {
+  setState(() {
+    _loading = true;
+    _error = null;
+  });
 
-    try {
-      final user = context.read<AuthService>().user;
-      _employeeName = (user?['fullName'] ?? user?['name'] ?? '') as String? ?? '';
+  try {
+    final user = context.read<AuthService>().user;
 
-      if (_employeeName == null || _employeeName!.isEmpty) {
-        setState(() { _error = 'Employee name not found. Please re-login.'; _loading = false; });
-        return;
-      }
+    _employeeName =
+        (user?['fullName'] ?? user?['name'] ?? '') as String? ?? '';
 
-      final r = await http.get(
-        Uri.parse('$_baseUrl/dashboard/summary/${Uri.encodeComponent(_employeeName!)}'),
-      );
-
-      if (r.statusCode == 200) {
-        final body = jsonDecode(r.body);
-        final data = body['data'] as Map<String, dynamic>? ?? {};
-         final productivity =
-    data['productivity'] as Map<String, dynamic>? ?? {};
-
-        final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
-
-        setState(() {
-          assignedClients = data['assignedClients'] as int? ?? 0;
-          activeTasks       = data['activeTasks'] as int? ?? 0;
-          taskPending        = data['taskPending'] as int? ?? 0;
-          rejectedTasks      = data['rejectedTasks'] as int? ?? 0;
-
-          
-approved = productivity['approved'] ?? 0;
-rework = productivity['rework'] ?? 0;
-rejected = productivity['rejected'] ?? 0;
-changes = productivity['changes'] ?? 0;
-
-          tasks = rawTasks.map((t) {
-            final action = t['action'] as String? ?? 'IDLE';
-            return DesignerTaskModel(
-              clientName:      t['clientName'] as String? ?? '',
-              task:            t['task'] as String? ?? '',
-              duration:        t['duration'] as String? ?? 'N/A',
-              submissionDate:  _formatDate(t['submissionDate'] as String?),
-              dateLabel:       _daysLeftLabel(t['submissionDate'] as String?, action),
-              action:          action,
-              status:          t['status'] as String? ?? '-',
-              trackingItemId:  t['trackingItemId'] as int?,
-            );
-          }).toList();
-          _loading = false;
-        });
-      } else {
-        setState(() { _error = 'Failed to load dashboard (${r.statusCode})'; _loading = false; });
-      }
-    } catch (e) {
-      setState(() { _error = 'Connection error: $e'; _loading = false; });
+    if (_employeeName == null || _employeeName!.isEmpty) {
+      setState(() {
+        _error = 'Employee name not found. Please re-login.';
+        _loading = false;
+      });
+      return;
     }
-  }
 
+    // Dashboard Summary API
+    final r = await http.get(
+      Uri.parse(
+          '$_baseUrl/dashboard/summary/${Uri.encodeComponent(_employeeName!)}'),
+    );
+
+    // Recent Notification API
+    final n = await http.get(
+      Uri.parse(
+          '$_baseUrl/dashboard/recent-notifications/${Uri.encodeComponent(_employeeName!)}'),
+    );
+
+    if (r.statusCode == 200) {
+      final body = jsonDecode(r.body);
+      final data = body['data'] as Map<String, dynamic>? ?? {};
+
+      final productivity =
+          data['productivity'] as Map<String, dynamic>? ?? {};
+
+      final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
+
+      // Notification data
+      List<Map<String, dynamic>> notificationData = [];
+
+      if (n.statusCode == 200) {
+        final notificationBody = jsonDecode(n.body);
+
+        notificationData = List<Map<String, dynamic>>.from(
+          notificationBody["data"] ?? [],
+        );
+      }
+
+      setState(() {
+        assignedClients = data['assignedClients'] ?? 0;
+        activeTasks = data['activeTasks'] ?? 0;
+        taskPending = data['taskPending'] ?? 0;
+        rejectedTasks = data['rejectedTasks'] ?? 0;
+
+        approved = productivity['approved'] ?? 0;
+        rework = productivity['rework'] ?? 0;
+        rejected = productivity['rejected'] ?? 0;
+        review = productivity['review'] ?? 0;
+
+        recentNotifications = notificationData;
+
+        tasks = rawTasks.map((t) {
+          final action = t['action'] as String? ?? 'IDLE';
+
+          final completedRows = t['completedRows'] ?? 0;
+          final totalRows = t['totalRows'] ?? 0;
+
+          return DesignerTaskModel(
+            clientName: t['clientName'] ?? '',
+            task: t['task'] ?? '',
+            duration: t['duration'] ?? 'N/A',
+            submissionDate: _formatDate(t['submissionDate']),
+            dateLabel: _daysLeftLabel(
+              t['submissionDate'],
+              action,
+            ),
+            action: t['action'] ?? 'COMPLETED',
+            status: t['status'] ?? '-',
+            trackingItemId: t['trackingItemId'],
+            completedLabel: '$completedRows/$totalRows',
+            completedAllDone:
+                totalRows > 0 && completedRows >= totalRows,
+          );
+        }).toList();
+
+        _loading = false;
+      });
+    } else {
+      setState(() {
+        _error = 'Failed to load dashboard (${r.statusCode})';
+        _loading = false;
+      });
+    }
+  } catch (e) {
+    setState(() {
+      _error = 'Connection error: $e';
+      _loading = false;
+    });
+  }
+}
+
+String getTodayDate() {
+  final now = DateTime.now();
+
+  const months = [
+    '',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  return '${months[now.month]} ${now.day.toString().padLeft(2, '0')}, ${now.year} - Today';
+}
   String _formatDate(String? raw) {
     if (raw == null || raw.isEmpty) return '--';
     try {
@@ -195,19 +263,20 @@ changes = productivity['changes'] ?? 0;
             children: [
               Expanded(
                 flex: 7,
-                child: AlertsSection(),
+                child: AlertsSection(
+  notifications: recentNotifications,
+  onViewAll: widget.onViewAllNotifications,
+),
               ),
               SizedBox(width: 22),
               Expanded(
                 flex: 3,
                 // child: ProductivityCard(),
-                child: ProductivityCard(
+child: ProductivityCard(
   approved: approved,
   rework: rework,
   rejected: rejected,
-
-  changes: changes,
-
+  review: review,
 ),
               ),
             ],
@@ -235,34 +304,33 @@ changes = productivity['changes'] ?? 0;
           ],
         ),
         const Spacer(),
-        // Container(
-        //   height: 34,
-        //   padding: const EdgeInsets.symmetric(horizontal: 14),
-        //   decoration: BoxDecoration(
-        //     color: AppColors.lightBlue,
-        //     border: Border.all(color: AppColors.border),
-        //     borderRadius: BorderRadius.circular(4),
-        //   ),
-          // child: const Row(
-          //   children: [
-          //     Icon(
-          //       Icons.calendar_month,
-          //       size: 17,
-          //       color: AppColors.primary,
-          //     ),
-          //     SizedBox(width: 8),
-          //     Text(
-          //       'June 01, 2026 - Today',
-          //       style: TextStyle(
-          //         fontSize: 12,
-          //         color: AppColors.textDark,
-          //         fontWeight: FontWeight.w600,
-          //       ),
-          //     ),
-          //   ],
-          // ),
-        // ),
-      ],
+      Container(
+  height: 34,
+  padding: const EdgeInsets.symmetric(horizontal: 14),
+  decoration: BoxDecoration(
+    color: AppColors.lightBlue,
+    border: Border.all(color: AppColors.border),
+    borderRadius: BorderRadius.circular(4),
+  ),
+  child: Row( // <-- Remove const here
+    children: [
+      const Icon(
+        Icons.calendar_month,
+        size: 17,
+        color: AppColors.primary,
+      ),
+      const SizedBox(width: 8),
+      Text(
+        getTodayDate(),
+        style: const TextStyle(
+          fontSize: 12,
+          color: AppColors.textDark,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  ),
+),],
     );
   }
 
@@ -396,13 +464,19 @@ changes = productivity['changes'] ?? 0;
             child: Text('TASKS', style: AppTextStyles.tableHeader),
           ),
           Expanded(
-            flex: 2,
-            child: Text('TIME/DURATION', style: AppTextStyles.tableHeader),
-          ),
+  flex: 3,
+  child: Text(
+    'TIME/DURATION',
+    style: AppTextStyles.tableHeader,
+  ),
+),
           Expanded(
-            flex: 2,
-            child: Text('SUBMISSION\nDATE', style: AppTextStyles.tableHeader),
-          ),
+  flex: 3,
+  child: Text(
+    'DUE DATE',
+    style: AppTextStyles.tableHeader,
+  ),
+),
           Expanded(
             flex: 2,
             child: Text('ACTION', style: AppTextStyles.tableHeader),
@@ -411,7 +485,11 @@ changes = productivity['changes'] ?? 0;
             flex: 1,
             child: Text('STATUS', style: AppTextStyles.tableHeader),
           ),
-          SizedBox(width: 48),
+          Expanded(
+            flex: 2, 
+            child: Text("COMPLETED TASK", style: AppTextStyles.tableHeader)
+          ),
+
         ],
       ),
     );
@@ -437,30 +515,35 @@ changes = productivity['changes'] ?? 0;
             child: Text(task.task, style: AppTextStyles.tableText),
           ),
           Expanded(
-            flex: 2,
-            child: Text(task.duration, style: AppTextStyles.tableText),
-          ),
+  flex: 3,
+  child: Text(
+    task.duration,
+    style: AppTextStyles.tableText,
+    overflow: TextOverflow.ellipsis,
+    maxLines: 1,
+  ),
+),
           Expanded(
-            flex: 2,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(task.submissionDate, style: AppTextStyles.tableText),
-                if (task.dateLabel != null)
-                  Text(
-                    task.dateLabel!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: task.dateLabel!.contains('1')
-                          ? AppColors.orange
-                          : AppColors.green,
-                    ),
-                  ),
-              ],
-            ),
+  flex: 3,
+  child: Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(task.submissionDate, style: AppTextStyles.tableText),
+      if (task.dateLabel != null)
+        Text(
+          task.dateLabel!,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: task.dateLabel!.contains('1')
+                ? AppColors.orange
+                : AppColors.green,
           ),
+        ),
+    ],
+  ),
+),
           Expanded(
             flex: 2,
             child: Align(
@@ -472,50 +555,24 @@ changes = productivity['changes'] ?? 0;
             flex: 1,
             child: StatusBadge(text: task.status),
           ),
-          SizedBox(
-            width: 48,
-            child: PopupMenuButton<String>(
-              icon: const Icon(
-                Icons.more_vert,
-                size: 18,
-                color: AppColors.textGrey,
-              ),
-              onSelected: (value) {
-                if (value == 'progress') {
-                  updateTask(task, 'start', 'IN PROGRESS', '-');
-                }
-                if (value == 'submitted') {
-                  updateTask(task, 'complete', 'COMPLETED', 'REVIEW');
-                }
-                if (value == 'hold') {
-                  updateTask(task, 'hold', 'ON HOLD', '-');
-                }
-                if (value == 'rejected') {
-                  updateTask(task, 'reject', 'REJECTED', '-');
-                }
-              },
-              itemBuilder: (context) {
-                return const [
-                  PopupMenuItem(
-                    value: 'progress',
-                    child: Text('Mark In Progress'),
-                  ),
-                  PopupMenuItem(
-                    value: 'submitted',
-                    child: Text('Submit for Review'),
-                  ),
-                  PopupMenuItem(
-                    value: 'hold',
-                    child: Text('Put On Hold'),
-                  ),
-                  PopupMenuItem(
-                    value: 'rejected',
-                    child: Text('Mark Rejected'),
-                  ),
-                ];
-              },
-            ),
-          ),
+
+Expanded(
+  flex: 2,
+  child: Align(
+    alignment: Alignment.center,
+    child: Text(
+      task.completedLabel,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: task.completedAllDone
+            ? const Color(0xFF16A34A)
+            : const Color(0xFF334155),
+      ),
+    ),
+  ),
+),
+          
         ],
       ),
     );
@@ -527,8 +584,12 @@ class DesignerTaskModel {
   final String task;
   final String duration;
   final String submissionDate;
-  final String? dateLabel;
+ final String? dateLabel;
   final int? trackingItemId;
+
+  final String completedLabel;
+  final bool completedAllDone;
+
   String action;
   String status;
 
@@ -541,5 +602,9 @@ class DesignerTaskModel {
     required this.action,
     required this.status,
     this.trackingItemId,
+    required this.completedLabel,
+    required this.completedAllDone,
   });
 }
+
+

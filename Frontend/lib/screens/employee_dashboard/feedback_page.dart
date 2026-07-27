@@ -7,6 +7,8 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/constants/app_text_styles.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'employee_layout_page.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 // FEEDBACK PAGE - Main Page
@@ -335,11 +337,16 @@ class _FeedbackPageState extends State<FeedbackPage> {
         ),
         const Spacer(),
         OutlinedButton.icon(
-          onPressed: () {
-            Navigator.push(
+          onPressed: () async {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('employeeMenu', 'Feedback History');
+
+            if (!mounted) return;
+
+            Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (_) => const FeedbackHistoryPage(),
+                builder: (_) => const EmployeeLayoutPage(),
               ),
             );
           },
@@ -368,7 +375,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
       ],
     );
   }
-
   // ── FEEDBACK TABLE ────────────────────────────────────────────────────
   Widget _table() {
     return Container(

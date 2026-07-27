@@ -4,16 +4,16 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 
 class ProductivityCard extends StatelessWidget {
   final int approved;
-  final int rejected;
   final int rework;
-  final int changes;
+  final int rejected;
+  final int review;
 
   const ProductivityCard({
     super.key,
     required this.approved,
-    required this.rejected,
     required this.rework,
-    required this.changes,
+    required this.rejected,
+    required this.review,
   });
 
   @override
@@ -75,7 +75,7 @@ class ProductivityCard extends StatelessWidget {
          _ProductivityItem(
   title: 'Reworks',
   value: rework.toString(),
-  color: Colors.purple,
+  color: Colors.orange,
 ),
           // _ProductivityItem(
           //   title: 'Changes',
@@ -84,9 +84,9 @@ class ProductivityCard extends StatelessWidget {
           // ),
 
           _ProductivityItem(
-  title: 'Changes',
-  value: changes.toString(),
-  color: AppColors.textGrey,
+  title: 'Review',
+  value: review.toString(),
+  color: Colors.purple,
 ),
         ],
       ),

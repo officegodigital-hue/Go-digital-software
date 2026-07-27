@@ -1,12 +1,7 @@
-// routes/notifications.js — per-person inbox: only messages this employee
-// sent or received show up, ever. Nobody else's conversations leak through.
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
-// Small internal helper other route files can call to drop a notification
-// in without duplicating this logic (used by tracking-items.js on complete,
-// and manager-review.js on review actions).
 async function createNotification({ senderName, recipientName, message }) {
   await db.query(
     `INSERT INTO notifications (sender_name, recipient_name, message) VALUES (?, ?, ?)`,
@@ -16,17 +11,13 @@ async function createNotification({ senderName, recipientName, message }) {
 
 function formatTime(dateVal) {
   if (!dateVal) return '';
-
   const created = new Date(dateVal);
   const now = new Date();
-
-  // Difference in minutes
   const diffMins = Math.floor((now.getTime() - created.getTime()) / 60000);
 
   if (diffMins < 1) return 'Just Now';
   if (diffMins < 60) return `${diffMins} min ago`;
 
-  // Convert to IST
   return created.toLocaleTimeString('en-IN', {
     timeZone: 'Asia/Kolkata',
     hour: 'numeric',
@@ -35,10 +26,6 @@ function formatTime(dateVal) {
   });
 }
 
-// GET /api/notifications/:employeeName — every message this person sent or
-// received. `type`/`otherParty` are computed relative to THIS person, so the
-// exact same row would show as SENT for the sender and RECEIVED for the
-// recipient — nobody sees the other side's unrelated conversations.
 router.get('/:employeeName', async (req, res) => {
   const { employeeName } = req.params;
   try {
@@ -53,6 +40,8 @@ router.get('/:employeeName', async (req, res) => {
       const isSentByMe = r.sender_name === employeeName;
       return {
         id: r.id,
+        senderName: r.sender_name,
+        recipientName: r.recipient_name,
         otherParty: isSentByMe ? r.recipient_name : r.sender_name,
         message: r.message,
         time: formatTime(r.created_at),
@@ -70,8 +59,6 @@ router.get('/:employeeName', async (req, res) => {
   }
 });
 
-// PATCH /api/notifications/:id — toggle isFavorite / isSeen / isArchived.
-// Send only the field(s) you want changed.
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
   const { isFavorite, isSeen, isArchived } = req.body;
@@ -84,7 +71,7 @@ router.patch('/:id', async (req, res) => {
     const updates = [];
     const values = [];
     if (isFavorite !== undefined) { updates.push('is_favorite = ?'); values.push(isFavorite ? 1 : 0); }
-    if (isSeen !== undefined)     { updates.push('is_seen = ?');     values.push(isSeen ? 1 : 0); }
+    if (isSeen !== undefined)      { updates.push('is_seen = ?');      values.push(isSeen ? 1 : 0); }
     if (isArchived !== undefined) { updates.push('is_archived = ?'); values.push(isArchived ? 1 : 0); }
     values.push(id);
 
@@ -102,8 +89,8 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/notifications/:id
 router.delete('/:id', async (req, res) => {
+  const { mode } = req.query; // 'everyone' or 'me'
   try {
     const [result] = await db.query(`DELETE FROM notifications WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0) {

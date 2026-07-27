@@ -185,32 +185,81 @@ router.post('/submit', async (req, res) => {
     return res.status(400).json({ success: false, message: 'employeeName and date are required' });
   }
 
-  try {
-    const [result] = await db.query(
-      `UPDATE day_plan_rows SET is_submitted = 1 WHERE employee_name = ? AND plan_date = ?`,
-      [employeeName, date]
-    );
+try {
 
-    try {
-      await createNotification({
-        senderName: employeeName,
-        recipientName: 'Admin',
-        // message: `${employeeName} submitted their Day Plan for ${date}.`,
-        message: `PLAN_SUBMITTED|${employeeName}|${date}`,
-      });
-    } catch (notifyErr) {
-      console.error('⚠️ day-planner submit notification failed (non-fatal):', notifyErr.message);
-    }
+  // Get submitted planner rows
+  const [plannerRows] = await db.query(
+    `
+    SELECT *
+    FROM day_plan_rows
+    WHERE employee_name = ?
+    AND plan_date = ?
+    ORDER BY id ASC
+    `,
+    [
+      employeeName,
+      date
+    ]
+  );
 
-    return res.json({
-      success: true,
-      message: 'Day plan submitted',
-      rowsUpdated: result.affectedRows,
+
+  const [admins] = await db.query(
+    `
+    SELECT full_name 
+    FROM employee_users
+    WHERE user_type = 'admin'
+    AND is_active = 1
+    `
+  );
+
+
+  for (const admin of admins) {
+
+
+    await createNotification({
+
+      senderName: employeeName,
+
+      recipientName: admin.full_name,
+
+
+      message: JSON.stringify({
+
+        preview: `${employeeName} submitted Day Planner`,
+
+
+        payload: {
+
+          type: "PLAN_SUBMITTED",
+
+          sender: employeeName,
+
+          recipient: admin.full_name,
+
+          date: date,
+
+
+          plannerData: plannerRows
+
+        }
+
+      })
+
     });
-  } catch (err) {
-    console.error('POST /day-planner/submit ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+
+
   }
+
+
+}
+catch(notifyErr){
+
+ console.error(
+ "Day planner notification failed:",
+ notifyErr.message
+ );
+
+}
 });
 
 router.get('/progress/:employee/:client', async (req, res) => {

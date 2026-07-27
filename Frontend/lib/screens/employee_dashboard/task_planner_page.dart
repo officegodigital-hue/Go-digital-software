@@ -244,6 +244,7 @@ _attachListeners();
         receiverEmployeeId: employee.id, // ← DB id from EmployeeShareModel
         receiverRole: employee.name,
         receiverShort: employee.shortName,
+
       );
 
       // ── Reset row to fresh state — Share button reappears ──────────────

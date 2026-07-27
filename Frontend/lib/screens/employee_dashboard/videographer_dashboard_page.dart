@@ -14,10 +14,12 @@ import '../../services/api_config.dart';
  
 class VideographerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
+  final VoidCallback? onViewAllNotifications;
 
   const VideographerDashboardPage({
     super.key,
     this.onOpenAssignedTask,
+      this.onViewAllNotifications,
   });
 
   @override
@@ -30,6 +32,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   List<VideographerTaskModel> tasks = [];
+  List<Map<String, dynamic>> recentNotifications = [];
 
   int assignedClients = 0;
   int activeClients = 0;
@@ -39,11 +42,40 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
   int approved = 0;
 int rejected = 0;
 int rework = 0;
-int changes = 0;
+int review = 0;
 
   bool _loading = true;
   String? _error;
   String? _employeeName;
+
+  String? _daysLeftLabel(String? raw, String action) {
+  if (raw == null || raw.isEmpty) return null;
+
+  if (action == 'COMPLETED' ||
+      action == 'REJECTED' ||
+      action == 'SUBMITTED') {
+    return null;
+  }
+
+  try {
+    final due = DateTime.parse(raw);
+    final today = DateTime.now();
+
+    final days = DateTime(
+      due.year,
+      due.month,
+      due.day,
+    ).difference(
+      DateTime(today.year, today.month, today.day),
+    ).inDays;
+
+    if (days > 0) return '$days Day${days == 1 ? '' : 's'} Left';
+    if (days == 0) return 'Due Today';
+    return '${days.abs()} Day${days.abs() == 1 ? '' : 's'} Overdue';
+  } catch (_) {
+    return null;
+  }
+}
 
   @override
   void initState() {
@@ -67,13 +99,27 @@ int changes = 0;
         Uri.parse('$_baseUrl/dashboard/summary/${Uri.encodeComponent(_employeeName!)}'),
       );
 
+      final n = await http.get(
+  Uri.parse(
+    '$_baseUrl/dashboard/recent-notifications/${Uri.encodeComponent(_employeeName!)}',
+  ),
+);
+
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final data = body['data'] as Map<String, dynamic>? ?? {};
       final productivity =
     data['productivity'] as Map<String, dynamic>? ?? {};  
       final rawTasks = List<dynamic>.from(data['tasks'] ?? []);
+List<Map<String, dynamic>> notificationData = [];
 
+if (n.statusCode == 200) {
+  final notificationBody = jsonDecode(n.body);
+
+  notificationData = List<Map<String, dynamic>>.from(
+    notificationBody["data"] ?? [],
+  );
+}
         setState(() {
           assignedClients = data['assignedClients'] as int? ?? 0;
           activeClients     = data['activeClients'] as int? ?? 0;
@@ -82,16 +128,29 @@ int changes = 0;
 approved = productivity['approved'] ?? 0;
 rework = productivity['rework'] ?? 0;
 rejected = productivity['rejected'] ?? 0;
-changes = productivity['changes'] ?? 0;
-          tasks = rawTasks.map((t) => VideographerTaskModel(
-            clientName:      t['clientName'] as String? ?? '',
-            task:            t['task'] as String? ?? '',
-            duration:        t['duration'] as String? ?? 'N/A',
-            shootingDate:    _formatDate(t['submissionDate'] as String?),
-            action:          t['action'] as String? ?? 'IDLE',
-            status:          t['status'] as String? ?? '-',
-            trackingItemId:  t['trackingItemId'] as int?,
-          )).toList();
+review = productivity['review'] ?? 0;
+recentNotifications = notificationData;
+          tasks = rawTasks.map((t) {
+  final action = t['action'] ?? 'IDLE';
+
+  final completedRows = t['completedRows'] ?? 0;
+  final totalRows = t['totalRows'] ?? 0;
+
+  return VideographerTaskModel(
+    clientName: t['clientName'] ?? '',
+    task: t['task'] ?? '',
+    duration: t['duration'] ?? 'N/A',
+    submissionDate: _formatDate(t['submissionDate']),
+    dateLabel: _daysLeftLabel(t['submissionDate'], action),
+    action: action,
+    status: t['status'] ?? '-',
+    trackingItemId: t['trackingItemId'],
+
+    completedLabel: '$completedRows/$totalRows',
+    completedAllDone:
+        totalRows > 0 && completedRows >= totalRows,
+  );
+}).toList();
           _loading = false;
         });
       } else {
@@ -101,6 +160,28 @@ changes = productivity['changes'] ?? 0;
       setState(() { _error = 'Connection error: $e'; _loading = false; });
     }
   }
+
+  String getTodayDate() {
+  final now = DateTime.now();
+
+  const months = [
+    '',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
+
+  return '${months[now.month]} ${now.day.toString().padLeft(2, '0')}, ${now.year} - Today';
+}
 
   String _formatDate(String? raw) {
     if (raw == null || raw.isEmpty) return '--';
@@ -160,7 +241,11 @@ changes = productivity['changes'] ?? 0;
             children: [
               Expanded(
                 flex: 7,
-                child: AlertsSection(),
+                // child: AlertsSection(),
+                child: AlertsSection(
+  notifications: recentNotifications,
+  onViewAll: widget.onViewAllNotifications,
+),
               ),
               SizedBox(width: 22),
               Expanded(
@@ -170,7 +255,7 @@ changes = productivity['changes'] ?? 0;
   approved: approved,
   rework: rework,
   rejected: rejected,
-  changes: changes,
+  review: review,
 ),
               ),
             ],
@@ -194,7 +279,7 @@ changes = productivity['changes'] ?? 0;
                 ),
                 SizedBox(width: 6),
                 Text(
-                  '(Videographer)',
+                  '',
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textDark,
@@ -211,34 +296,33 @@ changes = productivity['changes'] ?? 0;
           ],
         ),
         const Spacer(),
-        Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: AppColors.lightBlue,
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: const Row(
-            children: [
-              Icon(
-                Icons.calendar_month,
-                size: 17,
-                color: AppColors.primary,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'June 01, 2026 - Today',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textDark,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+      Container(
+  height: 34,
+  padding: const EdgeInsets.symmetric(horizontal: 14),
+  decoration: BoxDecoration(
+    color: AppColors.lightBlue,
+    border: Border.all(color: AppColors.border),
+    borderRadius: BorderRadius.circular(4),
+  ),
+  child: Row( // <-- Remove const here
+    children: [
+      const Icon(
+        Icons.calendar_month,
+        size: 17,
+        color: AppColors.primary,
+      ),
+      const SizedBox(width: 8),
+      Text(
+        getTodayDate(),
+        style: const TextStyle(
+          fontSize: 12,
+          color: AppColors.textDark,
+          fontWeight: FontWeight.w600,
         ),
-      ],
+      ),
+    ],
+  ),
+),],
     );
   }
 
@@ -352,141 +436,164 @@ changes = productivity['changes'] ?? 0;
     );
   }
 
-  Widget _tableHeader() {
-    return Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
+Widget _tableHeader() {
+  return Container(
+    height: 42,
+    padding: const EdgeInsets.symmetric(horizontal: 24),
+    decoration: const BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: AppColors.border),
+      ),
+    ),
+    child: const Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text('CLIENT', style: AppTextStyles.tableHeader),
         ),
-      ),
-      child: const Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text('CLIENT', style: AppTextStyles.tableHeader),
+        Expanded(
+          flex: 2,
+          child: Text('TASKS', style: AppTextStyles.tableHeader),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            'TIME/DURATION',
+            style: AppTextStyles.tableHeader,
           ),
-          Expanded(
-            flex: 2,
-            child: Text('TASKS', style: AppTextStyles.tableHeader),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            'SHOOTING/EDITING DATE',
+            style: AppTextStyles.tableHeader,
           ),
-          Expanded(
-            flex: 2,
-            child: Text('DURATION', style: AppTextStyles.tableHeader),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text('ACTION', style: AppTextStyles.tableHeader),
+        ),
+        Expanded(
+          flex: 1,
+          child: Text('STATUS', style: AppTextStyles.tableHeader),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            'COMPLETED TASK',
+            style: AppTextStyles.tableHeader,
           ),
-          Expanded(
-            flex: 2,
-            child: Text('SHOOTING DATES', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('ACTION', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text('STATUS', style: AppTextStyles.tableHeader),
-          ),
-          SizedBox(width: 48),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
-  Widget _taskRow(VideographerTaskModel task) {
-    return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
-        ),
+Widget _taskRow(VideographerTaskModel task) {
+  return Container(
+    height: 52,
+    padding: const EdgeInsets.symmetric(horizontal: 24),
+    decoration: const BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: AppColors.border),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(task.clientName, style: AppTextStyles.tableText),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(task.task, style: AppTextStyles.tableText),
-          ),
-          Expanded(
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(task.clientName, style: AppTextStyles.tableText),
+        ),
+
+        Expanded(
+          flex: 2,
+          child: Text(task.task, style: AppTextStyles.tableText),
+        ),
+        
+
+        Expanded(
             flex: 2,
             child: Text(task.duration, style: AppTextStyles.tableText),
           ),
-          Expanded(
-            flex: 2,
-            child: Text(task.shootingDate, style: AppTextStyles.tableText),
+
+        // Expanded(
+        //   flex: 3,
+        //   child: Text(
+        //     task.shootingDate,
+        //     style: AppTextStyles.tableText,
+        //   ),
+        // ),
+        
+                  Expanded(
+  flex: 3,
+  child: Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(task.submissionDate, style: AppTextStyles.tableText),
+      if (task.dateLabel != null)
+        Text(
+          task.dateLabel!,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: task.dateLabel!.contains('1')
+                ? AppColors.orange
+                : AppColors.green,
           ),
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: StatusBadge(text: task.action),
-            ),
+        ),
+    ],
+  ),
+),
+
+        Expanded(
+          flex: 2,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: StatusBadge(text: task.action),
           ),
-          Expanded(
-            flex: 1,
-            child: StatusBadge(text: task.status),
-          ),
-          SizedBox(
-            width: 48,
-            child: PopupMenuButton<String>(
-              icon: const Icon(
-                Icons.more_vert,
-                size: 18,
-                color: AppColors.textGrey,
+        ),
+
+        Expanded(
+          flex: 1,
+          child: StatusBadge(text: task.status),
+        ),
+
+        Expanded(
+          flex: 2,
+          child: Align(
+            alignment: Alignment.center,
+            child: Text(
+              task.completedLabel,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: task.completedAllDone
+                    ? const Color(0xFF16A34A)
+                    : const Color(0xFF334155),
               ),
-              onSelected: (value) {
-                if (value == 'progress') {
-                  updateTask(task, 'start', 'IN PROGRESS', '-');
-                }
-                if (value == 'completed') {
-                  updateTask(task, 'complete', 'COMPLETED', 'REVIEW');
-                }
-                if (value == 'hold') {
-                  updateTask(task, 'hold', 'ON HOLD', '-');
-                }
-                if (value == 'rejected') {
-                  updateTask(task, 'reject', 'REJECTED', '-');
-                }
-              },
-              itemBuilder: (context) {
-                return const [
-                  PopupMenuItem(
-                    value: 'progress',
-                    child: Text('Mark In Progress'),
-                  ),
-                  PopupMenuItem(
-                    value: 'completed',
-                    child: Text('Mark Completed'),
-                  ),
-                  PopupMenuItem(
-                    value: 'hold',
-                    child: Text('Put On Hold'),
-                  ),
-                  PopupMenuItem(
-                    value: 'rejected',
-                    child: Text('Mark Rejected'),
-                  ),
-                ];
-              },
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
+
 }
 
 class VideographerTaskModel {
   final String clientName;
   final String task;
   final String duration;
-  final String shootingDate;
+  final String submissionDate;
+  final String? dateLabel;
+
   final int? trackingItemId;
+
+  final String completedLabel;
+  final bool completedAllDone;
+
   String action;
   String status;
 
@@ -494,9 +601,14 @@ class VideographerTaskModel {
     required this.clientName,
     required this.task,
     required this.duration,
-    required this.shootingDate,
+    required this.submissionDate,
+    required this.dateLabel,
     required this.action,
     required this.status,
     this.trackingItemId,
+    required this.completedLabel,
+    required this.completedAllDone,
   });
 }
+
+

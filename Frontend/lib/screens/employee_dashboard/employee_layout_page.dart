@@ -23,6 +23,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
 
+import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
+
 class EmployeeLayoutPage extends StatefulWidget {
   const EmployeeLayoutPage({super.key});
 
@@ -79,21 +81,37 @@ void initState() {
   Widget getDashboardByRole(EmployeeRole loggedInRole) {
     switch (loggedInRole) {
       case EmployeeRole.designer:
+        // return DesignerDashboardPage(
+        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+        // );
         return DesignerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        );
+  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+);
       case EmployeeRole.pageHandler:
-        return PageHandlerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        );
-      case EmployeeRole.adsHandler:
-        return AdsHandlerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        );
-      case EmployeeRole.videographer:
+        // return PageHandlerDashboardPage(
+        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+        // );
         return VideographerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        );
+  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+);
+      case EmployeeRole.adsHandler:
+        // return AdsHandlerDashboardPage(
+        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+        // );
+        return AdsHandlerDashboardPage(
+  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+);
+      case EmployeeRole.videographer:
+        // return VideographerDashboardPage(
+        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+        // );
+        return VideographerDashboardPage(
+  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+);
     }
   }
 
@@ -125,6 +143,9 @@ void initState() {
 
       case 'Feedback':
         return const FeedbackPage();
+        
+      case 'Feedback History':
+        return const FeedbackHistoryWidget();
 
       default:
         return Center(

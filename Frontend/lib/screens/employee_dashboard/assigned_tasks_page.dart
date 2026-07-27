@@ -623,6 +623,11 @@ print(r.body);
       debugPrint('⚠️ _autoSaveRow skipped — task_list row not created yet for $taskId');
       return;
     }
+debugPrint("================================");
+debugPrint("taskKey : $taskKey");
+debugPrint("assignedDate : ${task['assignedDate']}");
+debugPrint("editableSubmitDate : ${editableSubmitDates[taskKey]}");
+debugPrint("================================");
 
     final status = taskStatus[taskKey] ?? TaskStatus.idle;
     final total  = taskTotalDurations[taskKey];
@@ -632,13 +637,17 @@ print(r.body);
       'taskListId': taskListId,
       'taskTimingId': null,
       'sNo': rowIndex + 1,
-      'submitDate': editableSubmitDates[taskKey] ?? task['assignedDate'],
+      // 'submitDate': editableSubmitDates[taskKey] ?? task['assignedDate'],
+      'submitDate': editableSubmitDates[taskKey] != null
+    ? editableSubmitDates[taskKey]
+    : _formatDateForDatabase(task['assignedDate']),
       'taskDescription': editableTaskDescs[taskKey] ?? task['singleTask'] ?? '',
       'durationSecs': (taskTotalDurations[taskKey] ?? Duration.zero).inSeconds,
       'comment': taskComments[taskKey] ?? '',
       'performance': perf,
       'status': _statusString(status),
     };
+    debugPrint("PAYLOAD submitDate => ${payload['submitDate']}");
 
     try {
       final r = await http.post(
@@ -1689,6 +1698,8 @@ Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
       return null;
     }
   }
+
+
 Widget _dateWithDaysLeft(String? isoOrDateString) {
     if (isoOrDateString == null || isoOrDateString.isEmpty) {
       return const Text('N/A', style: TextStyle(fontSize: 10, color: AppColors.textGrey));
@@ -2023,6 +2034,22 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
     }
   }
 
+  String _formatDateForDatabase(String? raw) {
+  if (raw == null || raw.isEmpty) return '';
+
+  try {
+    final date = DateTime.parse(raw).toLocal();
+
+    return '${date.year}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')} '
+        '00:00:00';
+
+  } catch (_) {
+    return raw;
+  }
+}
+
   void _showEditDialog(String title, String initial, Function(String) onSave) {
     final ctrl = TextEditingController(text: initial);
     showDialog(context: context, builder: (ctx) => AlertDialog(
@@ -2043,101 +2070,6 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
     ));
   }
 
-//   // ── ADDITIONAL TASK SECTION ───────────────────────────────────────────────
-//   Widget _additionalTaskSection() {
-//     return Container(
-//       decoration: BoxDecoration(
-//         color: Colors.white, border: Border.all(color: AppColors.border),
-//         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 3))],
-//       ),
-//       child: Column(children: [
-//         _additionalTaskHeader(),
-//         if (showTimeTracker) _timeTrackerSection(),
-//       ]),
-//     );
-//   }
-
-//   Widget _additionalTaskHeader() {
-//     return Container(
-//       height: 60, padding: const EdgeInsets.symmetric(horizontal: 28),
-//       child: Row(children: [
-//         Expanded(flex: 2, child: TextField(
-//           decoration: const InputDecoration(labelText: 'CLIENT :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => clientName = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 3, child: TextField(
-//           decoration: const InputDecoration(labelText: 'DELIVERABLES :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => deliverableName = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 3, child: TextField(
-//           decoration: const InputDecoration(labelText: 'DURATION :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => durationValue = v),
-//         )),
-//         const SizedBox(width: 14),
-//         Expanded(flex: 4, child: TextField(
-//           decoration: const InputDecoration(labelText: 'SUBMISSION DATE :', border: OutlineInputBorder(),
-//               contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-//           onChanged: (v) => setState(() => submissionDate = v),
-//         )),
-//         const SizedBox(width: 60),
-//         SizedBox(width: 60, height: 30,
-//           child: ElevatedButton(
-//             onPressed: () => setState(() => showTimeTracker = !showTimeTracker),
-//             style: ElevatedButton.styleFrom(
-//               backgroundColor: showTimeTracker ? AppColors.red : const Color(0xFFD9E8FF),
-//               foregroundColor: showTimeTracker ? Colors.white : const Color(0xFF003A9B),
-//               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), elevation: 0,
-//             ),
-//             child: Text(showTimeTracker ? 'HIDE' : 'OPEN',
-//                 style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-//           ),
-//         ),
-//         const SizedBox(width: 8),
-//         SizedBox(width: 80, height: 34,
-//           child: OutlinedButton(
-//             onPressed: () => setState(() { showAdditionalTask = false; showTimeTracker = false; }),
-//             child: const Text('← Back', style: TextStyle(fontSize: 11)),
-//           ),
-//         ),
-//       ]),
-//     );
-//   }
-
-//   Widget _timeTrackerSection() {
-//     return Column(children: [
-//       Container(height: 28, alignment: Alignment.center, color: AppColors.lightBlue,
-//         child: const Text('TIME TRACKER',
-//             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF172554)))),
-//       Container(height: 38, padding: const EdgeInsets.symmetric(horizontal: 30),
-//         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-//         child: const Row(children: [
-//           SizedBox(width: 80,  child: Text('S.NO',        style: _headerStyle, textAlign: TextAlign.center)),
-//           SizedBox(width: 140, child: Text('SUBMIT DATE', style: _headerStyle, textAlign: TextAlign.center)),
-//           Expanded(            child: Text('ACTION',      style: _headerStyle)),
-//         ]),
-//       ),
-//       for (int i = 0; i < additionalTasks.length; i++)
-//         Container(height: 42, padding: const EdgeInsets.symmetric(horizontal: 30),
-//           decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-//           child: Row(children: [
-//             SizedBox(width: 80,  child: Text('$i.', textAlign: TextAlign.center)),
-//             SizedBox(width: 140, child: Text(submissionDate, textAlign: TextAlign.center)),
-//             Expanded(child: Row(children: [
-//               _btn("START", const Color(0xFFD9E8FF), const Color(0xFF004AAD),
-//                   () => _handleStart('additional_$i', additionalTasks[i], i, 'additional_$i')),
-//               const SizedBox(width: 12),
-//               Text(formatDuration(taskDurations['additional_$i']),
-//                   style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-//             ])),
-//           ]),
-//         ),
-//     ]);
-//   }
 }
 
 const TextStyle _headerStyle = TextStyle(

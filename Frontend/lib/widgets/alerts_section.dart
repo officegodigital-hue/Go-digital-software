@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-
 import 'package:godigital_portal/core/constants/app_colors.dart';
 
 class AlertsSection extends StatelessWidget {
-  const AlertsSection({super.key});
+  final List<Map<String, dynamic>> notifications;
+   final VoidCallback? onViewAll;
+
+  const AlertsSection({
+    super.key,
+    required this.notifications,
+    this.onViewAll,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,12 +27,12 @@ class AlertsSection extends StatelessWidget {
           ),
         ],
       ),
-      child: const Column(
+      child: Column(
         children: [
-          Row(
+           Row(
             children: [
               Text(
-                'Alerts',
+                "Alerts",
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -34,55 +40,100 @@ class AlertsSection extends StatelessWidget {
                 ),
               ),
               Spacer(),
-              Text(
-                'View All Notifications',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              // Text(
+              //   "View All Notifications",
+              //   style: TextStyle(
+              //     fontSize: 11,
+              //     color: AppColors.primary,
+              //     fontWeight: FontWeight.w700,
+              //   ),
+              // ),
+              InkWell(
+  onTap: onViewAll,
+  child: const Text(
+    "View All Notifications",
+    style: TextStyle(
+      fontSize: 11,
+      color: AppColors.primary,
+      fontWeight: FontWeight.w700,
+    ),
+  ),
+),
             ],
           ),
-          SizedBox(height: 18),
+          const SizedBox(height: 18),
+
           Expanded(
             child: Row(
-              children: [
-                Expanded(
-                  child: _AlertCard(
-                    icon: Icons.person_add_alt_1,
-                    title: 'New Client Task Assigned',
-                    message: '12 poster design for Brahmos',
-                    time: '24 MINS AGO',
-                    color: AppColors.primary,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: _AlertCard(
-                    icon: Icons.info_outline,
-                    title: 'Weekly Audit Reminder',
-                    message: 'Submit your activity log before Friday 5 PM.',
-                    time: '1 HOUR AGO',
-                    color: AppColors.red,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: _AlertCard(
-                    icon: Icons.verified_outlined,
-                    title: 'Manager Reviewed',
-                    message: 'Poster design is approved for Brahmos',
-                    time: '3 HOURS AGO',
-                    color: Colors.amber,
-                  ),
-                ),
-              ],
+              children: List.generate(
+                notifications.length > 3 ? 3 : notifications.length,
+                (index) {
+                  final item = notifications[index];
+
+                  return Expanded(
+                    child: Padding(
+                      padding:
+                          EdgeInsets.only(right: index == 2 ? 0 : 16),
+                      child: _AlertCard(
+                        icon: _icon(item["category"]),
+                        color: _color(item["category"]),
+                        title: item["category"] ?? "",
+                        message: item["preview"] ?? "",
+                        time: item["createdAt"] ?? "",
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  static IconData _icon(String? category) {
+    switch (category) {
+      case "Task Assigned":
+        return Icons.assignment;
+
+      case "Task Review":
+        return Icons.fact_check;
+
+      case "Warning & Alert":
+        return Icons.warning_amber;
+
+      case "Daily Planner":
+        return Icons.calendar_today;
+
+      case "Content Shared":
+        return Icons.share;
+
+      default:
+        return Icons.notifications;
+    }
+  }
+
+  static Color _color(String? category) {
+    switch (category) {
+      case "Task Assigned":
+        return AppColors.primary;
+
+      case "Task Review":
+        return Colors.green;
+
+      case "Warning & Alert":
+        return Colors.red;
+
+      case "Daily Planner":
+        return Colors.orange;
+
+      case "Content Shared":
+        return Colors.purple;
+
+      default:
+        return Colors.grey;
+    }
   }
 }
 

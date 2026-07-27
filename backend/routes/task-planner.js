@@ -196,11 +196,20 @@ await createNotification({
   message: JSON.stringify({
     preview: `Task Planner shared by ${senderEmployeeName}`,
     payload: {
-      type: "TASK_PLANNER_SHARE",
-      sender: senderEmployeeName,
-      contentType: contentType,
-      content: content,
-    }
+    type: "TASK_PLANNER_SHARE",
+
+    sender: senderEmployeeName,
+    recipient: receiverEmployeeName,
+
+    project: projectName,
+    client: clientName,
+    taskName: taskName,
+
+    contentType: contentType,
+    content: content,
+
+    sharedAt: new Date().toLocaleString("en-IN"),
+}
   }),
 });
 

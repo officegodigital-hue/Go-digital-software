@@ -7,32 +7,116 @@ const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
+function formatDuration(seconds) {
+  if (!seconds) return '0 mins';
+
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+
+  if (hrs > 0 && mins > 0) return `${hrs} hrs ${mins} mins`;
+  if (hrs > 0) return `${hrs} hrs`;
+  return `${mins} mins`;
+}
+
 // GET /api/manager-review — every tracking row currently COMPLETED, across
 // all employees/clients, with the manager's current action/comment on it
 // (LEFT JOIN so rows with no review yet still show up, defaulting to 'ACTION').
+// router.get('/', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(`
+//       SELECT
+//         tti.id AS tracking_item_id,
+//         tl.client_name,
+//         tl.employee_name,
+//         tl.deliverables AS task,
+//         tl.duration AS estimated_duration,
+//         tti.status,
+//         tti.duration_secs,
+//         mr.manager_action,
+//         mr.manager_comment
+//       FROM time_tracking_task_items tti
+//       JOIN task_list tl ON tl.id = tti.task_list_id
+//       LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+//       WHERE tti.status = 'COMPLETED'
+//       ORDER BY tti.updated_at DESC
+//     `);
+//     const data = rows.map(r => ({
+//     ...r,
+//     duration:
+//         r.status === 'COMPLETED'
+//             ? formatDuration(r.duration_secs)
+//             : (r.estimated_duration || 'N/A')
+// }));
+
+//     return res.json({ success: true, data });
+//   } catch (err) {
+//     console.error('GET /manager-review ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.get('/', async (req, res) => {
   try {
+
+    // Create ACTION row automatically if it doesn't exist
+    await db.query(`
+      INSERT INTO manager_review
+      (
+          tracking_item_id,
+          manager_action,
+          reviewed_at
+      )
+      SELECT
+          tti.id,
+          'ACTION',
+          NOW()
+      FROM time_tracking_task_items tti
+      LEFT JOIN manager_review mr
+          ON mr.tracking_item_id = tti.id
+      WHERE
+          tti.status = 'COMPLETED'
+          AND mr.tracking_item_id IS NULL
+    `);
+
     const [rows] = await db.query(`
       SELECT
         tti.id AS tracking_item_id,
         tl.client_name,
         tl.employee_name,
         tl.deliverables AS task,
-        tl.duration,
+        tl.duration AS estimated_duration,
         tti.status,
-        mr.manager_action,
+        tti.duration_secs,
+        COALESCE(mr.manager_action,'ACTION') AS manager_action,
         mr.manager_comment
       FROM time_tracking_task_items tti
-      JOIN task_list tl ON tl.id = tti.task_list_id
-      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+      JOIN task_list tl
+        ON tl.id = tti.task_list_id
+      LEFT JOIN manager_review mr
+        ON mr.tracking_item_id = tti.id
       WHERE tti.status = 'COMPLETED'
       ORDER BY tti.updated_at DESC
     `);
 
-    return res.json({ success: true, data: rows });
+    const data = rows.map(r => ({
+      ...r,
+      duration:
+          r.status === 'COMPLETED'
+              ? formatDuration(r.duration_secs)
+              : (r.estimated_duration || 'N/A')
+    }));
+
+    return res.json({
+      success: true,
+      data
+    });
+
   } catch (err) {
     console.error('GET /manager-review ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
 
@@ -41,9 +125,13 @@ router.get('/', async (req, res) => {
 // field can be sent alone (the dropdown fires with just { action }, the
 // comment field debounces and fires with just { comment }).
 router.patch('/:trackingItemId', async (req, res) => {
-  const { trackingItemId } = req.params;
-  const { action, comment } = req.body;
 
+   console.log(req.body);
+  const { trackingItemId } = req.params;
+  const { action, comment, senderEmployeeName } = req.body;
+  const senderName = senderEmployeeName || "Unknown";
+  
+   console.log("Sender Name:", senderEmployeeName);
   if (action === undefined && comment === undefined) {
     return res.status(400).json({ success: false, message: 'action or comment is required' });
   }
@@ -58,37 +146,78 @@ router.patch('/:trackingItemId', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
     }
 
-    const [existing] = await db.query(
-      `SELECT * FROM manager_review WHERE tracking_item_id = ?`,
-      [trackingItemId]
-    );
+    // const [existing] = await db.query(
+    //   `SELECT * FROM manager_review WHERE tracking_item_id = ?`,
+    //   [trackingItemId]
+    // );
 
-    if (existing.length > 0) {
-      const updates = ['reviewed_at = NOW()'];
-      const values = [];
-      if (action !== undefined) { updates.push('manager_action = ?'); values.push(action); }
-      if (comment !== undefined) { updates.push('manager_comment = ?'); values.push(comment); }
-      values.push(existing[0].id);
+    // if (existing.length > 0) {
+    //   const updates = ['reviewed_at = NOW()'];
+    //   const values = [];
+    //   if (action !== undefined) { updates.push('manager_action = ?'); values.push(action); }
+    //   if (comment !== undefined) { updates.push('manager_comment = ?'); values.push(comment); }
+    //   values.push(existing[0].id);
 
-      await db.query(`UPDATE manager_review SET ${updates.join(', ')} WHERE id = ?`, values);
-    } else {
-      await db.query(
-        `INSERT INTO manager_review (tracking_item_id, manager_action, manager_comment, reviewed_at)
-         VALUES (?, ?, ?, NOW())`,
-        [trackingItemId, action ?? 'ACTION', comment ?? null]
-      );
-    }
+    //   await db.query(`UPDATE manager_review SET ${updates.join(', ')} WHERE id = ?`, values);
+    // } else {
+    //   await db.query(
+    //     `INSERT INTO manager_review (tracking_item_id, manager_action, manager_comment, reviewed_at)
+    //      VALUES (?, ?, ?, NOW())`,
+    //     [trackingItemId, action ?? 'ACTION', comment ?? null]
+    //   );
+    // }
 
-    const [rows] = await db.query(
-      `SELECT * FROM manager_review WHERE tracking_item_id = ?`,
-      [trackingItemId]
-    );
+    // const [rows] = await db.query(
+    //   `SELECT * FROM manager_review WHERE tracking_item_id = ?`,
+    //   [trackingItemId]
+    // );
+
+const updates = [];
+const values = [];
+
+if (action !== undefined) {
+  updates.push("manager_action = ?");
+  values.push(action);
+}
+
+if (comment !== undefined) {
+  updates.push("manager_comment = ?");
+  values.push(comment);
+}
+
+updates.push("reviewed_at = NOW()");
+values.push(trackingItemId);
+
+await db.query(
+  `UPDATE manager_review
+   SET ${updates.join(", ")}
+   WHERE tracking_item_id = ?`,
+  values
+);
+
+const [rows] = await db.query(
+`
+SELECT *
+FROM manager_review
+WHERE tracking_item_id = ?
+`,
+[trackingItemId]);
+
+
 
     // FIX: this is the missing piece — when the manager actually sets a
     // decision (APPROVED/REWORK/REJECTED, not just typing a comment), the
     // employee who did the work gets a real notification about it.
-    if (action !== undefined && action !== 'ACTION') {
-      try {
+    // if (action !== undefined && action !== 'ACTION') {
+    // if (rows.length > 0 && rows[0].manager_action !== 'ACTION') {
+ if (
+    action !== undefined &&
+    action !== "ACTION" &&
+    rows.length > 0
+) {
+    try {
+       const review = rows[0];
+
         const [taskInfo] = await db.query(
           `SELECT tl.employee_name, tl.deliverables
            FROM time_tracking_task_items tti
@@ -96,18 +225,47 @@ router.patch('/:trackingItemId', async (req, res) => {
            WHERE tti.id = ?`,
           [trackingItemId]
         );
-        if (taskInfo.length > 0 && taskInfo[0].employee_name) {
-          const commentSuffix = comment ? ` ${comment}` : '';
-          await createNotification({
-            senderName: 'Manager',
-            recipientName: taskInfo[0].employee_name,
-            message: `Your task "${taskInfo[0].deliverables}" has been marked ${action}.${commentSuffix}`,
-          });
+
+        if (taskInfo.length > 0) {
+
+            let preview = "";
+
+            switch (review.manager_action) {
+                case "APPROVED":
+                    preview = `✅ Your task "${taskInfo[0].deliverables}" has been approved`;
+                    break;
+
+                case "REWORK":
+                    preview = `🔄 Rework requested for "${taskInfo[0].deliverables}"`;
+                    break;
+
+                case "REJECTED":
+                    preview = `❌ Your task "${taskInfo[0].deliverables}" has been rejected`;
+                    break;
+            }
+
+            await createNotification({
+    senderName: senderName,
+    recipientName: taskInfo[0].employee_name,
+    message: JSON.stringify({
+        preview,
+        payload: {
+            type: "TASK_REVIEW",
+            sender: senderEmployeeName,
+            recipient: taskInfo[0].employee_name,
+            taskName: taskInfo[0].deliverables,
+            action: review.manager_action,
+            comment: review.manager_comment ?? "",
+            reviewedAt: new Date().toLocaleString("en-IN"),
+        },
+    }),
+});
         }
-      } catch (notifyErr) {
-        console.error('⚠️ manager-review notification failed (non-fatal):', notifyErr.message);
-      }
+
+    } catch (notifyErr) {
+        console.error(notifyErr);
     }
+}
 
     return res.json({ success: true, message: 'Review updated', data: rows[0] });
   } catch (err) {
