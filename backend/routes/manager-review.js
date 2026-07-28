@@ -120,6 +120,65 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Employee Task Status
+router.get('/task-status/:employeeName', async (req, res) => {
+  try {
+    const employeeName = req.params.employeeName;
+
+    const [rows] = await db.query(
+      `
+      SELECT
+          tti.id AS tracking_item_id,
+          tl.client_name,
+          tl.employee_name,
+          tl.deliverables AS task,
+          tl.duration AS estimated_duration,
+          tti.status,
+          tti.duration_secs,
+          COALESCE(mr.manager_action,'ACTION') AS manager_action,
+          COALESCE(mr.manager_comment,'') AS manager_comment
+      FROM time_tracking_task_items tti
+
+      JOIN task_list tl
+           ON tl.id = tti.task_list_id
+
+      LEFT JOIN manager_review mr
+           ON mr.tracking_item_id = tti.id
+
+      WHERE
+          tl.employee_name = ?
+          AND tti.status='COMPLETED'
+
+      ORDER BY tti.updated_at DESC
+      `,
+      [employeeName]
+    );
+
+    const data = rows.map(r => ({
+      ...r,
+      duration:
+        r.status === "COMPLETED"
+          ? formatDuration(r.duration_secs)
+          : (r.estimated_duration || "N/A")
+    }));
+
+    res.json({
+      success: true,
+      data
+    });
+
+  } catch (err) {
+
+    console.log(err);
+
+    res.status(500).json({
+      success:false,
+      message:err.message
+    });
+
+  }
+});
+
 // PATCH /api/manager-review/:trackingItemId — find-or-create the review row
 // for this tracking item, then update action and/or comment on it. Either
 // field can be sent alone (the dropdown fires with just { action }, the
@@ -239,7 +298,7 @@ WHERE tracking_item_id = ?
                     preview = `🔄 Rework requested for "${taskInfo[0].deliverables}"`;
                     break;
 
-                case "REJECTED":
+               case "REJECTED":
                     preview = `❌ Your task "${taskInfo[0].deliverables}" has been rejected`;
                     break;
             }

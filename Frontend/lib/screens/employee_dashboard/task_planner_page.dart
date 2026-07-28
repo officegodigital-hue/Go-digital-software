@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'employee_layout_page.dart';
 
 final ScrollController _employeeScrollController = ScrollController();
 
@@ -230,7 +232,7 @@ _attachListeners();
       // ── Every call = 1 new INSERT into task_planner_shares ──────────────
       await TaskPlannerService.sharePlannerRow(
         id: row.id,
-
+ 
         // Sender = logged-in employee
         senderEmployeeName: _employeeName ?? '',
         senderEmployeeId: _employeeId,
@@ -375,6 +377,34 @@ row.contentController.addListener(row.saveListener!);
         ],
       ),
       const Spacer(),
+      OutlinedButton.icon(
+  onPressed: () async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'employeeMenu',
+      'Task Planner History',
+    );
+
+    if (!mounted) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const EmployeeLayoutPage(),
+      ),
+    );
+  },
+ icon: const Icon(Icons.history_rounded, size: 16, color: Color(0xFF004AAD)),
+         label: const Text("View History"  ,  
+         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF004AAD))),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Color(0xFF004AAD)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        ),
+         
+),
+      const SizedBox(width: 12),
       ElevatedButton(
         onPressed: addSection,
         style: ElevatedButton.styleFrom(

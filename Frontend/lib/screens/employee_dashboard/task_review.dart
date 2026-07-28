@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
@@ -39,16 +38,17 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
 
   final List<String> actionOptions = ["ACTION", "APPROVED", "REWORK", "REJECTED"];
 
-  @override
 @override
 void initState() {
   super.initState();
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
 
     final authService = context.read<AuthService>();
-
     final user = authService.user;
+
+    if (!mounted) return;
 
     setState(() {
       loggedInEmployeeName =
@@ -58,13 +58,9 @@ void initState() {
           '';
     });
 
-    print("LOGIN USER NAME => $loggedInEmployeeName");
-
     _fetchReviewData();
-
   });
 }
-
 
 Future<void> loadUser() async {
 
@@ -334,13 +330,17 @@ Future<void> _saveComment(
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
   }
 
-  @override
-  void dispose() {
-    for (var row in reviewData) {
-      (row["controller"] as TextEditingController).dispose();
-    }
-    super.dispose();
+ @override
+void dispose() {
+
+  _commentTimer?.cancel();
+
+  for (final row in reviewData) {
+    (row["controller"] as TextEditingController).dispose();
   }
+
+  super.dispose();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -350,21 +350,30 @@ Future<void> _saveComment(
       return row["action"].toString().toUpperCase() == activeFilter.toUpperCase();
     }).toList();
 
-    return AdminLayout(
-      pageTitle: "Manager Review",
-      currentRoute: "/manager-review",
+    return Scaffold(
+  backgroundColor: const Color(0xFFF8FAFC),
+  // appBar: AppBar(
+  //   title: const Text("Task Review"),
+  //   centerTitle: false,
+  //   elevation: 0,
+  //   backgroundColor: Colors.white,
+  //   foregroundColor: Colors.black,
+  // ),
+  body: SafeArea(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Title Header & Description ──
           const Text(
-            "Manager Review",
+            "Task  Review",
             style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
           ),
           const SizedBox(height: 4),
           const Text(
-            "Demonstrated consistent performance, professionalism, and dedication towards assigned responsibilities.",
-            style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+  "Review completed tasks and provide approval, rework, or rejection with comments.",
+  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
           ),
 
           const SizedBox(height: 28),
@@ -386,7 +395,7 @@ Future<void> _saveComment(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        "Work review",
+                        "Task review",
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
                       ),
                       Row(
@@ -622,6 +631,8 @@ Future<void> _saveComment(
           const SizedBox(height: 40),
         ],
       ),
+    ),
+  ),
     );
   }
 

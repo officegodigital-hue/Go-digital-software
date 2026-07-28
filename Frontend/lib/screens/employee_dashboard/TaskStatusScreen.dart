@@ -2,21 +2,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 
-class ManagerReviewScreen extends StatefulWidget {
-  const ManagerReviewScreen({super.key});
+class TaskStatusScreen extends StatefulWidget {
+  const TaskStatusScreen({super.key});
 
   @override
-  State<ManagerReviewScreen> createState() => _ManagerReviewScreenState();
+  State<TaskStatusScreen> createState() => _TaskStatusScreenState();
 }
 
-class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
+class _TaskStatusScreenState extends State<TaskStatusScreen> {
   // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
 
@@ -35,20 +34,19 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
 
   bool _loading = true;
   String? _error;
-  Timer? _commentTimer;
 
-  final List<String> actionOptions = ["ACTION", "APPROVED", "REWORK", "REJECTED"];
-
-  @override
+  
 @override
 void initState() {
   super.initState();
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
 
     final authService = context.read<AuthService>();
-
     final user = authService.user;
+
+    if (!mounted) return;
 
     setState(() {
       loggedInEmployeeName =
@@ -58,13 +56,9 @@ void initState() {
           '';
     });
 
-    print("LOGIN USER NAME => $loggedInEmployeeName");
-
     _fetchReviewData();
-
   });
 }
-
 
 Future<void> loadUser() async {
 
@@ -87,9 +81,10 @@ Future<void> _fetchReviewData() async {
   });
 
   try {
-    final r = await http.get(
-      Uri.parse('$_baseUrl/manager-review'),
-    );
+final r = await http.get(
+  Uri.parse(
+      '$_baseUrl/manager-review/task-status/$loggedInEmployeeName'),
+);
 
     if (!mounted) return;
 
@@ -153,194 +148,19 @@ Future<void> _fetchReviewData() async {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
-  // Fires immediately when the dropdown changes.
-Future<void> _saveAction(Map<String, dynamic> row, String action) async {
-  final trackingItemId = row['trackingItemId'];
 
-  if (trackingItemId == null) return;
+ 
 
-  try {
-
-    final response = await http.patch(
-      Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'action': action,
-        'senderEmployeeName': loggedInEmployeeName,
-      }),
-    );
+ @override
+void dispose() {
 
 
-    if (response.statusCode == 200) {
-
-      final body = jsonDecode(response.body);
-
-
-      if (body['success'] == true) {
-
-        setState(() {
-          row['action'] = action;
-        });
-
-
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.check_circle,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '$action updated successfully',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-
-      } else {
-
-        _showSnack(
-          body['message'] ?? 'Failed to save action'
-        );
-
-      }
-
-    } else {
-
-      _showSnack(
-        'Failed to save action (${response.statusCode})'
-      );
-
-    }
-
-
-  } catch(e) {
-
-    _showSnack(
-      'Error saving action: $e'
-    );
-
+  for (final row in reviewData) {
+    (row["controller"] as TextEditingController).dispose();
   }
+
+  super.dispose();
 }
-
-  // Debounced like the comment fields elsewhere in the app — fires 2s after
-  // typing stops, and only if the text hasn't changed again since.
-Future<void> _saveComment(
-    Map<String, dynamic> row,
-    String comment,
-) async {
-
-  print("COMMENT SENDER NAME => $loggedInEmployeeName");
-
-  final trackingItemId = row['trackingItemId'];
-
-  if (trackingItemId == null) return;
-
-  try {
-
-    final r = await http.patch(
-      Uri.parse('$_baseUrl/manager-review/$trackingItemId'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'comment': comment,
-        'senderEmployeeName': loggedInEmployeeName,
-      }),
-    );
-
-
-    if (r.statusCode == 200) {
-
-      final body = jsonDecode(r.body);
-
-
-      if (body['success'] == true) {
-
-        setState(() {
-          row['comment'] = comment;
-        });
-
-
-        if (!mounted) return;
-
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(
-                  Icons.check_circle,
-                  color: Colors.white,
-                ),
-                SizedBox(width: 10),
-                Text(
-                  'Comment updated successfully',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ),
-        );
-
-
-      } else {
-
-        _showSnack(
-          body['message'] ?? 'Failed to save comment'
-        );
-
-      }
-
-
-    } else {
-
-      _showSnack(
-        'Failed to save comment (${r.statusCode})'
-      );
-
-    }
-
-
-  } catch (e) {
-
-    _showSnack(
-      'Error saving comment: $e'
-    );
-
-  }
-}
-
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
-  }
-
-  @override
-  void dispose() {
-    for (var row in reviewData) {
-      (row["controller"] as TextEditingController).dispose();
-    }
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -350,21 +170,24 @@ Future<void> _saveComment(
       return row["action"].toString().toUpperCase() == activeFilter.toUpperCase();
     }).toList();
 
-    return AdminLayout(
-      pageTitle: "Manager Review",
-      currentRoute: "/manager-review",
+    return Scaffold(
+  backgroundColor: const Color(0xFFF8FAFC),
+
+  body: SafeArea(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Title Header & Description ──
           const Text(
-            "Manager Review",
+            "Task  Status",
             style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
           ),
           const SizedBox(height: 4),
           const Text(
-            "Demonstrated consistent performance, professionalism, and dedication towards assigned responsibilities.",
-            style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+  "Review completed tasks and provide approval, rework, or rejection with comments.",
+  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
           ),
 
           const SizedBox(height: 28),
@@ -386,7 +209,7 @@ Future<void> _saveComment(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        "Work review",
+                        "Task Status",
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
                       ),
                       Row(
@@ -456,7 +279,6 @@ Future<void> _saveComment(
                   child: Row(
                     children: const [
                       Expanded(flex: 2, child: Text("CLIENT", style: _headerStyle)),
-                      Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TIME/DURATION", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
@@ -509,30 +331,7 @@ Future<void> _saveComment(
                                       style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w500),
                                     ),
                                   ),
-                                  Expanded(
-                                    flex: 3,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 26,
-                                          height: 26,
-                                          decoration: const BoxDecoration(color: Color(0xFFDCE4F7), shape: BoxShape.circle),
-                                          alignment: Alignment.center,
-                                          child: Text(
-                                            row["initials"],
-                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Text(
-                                          row["name"],
-                                          style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
+                                 Expanded(
                                     flex: 2,
                                     child: Text(row["task"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
                                   ),
@@ -554,38 +353,39 @@ Future<void> _saveComment(
                                       ),
                                     ),
                                   ),
+                                 Expanded(
+  flex: 2,
+  child: Align(
+    alignment: Alignment.centerLeft,
+    child: _buildActionBadge(row["action"] ?? "ACTION"),
+  ),
+),
                                   Expanded(
-                                    flex: 2,
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: _buildInteractiveActionDropdown(row, index),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 4,
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 14),
-                                      child: TextField(
-                                        controller: row["controller"] as TextEditingController,
-                                        style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-                                        decoration: InputDecoration(
-                                          hintText: "Write manager review feedback...",
-                                          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 12),
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                          fillColor: const Color(0xFFF8FAFC),
-                                          filled: true,
-                                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Colors.grey.shade200)),
-                                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
-                                        ),
-                                        onChanged: (v) {
-                                          Future.delayed(const Duration(seconds: 2), () {
-                                            final controller = row["controller"] as TextEditingController;
-                                            if (controller.text == v) _saveComment(row, v);
-                                          });
-                                        },
-                                      ),
-                                    ),
-                                  ),
+  flex: 4,
+  child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    child: Container(
+      height: 36,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Text(
+        (row["controller"] as TextEditingController).text.isEmpty
+            ? "-"
+            : (row["controller"] as TextEditingController).text,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF334155),
+        ),
+        overflow: TextOverflow.ellipsis,
+      ),
+    ),
+  ),
+),
                                 ],
                               ),
                             );
@@ -622,75 +422,55 @@ Future<void> _saveComment(
           const SizedBox(height: 40),
         ],
       ),
+    ),
+  ),
     );
   }
 
-  Widget _buildInteractiveActionDropdown(Map<String, dynamic> row, int index) {
-    String currentAction = row["action"].toString().toUpperCase();
+Widget _buildActionBadge(String action) {
+  action = action.toUpperCase();
 
-    Color containerColor = const Color(0xFFF1F5F9);
-    Color textColor = const Color(0xFF475569);
+  Color bg = const Color(0xFFF1F5F9);
+  Color txt = const Color(0xFF475569);
 
-    if (currentAction == "APPROVED") {
-      containerColor = const Color(0xFFDCFCE7); 
-      textColor = const Color(0xFF16A34A);      
-    } else if (currentAction == "REWORK") {
-      containerColor = const Color(0xFFFEF3C7); 
-      textColor = const Color(0xFFD97706);      
-    } else if (currentAction == "REJECTED") {
-      containerColor = const Color(0xFFFEE2E2); 
-      textColor = const Color(0xFFDC2626);      
-    }
+  switch (action) {
+    case "APPROVED":
+      bg = const Color(0xFFDCFCE7);
+      txt = const Color(0xFF16A34A);
+      break;
 
-    return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: containerColor,
-        borderRadius: BorderRadius.circular(4),
-        border: currentAction == "ACTION" ? Border.all(color: const Color(0xFFCBD5E1)) : null,
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: actionOptions.contains(row["action"]) ? row["action"] : actionOptions.first,
-          icon: Icon(Icons.arrow_drop_down, color: textColor, size: 16),
-          dropdownColor: Colors.white,
-          alignment: Alignment.center,
-          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.3),
-          items: actionOptions.map((String choice) {
-            return DropdownMenuItem<String>(
-              value: choice,
-              child: Text(choice),
-            );
-          }).toList(),
-          onChanged: (newValue) {
-            setState(() {
-              row["action"] = newValue!;
+    case "REWORK":
+      bg = const Color(0xFFFEF3C7);
+      txt = const Color(0xFFD97706);
+      break;
 
-              final TextEditingController targetController = row["controller"] as TextEditingController;
-              if (targetController.text.isEmpty) {
-                if (newValue == "APPROVED") {
-                  targetController.text = "Approved asset distributions.";
-                } else if (newValue == "REWORK") {
-                  targetController.text = "Needs adjustments.";
-                } else if (newValue == "REJECTED") {
-                  targetController.text = "Declined due to specification errors.";
-                }
-              }
-            });
-            // FIX: this is the persistence that was missing — a dropdown
-            // change now writes manager_action (and the default comment text,
-            // if one was just auto-filled) straight to the backend.
-            _saveAction(row, newValue!);
-            if ((row["controller"] as TextEditingController).text.isNotEmpty) {
-              _saveComment(row, (row["controller"] as TextEditingController).text);
-            }
-          },
-        ),
-      ),
-    );
+    case "REJECTED":
+      bg = const Color(0xFFFEE2E2);
+      txt = const Color(0xFFDC2626);
+      break;
+
+    default:
+      bg = const Color(0xFFF1F5F9);
+      txt = const Color(0xFF475569);
   }
 
+  return Container(
+    height: 32,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(5),
+    ),
+    child: Text(
+      action,
+      style: TextStyle(
+        color: txt,
+        fontWeight: FontWeight.bold,
+        fontSize: 11,
+      ),
+    ),
+  );
+}
   Widget _buildFilterTab(String label) {
     bool isActive = activeFilter.toUpperCase() == label.toUpperCase();
     return Container(

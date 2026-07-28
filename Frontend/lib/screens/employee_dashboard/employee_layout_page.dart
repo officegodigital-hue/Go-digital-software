@@ -16,12 +16,16 @@ import 'package:godigital_portal/screens/employee_dashboard/day_planner_screen.d
 import 'package:godigital_portal/screens/employee_dashboard/notification_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/daily_reports_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_planner_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/TaskStatusScreen.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_review.dart';
 import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
 // ← ADD THIS IMPORT for the videographer task planner
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
@@ -135,8 +139,21 @@ void initState() {
       case 'Task Planner':
         return const TaskPlannerPage();
 
+      case 'Task Planner History':
+        return const TaskPlannerHistoryWidget();
+      
       case 'Video Task Planner':
         return const VideographerTaskPlannerPage();
+        
+      case 'Video Task Planner History':
+        return const VideographerTaskPlannerHistoryPage();
+
+      case 'Task Review':
+        return const ManagerReviewScreen();
+
+      
+      case 'Task Status':
+        return const TaskStatusScreen();
 
       case 'Notifications':
         return const NotificationsScreen();

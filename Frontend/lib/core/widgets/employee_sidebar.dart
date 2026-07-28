@@ -26,12 +26,14 @@ class EmployeeSidebar extends StatelessWidget {
 
   IconData _iconForMenu(String title) {
   switch (title) { 
-    case 'Dashboard': return Icons.dashboard_outlined;
-    case 'Day Planner': return Icons.event_note_outlined;
-    case 'Notifications': return Icons.notifications_none;
+    case 'Dashboard': return Icons.dashboard;
+    case 'Day Planner': return Icons.task;
+    case 'Notifications': return Icons.notifications;
     case 'Daily Reports': return Icons.checklist_outlined;
-    case 'Assigned Task': return Icons.assignment_outlined;
+    case 'Assigned Task': return Icons.assignment;
     case 'Task Planner': return Icons.event_note_outlined;
+    case 'Task Review': return Icons.fact_check_outlined;
+    case 'Task Status': return Icons.fact_check_outlined;
     case 'Video Task Planner': return Icons.event_note_outlined;
     case 'Feedback': return Icons.feedback_outlined;
     default: return Icons.circle_outlined;
@@ -67,7 +69,16 @@ class EmployeeSidebar extends StatelessWidget {
 
           const Spacer(),
 
-          Container(height: 1, color: Colors.white24),
+Container(height: 1, color: Colors.white24),
+
+          // _SidebarItem(
+          //   icon: Icons.home,
+          //   title: 'HOME',
+          //   isActive: false,
+          //   onTap: () {
+          //     Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+          //   },
+          // ),
 
           _SidebarItem(
             icon: Icons.logout,

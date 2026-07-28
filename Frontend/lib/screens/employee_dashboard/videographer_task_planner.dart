@@ -6,6 +6,8 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/constants/app_text_styles.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'employee_layout_page.dart';
 
 final ScrollController _vidEmpScrollController = ScrollController();
 
@@ -252,14 +254,32 @@ class _VideographerTaskPlannerPageState extends State<VideographerTaskPlannerPag
     }
   }
 
-  void _openHistory() {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => _HistoryScreen(
-        baseUrl: _baseUrl,
-        employeeName: _employeeName ?? '',
-      ),
-    ));
-  }
+  // void _openHistory() {
+  //   Navigator.push(context, MaterialPageRoute(
+  //     builder: (_) => _HistoryScreen(
+  //       baseUrl: _baseUrl,
+  //       employeeName: _employeeName ?? '',
+  //     ),
+  //   ));
+  // }
+
+Future<void> _openHistory() async {
+  final prefs = await SharedPreferences.getInstance();
+
+  await prefs.setString(
+    'employeeMenu',
+    'Video Task Planner History',
+  );
+
+  if (!mounted) return;
+
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const EmployeeLayoutPage(),
+    ),
+  );
+}
 
   void _snack(String msg, {required bool success}) {
     if (!mounted) return;
