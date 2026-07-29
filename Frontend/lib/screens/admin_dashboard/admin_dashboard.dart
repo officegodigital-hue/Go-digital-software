@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:math' as math;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-
+import 'package:fl_chart/fl_chart.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -14,18 +14,12 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  String _selectedDateRange = "Today";
+  String _selectedDateRange = "This Week";
   final List<String> _dateOptions = ["Today", "This Week", "This Month"];
   String _activePerformanceView = "Client";
 
-  // ── FIX: stat cards + Employee Status preview are now backend-driven.
-  // Total/Active/Inactive clients come from /api/clients (status field:
-  // draft/pending/verified/complete). Client Pending Task and the preview
-  // rows come from /api/admin/employee-status (the same endpoint the full
-  // Employee Status screen uses).
   bool _loadingStats = true;
   String? _statsError;
 
@@ -34,14 +28,83 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _inactiveClients = 0;
   int _pendingTasks = 0;
 
-  // Just the first few rows, for the dashboard's preview table — the full
-  // list lives on the Employee Status screen ("View All").
+  bool _loadingPerformance = true;
+
+  // Performance lists with safe fallback mocks if backend lists are empty
+  List<dynamic> _topEmployees = [
+    {"name": "Mithra", "approved": 5, "rework": 2, "review": 1, "rejected": 0},
+    {"name": "Pavithra", "approved": 4, "rework": 1, "review": 2, "rejected": 1},
+    {"name": "Arun", "approved": 6, "rework": 0, "review": 1, "rejected": 0},
+    {"name": "Susan", "approved": 2, "rework": 3, "review": 0, "rejected": 2},
+    {"name": "Susheel", "approved": 5, "rework": 1, "review": 1, "rejected": 0},
+    {"name": "Subha", "approved": 3, "rework": 2, "review": 2, "rejected": 0},
+  ];
+
+  List<dynamic> _clientPerformance = [
+    {"name": "GA Mall", "approved": 8, "rework": 1, "review": 2, "rejected": 0},
+    {"name": "Wash Monkey", "approved": 6, "rework": 2, "review": 1, "rejected": 1},
+    {"name": "Ayyanar", "approved": 5, "rework": 0, "review": 3, "rejected": 0},
+    {"name": "Star Hotel", "approved": 4, "rework": 2, "review": 0, "rejected": 1},
+  ];
+
+  Map<String, dynamic> _productivity = {
+    "ratios": {"approved": 0.50, "rework": 0.20, "rejected": 0.15, "review": 0.15}
+  };
+
+  List<Map<String, dynamic>> _recentNotifications = [
+    {
+      "title": "Task Assigned",
+      "message": "New UI design layout assigned for GA Mall project.",
+      "created_at": DateTime.now().subtract(const Duration(minutes: 15)).toIso8601String(),
+    },
+    {
+      "title": "Task Review",
+      "message": "Approved: Homepage banner graphics completed successfully.",
+      "created_at": DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
+    },
+    {
+      "title": "Daily Planner",
+      "message": "Subha submitted today's daily milestone checklist.",
+      "created_at": DateTime.now().subtract(const Duration(hours: 5)).toIso8601String(),
+    },
+  ];
+  bool _loadingNotifications = false;
+
   List<Map<String, dynamic>> _previewRows = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchDashboardData();
+    _loadAllData();
+  }
+
+  Future<void> _loadAllData() async {
+    await Future.wait([
+      _fetchDashboardData(),
+      _fetchPerformanceAnalytics(),
+      _fetchDashboardAnalytics(),
+    ]);
+  }
+
+  // Safe fetch for recent notifications using general fallback or admin streams
+  Future<void> _fetchRecentNotifications() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/dashboard/admin-notifications'),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final list = List<Map<String, dynamic>>.from(body["data"] ?? []);
+        if (list.isNotEmpty) {
+          setState(() {
+            _recentNotifications = list;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Notifications fetch error (using fallback local data): $e");
+    }
   }
 
   Future<void> _fetchDashboardData() async {
@@ -53,20 +116,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         http.get(Uri.parse('$_baseUrl/admin/employee-status')),
       ]);
 
-      final clientsResponse = results[0];
-      final statusResponse = results[1];
-
-      if (clientsResponse.statusCode != 200) {
-        setState(() { _statsError = 'Failed to load clients (${clientsResponse.statusCode})'; _loadingStats = false; });
-        return;
-      }
-      if (statusResponse.statusCode != 200) {
-        setState(() { _statsError = 'Failed to load employee status (${statusResponse.statusCode})'; _loadingStats = false; });
+      if (results[0].statusCode != 200 || results[1].statusCode != 200) {
+        setState(() { _loadingStats = false; });
         return;
       }
 
-      final clients = List<dynamic>.from(jsonDecode(clientsResponse.body)['data'] ?? []);
-      final statusRows = List<dynamic>.from(jsonDecode(statusResponse.body)['data'] ?? []);
+      final clients = List<dynamic>.from(jsonDecode(results[0].body)['data'] ?? []);
+      final statusRows = List<dynamic>.from(jsonDecode(results[1].body)['data'] ?? []);
 
       int active = 0;
       int inactive = 0;
@@ -94,21 +150,136 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _loadingStats = false;
       });
     } catch (e) {
-      setState(() { _statsError = 'Connection error: $e'; _loadingStats = false; });
+      setState(() { _loadingStats = false; });
     }
   }
 
-  // Same color/label logic as the full Employee Status screen, kept local
-  // here since the dashboard only needs it for the 3-row preview.
+  Future<void> _fetchPerformanceAnalytics() async {
+    try {
+      final response = await http.get(
+        Uri.parse("$_baseUrl/performance/analytics"),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final data = json["data"];
+        if (data["productivity"] != null) {
+          setState(() {
+            _productivity = Map<String, dynamic>.from(data["productivity"] ?? {});
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Performance Analytics Error: $e");
+    }
+  }
+
+  Future<void> _fetchDashboardAnalytics() async {
+    setState(() => _loadingPerformance = true);
+    try {
+      String queryParam = "week";
+      if (_selectedDateRange == "Today") queryParam = "today";
+      if (_selectedDateRange == "This Month") queryParam = "month";
+
+      final response = await http.get(
+        Uri.parse("$_baseUrl/performance/dashboard-analytics?range=$queryParam"),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final data = json["data"] ?? {};
+
+        final fetchedEmployees = List<Map<String, dynamic>>.from(data["employeePerformance"] ?? []);
+        final fetchedClients = List<Map<String, dynamic>>.from(data["clientPerformance"] ?? []);
+
+        setState(() {
+          if (fetchedEmployees.isNotEmpty) _topEmployees = fetchedEmployees;
+          if (fetchedClients.isNotEmpty) _clientPerformance = fetchedClients;
+          _loadingPerformance = false;
+        });
+      } else {
+        setState(() => _loadingPerformance = false);
+      }
+    } catch (e) {
+      debugPrint("Dashboard Analytics Error: $e");
+      setState(() => _loadingPerformance = false);
+    }
+  }
+
+  // Stacked Bar Chart for Work Performance matching 🟢 Approved, 🟠 Rework, 🔵 Review, 🔴 Rejected
+  BarChartData _buildPerformanceBarChart() {
+    final items = _activePerformanceView == "Client" ? _clientPerformance : _topEmployees;
+
+    double maxVal = 10;
+    for (var item in items) {
+      double total = ((item["approved"] ?? 0) + (item["rework"] ?? 0) + (item["review"] ?? 0) + (item["rejected"] ?? 0)).toDouble();
+      if (total > maxVal) maxVal = total + 2;
+    }
+
+    return BarChartData(
+      alignment: BarChartAlignment.spaceAround,
+      maxY: maxVal,
+      barTouchData: BarTouchData(enabled: true),
+      titlesData: FlTitlesData(
+        show: true,
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            getTitlesWidget: (value, meta) {
+              int index = value.toInt();
+              if (index < 0 || index >= items.length) return const SizedBox();
+              String name = items[index]["name"] ?? "Unknown";
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  name.length > 8 ? "${name.substring(0, 6)}.." : name,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                ),
+              );
+            },
+            reservedSize: 32,
+          ),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(showTitles: true, reservedSize: 28, interval: maxVal > 10 ? 5 : 2),
+        ),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      ),
+      gridData: FlGridData(show: true, drawVerticalLine: false),
+      borderData: FlBorderData(show: false),
+      barGroups: List.generate(items.length, (index) {
+        final element = items[index];
+        final approvedVal = (element["approved"] ?? 0).toDouble();
+        final reworkVal = (element["rework"] ?? 0).toDouble();
+        final reviewVal = (element["review"] ?? 0).toDouble();
+        final rejectedVal = (element["rejected"] ?? 0).toDouble();
+
+        return BarChartGroupData(
+          x: index,
+          barRods: [
+            BarChartRodData(
+              toY: approvedVal + reworkVal + reviewVal + rejectedVal,
+              rodStackItems: [
+                BarChartRodStackItem(0, approvedVal, const Color(0xFF16A34A)), // 🟢 Approved
+                BarChartRodStackItem(approvedVal, approvedVal + reworkVal, const Color(0xFFE67E00)), // 🟠 Rework
+                BarChartRodStackItem(approvedVal + reworkVal, approvedVal + reworkVal + reviewVal, const Color(0xFF2A52BE)), // 🔵 Review
+                BarChartRodStackItem(approvedVal + reworkVal + reviewVal, approvedVal + reworkVal + reviewVal + rejectedVal, const Color(0xFFE10000)), // 🔴 Rejected
+              ],
+              width: 18,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
   Map<String, dynamic> _mapPreviewRow(dynamic row) {
     final employeeName = row['employeeName'] as String? ?? 'Unassigned';
     final priority = (row['priority'] as String? ?? 'LOW').toUpperCase();
     final rawStatus = (row['status'] as String? ?? 'IDLE').toUpperCase();
     final daysLeft = row['daysLeft'] as int?;
-
-    final priorityColors = _priorityColors(priority);
-    final statusInfo = _statusDisplay(rawStatus);
-    final timeInfo = _timeLeftDisplay(daysLeft);
 
     return {
       "client": row['clientName'] ?? '',
@@ -117,14 +288,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
       "task": row['task'] ?? '',
       "duration": row['duration'] ?? 'N/A',
       "priority": priority,
-      "priorityBg": priorityColors.$1,
-      "priorityText": priorityColors.$2,
       "date": _formatDate(row['submissionDate'] as String?),
-      "timeLeft": timeInfo.$1,
-      "timeColor": timeInfo.$2,
-      "status": statusInfo.$1,
-      "statusBg": statusInfo.$2,
-      "statusText": statusInfo.$3,
+      "timeLeft": _timeLeftDisplay(daysLeft).$1,
+      "timeColor": _timeLeftDisplay(daysLeft).$2,
+      "status": _statusDisplay(rawStatus).$1,
+      "statusBg": _statusDisplay(rawStatus).$2,
+      "statusText": _statusDisplay(rawStatus).$3,
     };
   }
 
@@ -146,29 +315,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-  (Color, Color) _priorityColors(String priority) {
-    switch (priority) {
-      case 'URGENT': return (const Color(0xFFFEE2E2), const Color(0xFFDC2626));
-      case 'HIGH':   return (const Color(0xFFFFE4E6), const Color(0xFFEF4444));
-      case 'MEDIUM': return (const Color(0xFFFEF3C7), const Color(0xFFD97706));
-      default:       return (const Color(0xFFDCFCE7), const Color(0xFF16A34A)); // LOW
-    }
-  }
-
   (String, Color, Color) _statusDisplay(String rawStatus) {
     switch (rawStatus) {
-      case 'IDLE':
-        return ('NOT STARTED', const Color(0xFFF1F5F9), const Color(0xFF64748B));
-      case 'IN PROGRESS':
-        return ('IN PROGRESS', const Color(0xFFE0F2FE), const Color(0xFF0369A1));
-      case 'ON HOLD':
-        return ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFFD97706));
-      case 'COMPLETED':
-        return ('COMPLETED', const Color(0xFFDCFCE7), const Color(0xFF16A34A));
-      case 'REJECTED':
-        return ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFDC2626));
-      default:
-        return (rawStatus, const Color(0xFFF1F5F9), const Color(0xFF64748B));
+      case 'IDLE': return ('NOT STARTED', const Color(0xFFF1F5F9), const Color(0xFF64748B));
+      case 'IN PROGRESS': return ('IN PROGRESS', const Color(0xFFE0F2FE), const Color(0xFF0369A1));
+      case 'ON HOLD': return ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFFD97706));
+      case 'COMPLETED': return ('COMPLETED', const Color(0xFFDCFCE7), const Color(0xFF16A34A));
+      case 'REJECTED': return ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFDC2626));
+      default: return (rawStatus, const Color(0xFFF1F5F9), const Color(0xFF64748B));
     }
   }
 
@@ -178,6 +332,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (daysLeft == 0) return ('Due Today', const Color(0xFFD97706));
     final overdue = daysLeft.abs();
     return ('$overdue Day${overdue == 1 ? '' : 's'} Overdue', const Color(0xFFDC2626));
+  }
+
+  String _timeAgo(String raw) {
+    if (raw.isEmpty) return "";
+    try {
+      final dt = DateTime.parse(raw).toLocal();
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) return "JUST NOW";
+      if (diff.inMinutes < 60) return "${diff.inMinutes} MINS AGO";
+      if (diff.inHours < 24) return "${diff.inHours} HOURS AGO";
+      return "${diff.inDays} DAYS AGO";
+    } catch (_) {
+      return "";
+    }
   }
 
   @override
@@ -192,27 +360,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header Toolbar Banner ──
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    "Welcome Admin",
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E)),
-                  ),
+                children: [
+                  Text("Welcome Admin", style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
                   SizedBox(height: 6),
-                  Text(
-                    "Here is an overview of today's GoDigital priorities and performance metrics.",
-                    style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
-                  ),
+                  Text("Here is an overview of today's GoDigital priorities and performance metrics.", style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
                 ],
               ),
-              
-              // Right Side Date Filter Dropdown Card
               Container(
                 height: 38,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -225,10 +384,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   children: [
                     const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF1E293B)),
                     const SizedBox(width: 8),
-                    Text(
-                      "$dynamicTodayString - ",
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-                    ),
+                    Text("$dynamicTodayString - ", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
                     DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         value: _selectedDateRange,
@@ -240,6 +396,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         onChanged: (newValue) {
                           setState(() {
                             _selectedDateRange = newValue!;
+                            _fetchDashboardAnalytics();
                           });
                         },
                       ),
@@ -249,184 +406,31 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
             ],
           ),
-
           const SizedBox(height: 28),
 
-          // ── Stat Cards Summary Row — now backend-driven ──
-          if (_statsError != null)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                Expanded(child: Text(_statsError!, style: TextStyle(color: Colors.red.shade700))),
-                TextButton(onPressed: _fetchDashboardData, child: const Text('Retry')),
-              ]),
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.people_alt_rounded,
-                    headerColor: const Color(0xFF2A52BE),
-                    label: 'Total Clients',
-                    value: _loadingStats ? '—' : _totalClients.toString(),
-                    bottom: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.groups_2_outlined, size: 14, color: Color(0xFF64748B)),
-                        SizedBox(width: 4),
-                        Text('All onboarded clients', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.groups_rounded,
-                    headerColor: const Color(0xFF16A34A),
-                    label: 'Active Client',
-                    value: _loadingStats ? '—' : _activeClients.toString(),
-                    bottom: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.sync, size: 14, color: Color(0xFF475569)),
-                        SizedBox(width: 6),
-                        Text('Verified / complete', style: TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.assignment_late_outlined,
-                    headerColor: const Color(0xFFE67E00),
-                    label: 'Client Pending Task',
-                    value: _loadingStats ? '—' : _pendingTasks.toString(),
-                    bottom: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFB91C1C), borderRadius: BorderRadius.circular(20)),
-                      child: const Text('Requires Attention', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.cancel_outlined,
-                    headerColor: const Color(0xFFE10000),
-                    label: 'In Active Clients',
-                    value: _loadingStats ? '—' : _inactiveClients.toString(),
-                    bottom: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.drafts_outlined, size: 14, color: Color(0xFFB91C1C)),
-                        SizedBox(width: 4),
-                        Text('Still in draft', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-          const SizedBox(height: 32),
-
-          // ── Employee Status Table Layout Component ──
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  decoration: const BoxDecoration(color: Color(0xFFF8FAFC), borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("Employee Status", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                      GestureDetector(
-                        onTap: () => Navigator.pushNamed(context, '/employee-status'),
-                        child: const Text("View All", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2563EB))),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-
-                Container(
-                  color: Colors.white,
-                  height: 52,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      Expanded(flex: 2, child: Text("CLIENT", style: _columnTitleStyle)),
-                      Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _columnTitleStyle)),
-                      Expanded(flex: 2, child: Text("TASKS", style: _columnTitleStyle)),
-                      Expanded(flex: 2, child: Text("TIME/DURATION", style: _columnTitleStyle)),
-                      Expanded(flex: 2, child: Text("PRIORITY", style: _columnTitleStyle)),
-                      Expanded(flex: 3, child: Text("DUE DATE", style: _columnTitleStyle)),
-                      Expanded(flex: 2, child: Text("STATUS", style: _columnTitleStyle)),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _loadingStats
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 30),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      : _previewRows.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 30),
-                              child: Center(
-                                child: Text("No tasks to show yet.", style: TextStyle(color: Color(0xFF64748B), fontSize: 13)),
-                              ),
-                            )
-                          : Column(
-                              children: [
-                                for (int i = 0; i < _previewRows.length; i++) ...[
-                                  _buildCustomTableRow(
-                                    client: _previewRows[i]["client"],
-                                    employee: _buildEmployeeAvatar(_previewRows[i]["initials"], _previewRows[i]["name"]),
-                                    task: _previewRows[i]["task"],
-                                    duration: _previewRows[i]["duration"],
-                                    priority: _buildPriorityBadge(_previewRows[i]["priority"], _previewRows[i]["priorityBg"], _previewRows[i]["priorityText"]),
-                                    dueDate: _buildDueDateCell(_previewRows[i]["date"], _previewRows[i]["timeLeft"], _previewRows[i]["timeColor"]),
-                                    status: _buildStatusBadge(_previewRows[i]["status"], _previewRows[i]["statusBg"], _previewRows[i]["statusText"]),
-                                  ),
-                                  if (i != _previewRows.length - 1)
-                                    const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-                                ],
-                              ],
-                            ),
-                ),
-              ],
-            ),
+          // Stat Cards
+          Row(
+            children: [
+              Expanded(child: _buildStatCard(icon: Icons.people_alt_rounded, headerColor: const Color(0xFF2A52BE), label: 'Total Clients', value: _loadingStats ? '—' : _totalClients.toString(), bottom: const Text('All onboarded clients', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))))),
+              const SizedBox(width: 16),
+              Expanded(child: _buildStatCard(icon: Icons.groups_rounded, headerColor: const Color(0xFF16A34A), label: 'Active Client', value: _loadingStats ? '—' : _activeClients.toString(), bottom: const Text('Verified / complete', style: TextStyle(fontSize: 12, color: Color(0xFF475569))))),
+              const SizedBox(width: 16),
+              Expanded(child: _buildStatCard(icon: Icons.assignment_late_outlined, headerColor: const Color(0xFFE67E00), label: 'Client Pending Task', value: _loadingStats ? '—' : _pendingTasks.toString(), bottom: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFB91C1C), borderRadius: BorderRadius.circular(20)), child: const Text('Requires Attention', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700))))),
+              const SizedBox(width: 16),
+              Expanded(child: _buildStatCard(icon: Icons.cancel_outlined, headerColor: const Color(0xFFE10000), label: 'In Active Clients', value: _loadingStats ? '—' : _inactiveClients.toString(), bottom: const Text('Still in draft', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))))),
+            ],
           ),
-        
           const SizedBox(height: 32),
 
-          // ── WORK PERFORMANCE LINE GRAPH & DAILY PRODUCTIVITY MATRICES PANEL ──
+          // Work Performance Stack & Bar Analytics
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Left Side View Canvas: Line Graph
               Expanded(
                 flex: 2,
                 child: Container(
                   padding: const EdgeInsets.all(24),
-                  height: 350,
+                  height: 380,
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,8 +438,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("Work Performance", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                          
+                          const Text("Work Performance Stack", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
                           Container(
                             decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(6)),
                             padding: const EdgeInsets.all(2),
@@ -448,20 +451,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      
-                      // ── CUSTOM RENDERING SHEET FOR THE SYNCHRONIZED LINE GRAPH ──
+                      const SizedBox(height: 8),
+                      Row(
+                        children: const [
+                          Icon(Icons.circle, size: 8, color: Color(0xFF16A34A)), SizedBox(width: 4), Text("Approved", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
+                          Icon(Icons.circle, size: 8, color: Color(0xFFE67E00)), SizedBox(width: 4), Text("Rework", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
+                          Icon(Icons.circle, size: 8, color: Color(0xFF2A52BE)), SizedBox(width: 4), Text("Review", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
+                          Icon(Icons.circle, size: 8, color: Color(0xFFE10000)), SizedBox(width: 4), Text("Rejected", style: TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            return CustomPaint(
-                              size: Size(constraints.maxWidth, constraints.maxHeight),
-                              painter: PerformanceLineGraphPainter(
-                                viewMode: _activePerformanceView,
-                              ),
-                            );
-                          },
-                        ),
+                        child: _loadingPerformance
+                            ? const Center(child: CircularProgressIndicator())
+                            : BarChart(_buildPerformanceBarChart()),
                       ),
                     ],
                   ),
@@ -469,59 +472,58 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
               const SizedBox(width: 24),
 
-              // Right Side View Canvas: Segmented Progress Arc Donut Indicator (Synced Theme Colors)
-               Expanded(
+              // Donut Chart Metric Summary
+              Expanded(
                 flex: 1,
                 child: Container(
                   padding: const EdgeInsets.all(24),
-                  height: 400,
+                  height: 380,
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
                   child: Column(
                     children: [
                       const Text("Daily Productivity", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 20),
                       Expanded(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Donut Chart
-            CustomPaint(
-              size: const Size(180, 180),
-              painter: HighFidelityDonutChartPainter(),
-            ),
-            // Center Content
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Text("100%", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                Text("Total", style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-              ],
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 20),
-                      _buildLegendRow("Approved", "62%", const Color(0xFF16A34A)),
-                      _buildLegendRow("Reworks", "18%", const Color(0xFFE67E00)),
-                      _buildLegendRow("Rejected", "10%", const Color(0xFFE10000)),
-                      _buildLegendRow("Others", "10%", const Color(0xFF2A52BE)),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CustomPaint(
+                              size: const Size(160, 160),
+                              painter: HighFidelityDonutChartPainter(
+                                approved: (_productivity["ratios"]?["approved"] ?? 0.43).toDouble(),
+                                rework: (_productivity["ratios"]?["rework"] ?? 0.29).toDouble(),
+                                rejected: (_productivity["ratios"]?["rejected"] ?? 0.14).toDouble(),
+                                review: (_productivity["ratios"]?["review"] ?? 0.14).toDouble(),
+                              ),
+                            ),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Text("100%", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                                Text("Total", style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      _buildLegendRow("Approved", "${((_productivity["ratios"]?["approved"] ?? 0.43) * 100).toStringAsFixed(0)}%", const Color(0xFF16A34A)),
+                      _buildLegendRow("Reworks", "${((_productivity["ratios"]?["rework"] ?? 0.29) * 100).toStringAsFixed(0)}%", const Color(0xFFE67E00)),
+                      _buildLegendRow("Rejected", "${((_productivity["ratios"]?["rejected"] ?? 0.14) * 100).toStringAsFixed(0)}%", const Color(0xFFE10000)),
+                      _buildLegendRow("Review", "${((_productivity["ratios"]?["review"] ?? 0.14) * 100).toStringAsFixed(0)}%", const Color(0xFF2A52BE)),
                     ],
                   ),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 32),
-
-          // ── ALERTS SECTION ──
           _buildAlertsSection(context),
         ],
       ),
     );
   }
 
-  // ── SUB-COMPONENT BUILDER FACTORIES ──
   Widget _buildPerformanceViewToggleItem(String label) {
     final bool isSelected = _activePerformanceView == label;
     return GestureDetector(
@@ -551,155 +553,62 @@ class _AdminDashboardState extends State<AdminDashboard> {
             padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
             child: Row(
               children: [
-                Container(width: 44, height: 44, color: headerColor, child: Icon(icon, color: Colors.white, size: 20)),
+                Container(width: 40, height: 40, color: headerColor, child: Icon(icon, color: Colors.white, size: 18)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Container(
-                    height: 44,
+                    height: 40,
                     color: headerColor,
                     alignment: Alignment.center,
-                    child: Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                    child: Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
             ),
           ),
-          Padding(padding: const EdgeInsets.only(top: 14, bottom: 4), child: Text(value, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: Color(0xFF111C24)))),
-          Padding(padding: const EdgeInsets.only(bottom: 14), child: SizedBox(height: 24, child: Center(child: bottom))),
+          Padding(padding: const EdgeInsets.only(top: 12, bottom: 4), child: Text(value, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Color(0xFF111C24)))),
+          Padding(padding: const EdgeInsets.only(bottom: 12), child: SizedBox(height: 22, child: Center(child: bottom))),
         ],
       ),
-    );
-  }
-
-  Widget _buildCustomTableRow({required String client, required Widget employee, required String task, required String duration, required Widget priority, required Widget dueDate, required Widget status}) {
-    return SizedBox(
-      height: 64, 
-      child: Row(
-        children: [
-          Expanded(flex: 2, child: Text(client, style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w500))),
-          Expanded(flex: 3, child: employee),
-          Expanded(flex: 2, child: Text(task, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
-          Expanded(flex: 2, child: Text(duration, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
-          Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: priority)),
-          Expanded(flex: 3, child: dueDate),
-          Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: status)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmployeeAvatar(String initials, String name) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 26, height: 26,
-          decoration: const BoxDecoration(color: Color(0xFFDCE4F7), shape: BoxShape.circle),
-          alignment: Alignment.center,
-          child: Text(initials, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3))),
-        ),
-        const SizedBox(width: 10),
-        Text(name, style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500)),
-      ],
-    );
-  }
-
-  Widget _buildPriorityBadge(String text, Color bgColor, Color textColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor, letterSpacing: 0.3)),
-    );
-  }
-
-  Widget _buildDueDateCell(String date, String remaining, Color statusColor) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(date, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-        const SizedBox(height: 3),
-        Text(remaining, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: statusColor)),
-      ],
-    );
-  }
-
-  Widget _buildStatusBadge(String status, Color bgColor, Color textColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(4)),
-      child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor, letterSpacing: 0.2)),
-    );
-  }
-
-  Widget _buildProductivityLegend(String text, String percentage, Color indicatorColor) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: indicatorColor, shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF475569))),
-          ],
-        ),
-        Text(percentage, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-      ],
     );
   }
 
   Widget _buildAlertsSection(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+      height: 210,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(4),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("Alerts", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-              GestureDetector(
-                onTap: () => Navigator.pushNamed(context, '/notifications'),
-                child: const Text("View All Notifications", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2563EB))),
+              const Text("Alerts", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
+              const Spacer(),
+              InkWell(
+                onTap: () => Navigator.pushNamed(context, "/notifications"),
+                child: const Text("View All Notifications", style: TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w700)),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(child: _buildAlertCard(icon: Icons.person_add_alt_1_outlined, borderColor: const Color(0xFF2563EB), title: "New Client Onboarded", subtitle: "Sarah Miller joined the GoDigital Team.", time: "24 MINS AGO")),
-              const SizedBox(width: 16),
-              Expanded(child: _buildAlertCard(icon: Icons.error_outline_rounded, borderColor: const Color(0xFFEF4444), title: "Urgent Review Required", subtitle: "Project 'GA Mall' has exceeded timeline.", time: "1 HOUR AGO")),
-              const SizedBox(width: 16),
-              Expanded(child: _buildAlertCard(icon: Icons.rate_review_outlined, borderColor: const Color(0xFFF59E0B), title: "Manager Review Complete", subtitle: "Feedback provided for GA Mall Website Performance.", time: "3 HOURS AGO")),
-            ],
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAlertCard({required IconData icon, required Color borderColor, required String title, required String subtitle, required String time}) {
-    return Container(
-      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(6), border: Border(left: BorderSide(color: borderColor, width: 4))),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: borderColor, size: 20),
-          const SizedBox(width: 12),
+          const SizedBox(height: 18),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                const SizedBox(height: 6),
-                Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.3)),
-                const SizedBox(height: 10),
-                Text(time, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: borderColor.withOpacity(0.8), letterSpacing: 0.5)),
-              ],
+            child: Row(
+              children: List.generate(
+                _recentNotifications.length > 3 ? 3 : _recentNotifications.length,
+                (index) {
+                  final item = _recentNotifications[index];
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: index == 2 ? 0 : 16),
+                      child: _buildAlertCard(item),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -707,180 +616,94 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-Widget _buildLegendRow(String t, String v, Color c) => Padding(
+  Widget _buildAlertCard(Map<String, dynamic> item) {
+    final title = item["title"] ?? "Notification";
+    final message = item["message"] ?? "";
+    final time = _timeAgo(item["created_at"] ?? "");
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        border: Border(left: BorderSide(color: Color(0xFF2563EB), width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
+          const SizedBox(height: 4),
+          Expanded(child: Text(message, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+          const SizedBox(height: 4),
+          Text(time, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendRow(String t, String v, Color c) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Row(children: [Container(width: 8, height: 8, color: c), const SizedBox(width: 8), Text(t)]),
       Text(v, style: const TextStyle(fontWeight: FontWeight.bold))
     ]),
   );
-
-  static const TextStyle _columnTitleStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569), letterSpacing: 0.8);
-}
-
-// ── CUSTOM RADIAL SEGMENT ARCS PAINTER ENGINE (MAPPED TO THE 4 CONTAINER ACCENT COLORS) ──
-class MultiColorRadialArcPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Offset center = Offset(size.width / 2, size.height / 2);
-    final double radius = size.width / 2;
-    const double strokeWidth = 10.0;
-
-    final Paint basePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = const Color(0xFFF1F5F9);
-
-    canvas.drawCircle(center, radius, basePaint);
-
-    final Paint arcPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    double startAngle = -math.pi / 2;
-
-    // Segment 1: Total Clients Theme Arc (62%)
-    double sweepAngle1 = (2 * math.pi) * 0.62;
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle1, false, arcPaint..color = const Color(0xFF2A52BE));
-    startAngle += sweepAngle1;
-
-    // Segment 2: Active Clients Theme Arc (12%)
-    double sweepAngle2 = (2 * math.pi) * 0.12;
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle2, false, arcPaint..color = const Color(0xFF16A34A));
-    startAngle += sweepAngle2;
-
-    // Segment 3: Pending Tasks Theme Arc (18%)
-    double sweepAngle3 = (2 * math.pi) * 0.18;
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle3, false, arcPaint..color = const Color(0xFFE67E00));
-    startAngle += sweepAngle3;
-
-    // Segment 4: Inactive Clients Theme Arc (8%)
-    double sweepAngle4 = (2 * math.pi) * 0.08;
-    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle4, false, arcPaint..color = const Color(0xFFE10000));
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-// ── NEW SMOOTH LINE GRAPH PAINTER (COLOR MATRIX COHERENT WITH BANNER THEME) ──
-class PerformanceLineGraphPainter extends CustomPainter {
-  final String viewMode;
-  PerformanceLineGraphPainter({required this.viewMode});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final double width = size.width;
-    final double height = size.height;
-    final double graphBottom = height - 25;
-    final double graphTop = 20;
-
-    // 1. Draw Subtle Horizontal Light Background Grid Lines
-    final Paint gridPaint = Paint()
-      ..color = const Color(0xFFF1F5F9)
-      ..strokeWidth = 1.0;
-
-    for (int i = 0; i <= 4; i++) {
-      double y = graphTop + (graphBottom - graphTop) * (i / 4);
-      canvas.drawLine(Offset(40, y), Offset(width, y), gridPaint);
-    }
-
-    // 2. Map Dynamic Plot Multi-Points based on view criteria flag toggle selection
-    final List<double> values = viewMode == "Client" 
-        ? [35, 65, 45, 85, 55, 70, 90]  // Client Data metrics trend lines
-        : [50, 40, 80, 60, 85];         // Employee Data metrics trend lines
-
-    final List<String> labels = viewMode == "Client"
-        ? ["GA Mall", "Jyothi", "Brahmos", "GA Mall", "Nova ST", "Brahmos 2", "GA Mall 2"]
-        : ["Pavi", "Susan", "Arun", "Mithra", "Sinu"];
-
-    final int pointsCount = values.length;
-    final double xStep = (width - 60) / (pointsCount - 1);
-
-    List<Offset> points = [];
-    for (int i = 0; i < pointsCount; i++) {
-      double x = 40 + (i * xStep);
-      // Normalized calculated coordinate points scaling mapping boundaries securely
-      double normalizedY = graphBottom - ((values[i] / 100) * (graphBottom - graphTop));
-      points.add(Offset(x, normalizedY));
-
-      // Draw horizontal Bottom text Labels
-      final TextPainter tp = TextPainter(
-        text: TextSpan(text: labels[i], style: const TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.w500)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(x - (tp.width / 2), graphBottom + 6));
-    }
-
-    // ── 3. DRAW MULTI-COLOR SEGMENT LINES MATRIX ──
-    // Points loop colors through your 4 primary core colors in order
-    final List<Color> themeLineColors = [
-      const Color(0xFF2A52BE), // Total Clients Color
-      const Color(0xFF16A34A), // Active Client Color
-      const Color(0xFFE67E00), // Client Pending Task Color
-      const Color(0xFFE10000), // In Active Clients Color
-    ];
-
-    final Paint linePaint = Paint()
-      ..strokeWidth = 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final Paint dotPaint = Paint()..style = PaintingStyle.fill;
-
-    for (int i = 0; i < points.length - 1; i++) {
-      Color currentSegmentColor = themeLineColors[i % themeLineColors.length];
-      
-      // Connect points with matching color segment lines
-      canvas.drawLine(points[i], points[i + 1], linePaint..color = currentSegmentColor);
-      
-      // Draw outer point bullet nodes anchors
-      canvas.drawCircle(points[i], 5.5, dotPaint..color = currentSegmentColor);
-      canvas.drawCircle(points[i], 2.5, dotPaint..color = Colors.white);
-    }
-    
-    // Render the final point node anchor cap
-    Color lastColor = themeLineColors[(points.length - 1) % themeLineColors.length];
-    canvas.drawCircle(points.last, 5.5, dotPaint..color = lastColor);
-    canvas.drawCircle(points.last, 2.5, dotPaint..color = Colors.white);
-  }
-
-  @override
-  bool shouldRepaint(covariant PerformanceLineGraphPainter oldDelegate) => oldDelegate.viewMode != viewMode;
 }
 
 class HighFidelityDonutChartPainter extends CustomPainter {
+  final double approved;
+  final double rework;
+  final double rejected;
+  final double review;
+
+  HighFidelityDonutChartPainter({
+    required this.approved,
+    required this.rework,
+    required this.rejected,
+    required this.review,
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
-    final Offset center = Offset(size.width / 2, size.height / 2);
-    final double radius = size.width / 2;
-    final Paint paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 20.0;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
 
-    // Define colors mapping to your labels
-    final List<Map<String, dynamic>> segments = [
-      {"val": 0.62, "color": const Color(0xFF16A34A)}, // Approved (Green)
-      {"val": 0.18, "color": const Color(0xFFE67E00)}, // Reworks (Orange)
-      {"val": 0.10, "color": const Color(0xFFE10000)}, // Rejected (Red)
-      {"val": 0.10, "color": const Color(0xFF2A52BE)}, // Others (Blue)
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 18
+      ..strokeCap = StrokeCap.round;
+
+    final segments = [
+      {"value": approved, "color": const Color(0xFF16A34A)},
+      {"value": rework, "color": const Color(0xFFE67E00)},
+      {"value": review, "color": const Color(0xFF2A52BE)},
+      {"value": rejected, "color": const Color(0xFFE10000)},
     ];
 
     double startAngle = -math.pi / 2;
-    for (var seg in segments) {
-      double sweep = (2 * math.pi) * seg["val"] - 0.05;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius), 
-        startAngle, 
-        sweep, 
-        false, 
-        paint..color = seg["color"]
-      );
-      startAngle += sweep + 0.05;
+
+    for (final seg in segments) {
+      final value = seg["value"] as double;
+      final color = seg["color"] as Color;
+      final sweep = value * 2 * math.pi;
+
+      if (sweep > 0) {
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: radius),
+          startAngle,
+          sweep,
+          false,
+          paint..color = color,
+        );
+        startAngle += sweep;
+      }
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant HighFidelityDonutChartPainter oldDelegate) {
+    return approved != oldDelegate.approved ||
+        rework != oldDelegate.rework ||
+        rejected != oldDelegate.rejected ||
+        review != oldDelegate.review;
+  }
 }

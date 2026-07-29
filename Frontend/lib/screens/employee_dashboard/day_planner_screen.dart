@@ -56,6 +56,8 @@ bool _hasDeliverable(int no) {
 
   List<Map<String, dynamic>> assignedTasks = [];
   List<String> assignedClients = [];
+  Map<String, String> clientMaintenanceDates = {};
+List<Map<String, dynamic>> additionalTasks = [];
 
   static const List<String> statusOptions = ['NOT START', 'PENDING', 'COMPLETE', 'HOLD', 'PROCESSING'];
   static const List<String> yesNoOptions = ['YES', 'NO'];
@@ -226,10 +228,22 @@ void _prefillRoleFieldsForClient(
   if (myName.isEmpty) return;
 
   // Clear previous values
+  // row['ads'] = '';
+  // row['deliverables_1'] = '';
+  // row['deliverables_2'] = '';
+  // row['deliverables_3'] = '';
+
   row['ads'] = '';
-  row['deliverables_1'] = '';
-  row['deliverables_2'] = '';
-  row['deliverables_3'] = '';
+
+for(int i=1;i<=3;i++){
+
+ row['deliverables_$i'] = '';
+
+ row['complete_deliverables_$i'] = '';
+
+ row['balanced_deliverables_$i'] = '';
+
+}
 
   final clientTasks = assignedTasks.where(
     (task) =>
@@ -339,7 +353,72 @@ void _prefillRoleFieldsForClient(
           task['ui_ux_tasks'] ?? '';
 
     }
+
+  
   }
+
+    final addTasks = additionalTasks.where(
+  (e) => (e['client_name'] ?? '') == clientName,
+).toList();
+
+int nextIndex = 1;
+
+while (nextIndex <= 3 &&
+    (row['deliverables_$nextIndex'] ?? '').toString().isNotEmpty) {
+  nextIndex++;
+}
+
+for (final task in addTasks) {
+  if (nextIndex > 3) break;
+
+  row['deliverables_$nextIndex'] =
+      "${task['deliverables']} (${task['no_of_rows']})";
+
+  row['complete_deliverables_$nextIndex'] =
+      "${task['completed_count']}/${task['no_of_rows']}";
+
+  row['balanced_deliverables_$nextIndex'] =
+      "${task['balance_count']}/${task['no_of_rows']}";
+
+  nextIndex++;
+}
+
+// AUTO SET COMPLETE & BALANCE COUNT
+
+for (int i = 1; i <= 3; i++) {
+
+  final deliverable =
+      (row['deliverables_$i'] ?? '').toString().trim();
+
+  if (deliverable.isNotEmpty) {
+
+    final match = RegExp(r'\((\d+)\)').firstMatch(deliverable);
+
+    int total = 1;
+
+    if (match != null) {
+      total = int.tryParse(match.group(1)!) ?? 1;
+    }
+
+final taskName = deliverable.split('(').first.trim();
+
+row['complete_deliverables_$i'] =
+    "$taskName (0/$total)";
+
+row['balanced_deliverables_$i'] =
+    "$taskName ($total/$total)";
+    // row['complete_deliverables_$i'] = "0/$total";
+
+    // row['balanced_deliverables_$i'] = "$total/$total";
+
+  } else {
+
+    row['complete_deliverables_$i'] = '';
+    row['balanced_deliverables_$i'] = '';
+
+  }
+}
+
 }
 
 Future<void> loadTodayDayPlan() async {
@@ -363,6 +442,7 @@ Future<void> loadTodayDayPlan() async {
             // Use the string date provided by the backend, which is in YYYY-MM-DD format
             'date': DateTime.parse(item['date']), 
             'client': item['client'] ?? '',
+            'maintenance_date': item['maintenance_date'] ?? '',
             'ads': item['ads'] ?? '',
             'today_leads': item['today_leads'] ?? '',
             'today_report': item['today_report'] ?? '',
@@ -416,6 +496,18 @@ Future<void> loadTodayDayPlan() async {
   }
 }
 
+String _formatMaintenanceDate(String value) {
+  if (value.trim().isEmpty) return '';
+
+  try {
+    final date = DateTime.parse(value).toLocal();
+
+    return "${date.day}/${date.month}/${date.year}";
+  } catch (_) {
+    return value;
+  }
+}
+
   Future<void> loadAssignedClients() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final name = auth.user?['fullName'] as String?;
@@ -425,11 +517,15 @@ Future<void> loadTodayDayPlan() async {
       final response = await http.get(
         Uri.parse('$_baseUrl/employee-tasks/by-employee/${Uri.encodeComponent(name)}'),
       );
-
+      final additionalRes = await http.get(
+        Uri.parse('$_baseUrl/task-list/additional/${Uri.encodeComponent(name)}'),
+      );
+     
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final rows = List<Map<String, dynamic>>.from(json['data'] ?? []);
         final nameUpper = name.toUpperCase();
+
 
         // Check the employee's name against every possible role column on
         // each row — same matching logic AssignedTasksContent already uses.
@@ -439,20 +535,63 @@ Future<void> loadTodayDayPlan() async {
         ];
 
         final uniqueClients = <String>{};
+        final maintMap = <String, String>{};
+        List<Map<String, dynamic>> allTasksList = [];
+
         for (final row in rows) {
-          final matchesEmployee = roleColumns.any((col) {
-            final val = row[col];
-            return val != null && val.toString().toUpperCase() == nameUpper;
-          });
-          if (matchesEmployee) {
-            final clientName = row['client_name']?.toString() ?? '';
-            if (clientName.isNotEmpty) uniqueClients.add(clientName);
-          }
-        }
+  final matchesEmployee = roleColumns.any((col) {
+    final val = row[col];
+    return val != null &&
+        val.toString().toUpperCase() == nameUpper;
+  });
+
+  if (matchesEmployee) {
+    final clientName = row['client_name']?.toString() ?? '';
+
+    final maintDate =
+        row['maintenance_date']?.toString() ??
+        row['submission_date']?.toString() ??
+        '';
+
+    if (clientName.isNotEmpty) {
+      uniqueClients.add(clientName);
+
+      if (maintDate.isNotEmpty) {
+        maintMap[clientName] = _formatMaintenanceDate(maintDate);
+      }
+    }
+  }
+}
+
+        if (additionalRes.statusCode == 200) {
+        final addJson = jsonDecode(additionalRes.body);
+        final addRows = List<Map<String, dynamic>>.from(addJson['data'] ?? []);
+        allTasksList.addAll(addRows);
+        
+
+       for (final row in addRows) {
+  final clientName = row['client_name']?.toString() ?? '';
+
+  final maintDate =
+      row['maintenance_date']?.toString() ??
+      row['submission_date']?.toString() ??
+      '';
+
+  if (clientName.isNotEmpty) {
+    uniqueClients.add(clientName);
+
+    if (maintDate.isNotEmpty) {
+      maintMap[clientName] = _formatMaintenanceDate(maintDate);
+    }
+  }
+}
+      }
 
         setState(() {
           assignedTasks = rows;
+          additionalTasks = allTasksList; 
           assignedClients = uniqueClients.toList();
+          clientMaintenanceDates = maintMap;
         });
       } else {
         debugPrint('❌ loadAssignedClients failed (${response.statusCode}): ${response.body}');
@@ -635,6 +774,7 @@ Future<void> _saveRow(Map<String, dynamic> row) async {
   try {
     final body = {
       'client': row['client'] ?? '',
+      'maintenanceDate': row['maintenance_date'] ?? '',
       'ads': row['ads'] ?? '',
       'todayLeads': row['today_leads'] ?? '',
       'todayReport': row['today_report'] ?? '',
@@ -727,43 +867,131 @@ void _setDeliverableProgress(
   //   );
   // }
 
-  Future<void> _submitDay() async {
-  // 1. First, lock the rows locally
+//   Future<void> _submitDay() async {
+//   // 1. First, lock the rows locally
+//   setState(() {
+//     for (final row in filteredRows) {
+//       row['_editing'] = false;
+//     }
+//   });
+
+//   // 2. Call backend to lock in DB and send notification to Admin
+//   try {
+//     final response = await http.post(
+//       Uri.parse('$_baseUrl/day-planner/submit'),
+//       headers: {'Content-Type': 'application/json'},
+//       body: jsonEncode({
+//         'employeeName': employeeName,
+//         'date': '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+//       }),
+//     );
+
+//     if (response.statusCode == 200) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         const SnackBar(
+//           content: Text('✅ Day plan submitted & Admin notified!'),
+//           backgroundColor: Color(0xFF16A34A),
+//           duration: Duration(seconds: 2),
+//         ),
+//       );
+//     } else {
+//       throw Exception('Failed to submit');
+//     }
+//   } catch (e) {
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+//     );
+//   }
+// }
+
+Future<void> _submitDay() async {
+
+  // 1. Check any unsaved row
+  final unsavedRows = filteredRows.where(
+    (row) => row['_editing'] == true,
+  ).toList();
+
+
+  if (unsavedRows.isNotEmpty) {
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Please save all rows before submitting.',
+        ),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    return; // Stop submit
+  }
+
+
+  // 2. Set default status if empty
+  for (final row in filteredRows) {
+
+    if ((row['status'] ?? '').toString().trim().isEmpty) {
+      row['status'] = 'NOT START';
+    }
+
+  }
+
+
+  // 3. Lock rows after validation
   setState(() {
     for (final row in filteredRows) {
       row['_editing'] = false;
     }
   });
 
-  // 2. Call backend to lock in DB and send notification to Admin
+
+  // 4. Submit to backend
   try {
+
     final response = await http.post(
       Uri.parse('$_baseUrl/day-planner/submit'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: jsonEncode({
         'employeeName': employeeName,
-        'date': '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+        'date':
+        '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
       }),
     );
 
+
     if (response.statusCode == 200) {
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ Day plan submitted & Admin notified!'),
+          content: Text(
+            '✅ Day plan submitted & Admin notified!',
+          ),
           backgroundColor: Color(0xFF16A34A),
           duration: Duration(seconds: 2),
         ),
       );
+
     } else {
+
       throw Exception('Failed to submit');
+
     }
+
+
   } catch (e) {
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      SnackBar(
+        content: Text('Error: $e'),
+        backgroundColor: Colors.red,
+      ),
     );
+
   }
 }
-
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 
   @override
@@ -951,7 +1179,7 @@ final displayRows = rows;
                         child: 
                        Row(
 children:[
-
+const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
 if(showAds)...[
   const _HeaderCell(width:140,label:'ADS'),
   const _HeaderCell(width:110,label:'TODAY LEADS'),
@@ -1010,7 +1238,7 @@ double get _totalGridWidth {
   final showD2 = _hasDeliverable(2);
   final showD3 = _hasDeliverable(3);
 
-  double width = 0;
+  double width = 140;
 
   if(showAds){
     width += 140 + 110 + 110;
@@ -1065,19 +1293,19 @@ double get _totalGridWidth {
   if (v != null) {
     setState(() {
       row['client'] = v;
-
+row['maintenance_date'] = clientMaintenanceDates[v] ?? '';
       // Prefill only Ads and Deliverables
       _prefillRoleFieldsForClient(row, v);
 
       // Keep Complete & Balanced empty
-      row['complete_deliverables_1'] = '';
-      row['balanced_deliverables_1'] = '';
+      // row['complete_deliverables_1'] = '';
+      // row['balanced_deliverables_1'] = '';
 
-      row['complete_deliverables_2'] = '';
-      row['balanced_deliverables_2'] = '';
+      // row['complete_deliverables_2'] = '';
+      // row['balanced_deliverables_2'] = '';
 
-      row['complete_deliverables_3'] = '';
-      row['balanced_deliverables_3'] = '';
+      // row['complete_deliverables_3'] = '';
+      // row['balanced_deliverables_3'] = '';
     });
 
     // Remove this if you don't want auto progress
@@ -1099,7 +1327,7 @@ double get _totalGridWidth {
     return 
   Row(
 children:[
-
+_textCell(row, 'maintenance_date', 140, false),
 if(showAds)...[
   _textCell(row,'ads',140,rowEditable),
   _dropdownCell(row,'today_leads',110,yesNoOptions,rowEditable),

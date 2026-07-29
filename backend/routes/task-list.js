@@ -214,15 +214,64 @@ router.get('/by-additional/:additionalTaskId/:deliverables', async (req, res) =>
   }
 });
 // GET /api/task-list/additional/:employeeName
+// router.get('/additional/:employeeName', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(
+//       `
+//       SELECT *
+//       FROM task_list
+//       WHERE employee_name = ?
+//         AND additional_task_id IS NOT NULL
+//       ORDER BY id DESC
+//       `,
+//       [req.params.employeeName]
+//     );
+
+//     return res.json({
+//       success: true,
+//       data: rows,
+//     });
+
+//   } catch (err) {
+//     console.error('GET /task-list/additional ERROR:', err);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message,
+//     });
+//   }
+// });
 router.get('/additional/:employeeName', async (req, res) => {
   try {
     const [rows] = await db.query(
       `
-      SELECT *
-      FROM task_list
-      WHERE employee_name = ?
-        AND additional_task_id IS NOT NULL
-      ORDER BY id DESC
+      SELECT
+          tl.*,
+
+          (
+              SELECT COUNT(*)
+              FROM time_tracking_task_items tti
+              WHERE tti.task_list_id = tl.id
+                AND tti.status = 'COMPLETED'
+          ) AS completed_count,
+
+          GREATEST(
+              tl.no_of_rows -
+              (
+                  SELECT COUNT(*)
+                  FROM time_tracking_task_items tti
+                  WHERE tti.task_list_id = tl.id
+                    AND tti.status = 'COMPLETED'
+              ),
+              0
+          ) AS balance_count
+
+      FROM task_list tl
+
+      WHERE tl.employee_name = ?
+        AND tl.additional_task_id IS NOT NULL
+
+      ORDER BY tl.id DESC
       `,
       [req.params.employeeName]
     );

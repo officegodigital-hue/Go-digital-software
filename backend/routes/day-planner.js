@@ -339,6 +339,7 @@ router.get("/today/:employee", async (req, res) => {
       id: r.id,
       date: r.plan_date_str,
       client: r.client_name || '',
+      maintenance_date: r.maintenance_date || '',
       ads: r.ads || '',
       today_leads: r.today_leads || '',
       today_report: r.today_report || '',

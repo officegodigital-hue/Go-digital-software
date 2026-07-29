@@ -410,4 +410,34 @@ router.get('/recent-notifications/:employeeName', async (req, res) => {
   }
 });
 
+// GET /api/dashboard/admin-notifications
+router.get("/admin-notifications", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        id,
+        type,
+        title,
+        message,
+        sender_name,
+        created_at
+      FROM notifications
+      ORDER BY created_at DESC
+      LIMIT 4
+    `);
+
+    res.json({
+      success: true,
+      data: rows,
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
 module.exports = router;
