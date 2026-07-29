@@ -205,7 +205,15 @@ void initState() {
               onMenuTap: saveMenu,
             ),
             Expanded(child: Column(children: [
-              EmployeeTopbar(role: loggedInRole),
+              // EmployeeTopbar(role: loggedInRole),
+              EmployeeTopbar(
+  role: loggedInRole,
+  onOpenNotifications: () {
+    setState(() {
+      selectedMenu = 'Notifications';
+    });
+  },
+),
               Expanded(child: getSelectedPage(loggedInRole)),
             ])),
           ]),

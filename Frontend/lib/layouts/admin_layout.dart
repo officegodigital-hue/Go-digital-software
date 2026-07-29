@@ -1,25 +1,162 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:audioplayers/audioplayers.dart';
+import 'package:godigital_portal/services/api_config.dart';
 
-class AdminLayout extends StatelessWidget {
+class AdminLayout extends StatefulWidget {
   final String pageTitle;
   final String currentRoute;
   final Widget child;
   final Function(String)? onSearch;
-  
-
-  
 
   const AdminLayout({
     super.key,
     required this.pageTitle,
     required this.currentRoute,
     required this.child,
-
-  this.onSearch,
+    this.onSearch,
   });
 
+  @override
+  State<AdminLayout> createState() => _AdminLayoutState();
+}
+
+class _AdminLayoutState extends State<AdminLayout> {
+Timer? _pollingTimer;
+Timer? _popupTimer;
+
+int _unreadCount = 0;
+
+bool _showPopup = false;
+String? _latestMessage;
+
+final AudioPlayer _audioPlayer = AudioPlayer();
+
+Set<int> _knownNotificationIds = {};
+  
+
+  @override
+void initState() {
+  super.initState();
+  _startPolling();
+}
+
+@override
+void dispose() {
+  _pollingTimer?.cancel();
+  _popupTimer?.cancel();
+  _audioPlayer.dispose();
+  super.dispose();
+}
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      await _checkNewNotifications();
+    });
+  }
+
+  Future<void> _checkNewNotifications() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final employeeName = authService.user?['fullName'];
+    
+    if (employeeName == null || employeeName.isEmpty) return;
+
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/notifications/${Uri.encodeComponent(employeeName)}');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final List rows = body["data"] ?? [];
+
+        int unread = 0;
+        Set<int> currentIds = {};
+        bool hasNewNotification = false;
+        String? latestMsgText;
+
+        for (var row in rows) {
+          // ID-ah int-ka safely convert panrathuku
+          int id = int.tryParse(row["id"]?.toString() ?? '0') ?? 0;
+          currentIds.add(id);
+
+          bool isSentByMe = row["type"] == "SENT";
+          bool isSeen = row["isSeen"] == true || row["isSeen"] == 1 || row["isSeen"].toString() == "true";
+
+          if (!isSentByMe && !isSeen) {
+            unread++;
+          }
+
+          // 🌟 Fix: First load-l irukkura IDs-ah known list-kku add pannirum. 
+          // Appuram varura pudhu IDs-kku mattum popup & sound varum.
+          if (_knownNotificationIds.isNotEmpty && !_knownNotificationIds.contains(id) && !isSentByMe && !isSeen) {
+            hasNewNotification = true;
+            // latestMsgText = row["message"] ?? "New Notification received";
+            try {
+  final decoded = jsonDecode(row["message"]);
+
+  final preview = decoded["preview"] ?? "New Notification";
+
+  latestMsgText = preview;
+} catch (e) {
+  latestMsgText = row["message"] ?? "New Notification";
+}
+          }
+        }
+
+        setState(() {
+          _unreadCount = unread;
+          // First time empty-ah iruntha, current IDs-ah athula load pannirurom
+          if (_knownNotificationIds.isEmpty && currentIds.isNotEmpty) {
+            _knownNotificationIds = currentIds;
+          } else if (currentIds.isNotEmpty) {
+            _knownNotificationIds = currentIds;
+          }
+        });
+
+        if (hasNewNotification) {
+          _playNotificationSound();
+          _triggerTopRightPopup(latestMsgText ?? "You have a new notification");
+        }
+      }
+    } catch (e) {
+      debugPrint("Polling error: $e");
+    }
+  }
+
+void _triggerTopRightPopup(String message) {
+  setState(() {
+    _latestMessage = message;
+    _showPopup = true;
+  });
+
+  _popupTimer?.cancel();
+
+  _popupTimer = Timer(
+    const Duration(seconds: 10),
+    () {
+      if (mounted) {
+        setState(() {
+          _showPopup = false;
+        });
+      }
+    },
+  );
+}
+
+void _playNotificationSound() async {
+  try {
+    await _audioPlayer.play(
+      AssetSource("sounds/notification.mp3"),
+    );
+    debugPrint("Sound Played");
+  } catch (e) {
+    debugPrint("Audio Error: $e");
+  }
+}
   @override
   Widget build(BuildContext context) {
     final TextEditingController searchController = TextEditingController();
@@ -114,44 +251,78 @@ final String initials = userName
 
                 // ── ANCHORED LOGOUT SYSTEM ACTION HEADER PANEL (Verbatim match to image_d15e6f.png) ──
                 Container(height: 1, color: const Color(0xFF232D42)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        // Clears systemic active auth tokens and routes smoothly back to entry gateway
-                        Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                        child: Row(
-                          children: const [
-                            Icon(Icons.logout_rounded, size: 17, color: Color(0xFF8A94A6)),
-                            SizedBox(width: 12),
-                            Text(
-                              'Logout',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF8A94A6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+//                 Padding(
+//   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+//   child: Material(
+//     color: Colors.transparent,
+//     child: InkWell(
+//       onTap: () {
+//         Navigator.pushNamedAndRemoveUntil(
+//             context, '/home', (route) => false);
+//       },
+//       borderRadius: BorderRadius.circular(8),
+//       child: Container(
+//         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+//         child: Row(
+//           // children: const [
+//           //   Icon(Icons.home, size: 17, color: Color(0xFF8A94A6)),
+//           //   SizedBox(width: 12),
+//             // Text(
+//             //   'HOME',
+//             //   style: TextStyle(
+//             //     fontSize: 13,
+//             //     fontWeight: FontWeight.w500,
+//             //     color: Color(0xFF8A94A6),
+//             //   ),
+//             // ),
+//           // ],
+//         ),
+//       ),
+//     ),
+//   ),
+// ),
+
+Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+  child: Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: () {
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/', (route) => false);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
+          children: const [
+            Icon(Icons.logout_rounded,
+                size: 17, color: Color(0xFF8A94A6)),
+            SizedBox(width: 12),
+            Text(
+              'Logout',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF8A94A6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
+),
               ],
             ),
           ),
 
           // ── RIGHT PANEL ───────────────────────────────────────────────────────
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+  child: Stack(
+    clipBehavior: Clip.none,
+    children: [
+      Column(
               children: [
                 // ── TOP BAR ────────────────────────────────────────────────────
                 Container(
@@ -183,7 +354,7 @@ final String initials = userName
   child: TextField(
   controller: searchController,
   onChanged: (value) {
-    onSearch?.call(value);
+    widget.onSearch?.call(value);
   },
   decoration: const InputDecoration(
     hintText: 'Search...',
@@ -229,14 +400,39 @@ final String initials = userName
                             padding: const EdgeInsets.all(6),
                             constraints: const BoxConstraints(),
                           ),
-                          Positioned(
-                            right: 4, top: 4,
-                            child: Container(
-                              width: 8, height: 8,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFFF4757), shape: BoxShape.circle),
-                            ),
-                          ),
+                          // Positioned(
+                          //   right: 4, top: 4,
+                          //   child: Container(
+                          //     width: 8, height: 8,
+                          //     decoration: const BoxDecoration(
+                          //       color: Color(0xFFFF4757), shape: BoxShape.circle),
+                          //   ),
+                          // ),
+                          if (_unreadCount > 0)
+  Positioned(
+    right: 2,
+    top: 2,
+    child: Container(
+      padding: const EdgeInsets.all(4),
+      decoration: const BoxDecoration(
+        color: Colors.red,
+        shape: BoxShape.circle,
+      ),
+      constraints: const BoxConstraints(
+        minWidth: 18,
+        minHeight: 18,
+      ),
+      child: Text(
+        "$_unreadCount",
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ),
+  ),
                         ],
                       ),
                       const SizedBox(width: 2),
@@ -362,7 +558,7 @@ Expanded(
           child: SelectionArea(
             child: Padding(
               padding: const EdgeInsets.all(28), // Content-badding inge shift seiyapattulladhu
-              child: child,
+              child: widget.child,
             ),
           ),
         ),
@@ -371,8 +567,59 @@ Expanded(
   ),
 ),
               ],
+            
+            ),
+          if (_showPopup)
+        Positioned(
+          top: 70,
+          right: 20,
+          child: Material(
+            elevation: 10,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFF2A52BE),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.notifications_active,
+                    color: Color(0xFF2A52BE),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "New Notification",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _latestMessage ?? "",
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+        ),
+    ],
+  ),
+),
         ],
       ),
     );
@@ -381,7 +628,7 @@ Expanded(
   // ── Nav tile ───────────────────────────────────────────────────────────────
 
   Widget _navItem(IconData icon, String title, String route, BuildContext context) {
-    final bool isActive = currentRoute == route;
+    final bool isActive = widget.currentRoute == route;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Material(
