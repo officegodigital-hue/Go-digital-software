@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:godigital_portal/widgets/alerts_section.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -27,6 +28,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _activeClients = 0;
   int _inactiveClients = 0;
   int _pendingTasks = 0;
+  String? _employeeName;
 
   bool _loadingPerformance = true;
 
@@ -51,23 +53,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     "ratios": {"approved": 0.50, "rework": 0.20, "rejected": 0.15, "review": 0.15}
   };
 
-  List<Map<String, dynamic>> _recentNotifications = [
-    {
-      "title": "Task Assigned",
-      "message": "New UI design layout assigned for GA Mall project.",
-      "created_at": DateTime.now().subtract(const Duration(minutes: 15)).toIso8601String(),
-    },
-    {
-      "title": "Task Review",
-      "message": "Approved: Homepage banner graphics completed successfully.",
-      "created_at": DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
-    },
-    {
-      "title": "Daily Planner",
-      "message": "Subha submitted today's daily milestone checklist.",
-      "created_at": DateTime.now().subtract(const Duration(hours: 5)).toIso8601String(),
-    },
-  ];
+  List<Map<String, dynamic>> _recentNotifications = [];
+
   bool _loadingNotifications = false;
 
   List<Map<String, dynamic>> _previewRows = [];
@@ -83,30 +70,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
       _fetchDashboardData(),
       _fetchPerformanceAnalytics(),
       _fetchDashboardAnalytics(),
+  _fetchRecentNotifications(),
     ]);
   }
 
   // Safe fetch for recent notifications using general fallback or admin streams
   Future<void> _fetchRecentNotifications() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/dashboard/admin-notifications'),
-      );
+  try {
+    final response = await http.get(
+  Uri.parse("$_baseUrl/dashboard/admin-notifications"),
+);
 
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        final list = List<Map<String, dynamic>>.from(body["data"] ?? []);
-        if (list.isNotEmpty) {
-          setState(() {
-            _recentNotifications = list;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint("Notifications fetch error (using fallback local data): $e");
+    print("Status : ${response.statusCode}");
+    print("Body : ${response.body}");
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+
+      setState(() {
+        _recentNotifications = List<Map<String, dynamic>>.from(
+          body["data"] ?? [],
+        );
+      });
+
+      print(_recentNotifications);
     }
+  } catch (e) {
+    print(e);
   }
-
+}
+  
+  
   Future<void> _fetchDashboardData() async {
     setState(() { _loadingStats = true; _statsError = null; });
 
@@ -518,7 +512,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ],
           ),
           const SizedBox(height: 32),
-          _buildAlertsSection(context),
+          // _buildAlertsSection(context),
+          AlertsSection(
+  notifications: _recentNotifications,
+  onViewAll: () {
+    Navigator.pushNamed(context, "/notifications");
+  },
+),
         ],
       ),
     );

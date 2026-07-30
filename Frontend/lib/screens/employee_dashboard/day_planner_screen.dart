@@ -131,6 +131,7 @@ bool _didInitialLoad = false;
     // FIX: removed loadAssignedClients()/loadTodayDayPlan() from here —
     // employeeName is still '' at this point, so both calls were hitting
     // the backend with a blank name.
+  _checkDeadlineStatus();
   }
 
   @override
@@ -152,6 +153,8 @@ bool _didInitialLoad = false;
       _didInitialLoad = true;
       loadAssignedClients();
       loadTodayDayPlan();
+
+  _checkDeadlineStatus();
     }
   }
 Future<void> _checkDeadlineStatus() async {
@@ -496,16 +499,20 @@ Future<void> loadTodayDayPlan() async {
   }
 }
 
+// String _formatMaintenanceDate(String value) {
+//   if (value.trim().isEmpty) return '';
+
+//   try {
+//     final date = DateTime.parse(value).toLocal();
+
+//     return "${date.day}/${date.month}/${date.year}";
+//   } catch (_) {
+//     return value;
+//   }
+// }
+
 String _formatMaintenanceDate(String value) {
-  if (value.trim().isEmpty) return '';
-
-  try {
-    final date = DateTime.parse(value).toLocal();
-
-    return "${date.day}/${date.month}/${date.year}";
-  } catch (_) {
-    return value;
-  }
+  return value;
 }
 
   Future<void> loadAssignedClients() async {
@@ -964,7 +971,9 @@ Future<void> _submitDay() async {
 
     if (response.statusCode == 200) {
 
+await _checkDeadlineStatus();
       ScaffoldMessenger.of(context).showSnackBar(
+        
         const SnackBar(
           content: Text(
             '✅ Day plan submitted & Admin notified!',
@@ -1007,6 +1016,10 @@ Future<void> _submitDay() async {
           children: [
             _buildTopBar(isTodayView),
             const SizedBox(height: 12),
+
+            if (isTodayView && _buildDeadlineBanner() != null)
+            _buildDeadlineBanner()!,
+
             if (!isTodayView)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
@@ -1018,6 +1031,7 @@ Future<void> _submitDay() async {
                   Text('Previous day records are read-only', style: TextStyle(fontSize: 12, color: Color(0xFF92400E))),
                 ]),
               ),
+              
             _buildSheetGrid(rows, isTodayView),
           ],
         ),
@@ -1055,6 +1069,7 @@ Future<void> _submitDay() async {
    });
 
    await loadTodayDayPlan();
+   await _checkDeadlineStatus();
 
 }
             },

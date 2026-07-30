@@ -18,10 +18,11 @@ import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
-
+import 'package:godigital_portal/screens/home_screen.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
+import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
-
+import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
 
 
 void main() async {
@@ -32,7 +33,7 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
     PointerDeviceKind.touch,
-    PointerDeviceKind.mouse, // 👈 மவுஸ் ஸ்க்ரோலிங் வேலை செய்ய இது முக்கியம்
+    PointerDeviceKind.mouse,
   };
 }
 class MyApp extends StatelessWidget {
@@ -65,6 +66,10 @@ class MyApp extends StatelessWidget {
           // Authentication
           '/': (context) => const LoginScreen(),
 
+          // Home Screen (After Login)
+          '/home': (context) => const HomeScreen(),
+
+
           // Admin Dashboard
           '/admin': (context) => const AdminDashboard(),
 
@@ -87,6 +92,7 @@ class MyApp extends StatelessWidget {
           '/invoice': (context) => const InvoiceAdminScreen(),
           '/add-invoice': (context) => const AddInvoiceScreen(),
           '/tasks': (context) => const TasksAssignScreen(),
+          '/daily-planner': (context) => const AdminDayPlannerScreen(),
           '/employee-status': (context) => const EmployeeStatusScreen(),
           '/manager-review': (context) => const ManagerReviewScreen(),
           '/notifications': (context) => const NotificationsScreen(),
@@ -94,6 +100,8 @@ class MyApp extends StatelessWidget {
           '/time-manager': (context) => const TimeManagerScreen(),
           '/performance': (context) => const PerformanceScreen(),
           '/settings':(context) => const SettingsPage(),
+
+          '/attendance': (context) => const AttendanceDashboard(),
         },
       ),
     );

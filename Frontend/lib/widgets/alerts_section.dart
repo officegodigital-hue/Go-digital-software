@@ -10,7 +10,7 @@ class AlertsSection extends StatelessWidget {
     required this.notifications,
     this.onViewAll,
   });
-
+ 
   @override
   Widget build(BuildContext context) {
     return Container(

@@ -412,32 +412,75 @@ router.get('/recent-notifications/:employeeName', async (req, res) => {
 
 // GET /api/dashboard/admin-notifications
 router.get("/admin-notifications", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT
-        id,
-        type,
-        title,
-        message,
-        sender_name,
-        created_at
+  const [rows] = await db.query(`
+      SELECT id,
+             sender_name,
+             recipient_name,
+             message,
+             is_seen,
+             created_at
       FROM notifications
       ORDER BY created_at DESC
       LIMIT 4
-    `);
+  `);
 
-    res.json({
-      success: true,
-      data: rows,
-    });
+  const notifications = rows.map((row) => {
+    let preview = "Notification";
+    let category = "General";
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
+    try {
+      const msg = JSON.parse(row.message);
+
+      preview =
+        msg.preview ||
+        msg.message ||
+        msg.title ||
+        "Notification";
+
+      const payload = msg.payload || {};
+      const type = (payload.type || "").toUpperCase();
+
+      switch (type) {
+        case "TASK_ASSIGNED":
+          category = "Task Assigned";
+          break;
+
+        case "TASK_REVIEW":
+          category = "Task Review";
+          break;
+
+        case "PLAN_SUBMITTED":
+          category = "Daily Planner";
+          break;
+
+        case "DAY_PLANNER_WARNING":
+          category = "Warning & Alert";
+          break;
+
+        case "TASK_PLANNER_SHARE":
+        case "VIDEOGRAPHER_SHARE":
+          category = "Content Shared";
+          break;
+      }
+    } catch (_) {
+      preview = row.message;
+    }
+
+    return {
+      id: row.id,
+      sender: row.sender_name,
+      recipient: row.recipient_name,
+      preview,
+      category,
+      isSeen: row.is_seen,
+      createdAt: row.created_at,
+    };
+  });
+
+  res.json({
+    success: true,
+    data: notifications,
+  });
 });
 
 module.exports = router;
