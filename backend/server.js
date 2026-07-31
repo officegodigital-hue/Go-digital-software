@@ -27,7 +27,7 @@ const adminEmployeeStatusRoutes = require('./routes/admin-employee-status');
 const notificationsRoutes = require('./routes/notifications');
 
 const DayPlannerRoutes = require('./routes/day-planner'); // Import the new route
-
+const performanceRoutes = require('./routes/performance'); // ✅ Add performance route import
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -74,7 +74,9 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/day-planner', DayPlannerRoutes); // Use the new route
+app.use('/api/day-planner', DayPlannerRoutes); 
+app.use('/api/performance', performanceRoutes);
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ message: 'GoDigital API is running', status: 'ok' });

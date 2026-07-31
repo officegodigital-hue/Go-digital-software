@@ -782,10 +782,12 @@ Map<String, dynamic> _buildPayload(
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
           taskDurations[taskKey] =
               DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
         });
+        }
       });
     });
     await _autoHoldRunningTask(taskKey);
@@ -820,10 +822,12 @@ Map<String, dynamic> _buildPayload(
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
           taskDurations[taskKey] =
               DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
         });
+        }
       });
     });
      await _autoHoldRunningTask(taskKey);
@@ -895,7 +899,9 @@ Map<String, dynamic> _buildPayload(
     _addDurationController.dispose();
     _addSubmissionDateController.dispose();
     _addRowController.dispose();
-    for (final t in taskTimers.values) t.cancel();
+    for (final t in taskTimers.values) {
+      t.cancel();
+    }
     super.dispose();
   }
 
@@ -1309,10 +1315,12 @@ Future<void> _deleteAdditionalTask(
             taskDurations[taskKey] = Duration.zero;
             currentRunningTaskKey = taskKey;
             taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-              if (mounted) setState(() {
+              if (mounted) {
+                setState(() {
                 taskDurations[taskKey] =
                     DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
               });
+              }
             });
           }
 
@@ -1421,7 +1429,7 @@ Future<void> _deleteAdditionalTask(
     borderRadius: BorderRadius.circular(6),
     boxShadow: [
       BoxShadow(
-        color: Colors.black.withOpacity(0.04),
+        color: Colors.black.withValues(alpha: 0.04),
         blurRadius: 10,
         offset: const Offset(0, 3),
       )
@@ -1435,7 +1443,7 @@ Future<void> _deleteAdditionalTask(
   flex: 2,
   child: DropdownButtonFormField<String>(
     isExpanded: true,
-    value: selectedClient,
+    initialValue: selectedClient,
     style: const TextStyle(
       fontSize: 10,
       color: Colors.black,
@@ -1474,7 +1482,7 @@ Future<void> _deleteAdditionalTask(
   flex: 3,
   child: DropdownButtonFormField<String>(
     isExpanded: true,
-    value: selectedDeliverable,
+    initialValue: selectedDeliverable,
     style: const TextStyle(
       fontSize: 10,
       color: Colors.black,

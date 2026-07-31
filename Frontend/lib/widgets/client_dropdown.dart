@@ -14,10 +14,10 @@ class ClientDropdown extends StatefulWidget {
   final String? initialClientId;
 
   const ClientDropdown({
-    Key? key,
+    super.key,
     required this.onClientSelected,
     this.initialClientId,
-  }) : super(key: key);
+  });
 
   @override
   State<ClientDropdown> createState() => _ClientDropdownState();

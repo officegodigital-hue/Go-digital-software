@@ -21,8 +21,8 @@ class VideographerTaskPlannerPage extends StatefulWidget {
 class _VideographerTaskPlannerPageState extends State<VideographerTaskPlannerPage> {
   // static const String _baseUrl = '/api/videographer-planner';
   // static const String _employeesUrl = '/api/employees';
-  static String get _baseUrl => ApiConfig.baseUrl + '/videographer-planner';
-  static String get _employeesUrl => ApiConfig.baseUrl + '/employees';
+  static String get _baseUrl => '${ApiConfig.baseUrl}/videographer-planner';
+  static String get _employeesUrl => '${ApiConfig.baseUrl}/employees';
 
   List<_EmpModel> employees = [];
   List<_RowModel> rows = [];
@@ -173,8 +173,11 @@ class _VideographerTaskPlannerPageState extends State<VideographerTaskPlannerPag
 
   Future<void> _addSection() async {
     final id = await _createRow();
-    if (id != null) setState(() => rows.add(_RowModel(id: id)));
-    else _snack('Could not add section.', success: false);
+    if (id != null) {
+      setState(() => rows.add(_RowModel(id: id)));
+    } else {
+      _snack('Could not add section.', success: false);
+    }
   }
 
   Future<void> _share(_RowModel row, _EmpModel emp) async {
@@ -293,7 +296,9 @@ Future<void> _openHistory() async {
   @override
   void dispose() {
     _vidEmpScrollController.dispose();
-    for (final r in rows) r.dispose();
+    for (final r in rows) {
+      r.dispose();
+    }
     super.dispose();
   }
 
@@ -453,7 +458,7 @@ Future<void> _openHistory() async {
                 color: const Color(0xFF0057E7),
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6, offset: const Offset(0, 2))
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 6, offset: const Offset(0, 2))
                 ],
               ),
               child: Text(row.showAvatars ? 'Hide' : 'Share',
@@ -511,7 +516,7 @@ Future<void> _openHistory() async {
                   border: Border.all(color: Colors.white, width: 2),
                   color: emp.color,
                   boxShadow: [
-                    BoxShadow(color: emp.color.withOpacity(0.5), blurRadius: 8, offset: const Offset(0, 3))
+                    BoxShadow(color: emp.color.withValues(alpha: 0.5), blurRadius: 8, offset: const Offset(0, 3))
                   ],
                 ),
                 alignment: Alignment.center,
@@ -818,7 +823,7 @@ class _HistoryScreenState extends State<_HistoryScreen> {
                   : ListView.separated(
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                       itemCount: _filteredRecords.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                      separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                       itemBuilder: (_, idx) {
                         final rec = _filteredRecords[idx];
                         final client = rec['client_name'] as String? ?? '--';
@@ -887,9 +892,9 @@ class _HistoryScreenState extends State<_HistoryScreen> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: roleColor.withOpacity(0.1),
+                                  color: roleColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: roleColor.withOpacity(0.3)),
+                                  border: Border.all(color: roleColor.withValues(alpha: 0.3)),
                                 ),
                                 child: Text(role,
                                     textAlign: TextAlign.center,
@@ -923,8 +928,8 @@ class _RowModel {
   bool showAvatars;
 
   _RowModel(
-      {required this.id, String clientName = '', String schedulingDetails = '', this.showAvatars = false})
-      : clientCtrl = TextEditingController(text: clientName),
+      {required this.id, String clientName = '', String schedulingDetails = ''})
+      : showAvatars = false, clientCtrl = TextEditingController(text: clientName),
         schedCtrl = TextEditingController(text: schedulingDetails);
 
   factory _RowModel.fromJson(Map<String, dynamic> json) => _RowModel(

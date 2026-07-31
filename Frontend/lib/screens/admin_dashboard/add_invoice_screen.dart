@@ -513,7 +513,6 @@ Future<void> _searchClients(String query) async {
   }
 }
 
-// ✅ ADD THIS METHOD (When user selects a client from dropdown)
 void _selectClientFromDropdown(Map<String, dynamic> client) {
   setState(() {
     clientNameController.text = (client['company_name'] ?? '').toUpperCase();
@@ -524,7 +523,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
 }
 
 
-  // ✅ FULLY CORRECTED: Professional PDF print with all fixes
   Future<void> _printInvoice(double subtotal, double discount, double tax, double total, double paid, double balance) async {
     try {
       final logoImage = pw.MemoryImage(
@@ -672,17 +670,16 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                                   children: [
                                     pw.Text('TO', style: pw.TextStyle(font: fontBold, fontSize: 10)),
                                     pw.SizedBox(height: 2),
-                                    // pw.Text(clientNameController.text, style: pw.TextStyle(font: font, fontSize: 10)),
                                     pw.Container(
-  padding: const pw.EdgeInsets.only(left: 10),
-  child: pw.Text(
-    clientNameController.text,
-    style: pw.TextStyle(
-      font: font,
-      fontSize: 10,
-    ),
-  ),
-),
+                                      padding: const pw.EdgeInsets.only(left: 10),
+                                      child: pw.Text(
+                                        clientNameController.text,
+                                        style: pw.TextStyle(
+                                          font: font,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -692,10 +689,9 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
 
                         pw.SizedBox(height: 8),
                         
-                        // ✅ Items table with CENTERED QTY, RATE, AMOUNT
                         pw.Table(
                           border: pw.TableBorder.all(color: black, width: 1),
-                              defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+                            defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
 
                           columnWidths: {
                             0: const pw.FixedColumnWidth(30),
@@ -710,9 +706,9 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                               children: [
                                 tableCell('S.No', bold: true, align: pw.Alignment.center),
                                 tableCell('DESCRIPTIONS', bold: true, align: pw.Alignment.center),
-                                tableCell('QTY', bold: true, align: pw.Alignment.center, ), // ✅ CENTERED
-                                tableCell('RATE', bold: true, align: pw.Alignment.center), // ✅ CENTERED
-                                tableCell('AMOUNT', bold: true, align: pw.Alignment.center), // ✅ CENTERED
+                                tableCell('QTY', bold: true, align: pw.Alignment.center, ), 
+                                tableCell('RATE', bold: true, align: pw.Alignment.center), 
+                                tableCell('AMOUNT', bold: true, align: pw.Alignment.center), 
                               ],
                             ),
 
@@ -740,24 +736,21 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                                                   style: pw.TextStyle(font: font, fontSize: 10, color: black),
                                                 ),
                                               );
-                                            }).toList(),
+                                            }),
                                           ],
                                         ),
                                 ),
                                 
-                                // ✅ CENTERED QTY
                                 tableCell(
                                   (int.tryParse(validItems[i].qtyCtrl.text) ?? 1).toString(),
                                   align: pw.Alignment.center,
                                 ),
                                 
-                                // ✅ CENTERED RATE
                                 tableCell(
                                   _parseAmount(validItems[i].rateCtrl.text).toStringAsFixed(0),
                                   align: pw.Alignment.center,
                                 ),
                                 
-                                // ✅ CENTERED AMOUNT
                                 tableCell(
                                   _rowAmount(validItems[i]).toStringAsFixed(0),
                                   align: pw.Alignment.center,
@@ -766,7 +759,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           ],
                         ),
 
-                        // ✅ Summary table with CONDITIONAL DISCOUNT & TAX
                         pw.Table(
                           border: pw.TableBorder.all(color: black, width: 1),
                           columnWidths: {
@@ -788,7 +780,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                               ),
                             ]),
 
-                            // ✅ FIX #3: Only show DISCOUNT if discount > 0
                             if (discount > 0)
                               pw.TableRow(children: [
                                 pw.Container(
@@ -803,7 +794,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                                 ),
                               ]),
 
-                            // ✅ FIX #4: Only show TAX if tax > 0
                             if (total > 0)
                               pw.TableRow(children: [
                                 pw.Container(
@@ -861,7 +851,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                         
                         pw.SizedBox(height: 12),
 
-                        // Notes section
                         if (notesController.text.isNotEmpty) ...[
                           pw.Text('Notes', style: pw.TextStyle(font: fontBold, fontSize: 10)),
                           pw.SizedBox(height: 2),
@@ -872,7 +861,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           pw.SizedBox(height: 12),
                         ],
 
-                        // ✅ FIX #5: Only show Terms & Conditions if agreedToTerms is TRUE
                         if (agreedToTerms) ...[
                           pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 10)),
                           pw.SizedBox(height: 2),
@@ -884,7 +872,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                                 style: pw.TextStyle(font: font, fontSize: 9),
                               ),
                             );
-                          }).toList(),
+                          }),
                           pw.SizedBox(height: 12),
                         ],
 
@@ -980,6 +968,16 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
     double totalAmount = taxableAmount + tax;
 
     double balanceAmount = totalAmount - overallPaid;
+    // Paid GST Amount
+double paidGSTAmount = 0.0;
+
+if (includeGST && totalAmount > 0 && overallPaid > 0) {
+  paidGSTAmount = (overallPaid / totalAmount) * tax;
+
+  if (paidGSTAmount > tax) {
+    paidGSTAmount = tax;
+  }
+}
     if (balanceAmount < 0) balanceAmount = 0;
 
     if (_loadingExisting) {
@@ -1065,14 +1063,6 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                   const SizedBox(width: 16),
                   Expanded(child: _buildDatePickerFormInput("Date", dateController)),
                   const SizedBox(width: 16),
-                  // ✅ FIX #1: Client name read-only when editing invoice
-                  // Expanded(
-                  //   child: _buildInlineFormInput(
-                  //     "Client Name",
-                  //     clientNameController,
-                  //     readOnly: _viewOnly || _invoiceId != null, // ✅ Read-only when editing
-                  //   ),
-                  // ),
                   Expanded(
   child: _buildClientNameFieldWithDropdown(),
 ),
@@ -1099,13 +1089,13 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: Row(
                       children: const [
-                        SizedBox(width: 40, child: Text("S.No", style: _tableLabelStyle)),
-                        Expanded(flex: 5, child: Text("Description", style: _tableLabelStyle)),
-                        SizedBox(width: 60, child: Text("QTY", textAlign: TextAlign.center, style: _tableLabelStyle)),
-                        SizedBox(width: 90, child: Text("Rate", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
-                        SizedBox(width: 100, child: Text("Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
-                        SizedBox(width: 110, child: Text("Paid Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
-                        SizedBox(width: 120, child: Text("Pending Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
+                        SizedBox(width: 40, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("S.No", style: _tableLabelStyle))),
+                        Expanded(flex: 5, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Description", style: _tableLabelStyle))),
+                        SizedBox(width: 60, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("QTY", textAlign: TextAlign.center, style: _tableLabelStyle))),
+                        SizedBox(width: 90, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Rate", textAlign: TextAlign.right, style: _tableHeaderStyleRight))),
+                        SizedBox(width: 100, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight))),
+                        SizedBox(width: 110, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Paid Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight))),
+                        SizedBox(width: 120, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Pending Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight))),
                         SizedBox(width: 30, child: Text("", style: _tableLabelStyle)),
                       ],
                     ),
@@ -1116,7 +1106,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                       child: Row(
                         children: [
-                          SizedBox(width: 40, child: Text((i + 1).toString().padLeft(2, '0'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF334155)))),
+                          SizedBox(width: 40, child: MouseRegion(cursor: SystemMouseCursors.basic, child: Text((i + 1).toString().padLeft(2, '0'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF334155))))),
                           Expanded(
                             flex: 5,
                             child: Padding(
@@ -1144,10 +1134,13 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           ),
                           SizedBox(
                             width: 100,
-                            child: Text(
-                              "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.basic,
+                              child: Text(
+                                "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                              ),
                             ),
                           ),
                           SizedBox(
@@ -1156,13 +1149,16 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           ),
                           SizedBox(
                             width: 120,
-                            child: Text(
-                              "₹${_rowPending(_items[i]).toStringAsFixed(2)}",
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0052CC),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.basic,
+                              child: Text(
+                                "₹${_rowPending(_items[i]).toStringAsFixed(2)}",
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF0052CC),
+                                ),
                               ),
                             ),
                           ),
@@ -1172,12 +1168,15 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                               alignment: Alignment.centerRight,
                               child: _viewOnly
                                   ? const SizedBox.shrink()
-                                  : GestureDetector(
-                                      onTap: () => _removeRow(i),
-                                      child: Icon(
-                                        Icons.delete_outline_rounded,
-                                        size: 18,
-                                        color: _items.length > 1 ? const Color(0xFFDC2626) : Colors.grey.shade300,
+                                  : MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: GestureDetector(
+                                        onTap: () => _removeRow(i),
+                                        child: Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: _items.length > 1 ? const Color(0xFFDC2626) : Colors.grey.shade300,
+                                        ),
                                       ),
                                     ),
                             ),
@@ -1195,15 +1194,18 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
             const SizedBox(height: 16),
 
             if (!_viewOnly)
-              GestureDetector(
-                onTap: _addSection,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF0052CC)),
-                    SizedBox(width: 6),
-                    Text("Add Section", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
-                  ],
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _addSection,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF0052CC)),
+                      SizedBox(width: 6),
+                      Text("Add Section", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
+                    ],
+                  ),
                 ),
               ),
 
@@ -1228,7 +1230,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                              const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
                               const SizedBox(height: 8),
                               TextField(
                                 controller: notesController,
@@ -1249,7 +1251,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                              const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
                               const SizedBox(height: 8),
                               TextField(
                                 controller: termsController,
@@ -1276,7 +1278,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Text("Agree to defined terms", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                                  const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Agree to defined terms", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)))),
                                 ],
                               )
                             ],
@@ -1319,7 +1321,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text("Discount", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                            const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Discount", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569)))),
                             SizedBox(
                               width: 100,
                               height: 36,
@@ -1345,7 +1347,7 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text("Include 18% GST", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                            const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Include 18% GST", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569)))),
                             Switch(
                               value: includeGST,
                               activeTrackColor: const Color(0xFF0052CC),
@@ -1368,6 +1370,13 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                         
                         _buildSummaryLineItem("Total Amount", "₹${totalAmount.toStringAsFixed(2)}", isBold: true, textColor: const Color(0xFF0052CC)),
                         
+                        const SizedBox(height: 12),
+                        _buildSummaryLineItem( 
+                          "Paid GST Amount",
+                            "₹${paidGSTAmount.toStringAsFixed(2)}",
+                              textColor: const Color(0xFF7C3AED), // Purple
+                              ),
+
                         const SizedBox(height: 12),
                         _buildSummaryLineItem(
                           "Balance to be Paid",
@@ -1416,10 +1425,13 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
                         ),
          
                         const SizedBox(height: 12),
-                        const Text(
-                          "A PDF copy will be generated and sent\nto the client.",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4, fontWeight: FontWeight.w500),
+                        const MouseRegion(
+                          cursor: SystemMouseCursors.basic,
+                          child: Text(
+                            "A PDF copy will be generated and sent\nto the client.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4, fontWeight: FontWeight.w500),
+                          ),
                         ),
                       ],
                     ),
@@ -1496,13 +1508,13 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
               ? const Row(children: [
                   SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0052CC))),
                   SizedBox(width: 10),
-                  Text("Loading packages...", style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                  MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Loading packages...", style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
                 ])
               : DropdownButtonHideUnderline(
                   child: DropdownButton<int>(
                     value: validValue,
                     isExpanded: true,
-                    hint: const Text("Select Package", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
+                    hint: const MouseRegion(cursor: SystemMouseCursors.basic, child: Text("Select Package", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8)))),
                     icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
                     items: _packages.map((pkg) {
                       return DropdownMenuItem<int>(
@@ -1540,12 +1552,15 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF0052CC),
+          MouseRegion(
+            cursor: SystemMouseCursors.basic,
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0052CC),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -1555,28 +1570,34 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '✓ ',
-                    style: TextStyle(
-                      color: Color(0xFF16A34A),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                  const MouseRegion(
+                    cursor: SystemMouseCursors.basic,
+                    child: Text(
+                      '✓ ',
+                      style: TextStyle(
+                        color: Color(0xFF16A34A),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                   Expanded(
-                    child: Text(
-                      feature.replaceFirst('• ', ''),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF475569),
-                        height: 1.4,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.basic,
+                      child: Text(
+                        feature.replaceFirst('• ', ''),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF475569),
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -1597,12 +1618,15 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF0052CC),
+          MouseRegion(
+            cursor: SystemMouseCursors.basic,
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0052CC),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -1612,28 +1636,34 @@ void _selectClientFromDropdown(Map<String, dynamic> client) {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '✓ ',
-                    style: TextStyle(
-                      color: Color(0xFF16A34A),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                  const MouseRegion(
+                    cursor: SystemMouseCursors.basic,
+                    child: Text(
+                      '✓ ',
+                      style: TextStyle(
+                        color: Color(0xFF16A34A),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                   Expanded(
-                    child: Text(
-                      feature.replaceFirst('• ', ''),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF475569),
-                        height: 1.4,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.basic,
+                      child: Text(
+                        feature.replaceFirst('• ', ''),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF475569),
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -1653,12 +1683,15 @@ Widget _buildClientNameFieldWithDropdown() {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text(
-        "Client Name",
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF475569),
+      const MouseRegion(
+        cursor: SystemMouseCursors.basic,
+        child: Text(
+          "Client Name",
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF475569),
+          ),
         ),
       ),
       const SizedBox(height: 6),
@@ -1729,7 +1762,7 @@ Widget _buildClientNameFieldWithDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+        MouseRegion(cursor: SystemMouseCursors.basic, child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
         const SizedBox(height: 6),
         SizedBox(
           height: 38,
@@ -1754,7 +1787,7 @@ Widget _buildClientNameFieldWithDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+        MouseRegion(cursor: SystemMouseCursors.basic, child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
         const SizedBox(height: 6),
         SizedBox(
           height: 38,
@@ -1841,8 +1874,8 @@ Widget _buildClientNameFieldWithDropdown() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: style),
-        Text(value, style: style),
+        MouseRegion(cursor: SystemMouseCursors.basic, child: Text(label, style: style)),
+        MouseRegion(cursor: SystemMouseCursors.basic, child: Text(value, style: style)),
       ],
     );
   }
@@ -1850,3 +1883,4 @@ Widget _buildClientNameFieldWithDropdown() {
   static const TextStyle _tableLabelStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569));
   static const TextStyle _tableHeaderStyleRight = TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569));
 }
+

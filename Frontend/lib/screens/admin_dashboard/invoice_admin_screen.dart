@@ -22,7 +22,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   bool _isFilterMenuOpen = false;
 
   int _selectedMonth = DateTime.now().month;
-  int _selectedYear = DateTime.now().year;
+  final int _selectedYear = DateTime.now().year;
 
   DateTime? _fromMaintenanceDate;
   DateTime? _toMaintenanceDate;
@@ -36,7 +36,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   double _outstandingBalance = 0;
   bool _loadingMetrics = true;
 
-  static const int _invoicesPerPage = 6;
+  static const int _invoicesPerPage = 999;
   int _currentPage = 1;
 
   static const Map<String, Color> _statusBg = {
@@ -51,6 +51,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     'PAID':    Color(0xFF16A34A),
     'OVERDUE': Color(0xFFDC2626),
   };
+
+  final ScrollController _verticalController = ScrollController();
+final ScrollController _horizontalController = ScrollController();
+
+@override
+void dispose() {
+  _verticalController.dispose();
+  _horizontalController.dispose();
+  super.dispose();
+}
 
   @override
   void initState() {
@@ -286,7 +296,7 @@ Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice)
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Logo + Title
-                      Container(
+                      SizedBox(
                           width: 140,
                           height: 50,
                           // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
@@ -323,7 +333,7 @@ Container(
                 child: const Text(
                   'GO DIGITAL',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -463,7 +473,7 @@ const SizedBox(height: 8),
                         ],
                       ),
                       const SizedBox(height: 20),
-                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [Container(width: 100, height: 100, child: Image.asset('assets/images/office_seal.png'))]),
+                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [SizedBox(width: 100, height: 100, child: Image.asset('assets/images/office_seal.png'))]),
 
                       // Footer Details (Matches PDF)
                      Column(
@@ -478,7 +488,7 @@ const SizedBox(height: 8),
                           const SizedBox(height: 3),
                           const Text(
                             'NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: const Color(0xFF0052CC)),
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0052CC)),
                           ),
                           const SizedBox(height: 4),
                           const Text(
@@ -588,7 +598,7 @@ Widget _buildSummaryRowExact(String label, String amount, {bool isBold = false})
             padding: const EdgeInsets.all(10),
             child: Text(
               label,
-              style: TextStyle(fontSize: 11, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: isBold ? const Color(0xFFDC2626) : const Color(0xFF0F172A)),
+              style: TextStyle(fontSize: 10, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: isBold ? const Color(0xFFDC2626) : const Color(0xFF0F172A)),
             ),
           ),
           Container(
@@ -596,7 +606,7 @@ Widget _buildSummaryRowExact(String label, String amount, {bool isBold = false})
             child: Text(
               amount,
               textAlign: TextAlign.right,
-              style: TextStyle(fontSize: 11, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: isBold ? const Color(0xFFDC2626) : const Color(0xFF0F172A)),
+              style: TextStyle(fontSize: 10, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: isBold ? const Color(0xFFDC2626) : const Color(0xFF0F172A)),
             ),
           ),
         ],
@@ -639,7 +649,7 @@ double _parseAmount(dynamic value) {
         const SizedBox(width: 16),
         Text(
           '₹${amount.toStringAsFixed(0)}',
-          style: TextStyle(fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: color),
+          style: TextStyle(fontSize: 10, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: color),
         ),
       ],
     );
@@ -737,7 +747,7 @@ double _parseAmount(dynamic value) {
                   SizedBox(height: 4),
                   Text(
                     "Track real-time customer billing statements, distributions, and accounts receivable collections.",
-                    style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                    style: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
                   ),
                 ],
               ),
@@ -754,7 +764,7 @@ double _parseAmount(dynamic value) {
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                   elevation: 0,
                 ),
-                label: const Text("Add Invoice", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                label: const Text("Add Invoice", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 10)),
               ),
             ],
           ),
@@ -974,23 +984,31 @@ double _parseAmount(dynamic value) {
                 const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
 
                 Container(
-                  color: const Color(0xFFF8FAFC),
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      Expanded(flex: 2, child: Text("INVOICE ID", style: _tableHeadingStyle)),
-                      Expanded(flex: 2, child: Text("CLIENT NAME", style: _tableHeadingStyle)),
-                      Expanded(flex: 3, child: Text("PACKAGE TYPE", style: _tableHeadingStyle)),
-                      Expanded(flex: 2, child: Text("INVOICE DATE", style: _tableHeadingStyle)),
-                      Expanded(flex: 3, child: Text("MAINTENANCE DATE", style: _tableHeadingStyle)),
-                      Expanded(flex: 3, child: Text("TOTAL AMOUNT", style: _tableHeadingStyle)),
-                      Expanded(flex: 2, child: Text("STATUS", style: _tableHeadingStyle)),
-                      Expanded(flex: 2, child: Text("DUE DATE", style: _tableHeadingStyle)),
-                      Expanded(flex: 2, child: Align(alignment: Alignment.centerRight, child: Text("ACTIONS", style: _tableHeadingStyle))),
-                    ],
-                  ),
-                ),
+  color: const Color(0xFFF8FAFC),
+  height: 44,
+  padding: const EdgeInsets.symmetric(horizontal: 24),
+  child: Row(
+    children: const [
+      Expanded(flex: 1, child: Text("S.NO", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("INVOICE DATE", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("INVOICE NO", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("CLIENT NAME", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("PACKAGE DETAILS", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("MAINTENANCE DATE", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("TOTAL AMOUNT", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("PAID AMOUNT", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("PENDING AMOUNT", style: _tableHeadingStyle)),
+      Expanded(flex: 2, child: Text("STATUS", style: _tableHeadingStyle)),
+      Expanded(
+        flex: 2,
+        child: Align(
+          alignment: Alignment.center,
+          child: Text("ACTION", style: _tableHeadingStyle),
+        ),
+      ),
+    ],
+  ),
+),
                 const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
 
                 if (_loadingInvoices)
@@ -1015,21 +1033,35 @@ double _parseAmount(dynamic value) {
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 40),
                     child: Center(
-                      child: Text("No invoice records match this filter criteria.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                      child: Text("No invoice records match this filter criteria.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
                     ),
                   )
-                else
-                  Column(
-                    children: pagedInvoices.map((row) {
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildInvoiceHistoryRow(row),
-                          const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+               else
+  SizedBox(
+    height: 420,
+    child: Scrollbar(
+      controller: _verticalController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _verticalController,
+        child: Column(
+          children: pagedInvoices.map((row) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildInvoiceHistoryRow(row),
+                const Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: Color(0xFFE2E8F0),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    ),
+  ),
 
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -1044,7 +1076,7 @@ double _parseAmount(dynamic value) {
                         totalInvoices == 0
                             ? "Showing 0 of 0 ledger files"
                             : "Showing ${startIndex + 1} to $endIndex of $totalInvoices ledger files",
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
                       ),
                       Row(
                         children: [
@@ -1079,7 +1111,7 @@ double _parseAmount(dynamic value) {
           children: [
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: badgeAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(color: badgeAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
               child: Icon(icon, color: badgeAccent, size: 22),
             ),
             const SizedBox(width: 16),
@@ -1097,7 +1129,7 @@ double _parseAmount(dynamic value) {
     );
   }
 
-  static const TextStyle _tableHeadingStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
+  static const TextStyle _tableHeadingStyle = TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
 
   Widget _buildInvoiceHistoryRow(Map<String, dynamic> row) {
     final int id = row["id"];
@@ -1111,6 +1143,9 @@ double _parseAmount(dynamic value) {
     final String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
     final String linkedQuotNo = row["linked_quotation_no"] ?? '';
     final int? linkedQuotId = row["linked_quotation_id"];
+    
+    final double paid = double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
+    final double pending = double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
 
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
@@ -1121,11 +1156,33 @@ double _parseAmount(dynamic value) {
       color: Colors.white,
       child: Row(
         children: [
+
+           // S.NO
+  Expanded(
+    flex: 1,
+    child: Text(
+      id.toString(),
+      style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  ),
+
+   // Invoice Date
+  Expanded(
+    flex: 2,
+    child: Text(
+      invoiceDate,
+      style: const TextStyle(fontSize: 10),
+    ),
+  ),
+
           Expanded(flex: 2, child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(invNo, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+              Text(invNo, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
               if (linkedQuotNo.isNotEmpty)
                 GestureDetector(
                   onTap: linkedQuotId != null
@@ -1139,12 +1196,37 @@ double _parseAmount(dynamic value) {
                 ),
             ],
           )),
-          Expanded(flex: 2, child: Text(client, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          Expanded(flex: 3, child: Text(type, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          Expanded(flex: 2, child: Text(invoiceDate, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
+          Expanded(flex: 2, child: Text(client, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          Expanded(flex: 2, child: Text(type, style: const TextStyle(fontSize: 10, color: Color(0xFF475569)), maxLines: 1, overflow: TextOverflow.ellipsis)),
           
-          Expanded(flex: 3, child: Text(maintenanceDate, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
-          Expanded(flex: 3, child: Text(amount, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)))),
+          Expanded(flex: 2, child: Text(maintenanceDate, style: const TextStyle(fontSize: 10, color: Color(0xFF475569)))),
+          Expanded(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)))),
+
+          // Paid Amount
+  Expanded(
+    flex: 2,
+    child: Text(
+      _formatCurrency(paid),
+      style: const TextStyle(
+        fontSize: 10,
+        color: Colors.green,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  ),
+
+  // Pending Amount
+  Expanded(
+    flex: 2,
+    child: Text(
+      _formatCurrency(pending),
+      style: const TextStyle(
+        fontSize: 10,
+        color: Colors.red,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  ),
 
           Expanded(
             flex: 2,
@@ -1173,8 +1255,7 @@ double _parseAmount(dynamic value) {
             ),
           ),
 
-          Expanded(flex: 2, child: Text(invoiceDate, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
-
+          
           // ✅ ACTIONS COLUMN WITH PDF PREVIEW
           Expanded(
             flex: 2,
@@ -1321,7 +1402,7 @@ double _parseAmount(dynamic value) {
         child: Text(
           text,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: FontWeight.bold,
             color: isActive
                 ? Colors.white

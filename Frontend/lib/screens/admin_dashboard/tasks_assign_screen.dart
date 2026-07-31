@@ -1518,7 +1518,7 @@ Widget _buildClientCell(Map<String, dynamic>? row) {
           ...clients.map((c) => DropdownMenuItem(
             value: c,
             child: Text(c),
-          )).toList(),
+          )),
         ],
         onChanged: (val) async {
           if (val != null && val.isNotEmpty && val != currentClient) {

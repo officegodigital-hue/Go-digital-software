@@ -60,11 +60,15 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   List<DailyReportModel> _reports = [];
+  List<String> _assignedClients = [];
+String? _selectedClient;
 
   @override
   void initState() {
     super.initState();
     _fetchReports();
+
+  _loadAssignedClients();
   }
 
   @override
@@ -74,6 +78,76 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
     _searchController.dispose();
     super.dispose();
   }
+
+  Future<void> _loadAssignedClients() async {
+  final auth = Provider.of<AuthService>(context, listen: false);
+  final name = auth.user?['fullName'] as String?;
+
+  if (name == null || name.isEmpty) return;
+
+  try {
+    final response = await http.get(
+      Uri.parse(
+        '$_baseUrl/employee-tasks/by-employee/${Uri.encodeComponent(name)}',
+      ),
+    );
+
+    final additionalRes = await http.get(
+      Uri.parse(
+        '$_baseUrl/task-list/additional/${Uri.encodeComponent(name)}',
+      ),
+    );
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      final rows = List<Map<String, dynamic>>.from(json['data'] ?? []);
+
+      const roleColumns = [
+        'designer',
+        'videographer',
+        'video_editor',
+        'ads_handling',
+        'page_handling',
+        'ui_ux_designer',
+        'developer',
+      ];
+
+      final nameUpper = name.toUpperCase();
+      final clients = <String>{};
+
+      for (final row in rows) {
+        final matches = roleColumns.any((col) =>
+            (row[col] ?? '').toString().toUpperCase() == nameUpper);
+
+        if (matches) {
+          final client = row['client_name']?.toString() ?? '';
+          if (client.isNotEmpty) {
+            clients.add(client);
+          }
+        }
+      }
+
+      if (additionalRes.statusCode == 200) {
+        final addJson = jsonDecode(additionalRes.body);
+        final addRows =
+            List<Map<String, dynamic>>.from(addJson['data'] ?? []);
+
+        for (final row in addRows) {
+          final client = row['client_name']?.toString() ?? '';
+          if (client.isNotEmpty) {
+            clients.add(client);
+          }
+        }
+      }
+
+      setState(() {
+        _assignedClients = clients.toList();
+      });
+    }
+  } catch (e) {
+    debugPrint(e.toString());
+  }
+}
 
   // ── API: Fetch all reports ─────────────────────────────────────────────────
   Future<void> _fetchReports() async {
@@ -272,6 +346,7 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
 
   void _clearForm() {
     setState(() {
+      _selectedClient = null;
       _clientController.clear();
       _reportController.clear();
       _selectedDate = DateTime.now();
@@ -282,6 +357,7 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
   void _populateForm(DailyReportModel report) {
     setState(() {
       _editingId = report.id;
+      _selectedClient = report.client;
       _clientController.text = report.client;
       _reportController.text = report.report;
       _selectedDate = DateFormat('dd/MM/yyyy').parse(report.submissionDate);
@@ -428,7 +504,7 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
         border: Border.all(color: const Color(0xFFE5E7EB)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -564,11 +640,11 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
                           ),
                           decoration: BoxDecoration(
                             color: _getStatusColor(report.status)
-                                .withOpacity(0.1),
+                                .withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
                               color: _getStatusColor(report.status)
-                                  .withOpacity(0.3),
+                                  .withValues(alpha: 0.3),
                             ),
                           ),
                           child: Text(
@@ -684,7 +760,7 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
         border: Border.all(color: const Color(0xFFE5E7EB)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -728,11 +804,52 @@ class _DailyReportsPageState extends State<DailyReportsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Client Name
-                _buildFormField(
-                  label: 'Client Name *',
-                  controller: _clientController,
-                  hint: 'e.g., GA MALL, JYOTHI',
-                ),
+                // _buildFormField(
+                //   label: 'Client Name *',
+                //   controller: _clientController,
+                //   hint: 'e.g., GA MALL, JYOTHI',
+                // ),
+
+                Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    const Text(
+      'Client Name *',
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF374151),
+      ),
+    ),
+    const SizedBox(height: 6),
+    DropdownButtonFormField<String>(
+      initialValue: _selectedClient,
+      isExpanded: true,
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: const Color(0xFFF9FAFB),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+      hint: const Text('Select Client'),
+      items: _assignedClients.map((client) {
+        return DropdownMenuItem(
+          value: client,
+          child: Text(client),
+        );
+      }).toList(),
+      onChanged: (value) {
+        setState(() {
+          _selectedClient = value;
+          _clientController.text = value ?? '';
+        });
+      },
+    ),
+  ],
+),
 
                 const SizedBox(height: 16),
 

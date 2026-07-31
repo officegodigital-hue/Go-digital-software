@@ -638,9 +638,7 @@ debugPrint("================================");
       'taskTimingId': null,
       'sNo': rowIndex + 1,
       // 'submitDate': editableSubmitDates[taskKey] ?? task['assignedDate'],
-      'submitDate': editableSubmitDates[taskKey] != null
-    ? editableSubmitDates[taskKey]
-    : _formatDateForDatabase(task['assignedDate']),
+      'submitDate': editableSubmitDates[taskKey] ?? _formatDateForDatabase(task['assignedDate']),
       'taskDescription': editableTaskDescs[taskKey] ?? task['singleTask'] ?? '',
       'durationSecs': (taskTotalDurations[taskKey] ?? Duration.zero).inSeconds,
       'comment': taskComments[taskKey] ?? '',
@@ -791,10 +789,12 @@ debugPrint("================================");
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
           taskDurations[taskKey] =
               DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
         });
+        }
       });
     });
     await _autoHoldRunningTask(taskKey);
@@ -829,10 +829,12 @@ debugPrint("================================");
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
           taskDurations[taskKey] =
               DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
         });
+        }
       });
     });
      await _autoHoldRunningTask(taskKey);
@@ -900,7 +902,9 @@ debugPrint("================================");
   void dispose() {
     //  _clientSearchController.dispose();
     _horizontalController.dispose();
-    for (final t in taskTimers.values) t.cancel();
+    for (final t in taskTimers.values) {
+      t.cancel();
+    }
     super.dispose();
   }
 
@@ -1097,10 +1101,12 @@ debugPrint("================================");
             taskDurations[taskKey] = Duration.zero;
             currentRunningTaskKey = taskKey;
             taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-              if (mounted) setState(() {
+              if (mounted) {
+                setState(() {
                 taskDurations[taskKey] =
                     DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
               });
+              }
             });
           }
 
@@ -1476,8 +1482,9 @@ ElevatedButton(
 
   // ── TASK DETAILS ──────────────────────────────────────────────────────────
   Widget _taskDetailsContainer() {
-    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length)
+    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
       return const Center(child: Text('No task details available'));
+    }
 
     // final tabName     = taskTabNames[selectedTabIndex!];
     // final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
@@ -1963,9 +1970,9 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: perfColor.withOpacity(0.1),
+              color: perfColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: perfColor.withOpacity(0.3)),
+              border: Border.all(color: perfColor.withValues(alpha: 0.3)),
             ),
             child: Text(perf, textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: perfColor)),
@@ -1998,7 +2005,7 @@ Widget _dateWithDaysLeft(String? isoOrDateString) {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: bg, borderRadius: BorderRadius.circular(2),
-          border: Border.all(color: fg.withOpacity(0.3), width: 0.5),
+          border: Border.all(color: fg.withValues(alpha: 0.3), width: 0.5),
         ),
         child: Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 9)),
       ),

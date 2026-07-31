@@ -22,12 +22,20 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
   bool _loadingPackages = true;
   String? _packagesError;
 
+  final ScrollController _quotationScrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _fetchPackages();
     _fetchQuotations();
   }
+
+  @override
+void dispose() {
+  _quotationScrollController.dispose();
+  super.dispose();
+}
 
   Future<void> _fetchPackages() async {
     setState(() { _loadingPackages = true; _packagesError = null; });
@@ -91,21 +99,27 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
       if (response.statusCode == 200) {
         await _fetchPackages();
         if (packagesData.length <= 3) _showAllPackages = false;
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Package deleted'),
           backgroundColor: Color(0xFFDC2626),
         ));
+        }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Failed to delete package'),
           backgroundColor: Colors.redAccent,
         ));
+        }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Cannot connect to server'),
         backgroundColor: Colors.redAccent,
       ));
+      }
     }
   }
 
@@ -116,7 +130,7 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
   bool _loadingQuotations = true;
   String? _quotationsError;
 
-  static const int _quotationsPerPage = 6;
+  static const int _quotationsPerPage = 999;
   int _currentPage = 1;
 
   Future<void> _fetchQuotations() async {
@@ -255,21 +269,27 @@ print("Response Body: ${response.body}");
       final response = await http.delete(Uri.parse('$_baseUrl/quotations/$id'));
       if (response.statusCode == 200) {
         await _fetchQuotations();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Quotation deleted'),
           backgroundColor: Color(0xFFDC2626),
         ));
+        }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Failed to delete quotation'),
           backgroundColor: Colors.redAccent,
         ));
+        }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Cannot connect to server'),
         backgroundColor: Colors.redAccent,
       ));
+      }
     }
   }
 
@@ -326,7 +346,7 @@ print("Response Body: ${response.body}");
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
+                        SizedBox(
                           width: 140,
                           height: 50,
                           // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
@@ -346,7 +366,7 @@ print("Response Body: ${response.body}");
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            Container(
+                            SizedBox(
                               width: 100,
                               height: 100,
                               // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
@@ -567,7 +587,7 @@ print("Response Body: ${response.body}");
             _tableCell(rate.toStringAsFixed(0), align: TextAlign.right),
             _tableCell(amount.toStringAsFixed(0), align: TextAlign.right),
           ]);
-        }).toList(),
+        }),
       ],
     );
   }
@@ -636,7 +656,7 @@ print("Response Body: ${response.body}");
         ...termsList.map((String term) => Padding(
           padding: const EdgeInsets.only(bottom: 2),
           child: Text(term.trim(), style: const TextStyle(fontSize: 9, color: Color(0xFF475569))),
-        )).toList(),
+        )),
       ],
     );
   }
@@ -681,7 +701,7 @@ print("Response Body: ${response.body}");
           ...remainingLines.map((String line) => Padding(
             padding: const EdgeInsets.only(top: 2),
             child: Text(line.trim(), style: const TextStyle(fontWeight: FontWeight.normal, fontSize: 10)),
-          )).toList(),
+          )),
         ],
       ),
     );
@@ -947,6 +967,7 @@ print("Response Body: ${response.body}");
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: const [
+                Expanded(flex: 1, child: Text("S.NO", style: _tableHeaderStyle)),
                 Expanded(flex: 3, child: Text("QUOTATION ID", style: _tableHeaderStyle)),
                 Expanded(flex: 4, child: Text("CLIENT NAME", style: _tableHeaderStyle)),
                 Expanded(flex: 2, child: Text("PACKAGE TYPE", style: _tableHeaderStyle)),
@@ -977,12 +998,29 @@ print("Response Body: ${response.body}");
               child: Center(child: Text("No proposals found in this group category.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13))),
             )
           else
-            Column(children: pagedQuotations.map((Map<String, dynamic> row) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [_buildQuotationRow(row), const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0))],
-              );
-            }).toList()),
+            SizedBox(
+  height: 420,
+  child: Scrollbar(
+    controller: _quotationScrollController,
+    thumbVisibility: true,
+    child: ListView.separated(
+      controller: _quotationScrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: pagedQuotations.length,
+      separatorBuilder: (_, _) => const Divider(
+        height: 1,
+        thickness: 1,
+        color: Color(0xFFE2E8F0),
+      ),
+      itemBuilder: (context, index) {
+        return _buildQuotationRow(
+          pagedQuotations[index],
+          startIndex + index + 1,
+        );
+      },
+    ),
+  ),
+),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             decoration: const BoxDecoration(color: Color(0xFFF8FAFC), borderRadius: BorderRadius.vertical(bottom: Radius.circular(8))),
@@ -1009,7 +1047,7 @@ print("Response Body: ${response.body}");
 
   void _showPackageFormDialog(BuildContext context, {int? editIndex}) {
     final bool isEdit = editIndex != null;
-    final Map<String, dynamic>? existing = isEdit ? packagesData[editIndex!] : null;
+    final Map<String, dynamic>? existing = isEdit ? packagesData[editIndex] : null;
 
     final TextEditingController titleCtrl = TextEditingController(text: existing?["title"] as String? ?? "");
     final TextEditingController subtitleCtrl = TextEditingController(text: existing?["subtitle"] as String? ?? "");
@@ -1061,10 +1099,12 @@ print("Response Body: ${response.body}");
 
             if (error == null) {
               if (context.mounted) Navigator.pop(context);
-              if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(
                 content: Text(isEdit ? 'Package updated' : 'Package created'),
                 backgroundColor: const Color(0xFF16A34A),
               ));
+              }
             } else {
               setDialogState(() { isSubmitting = false; dialogError = error; });
             }
@@ -1214,7 +1254,7 @@ SizedBox(
 const SizedBox(width: 10),
 ]),
                             );
-                          }).toList(),
+                          }),
                         ],
                       ),
                     ),
@@ -1425,7 +1465,8 @@ const SizedBox(width: 10),
 
   static const TextStyle _tableHeaderStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
 
-  Widget _buildQuotationRow(Map<String, dynamic> row) {
+  Widget _buildQuotationRow(Map<String, dynamic> row, 
+  int serialNo,) {
     final int id = row["id"] as int? ?? 0;
     final String quotNo = row["quotation_no"] as String? ?? '';
     final String client = row["client_name"] as String? ?? '';
@@ -1449,6 +1490,17 @@ const SizedBox(width: 10),
       color: Colors.white,
       child: Row(
         children: [
+ Expanded(
+  flex: 1,
+  child: Text(
+    serialNo.toString(),
+    style: const TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.bold,
+      color: Color(0xFF1E293B),
+    ),
+  ),
+),
           Expanded(flex: 3, child: Text(quotNo, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
           Expanded(
             flex: 4,

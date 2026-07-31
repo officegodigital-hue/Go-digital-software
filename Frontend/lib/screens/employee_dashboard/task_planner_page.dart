@@ -538,7 +538,7 @@ row.contentController.addListener(row.saveListener!);
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
+                      color: Colors.black.withValues(alpha: 0.12),
                       blurRadius: 6,
                       offset: const Offset(0, 2))
                 ],
@@ -611,7 +611,7 @@ row.contentController.addListener(row.saveListener!);
                   border: Border.all(color: Colors.white, width: 2),
                   boxShadow: [
                     BoxShadow(
-                        color: employee.color.withOpacity(0.5),
+                        color: employee.color.withValues(alpha: 0.5),
                         blurRadius: 8,
                         offset: const Offset(0, 3))
                   ],
@@ -675,7 +675,7 @@ row.contentController.addListener(row.saveListener!);
               boxShadow: [
                 BoxShadow(
                     color: (employee?.color ?? AppColors.primary)
-                        .withOpacity(0.5),
+                        .withValues(alpha: 0.5),
                     blurRadius: 8,
                     offset: const Offset(0, 3))
               ],

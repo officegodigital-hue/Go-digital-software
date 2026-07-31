@@ -7,21 +7,23 @@ import '../../services/api_config.dart';
 
 class TaskPlannerService {
   // static const String _base = '/api/task-planner';
-  static String get _base => ApiConfig.baseUrl + '/task-planner';
+  static String get _base => '${ApiConfig.baseUrl}/task-planner';
 
   // GET /api/task-planner?employee=NAME
   static Future<List<Map<String, dynamic>>> getPlannerRows(String employeeName) async {
     final r = await http.get(Uri.parse('$_base?employee=$employeeName'));
-    if (r.statusCode == 200)
+    if (r.statusCode == 200) {
       return List<Map<String, dynamic>>.from(jsonDecode(r.body)['data'] ?? []);
+    }
     throw Exception('Failed to load rows: ${r.statusCode}');
   }
 
   // GET /api/task-planner/shares?employee=NAME
   static Future<List<Map<String, dynamic>>> getShareHistory(String employeeName) async {
     final r = await http.get(Uri.parse('$_base/shares?employee=$employeeName'));
-    if (r.statusCode == 200)
+    if (r.statusCode == 200) {
       return List<Map<String, dynamic>>.from(jsonDecode(r.body)['data'] ?? []);
+    }
     throw Exception('Failed to load share history: ${r.statusCode}');
   }
 
@@ -36,8 +38,9 @@ class TaskPlannerService {
         'content':      '',
       }),
     );
-    if (r.statusCode == 201)
+    if (r.statusCode == 201) {
       return jsonDecode(r.body)['data']['id'] as int;
+    }
     throw Exception('Failed to create row: ${r.statusCode}');
   }
 

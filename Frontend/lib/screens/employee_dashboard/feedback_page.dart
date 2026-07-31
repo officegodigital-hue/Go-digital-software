@@ -284,7 +284,9 @@ class _FeedbackPageState extends State<FeedbackPage> {
 
   @override
   void dispose() {
-    for (final row in feedbackRows) row.dispose();
+    for (final row in feedbackRows) {
+      row.dispose();
+    }
     super.dispose();
   }
 
@@ -311,7 +313,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
         ),
         if (_loading)
           Container(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             child: const Center(
               child: CircularProgressIndicator(color: Color(0xFF004AAD)),
             ),
@@ -514,7 +516,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
           color: const Color(0xFF0057E7),
           borderRadius: BorderRadius.circular(4),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6, offset: const Offset(0, 2)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 6, offset: const Offset(0, 2)),
           ],
         ),
         child: const Text(
@@ -832,7 +834,7 @@ class _FeedbackHistoryPageState extends State<FeedbackHistoryPage> {
                     : ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                         itemCount: _filteredRecords.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (_, idx) {
                           final item = _filteredRecords[idx];
                           return Container(
