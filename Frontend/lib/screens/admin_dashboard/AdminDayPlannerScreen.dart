@@ -302,7 +302,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
             child: Icon(icon, color: color, size: 22),
           ),
           const SizedBox(width: 14),
@@ -412,7 +412,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           Expanded(
             child: ListView.separated(
               itemCount: filteredEmployees.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+              separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
               itemBuilder: (context, index) {
                 final emp = filteredEmployees[index];
                 final empName = emp['fullName'] ?? 'Employee';
@@ -433,7 +433,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                             children: [
                               CircleAvatar(
                                 radius: 14,
-                                backgroundColor: const Color(0xFF2A52BE).withOpacity(0.1),
+                                backgroundColor: const Color(0xFF2A52BE).withValues(alpha: 0.1),
                                 child: Text(empName[0].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2A52BE))),
                               ),
                               const SizedBox(width: 10),

@@ -8,7 +8,7 @@ import '../../services/api_config.dart';
 
 class ClientHistoryScreen extends StatefulWidget {
   const ClientHistoryScreen({super.key});
-
+ 
   @override
   State<ClientHistoryScreen> createState() => _ClientHistoryScreenState();
 }
@@ -46,23 +46,46 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
   }
 
   // ── Update status via Verify / Pending buttons ────────────────────────────────
-  Future<void> _updateStatus(int id, String status) async {
-    try {
-      final response = await http.patch(
-        Uri.parse('$_baseUrl/clients/$id/status'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'status': status}),
-      );
-      if (response.statusCode == 200) {
-        _fetchClients();
-        _showSnack('Status updated to $status', success: true);
-      } else {
-        _showSnack('Failed to update status');
-      }
-    } catch (e) {
-      _showSnack('Cannot connect to server');
+  // Future<void> _updateStatus(int id, String status) async {
+  //   try {
+  //     final response = await http.patch(
+  //       Uri.parse('$_baseUrl/clients/$id/status'),
+  //       headers: {'Content-Type': 'application/json'},
+  //       body: jsonEncode({'status': status}),
+  //     );
+  //     if (response.statusCode == 200) {
+  //       _fetchClients();
+  //       _showSnack('Status updated to $status', success: true);
+  //     } else {
+  //       _showSnack('Failed to update status');
+  //     }
+  //   } catch (e) {
+  //     _showSnack('Cannot connect to server');
+  //   }
+  // }
+
+Future<void> _updateStatus(int id, String status) async {
+  try {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/clients/$id'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'status': status,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      _fetchClients();
+      _showSnack('Status updated to $status', success: true);
+    } else {
+      _showSnack('Failed to update status');
     }
+  } catch (e) {
+    _showSnack('Cannot connect to server');
   }
+}
 
   // ── DELETE client ──────────────────────────────────────────────────────────────
   Future<void> _deleteClient(int id) async {
@@ -78,6 +101,85 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       _showSnack('Cannot connect to server');
     }
   }
+
+  Future<bool> _confirmReorder(int oldNo, int newNo) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Change Order"),
+          content: Text(
+            "Move this row from $oldNo to position $newNo?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
+Future<void> _updateOrder(int clientId, int newPosition) async {
+  try {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/clients/$clientId/order'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'position': newPosition,
+      }),
+    );
+
+    print(response.statusCode);
+    print(response.body);
+
+    if (response.statusCode == 200) {
+      await _fetchClients();
+      _showSnack(
+        'Client order updated',
+        success: true,
+      );
+    } else {
+      _showSnack(response.body);
+    }
+  } catch (e) {
+    print(e);
+    _showSnack(e.toString());
+  }
+}
+
+  Future<void> _toggleClientStatus(
+    int id,
+    bool currentStatus,
+) async {
+  try {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/clients/$id'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'isActive': !currentStatus,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      _fetchClients();
+    } else {
+      _showSnack('Failed to update status');
+    }
+  } catch (e) {
+    _showSnack('Cannot connect to server');
+  }
+}
+
 
   void _confirmDelete(int id, String companyName) {
     showDialog(
@@ -209,11 +311,13 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   height: 48,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Row(children: const [
+                    Expanded(flex: 1, child: Text('S.NO', style: _th)),
                     Expanded(flex: 3, child: Text('COMPANY', style: _th)),
                     Expanded(flex: 2, child: Text('CONTACT', style: _th)),
                     Expanded(flex: 2, child: Text('CREATED', style: _th)),
                     Expanded(flex: 3, child: Text('COMPLETION', style: _th)),
                     Expanded(flex: 2, child: Text('STATUS', style: _th, )),
+                    Expanded(flex: 2, child: Text('ACTIVE', style: _th)),
                     Expanded(flex: 3, child: Align(alignment: Alignment.centerRight, child: Text('ACTIONS', style: _th))),
                   ]),
                 ),
@@ -246,7 +350,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   ..._clients.asMap().entries.expand((entry) {
                     final i = entry.key;
                     final c = entry.value;
-                    final row = _buildRow(c);
+                    final row = _buildRow(i+1, c);
                     if (i < _clients.length - 1) {
                       return [row, const Divider(height: 1, color: Color(0xFFE2E8F0))];
                     }
@@ -261,11 +365,13 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     );
   }
 
-  Widget _buildRow(Map<String, dynamic> c) {
+  Widget _buildRow(int index, Map<String, dynamic> c) {
     final int    id      = c['id'];
     final String status  = c['status'] ?? 'draft';
     final int    percent = c['completion_percent'] ?? 0;
     final colors = _statusColors(status);
+    final bool active =
+    c['is_active'] == 1 || c['is_active'] == true;
 
     return Container(
       height: 72,
@@ -273,6 +379,59 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       color: Colors.white,
       child: Row(
         children: [
+
+          Expanded(
+  flex: 1,
+  child: Center(
+    child: SizedBox(
+      width: 55,
+      height: 36,
+      child: TextFormField(
+        initialValue: index.toString(),
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          contentPadding: EdgeInsets.zero,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(
+              color: Color(0xFFD1D5DB),
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(
+              color: Color(0xFF0052CC),
+              width: 2,
+            ),
+          ),
+        ),
+        onFieldSubmitted: (value) async {
+          final newPosition = int.tryParse(value);
+
+          if (newPosition == null) return;
+
+          if (newPosition == index) return;
+
+          final ok = await _confirmReorder(index, newPosition);
+
+          if (!ok) {
+            _fetchClients();
+            return;
+          }
+
+          await _updateOrder(id, newPosition);
+        },
+      ),
+    ),
+  ),
+),
           // Company
           Expanded(flex: 3, child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,6 +498,37 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
               ),
             ),
           )),
+
+          Expanded(
+  flex: 2,
+  child: Center(
+    child: GestureDetector(
+      onTap: () => _toggleClientStatus(id, active),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 4,
+        ),
+        decoration: BoxDecoration(
+          color: active
+              ? const Color(0xFFDCFCE7)
+              : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          active ? 'ACTIVE' : 'IN-ACTIVE',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+            color: active
+                ? const Color(0xFF16A34A)
+                : const Color(0xFF64748B),
+          ),
+        ),
+      ),
+    ),
+  ),
+),
 
           // Actions
           Expanded(flex: 3, child: Row(

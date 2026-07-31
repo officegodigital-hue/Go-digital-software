@@ -38,7 +38,7 @@ function computePercent(client, credentialCount) {
 // GET /api/clients — list all clients WITH completion % and credential count
 router.get('/', async (req, res) => {
   try {
-    const [clients] = await db.query(`SELECT * FROM clients ORDER BY created_at DESC`);
+    const [clients] = await db.query(`SELECT * FROM clients ORDER BY display_order ASC`);
 
     const [credCounts] = await db.query(
       `SELECT client_id, COUNT(*) as cnt FROM client_credentials
@@ -61,34 +61,76 @@ router.get('/', async (req, res) => {
 });
 
 // ✅ NEW: GET /api/clients/search/query — search clients by company name
+// router.get('/search/query', async (req, res) => {
+//   try {
+//     const query = req.query.query || '';
+    
+//     if (query.trim().length === 0) {
+//       // ✅ ADDED: industry field
+//       const [clients] = await db.query(
+//         `SELECT id, company_name, industry 
+//          FROM clients 
+//         WHERE active = 1
+//          ORDER BY company_name ASC`
+//       );
+      
+//       return res.json({ success: true, data: clients, });
+//     }
+    
+//     // ✅ ADDED: industry field
+//     const [clients] = await db.query(
+//       `SELECT id, company_name, industry 
+//        FROM clients 
+//         WHERE active = 1
+//        AND company_name LIKE ? 
+//        ORDER BY company_name ASC`,
+//       [`%${query}%`]
+//     );
+ 
+//     return res.json({ success: true, data: clients });
+//   } catch (err) {
+//     console.error('GET /clients/search ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.get('/search/query', async (req, res) => {
   try {
     const query = req.query.query || '';
-    
+
     if (query.trim().length === 0) {
-      // ✅ ADDED: industry field
-      const [clients] = await db.query(
-        `SELECT id, company_name, industry 
-         FROM clients 
-         ORDER BY company_name ASC`
-      );
-      
-      return res.json({ success: true, data: clients, });
+      const [clients] = await db.query(`
+        SELECT id, company_name, industry
+        FROM clients
+        WHERE is_active = 1
+        ORDER BY company_name ASC
+      `);
+
+      return res.json({
+        success: true,
+        data: clients,
+      });
     }
-    
-    // ✅ ADDED: industry field
-    const [clients] = await db.query(
-      `SELECT id, company_name, industry 
-       FROM clients 
-       WHERE company_name LIKE ? 
-       ORDER BY company_name ASC`,
-      [`%${query}%`]
-    );
- 
-    return res.json({ success: true, data: clients });
+
+    const [clients] = await db.query(`
+      SELECT id, company_name, industry
+      FROM clients
+      WHERE is_active = 1
+        AND company_name LIKE ?
+      ORDER BY company_name ASC
+    `, [`%${query}%`]);
+
+    return res.json({
+      success: true,
+      data: clients,
+    });
+
   } catch (err) {
-    console.error('GET /clients/search ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error("GET /clients/search ERROR:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
@@ -207,30 +249,62 @@ router.put('/:id', async (req, res) => {
 
 
 // PATCH /api/clients/:id/status — quickly update only the status (Verify / Pending button)
-router.patch('/:id/status', async (req, res) => {
-  const { status } = req.body;
-  if (!['draft', 'pending', 'verified', 'complete'].includes(status))
-    return res.status(400).json({ success: false, message: 'Invalid status value' });
+// router.patch('/:id/status', async (req, res) => {
+//   const { status } = req.body;
+//   if (!['draft', 'pending', 'verified', 'complete'].includes(status))
+//     return res.status(400).json({ success: false, message: 'Invalid status value' });
 
+//   try {
+//     const [result] = await db.query(
+//       `UPDATE clients SET status = ? WHERE id = ?`,
+//       [status, req.params.id]
+//     );
+//     if (result.affectedRows === 0)
+//       return res.status(404).json({ success: false, message: 'Client not found' });
+
+//     const [rows] = await db.query(`SELECT * FROM clients WHERE id = ?`, [req.params.id]);
+//     const [credCount] = await db.query(
+//       `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
+//       [req.params.id]
+//     );
+//     const completionPercent = computePercent(rows[0], credCount[0].cnt);
+
+//     return res.json({ success: true, message: `Status updated to ${status}`, completion_percent: completionPercent });
+//   } catch (err) {
+//     console.error('PATCH /clients/:id/status ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// PATCH /api/clients/:id
+router.patch('/:id', async (req, res) => {
   try {
+    const { isActive } = req.body;
+
     const [result] = await db.query(
-      `UPDATE clients SET status = ? WHERE id = ?`,
-      [status, req.params.id]
+      `UPDATE clients
+       SET is_active = ?
+       WHERE id = ?`,
+      [isActive ? 1 : 0, req.params.id]
     );
-    if (result.affectedRows === 0)
-      return res.status(404).json({ success: false, message: 'Client not found' });
 
-    const [rows] = await db.query(`SELECT * FROM clients WHERE id = ?`, [req.params.id]);
-    const [credCount] = await db.query(
-      `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
-      [req.params.id]
-    );
-    const completionPercent = computePercent(rows[0], credCount[0].cnt);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found',
+      });
+    }
 
-    return res.json({ success: true, message: `Status updated to ${status}`, completion_percent: completionPercent });
+    res.json({
+      success: true,
+      message: 'Client status updated',
+    });
   } catch (err) {
-    console.error('PATCH /clients/:id/status ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
@@ -274,7 +348,7 @@ router.get('/search', async (req, res) => {
     if (!q || q.trim() === '') {
       // If no search, return all
       const [clients] = await db.query(
-        `SELECT id, company_name FROM clients WHERE status = 'verified' ORDER BY company_name ASC LIMIT 20`
+        `SELECT id, company_name FROM clients WHERE status = 'verified'  AND is_active = 1 ORDER BY company_name ASC LIMIT 20`
       );
       return res.json({
         success: true,
@@ -286,7 +360,7 @@ router.get('/search', async (req, res) => {
     const searchTerm = `%${q}%`;
     const [clients] = await db.query(
       `SELECT id, company_name FROM clients 
-       WHERE status = 'verified' AND company_name LIKE ? 
+       WHERE status = 'verified'  AND is_active = 1 AND company_name LIKE ? 
        ORDER BY company_name ASC LIMIT 20`,
       [searchTerm]
     );
@@ -305,33 +379,125 @@ router.get('/search', async (req, res) => {
 });
  
 // ✅ GET single client details
-router.get('/:id', async (req, res) => {
+// router.get('/:id', async (req, res) => {
+//   try {
+//     const { id } = req.params;
+ 
+//     const [clients] = await db.query(
+//       `SELECT * FROM clients WHERE id = ?`,
+//       [id]
+//     );
+ 
+//     if (clients.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Client not found',
+//       });
+//     }
+ 
+//     res.json({
+//       success: true,
+//       data: clients[0],
+//     });
+//   } catch (error) {
+//     console.error('Error fetching client:', error);
+//     res.status(500).json({
+//       success: false,
+//       error: error.message,
+//     });
+//   }
+// });
+
+router.patch('/clients/:id', async (req, res) => {
+  const { isActive } = req.body;
+
+  await db.query(
+    'UPDATE clients SET is_active=? WHERE id=?',
+    [isActive ? 1 : 0, req.params.id]
+  );
+
+  res.json({
+    success: true,
+  });
+});
+
+// PATCH /api/clients/:id/order
+router.patch('/:id/order', async (req, res) => {
+  const conn = await db.getConnection();
+
   try {
-    const { id } = req.params;
- 
-    const [clients] = await db.query(
-      `SELECT * FROM clients WHERE id = ?`,
-      [id]
+    await conn.beginTransaction();
+
+    const clientId = Number(req.params.id);
+    const newPos = Number(req.body.position);
+
+    const [[client]] = await conn.query(
+      "SELECT display_order FROM clients WHERE id=?",
+      [clientId]
     );
- 
-    if (clients.length === 0) {
+
+    if (!client) {
+      await conn.rollback();
       return res.status(404).json({
-        success: false,
-        error: 'Client not found',
+        success:false
       });
     }
- 
+
+    const oldPos = client.display_order;
+
+    if (newPos == oldPos) {
+      await conn.rollback();
+      return res.json({
+        success:true
+      });
+    }
+
+    if (newPos > oldPos) {
+
+      await conn.query(
+        `UPDATE clients
+         SET display_order=display_order-1
+         WHERE display_order>? AND display_order<=?`,
+        [oldPos,newPos]
+      );
+
+    } else {
+
+      await conn.query(
+        `UPDATE clients
+         SET display_order=display_order+1
+         WHERE display_order>=? AND display_order<?`,
+        [newPos,oldPos]
+      );
+
+    }
+
+    await conn.query(
+      `UPDATE clients
+       SET display_order=?
+       WHERE id=?`,
+      [newPos,clientId]
+    );
+
+    await conn.commit();
+
     res.json({
-      success: true,
-      data: clients[0],
+      success:true
     });
-  } catch (error) {
-    console.error('Error fetching client:', error);
+
+  } catch(e){
+
+    await conn.rollback();
+
     res.status(500).json({
-      success: false,
-      error: error.message,
+      success:false,
+      message:e.message
     });
+
+  } finally{
+    conn.release();
   }
+
 });
 
 module.exports = router;

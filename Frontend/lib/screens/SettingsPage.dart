@@ -412,7 +412,7 @@ void initState() {
         Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: const Color(0xFF2A52BE),
+          activeThumbColor: const Color(0xFF2A52BE),
         ),
       ],
     );

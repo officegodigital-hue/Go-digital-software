@@ -16,7 +16,7 @@ class TaskManagerScreen extends StatefulWidget {
 class _TaskManagerScreenState extends State<TaskManagerScreen> {
   int _selectedTab = 0; // 0 = All, 1 = Assigned, 2 = Completed
   late List<Task> _tasks;
-  bool _isLoading = false;
+  final bool _isLoading = false;
 
   @override
   void initState() {

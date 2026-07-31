@@ -355,7 +355,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
       if (iso.contains('T')) {
         return DateTime.parse(iso).toLocal();
       }
-      return DateTime.parse(iso.replaceFirst(' ', 'T') + 'Z').toLocal();
+      return DateTime.parse('${iso.replaceFirst(' ', 'T')}Z').toLocal();
     } catch (_) {
       return null;
     }
@@ -583,7 +583,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                       const SizedBox(height: 8),
                       Text(
                         "GoDigital partners represent the top 5% of digital-first enterprises. Ensuring accurate data entry here streamlines the entire contract lifecycle.",
-                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12, height: 1.4),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12, height: 1.4),
                       ),
                       const SizedBox(height: 24),
                       Container(
@@ -616,7 +616,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 "$_completionPercent% of profile completed",
-                                style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10),
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10),
                               ),
                             ),
                           ],
@@ -761,7 +761,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
     final usedPlatforms = _credentials
         .map((c) => c['platform']?.toString() ?? '')
-        .where((p) => !isEdit || p != existing!['platform'])
+        .where((p) => !isEdit || p != existing['platform'])
         .toSet();
 
     final availablePlatforms = [
@@ -821,7 +821,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
               };
 
               final error = isEdit
-                  ? await _updateCredential(existing!['id'], payload)
+                  ? await _updateCredential(existing['id'], payload)
                   : await _createCredential(payload);
 
               if (error == null) {

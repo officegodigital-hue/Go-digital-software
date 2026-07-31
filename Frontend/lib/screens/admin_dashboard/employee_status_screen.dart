@@ -271,7 +271,7 @@ Container(
     borderRadius: BorderRadius.circular(12),
     boxShadow: [
       BoxShadow(
-        color: Colors.black.withOpacity(0.05),
+        color: Colors.black.withValues(alpha: 0.05),
         blurRadius: 10,
         offset: const Offset(0, 3),
       ),
@@ -392,7 +392,7 @@ const SizedBox(height: 20),
                 const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
 
                 // 3. Vertically Scrollable Filtered Grid Rows Area
-                Container(
+                SizedBox(
                   height: 480,
                   child: _loading
                       ? const Center(child: CircularProgressIndicator())

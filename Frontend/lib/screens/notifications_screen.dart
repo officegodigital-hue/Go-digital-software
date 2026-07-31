@@ -1142,7 +1142,7 @@ content: SizedBox(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2)),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2)),
                   ],
                 ),
                 child: SizedBox(
@@ -1213,7 +1213,7 @@ content: SizedBox(
                                                         Container(
                                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                           decoration: BoxDecoration(
-                                                            color: isSentByMe ? const Color(0xFF0052CC).withOpacity(0.1) : const Color(0xFFEA580C).withOpacity(0.1),
+                                                            color: isSentByMe ? const Color(0xFF0052CC).withValues(alpha: 0.1) : const Color(0xFFEA580C).withValues(alpha: 0.1),
                                                             borderRadius: BorderRadius.circular(4),
                                                           ),
                                                           child: Text(

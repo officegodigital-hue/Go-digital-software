@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-
+ 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
 
@@ -248,7 +248,7 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
 
             String? error;
             if (isEditMode) {
-              error = await _updateEmployee(editEmployee!['id'], data);
+              error = await _updateEmployee(editEmployee['id'], data);
             } else {
               error = await _createEmployee({...data, 'password': passwordCtrl.text});
             }
@@ -601,7 +601,7 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
                     child: ListView.separated(
                       itemCount: employeeUsers.length,
                       physics: const BouncingScrollPhysics(),
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const Divider(height: 1, color: Color(0xFFE2E8F0)),
                       itemBuilder: (_, index) {
                         final item   = employeeUsers[index];

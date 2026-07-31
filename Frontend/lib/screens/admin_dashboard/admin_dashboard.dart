@@ -55,7 +55,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   List<Map<String, dynamic>> _recentNotifications = [];
 
-  bool _loadingNotifications = false;
+  final bool _loadingNotifications = false;
 
   List<Map<String, dynamic>> _previewRows = [];
 

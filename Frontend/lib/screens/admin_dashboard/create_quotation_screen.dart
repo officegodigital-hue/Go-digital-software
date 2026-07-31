@@ -11,7 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/client_dropdown.dart';
 import '../../services/api_config.dart';
-
+ 
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:async';
@@ -116,7 +116,7 @@ List<Map<String, dynamic>> items = [];
   // ✅ NEW: Client list for dropdown
   List<Map<String, dynamic>> _clients = [];
   bool _loadingClients = false;
-  bool _isSearching = false;
+  final bool _isSearching = false;
   int? _selectedClientId;
   String _clientSearchQuery = '';
   bool _showClientDropdown = false;
@@ -763,7 +763,7 @@ void _setDefaultQuotationNumber() {
                                                   style: pw.TextStyle(font: font, fontSize: 10, color: black),
                                                 ),
                                               );
-                                            }).toList(),
+                                            }),
                                           ],
                                         ),
                                 ),
@@ -888,7 +888,7 @@ void _setDefaultQuotationNumber() {
                               style: pw.TextStyle(font: font, fontSize: 9),
                             ),
                           );
-                        }).toList(),
+                        }),
 
                         pw.Spacer(),
 
@@ -1765,7 +1765,7 @@ Widget _buildClientNameDropdown() {
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -1822,7 +1822,7 @@ Widget _buildClientNameDropdown() {
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
