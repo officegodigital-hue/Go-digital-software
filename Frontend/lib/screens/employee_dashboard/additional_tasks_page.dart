@@ -145,18 +145,47 @@ Future<void> _fetchClientsFromInvoices() async {
     final r = await http.get(Uri.parse('$_baseUrl/invoices'));
 
     if (r.statusCode == 200) {
-      final body = jsonDecode(r.body);
-      final data = List<Map<String, dynamic>>.from(body['data'] ?? body);
+      final data =
+          List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+
+      final today = DateTime.now();
+      final currentDate = DateTime(
+        today.year,
+        today.month,
+        today.day,
+      );
 
       final uniqueClients = <String>{};
 
       for (var invoice in data) {
-        // Date check-ai remove pannitu direct-ah client_name-ah matrum edukkalam 
-        // (Illana AWS server timezone/date format-nal filtering skip agalam)
-        final clientName = invoice['client_name']?.toString() ?? '';
+        final maintenanceDate =
+            invoice['maintenance_date']?.toString() ?? '';
 
-        if (clientName.isNotEmpty) {
-          uniqueClients.add(clientName);
+        if (maintenanceDate.isEmpty) continue;
+
+        try {
+          final dateParts = maintenanceDate.split('/');
+
+          if (dateParts.length == 3) {
+            final maintenance = DateTime(
+              int.parse(dateParts[2]), // year
+              int.parse(dateParts[1]), // month
+              int.parse(dateParts[0]), // day
+            );
+
+            // ✅ Today and Future only
+            if (!maintenance.isBefore(currentDate)) {
+              final clientName =
+                  invoice['client_name']?.toString() ?? '';
+
+              if (clientName.isNotEmpty) {
+                uniqueClients.add(clientName);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint(
+              'Error parsing maintenance date: $maintenanceDate - $e');
         }
       }
 
@@ -165,7 +194,8 @@ Future<void> _fetchClientsFromInvoices() async {
         _loadingClients = false;
       });
 
-      debugPrint('✅ Loaded ${clients.length} clients successfully');
+      debugPrint(
+          '✅ Loaded ${clients.length} clients with valid maintenance dates');
     } else {
       setState(() => _loadingClients = false);
     }
@@ -174,6 +204,8 @@ Future<void> _fetchClientsFromInvoices() async {
     setState(() => _loadingClients = false);
   }
 }
+ 
+ 
   @override
   void initState() {
     super.initState();
