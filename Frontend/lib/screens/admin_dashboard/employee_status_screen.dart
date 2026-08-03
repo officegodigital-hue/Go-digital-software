@@ -70,15 +70,24 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     final daysLeft = row['daysLeft'] as int?;
 
     final priorityColors = _priorityColors(priority);
-    final statusInfo = _statusDisplay(rawStatus);
+    // final statusInfo = _statusDisplay(rawStatus);
     final timeInfo = _timeLeftDisplay(daysLeft);
 
     // FIX: new "completed/total" label, e.g. "5/12", from the backend's
     // completedRows/totalRows counts.
-    final completedRows = row['completedRows'] as int? ?? 0;
-    final totalRows = row['totalRows'] as int? ?? 0;
-    final completedLabel = '$completedRows/$totalRows';
-    final allDone = totalRows > 0 && completedRows >= totalRows;
+final completedRows = row['completedRows'] as int? ?? 0;
+final totalRows = row['totalRows'] as int? ?? 0;
+
+final holdRows = row['holdRows'] as int? ?? 0;
+final processingRows = row['processingRows'] as int? ?? 0;
+final notStartedRows = row['notStartedRows'] as int? ?? 0;
+
+final completedLabel = '$completedRows/$totalRows';
+final holdLabel = '$holdRows/$totalRows';
+final processingLabel = '$processingRows/$totalRows';
+final notStartedLabel = '$notStartedRows/$totalRows';
+
+final allDone = totalRows > 0 && completedRows >= totalRows;
 
     return {
       "client": row['clientName'] ?? '',
@@ -92,11 +101,15 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
       "date": _formatDate(row['submissionDate'] as String?),
       "timeLeft": timeInfo.$1,
       "timeColor": timeInfo.$2,
-      "status": statusInfo.$1,
-      "statusBg": statusInfo.$2,
-      "statusText": statusInfo.$3,
+      // "status": statusInfo.$1,
+      // "statusBg": statusInfo.$2,
+      // "statusText": statusInfo.$3,
       "completedLabel": completedLabel,
-      "completedAllDone": allDone,
+"completedAllDone": allDone,
+
+"holdTask": holdLabel,
+"processingTask": processingLabel,
+"notStartedTask": notStartedLabel,
     };
   }
 
@@ -379,13 +392,17 @@ const SizedBox(height: 20),
                   child: Row(
                     children: const [
                       Expanded(flex: 2, child: Text("CLIENT", style: _headerStyle)),
-                      Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _headerStyle)),
+                      Expanded(flex: 2, child: Text("EMPLOYEE NAME", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TIME/DURATION", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("PRIORITY", style: _headerStyle)),
-                      Expanded(flex: 3, child: Text("DUE DATE", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
+                      Expanded(flex: 2, child: Text("DUE DATE", style: _headerStyle)),
+                      // Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
+                      // Expanded(flex: 2, child: Text("COMPLETED TASK", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("COMPLETED TASK", style: _headerStyle)),
+Expanded(flex: 2, child: Text("HOLD TASK", style: _headerStyle)),
+Expanded(flex: 2, child: Text("PROCESSING TASK", style: _headerStyle)),
+Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
                     ],
                   ),
                 ),
@@ -434,7 +451,7 @@ const SizedBox(height: 20),
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 3,
+                                    flex: 2,
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -479,7 +496,7 @@ const SizedBox(height: 20),
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 3,
+                                    flex: 2,
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,37 +507,76 @@ const SizedBox(height: 20),
                                       ],
                                     ),
                                   ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                        decoration: BoxDecoration(color: row["statusBg"], borderRadius: BorderRadius.circular(4)),
-                                        child: Text(
-                                          row["status"],
-                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: row["statusText"], letterSpacing: 0.2),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                  // Expanded(
+                                  //   flex: 2,
+                                  //   child: Align(
+                                  //     alignment: Alignment.centerLeft,
+                                  //     child: Container(
+                                  //       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  //       decoration: BoxDecoration(color: row["statusBg"], borderRadius: BorderRadius.circular(4)),
+                                  //       child: Text(
+                                  //         row["status"],
+                                  //         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: row["statusText"], letterSpacing: 0.2),
+                                  //       ),
+                                  //     ),
+                                  //   ),
+                                  // ),
                                   // ── NEW: COMPLETED TASK COLUMN — e.g. "5/12" ──
-                                  Expanded(
-                                    flex: 2,
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Text(
-                                        row["completedLabel"],
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: row["completedAllDone"] == true
-                                              ? const Color(0xFF16A34A)
-                                              : const Color(0xFF334155),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+Expanded(
+  flex: 2,
+  child: Text(
+    row["completedLabel"],
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: row["completedAllDone"]
+          ? const Color(0xFF16A34A)
+          : const Color(0xFF334155),
+    ),
+  ),
+),
+
+Expanded(
+  flex: 2,
+  child: Text(
+    row["holdTask"],
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: row["holdTask"].toString().startsWith("0/")
+          ? const Color(0xFF64748B)
+          : const Color(0xFFD97706),
+    ),
+  ),
+),
+
+Expanded(
+  flex: 2,
+  child: Text(
+    row["processingTask"],
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: row["processingTask"].toString().startsWith("0/")
+          ? const Color(0xFF64748B)
+          : const Color(0xFF2563EB),
+    ),
+  ),
+),
+
+Expanded(
+  flex: 2,
+  child: Text(
+    row["notStartedTask"],
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: row["notStartedTask"].toString().startsWith("0/")
+          ? const Color(0xFF64748B)
+          : const Color(0xFFDC2626),
+    ),
+  ),
+),
                                 ],
                               ),
                             );

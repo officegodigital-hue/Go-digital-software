@@ -18,7 +18,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   final ScrollController _horizontalController = ScrollController();
 
   DateTime selectedDate = DateTime.now();
-  String selectedReportType = 'Morning'; // 'Morning' or 'Evening'
+  // String selectedReportType = 'Morning'; // 'Morning' or 'Evening'
   String dateFilterMode = 'Today'; // 'Today' or 'This Month'
   String searchQuery = '';
   String employeeDropdownFilter = 'All Employees';
@@ -54,9 +54,15 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
     try {
       // Corrected endpoint matching backend route prefix
+      // final subRes = await http.get(
+      //   Uri.parse('$_baseUrl/day-planner/submissions?date=$formattedDate&type=$selectedReportType'),
+      // );
+
       final subRes = await http.get(
-        Uri.parse('$_baseUrl/day-planner/submissions?date=$formattedDate&type=$selectedReportType'),
-      );
+  Uri.parse(
+    '$_baseUrl/day-planner/submissions?date=$formattedDate',
+  ),
+);
 
       if (subRes.statusCode == 200) {
         final subBody = jsonDecode(subRes.body);
@@ -172,20 +178,20 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           children: [
             Text('Day Planner Monitoring', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
             SizedBox(height: 4),
-            Text('Monitor employee morning & evening report submissions and review logs.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+            Text('Monitor employee day planner submissions and review logs.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
           ],
         ),
         Row(
           children: [
-            Container(
-              decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                children: [
-                  _tabButton('Morning', 'Morning'),
-                  _tabButton('Evening', 'Evening'),
-                ],
-              ),
-            ),
+            // Container(
+            //   decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(8)),
+            //   child: Row(
+            //     children: [
+            //       _tabButton('Morning', 'Morning'),
+            //       // _tabButton('Evening', 'Evening'),
+            //     ],
+            //   ),
+            // ),
             const SizedBox(width: 12),
             Row(
               children: [
@@ -253,23 +259,23 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
-  Widget _tabButton(String title, String type) {
-    bool isSelected = selectedReportType == type;
-    return GestureDetector(
-      onTap: () {
-        setState(() => selectedReportType = type);
-        _loadEmployeesAndSubmissions();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2A52BE) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : const Color(0xFF64748B))),
-      ),
-    );
-  }
+  // Widget _tabButton(String title, String type) {
+  //   bool isSelected = selectedReportType == type;
+  //   return GestureDetector(
+  //     onTap: () {
+  //       setState(() => selectedReportType = type);
+  //       _loadEmployeesAndSubmissions();
+  //     },
+  //     child: Container(
+  //       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+  //       decoration: BoxDecoration(
+  //         color: isSelected ? const Color(0xFF2A52BE) : Colors.transparent,
+  //         borderRadius: BorderRadius.circular(8),
+  //       ),
+  //       child: Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : const Color(0xFF64748B))),
+  //     ),
+  //   );
+  // }
 
   Widget _buildSummaryCards() {
     int totalCount = employeesList.length;

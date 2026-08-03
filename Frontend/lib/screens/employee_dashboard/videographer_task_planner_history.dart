@@ -30,6 +30,7 @@ List<VideographerHistoryItem> filteredRecords = [];
   final searchController = TextEditingController();
   String selectedMonth = "All";
   DateTime? selectedDate;
+  
 
   List<String> availableMonths = ["All"];
 
@@ -79,6 +80,7 @@ void initState() {
     receiverRole: e["receiver_role"] ?? "",
     receiverShort: e["receiver_short"] ?? "",
     sharedAt: e["shared_at"] ?? "",
+     status: e["status"] ?? "HOLD", 
   );
 }).toList();
 
@@ -172,6 +174,7 @@ for (var item in records) {
     VideographerHistoryItem item,
     String client,
     String scheduling,
+  String status,
 ) async {
     setState(() => loading = true);
     try {
@@ -184,6 +187,7 @@ for (var item in records) {
        body: jsonEncode({
   "clientName": client,
   "schedulingDetails": scheduling,
+  "status": status,
 }),
       );
 
@@ -191,6 +195,8 @@ for (var item in records) {
         showSnack("✅ Updated successfully", true);
         loadHistory();
       } else {
+        print(r.statusCode);
+  print(r.body);
         showSnack("❌ Failed to update", false);
         setState(() => loading = false);
       }
@@ -230,62 +236,100 @@ void showEditDialog(VideographerHistoryItem item) {
     text: item.schedulingDetails,
   );
 
+  String selectedStatus = item.status;
+
+  final List<String> statusOptions = [
+    "HOLD",
+    "PROCESS",
+    "COMPLETED",
+  ];
+
   showDialog(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text(
-        "Edit Task",
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: clientCtrl,
-              decoration: const InputDecoration(
-                labelText: "Client Name",
-                border: OutlineInputBorder(),
-              ),
+    builder: (ctx) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          title: const Text(
+            "Edit Task",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: clientCtrl,
+                  decoration: const InputDecoration(
+                    labelText: "Client Name",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: scheduleCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: "Scheduling Details",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                DropdownButtonFormField<String>(
+                  value: selectedStatus,
+                  decoration: const InputDecoration(
+                    labelText: "Status",
+                    border: OutlineInputBorder(),
+                  ),
+                  items: statusOptions.map((status) {
+                    return DropdownMenuItem(
+                      value: status,
+                      child: Text(status),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() {
+                        selectedStatus = value;
+                      });
+                    }
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: scheduleCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: "Scheduling Details",
-                border: OutlineInputBorder(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF004AAD),
+                foregroundColor: Colors.white,
               ),
+              onPressed: () {
+                Navigator.pop(ctx);
+
+                updateTask(
+                  item,
+                  clientCtrl.text.trim(),
+                  scheduleCtrl.text.trim(),
+                  selectedStatus,
+                );
+              },
+              child: const Text("Save"),
             ),
           ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text("Cancel"),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF004AAD),
-            foregroundColor: Colors.white,
-          ),
-          onPressed: () {
-            Navigator.pop(ctx);
-
-            updateTask(
-              item,
-              clientCtrl.text.trim(),
-              scheduleCtrl.text.trim(),
-            );
-          },
-          child: const Text("Save"),
-        ),
-      ],
+        );
+      },
     ),
   );
 }
+
 
   void showDeleteDialog(int id) {
     showDialog(
@@ -353,6 +397,12 @@ void showEditDialog(VideographerHistoryItem item) {
     if (idx < 1 || idx > 12) return value;
     return "${months[idx]} ${split[0]}";
   }
+
+  final List<String> statusOptions = [
+  "HOLD",
+  "PROCESS",
+  "COMPLETED",
+];
 
   @override
   Widget build(BuildContext context) {
@@ -479,6 +529,15 @@ void showEditDialog(VideographerHistoryItem item) {
         child: Center(child: Text("Shared To", style: _headerStyle)),
       ),
       SizedBox(
+  width: 130,
+  child: Center(
+    child: Text(
+      "Status",
+      style: _headerStyle,
+    ),
+  ),
+),
+      SizedBox(
         width: 150,
         child: Center(child: Text("Action", style: _headerStyle)),
       ),
@@ -587,6 +646,36 @@ else
             ),
           ),
         ),
+        SizedBox(
+  width: 130,
+  child: Center(
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: item.status == "COMPLETED"
+            ? Colors.green.shade100
+            : item.status == "PROCESS"
+                ? Colors.orange.shade100
+                : Colors.red.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        item.status,
+        style: TextStyle(
+          color: item.status == "COMPLETED"
+              ? Colors.green
+              : item.status == "PROCESS"
+                  ? Colors.orange
+                  : Colors.red,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ),
+  ),
+),
 
         SizedBox(
           width: 150,
@@ -599,7 +688,7 @@ else
                   tooltip: "Edit",
                   icon: const Icon(
                     Icons.edit,
-                    color: Color(0xFFF59E0B),
+                    color: Color.fromARGB(255, 11, 58, 245),
                   ),
                   onPressed: () => showEditDialog(item),
                 ),
@@ -637,6 +726,7 @@ class VideographerHistoryItem {
   final String sharedTo;
   final String receiverRole;
   final String receiverShort;
+  final String status;
   final String sharedAt;
 
   VideographerHistoryItem({
@@ -647,6 +737,7 @@ class VideographerHistoryItem {
     required this.receiverRole,
     required this.receiverShort,
     required this.sharedAt,
+    required this.status,
   });
 }
 

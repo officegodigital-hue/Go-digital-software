@@ -219,21 +219,44 @@ router.post('/', async (req, res) => {
       pageHandling: { employeeName: pageHandling, tasks: pagesPlatform },
     };
 
-    for (const { employeeName, tasks } of Object.values(assignments)) {
-      if (employeeName && employeeName.trim() !== '') {
-        try {
-          await createNotification({
-            senderName: assignedByName,
-            recipientName: employeeName,
-            message: `${assignedByName} assigned you a new task${tasks ? `: "${tasks}"` : ''} for ${clientName}.`,
-          });
-        } catch (notifyErr) {
-          console.error('⚠️ task-assign notification failed (non-fatal):', notifyErr.message);
+    // ✅ Task assign seiyum pothu (isAssigned true-a irunthal) notification send agum
+    if (isAssigned) {
+      const assignments = [
+        { employeeName: designer,     tasks: designerTasks },
+        { employeeName: videographer, tasks: videographerTasks },
+        { employeeName: videoEditor,  tasks: videoEditorTask },
+        { employeeName: uiUxDesigner, tasks: uiUxTasks },
+        { employeeName: developer,    tasks: developerTasks },
+        { employeeName: adsHandling,  tasks: adsPlatform },
+        { employeeName: pageHandling, tasks: pagesPlatform },
+      ];
+
+      for (const { employeeName, tasks } of assignments) {
+        if (employeeName && employeeName.trim() !== '' && employeeName.toUpperCase() !== 'NONE') {
+          try {
+            await createNotification({
+              senderName: assignedByName,
+              recipientName: employeeName,
+              message: JSON.stringify({
+                preview: `${assignedByName} assigned you a new task for ${clientName}`,
+                payload: {
+                  type: "TASK_ASSIGNED",
+                  sender: assignedByName,
+                  recipient: employeeName,
+                  client: clientName,
+                  taskName: tasks || deliverables,
+                }
+              }),
+            });
+          } catch (notifyErr) {
+            console.error('⚠️ task-assign notification failed:', notifyErr.message);
+          }
         }
       }
     }
 
     return res.status(201).json({ success: true, message: 'Task created', data: { id: result.insertId } });
+
   } catch (err) {
     console.error('POST /tasks ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });

@@ -1186,154 +1186,117 @@ content: SizedBox(
                         child: Container(
                           color: const Color(0xFFF9FAFB),
                           child: _loading
-                                    ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
-                                    : _filteredNotifications.isEmpty
-                                        ? const Center(child: Text("No messages or notifications found for this filter.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)))
-                                        : ListView.builder(
-                                            padding: const EdgeInsets.all(20),
-                                            itemCount: _filteredNotifications.length,
-                                            itemBuilder: (context, index) {
-                                              final log = _filteredNotifications[index];
-                                              final bool isSentByMe = log["type"] == "SENT";
-                                              final isSeen = log["isSeen"] as bool;
+                              ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
+                              : _filteredNotifications.isEmpty
+                                  ? const Center(child: Text("No messages or notifications found for this filter.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)))
+                                  : ListView.builder(
+                                      padding: const EdgeInsets.all(20),
+                                      itemCount: _filteredNotifications.length,
+                                      itemBuilder: (context, index) {
+                                        final log = _filteredNotifications[index];
+                                        // final bool isSentByMe = log["isSentByMe"] == true;
+                                        final bool isSentByMe = log["type"] == "SENT";
+                                        final isSeen = log["isSeen"] as bool;
 
-                                              // Date divider logic (WhatsApp style)
-                                              bool showDateDivider = false;
-                                              String currentDateLabel = log["time"] ?? ""; // Or group by raw date if available
-                                              
-                                              // Simple grouping check based on adjacent items if date strings match
-                                              if (index == 0) {
-                                                showDateDivider = true;
-                                              } else {
-                                                final prevLog = _filteredNotifications[index - 1];
-                                                if (prevLog["time"] != log["time"]) {
-                                                  showDateDivider = true;
-                                                }
-                                              }
-
-                                              return Column(
-                                                children: [
-                                                  if (showDateDivider) ...[
-                                                    Padding(
-                                                      padding: const EdgeInsets.symmetric(vertical: 12.0),
-                                                      child: Center(
-                                                        child: Container(
-                                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                        return Align(
+                                          alignment: isSentByMe ? Alignment.centerRight : Alignment.centerLeft,
+                                          child: Container(
+                                            margin: const EdgeInsets.symmetric(vertical: 6),
+                                            constraints: const BoxConstraints(maxWidth: 480),
+                                            child: InkWell(
+                                              onTap: () => _handleNotificationClick(log),
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(12),
+                                                decoration: BoxDecoration(
+                                                  color: isSentByMe ? const Color(0xFFEFF6FF) : Colors.white,
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                    color: isSentByMe ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0),
+                                                  ),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Wrap(
+  alignment: WrapAlignment.start,
+  crossAxisAlignment: WrapCrossAlignment.center,
+  spacing: 6,
+  runSpacing: 4,
+   children: [
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                           decoration: BoxDecoration(
-                                                            color: const Color(0xFFE2E8F0).withValues(alpha: 0.6),
-                                                            borderRadius: BorderRadius.circular(10),
+                                                            color: isSentByMe ? const Color(0xFF0052CC).withValues(alpha: 0.1) : const Color(0xFFEA580C).withValues(alpha: 0.1),
+                                                            borderRadius: BorderRadius.circular(4),
                                                           ),
                                                           child: Text(
-                                                            currentDateLabel,
-                                                            style: const TextStyle(
+                                                            log["category"],
+                                                            style: TextStyle(
                                                               fontSize: 10,
-                                                              fontWeight: FontWeight.w600,
-                                                              color: Color(0xFF64748B),
+                                                              fontWeight: FontWeight.w700,
+                                                              color: isSentByMe ? const Color(0xFF0052CC) : const Color(0xFFEA580C),
                                                             ),
                                                           ),
                                                         ),
-                                                      ),
+                                                        SizedBox(width:10),
+                                                        Text(
+                                                          log["name"],
+                                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    
+                                                    const SizedBox(height: 6),
+                                                    Text(
+                                                      log["message"],
+                                                      style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
+                                                    ),
+                                                    const SizedBox(height: 6),
+                                                    Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Text(
+                                                          log["time"],
+                                                          style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        IconButton(
+                                                          padding: EdgeInsets.zero,
+                                                          constraints: const BoxConstraints(),
+                                                          onPressed: () => _toggleFavorite(log),
+                                                          icon: Icon(
+                                                            log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
+                                                            color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
+                                                            size: 14,
+                                                          ),
+                                                        ),
+                                                        if (isSentByMe) ...[
+                                                          const SizedBox(width: 4),
+                                                          Icon(
+                                                            isSeen ? Icons.done_all : Icons.check,
+                                                            size: 14,
+                                                            // Single grey tick until recipient opens popup; double blue tick after they view it
+                                                            color: isSeen ? const Color(0xFF0052CC) : const Color(0xFF94A3B8),
+                                                          ),
+                                                        ],
+                                                        const SizedBox(width: 6),
+                                                        IconButton(
+                                                          padding: EdgeInsets.zero,
+                                                          constraints: const BoxConstraints(),
+                                                          onPressed: () => _deleteNotification(log),
+                                                          icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Color(0xFF94A3B8)),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ],
-                                                  Align(
-                                                    alignment: isSentByMe ? Alignment.centerRight : Alignment.centerLeft,
-                                                    child: Container(
-                                                      margin: const EdgeInsets.symmetric(vertical: 6),
-                                                      constraints: const BoxConstraints(maxWidth: 480),
-                                                      child: InkWell(
-                                                        onTap: () => _handleNotificationClick(log),
-                                                        borderRadius: BorderRadius.circular(12),
-                                                        child: Container(
-                                                          padding: const EdgeInsets.all(12),
-                                                          decoration: BoxDecoration(
-                                                            color: isSentByMe ? const Color(0xFFEFF6FF) : Colors.white,
-                                                            borderRadius: BorderRadius.circular(12),
-                                                            border: Border.all(
-                                                              color: isSentByMe ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0),
-                                                            ),
-                                                          ),
-                                                          child: Column(
-                                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                                            children: [
-                                                              Wrap(
-                                                                alignment: WrapAlignment.start,
-                                                                crossAxisAlignment: WrapCrossAlignment.center,
-                                                                spacing: 6,
-                                                                runSpacing: 4,
-                                                                children: [
-                                                                  Container(
-                                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                                    decoration: BoxDecoration(
-                                                                      color: isSentByMe ? const Color(0xFF0052CC).withValues(alpha: 0.1) : const Color(0xFFEA580C).withValues(alpha: 0.1),
-                                                                      borderRadius: BorderRadius.circular(4),
-                                                                    ),
-                                                                    child: Text(
-                                                                      log["category"],
-                                                                      style: TextStyle(
-                                                                        fontSize: 10,
-                                                                        fontWeight: FontWeight.w700,
-                                                                        color: isSentByMe ? const Color(0xFF0052CC) : const Color(0xFFEA580C),
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                                  const SizedBox(width: 10),
-                                                                  Text(
-                                                                    log["name"],
-                                                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                              const SizedBox(height: 6),
-                                                              Text(
-                                                                log["message"],
-                                                                style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
-                                                              ),
-                                                              const SizedBox(height: 6),
-                                                              Row(
-                                                                mainAxisSize: MainAxisSize.min,
-                                                                children: [
-                                                                  Text(
-                                                                    log["time"],
-                                                                    style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
-                                                                  ),
-                                                                  const SizedBox(width: 6),
-                                                                  IconButton(
-                                                                    padding: EdgeInsets.zero,
-                                                                    constraints: const BoxConstraints(),
-                                                                    onPressed: () => _toggleFavorite(log),
-                                                                    icon: Icon(
-                                                                      log["isFavorite"] ? Icons.star_rounded : Icons.star_border_rounded,
-                                                                      color: log["isFavorite"] ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
-                                                                      size: 14,
-                                                                    ),
-                                                                  ),
-                                                                  if (isSentByMe) ...[
-                                                                    const SizedBox(width: 4),
-                                                                    Icon(
-                                                                      isSeen ? Icons.done_all : Icons.check,
-                                                                      size: 14,
-                                                                      color: isSeen ? const Color(0xFF0052CC) : const Color(0xFF94A3B8),
-                                                                    ),
-                                                                  ],
-                                                                  const SizedBox(width: 6),
-                                                                  IconButton(
-                                                                    padding: EdgeInsets.zero,
-                                                                    constraints: const BoxConstraints(),
-                                                                    onPressed: () => _deleteNotification(log),
-                                                                    icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Color(0xFF94A3B8)),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
+                                                ),
+                                              ),
+                                            ),
                                           ),
+                                        );
+                                      },
+                                    ),
                         ),
                       ),
                     ],

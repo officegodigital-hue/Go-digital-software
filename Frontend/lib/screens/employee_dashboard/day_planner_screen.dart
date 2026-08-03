@@ -921,58 +921,28 @@ Future<bool> _confirmSubmit() async {
 }
 
 Future<void> _submitDay() async {
+  final confirm = await _confirmSubmit();
 
- final confirm = await _confirmSubmit();
+  if (!confirm) return;
 
-  if (!confirm) {
-    return;
-  }
-if (!_validateRows()) {
-  return;
-}
-  // 1. Check any unsaved row
-  final unsavedRows = filteredRows.where(
-    (row) => row['_editing'] == true,
-  ).toList();
+  if (!_validateRows()) return;
 
-
-  if (unsavedRows.isNotEmpty) {
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Please save all rows before submitting.',
-        ),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    return; // Stop submit
-  }
-
-
-  // 2. Set default status if empty
+  // Set default status if empty
   for (final row in filteredRows) {
-
     if ((row['status'] ?? '').toString().trim().isEmpty) {
       row['status'] = 'NOT START';
     }
 
+    // Ensure latest changes are saved before submit
+    await _saveRow(
+      row,
+      lockRow: false,
+      showMessage: false,
+    );
   }
 
-
-  // 3. Lock rows after validation
-  setState(() {
-    for (final row in filteredRows) {
-      row['_editing'] = false;
-    }
-  });
-
-
-  // 4. Submit to backend
+  // Submit to backend
   try {
-
     final response = await http.post(
       Uri.parse('$_baseUrl/day-planner/submit'),
       headers: {
@@ -981,43 +951,33 @@ if (!_validateRows()) {
       body: jsonEncode({
         'employeeName': employeeName,
         'date':
-        '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+            '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
       }),
     );
 
-
     if (response.statusCode == 200) {
+      await _checkDeadlineStatus();
 
-await _checkDeadlineStatus();
       ScaffoldMessenger.of(context).showSnackBar(
-        
         const SnackBar(
-          content: Text(
-            '✅ Day plan submitted & Admin notified!',
-          ),
+          content: Text('✅ Day plan submitted & Admin notified!'),
           backgroundColor: Color(0xFF16A34A),
           duration: Duration(seconds: 2),
         ),
       );
-
     } else {
-
       throw Exception('Failed to submit');
-
     }
-
-
   } catch (e) {
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Error: $e'),
         backgroundColor: Colors.red,
       ),
     );
-
   }
 }
+  
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 
   @override
@@ -1657,38 +1617,60 @@ if(showD6){
   return width;
 }
   
- Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
-
-  final current = (row['client'] ?? '').toString();
-
+Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
   return Container(
     height: 54,
-    padding: const EdgeInsets.symmetric(horizontal: 10),
-
+    padding: const EdgeInsets.symmetric(horizontal: 8),
     decoration: const BoxDecoration(
       color: Color(0xFF0052CC),
       border: Border(
-        bottom: BorderSide(
-          color: Color(0xFF0044B3),
-        ),
+        bottom: BorderSide(color: Color(0xFF0044B3)),
       ),
     ),
+    child: DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        isExpanded: true,
+        dropdownColor: Colors.white,
+        value: assignedClients.contains(row['client'])
+            ? row['client']
+            : null,
+        hint: const Text(
+          "Select Client",
+          style: TextStyle(color: Colors.white),
+        ),
+        icon: const Icon(
+          Icons.arrow_drop_down,
+          color: Colors.white,
+        ),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+        ),
+        items: assignedClients.map((client) {
+          return DropdownMenuItem(
+            value: client,
+            child: Text(client),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (value == null) return;
 
-    alignment: Alignment.centerLeft,
+          setState(() {
+            row['client'] = value;
 
-    child: Text(
-      current.isEmpty ? '—' : current,
+            row['maintenance_date'] =
+                clientMaintenanceDates[value] ?? '';
 
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: Colors.white,
+            _prefillRoleFieldsForClient(row, value);
+          });
+
+          _scheduleAutoSave(row);
+        },
       ),
-
-      overflow: TextOverflow.ellipsis,
     ),
   );
 }
+
   Color _getRowColor(String status) {
   switch (status.toUpperCase()) {
     case 'COMPLETE':
@@ -1722,7 +1704,9 @@ Widget _buildDataRow(
   bool showD5,
   bool showD6,
 ) {
-  final bool rowEditable = isTodayView && row['_editing'] == true;
+  // final bool rowEditable = isTodayView && row['_editing'] == true;
+
+  final bool rowEditable = isTodayView;
 
   return Row(
     children: [
@@ -1862,7 +1846,8 @@ Widget _buildDataRow(
     'remarks',
   ];
 
-  final canEdit = rowEditable && editableFields.contains(field);
+  // final canEdit = rowEditable && editableFields.contains(field);
+  final canEdit = editableFields.contains(field);
 
   return Container(
     width: width,
@@ -1983,9 +1968,11 @@ Widget _buildDataRow(
   ];
 
 
-  final canEdit =
-      isTodayView &&
-      editableDropdowns.contains(field);
+  // final canEdit =
+  //     isTodayView &&
+  //     editableDropdowns.contains(field);
+
+  final canEdit = editableDropdowns.contains(field);
 
 
 
@@ -2145,61 +2132,72 @@ Widget _buildDataRow(
   );
 }
  
-  Widget _actionCell(Map<String, dynamic> row, bool isTodayView, bool rowEditable) {
-    if (!isTodayView) {
-      return Container(
-        width: 130,
-        height: 54,
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-        ),
-      );
-    }
-
+ Widget _actionCell(
+  Map<String, dynamic> row,
+  bool isTodayView,
+  bool rowEditable,
+) {
+  if (!isTodayView) {
     return Container(
       width: 130,
       height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-  color: _getRowColor(
-    (row['status'] ?? '').toString(),
-  ),
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (rowEditable)
-            _smallActionButton(
-              label: 'SAVE',
-              color: const Color(0xFF16A34A),
-              icon: Icons.check,
-              onTap: () => _saveRow(row),
-            )
-          else
-            _smallActionButton(
-              label: 'EDIT',
-              color: const Color(0xFF0052CC),
-              icon: Icons.edit,
-              onTap: () => _editRow(row),
-            ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            // onTap: () => _deleteRow(row['id']),
-            onTap: () => _confirmDelete(row['id']),
-            child: Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(4)),
-              child: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFDC2626)),
-            ),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE2E8F0)),
+        ),
       ),
     );
   }
 
+  return Container(
+    width: 130,
+    height: 54,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: _getRowColor(
+        (row['status'] ?? '').toString(),
+      ),
+      border: const Border(
+        bottom: BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+
+        _smallActionButton(
+          label: "SAVE",
+          color: const Color(0xFF16A34A),
+          icon: Icons.save,
+          onTap: () => _saveRow(
+            row,
+            lockRow: false,
+            showMessage: true,
+          ),
+        ),
+
+        const SizedBox(width: 6),
+
+        GestureDetector(
+          onTap: () => _confirmDelete(row['id']),
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEE2E2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Icon(
+              Icons.delete_outline,
+              size: 14,
+              color: Color(0xFFDC2626),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 
   Widget _smallActionButton({required String label, required Color color, required IconData icon, required VoidCallback onTap}) {

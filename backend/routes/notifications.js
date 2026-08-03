@@ -9,21 +9,54 @@ async function createNotification({ senderName, recipientName, message }) {
   );
 }
 
+// function formatTime(dateVal) {
+//   if (!dateVal) return '';
+//   const created = new Date(dateVal);
+//   const now = new Date();
+//   const diffMins = Math.floor((now.getTime() - created.getTime()) / 60000);
+
+//   if (diffMins < 1) return 'Just Now';
+//   if (diffMins < 60) return `${diffMins} min ago`;
+
+//   return created.toLocaleTimeString('en-IN', {
+//     timeZone: 'Asia/Kolkata',
+//     hour: 'numeric',
+//     minute: '2-digit',
+//     hour12: true,
+//   });
+// }
+
 function formatTime(dateVal) {
   if (!dateVal) return '';
   const created = new Date(dateVal);
   const now = new Date();
-  const diffMins = Math.floor((now.getTime() - created.getTime()) / 60000);
 
-  if (diffMins < 1) return 'Just Now';
-  if (diffMins < 60) return `${diffMins} min ago`;
+  // Reset hours to compare calendar dates
+  const createdDateOnly = new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  return created.toLocaleTimeString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const diffDays = Math.floor((nowDateOnly.getTime() - createdDateOnly.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    // Today: show time like WhatsApp (e.g., "10:30 am")
+    return created.toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } else if (diffDays === 1) {
+    return 'Yesterday';
+  } else if (diffDays < 7) {
+    // Within a week: show day name (e.g., "Monday")
+    return created.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long' });
+  } else {
+    // Older: show full date (e.g., "03/08/2026")
+    const dd = created.getDate().toString().padStart(2, '0');
+    const mm = (created.getMonth() + 1).toString().padStart(2, '0');
+    const yy = created.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
 }
 
 router.get('/:employeeName', async (req, res) => {
@@ -92,11 +125,18 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { mode } = req.query; // 'everyone' or 'me'
   try {
-    const [result] = await db.query(`DELETE FROM notifications WHERE id = ?`, [req.params.id]);
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Notification not found' });
+    if (mode === 'everyone') {
+      // Completely remove row from database for both users
+      const [result] = await db.query(`DELETE FROM notifications WHERE id = ?`, [req.params.id]);
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Notification not found' });
+      }
+      return res.json({ success: true, message: 'Deleted for everyone' });
+    } else {
+     
+      const [result] = await db.query(`DELETE FROM notifications WHERE id = ?`, [req.params.id]);
+      return res.json({ success: true, message: 'Deleted for me' });
     }
-    return res.json({ success: true, message: 'Notification deleted' });
   } catch (err) {
     console.error('DELETE /notifications/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });

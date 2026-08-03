@@ -16,13 +16,11 @@ function formatDuration(seconds) {
 }
 
 // GET /api/admin/employee-status
+// GET /api/admin/employee-status
 router.get('/employee-status', async (req, res) => {
   try {
-    // FIX: added a completed/total row count per task, pulled from
-    // time_tracking_task_items — "5/12" means 5 of the 12 rows on that
-    // task_list entry currently have status = COMPLETED.
     const [rows] = await db.query(`
-     SELECT
+    SELECT
     tl.id AS task_list_id,
     tl.client_name,
     tl.employee_name,
@@ -31,28 +29,48 @@ router.get('/employee-status', async (req, res) => {
     tl.submission_date,
     tl.no_of_rows,
 
-    tti.status,
-
     COALESCE((
         SELECT SUM(duration_secs)
         FROM time_tracking_task_items
         WHERE task_list_id = tl.id
     ),0) AS total_duration_secs,
 
-    (
+    COALESCE((
         SELECT COUNT(*)
         FROM time_tracking_task_items
         WHERE task_list_id = tl.id
-          AND status = 'COMPLETED'
-    ) AS completed_rows
+        AND UPPER(status) = 'COMPLETED'
+    ), 0) AS completed_rows,
+
+    COALESCE((
+        SELECT COUNT(*)
+        FROM time_tracking_task_items
+        WHERE task_list_id = tl.id
+        AND (UPPER(status) = 'HOLD' OR UPPER(status) = 'ON HOLD')
+    ), 0) AS hold_rows,
+
+    COALESCE((
+        SELECT COUNT(*)
+        FROM time_tracking_task_items
+        WHERE task_list_id = tl.id
+        AND (UPPER(status) = 'PROCESSING' OR UPPER(status) = 'IN PROGRESS' OR UPPER(status) = 'RUNNING')
+    ), 0) AS processing_rows,
+
+    COALESCE((
+        SELECT COUNT(*)
+        FROM time_tracking_task_items
+        WHERE task_list_id = tl.id
+        AND (
+            UPPER(status) = 'NOT START'
+            OR UPPER(status) = 'IDLE'
+            OR UPPER(status) = 'NOT STARTED'
+            OR status IS NULL
+            OR TRIM(status) = ''
+        )
+    ), 0) AS not_started_rows
 
 FROM task_list tl
-
-LEFT JOIN time_tracking_task_items tti
-ON tti.task_list_id = tl.id
-AND tti.s_no = 1
-
-ORDER BY tl.submission_date ASC
+ORDER BY tl.submission_date ASC;
     `);
 
     const today = new Date();
@@ -68,7 +86,6 @@ ORDER BY tl.submission_date ASC
         }
       }
 
-      // No priority column exists yet — derived from urgency of the deadline.
       let priority = 'LOW';
       if (daysLeft !== null) {
         if (daysLeft <= 0) priority = 'URGENT';
@@ -77,27 +94,32 @@ ORDER BY tl.submission_date ASC
       }
 
       let duration = r.estimated_duration;
+      if (r.completed_rows > 0 || r.total_duration_secs > 0) {
+        duration = formatDuration(r.total_duration_secs);
+      }
 
-if (
-    r.status === 'IN PROGRESS' ||
-    r.status === 'COMPLETED'
-) {
-    duration = formatDuration(r.total_duration_secs);
-}
+      // Fallback: If no tracking items exist yet in the table, set all rows as 'Not Started'
+      let notStarted = r.not_started_rows;
+      const totalTracked = r.completed_rows + r.hold_rows + r.processing_rows + r.not_started_rows;
+      if (totalTracked === 0 && r.no_of_rows > 0) {
+        notStarted = r.no_of_rows;
+      }
 
-return {
-    taskListId: r.task_list_id,
-    clientName: r.client_name,
-    employeeName: r.employee_name || 'Unassigned',
-    task: r.task,
-    duration,
-    submissionDate: r.submission_date,
-    daysLeft,
-    priority,
-    status: r.status || 'IDLE',
-    completedRows: r.completed_rows || 0,
-    totalRows: r.no_of_rows || 0,
-};
+      return {
+        taskListId: r.task_list_id,
+        clientName: r.client_name,
+        employeeName: r.employee_name || 'Unassigned',
+        task: r.task,
+        duration,
+        submissionDate: r.submission_date,
+        daysLeft,
+        priority,
+        completedRows: r.completed_rows || 0,
+        holdRows: r.hold_rows || 0,
+        processingRows: r.processing_rows || 0,
+        notStartedRows: notStarted,
+        totalRows: r.no_of_rows || 1,
+      };
     });
 
     return res.json({ success: true, data });
