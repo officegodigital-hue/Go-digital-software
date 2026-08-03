@@ -144,53 +144,64 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   // ── FETCH CLIENTS FROM INVOICES TABLE ──────────────────────────────────
-  Future<void> _fetchClientsFromInvoices() async {
+Future<void> _fetchClientsFromInvoices() async {
   setState(() => _loadingClients = true);
+
   try {
     final r = await http.get(Uri.parse('$_baseUrl/invoices'));
+
     if (r.statusCode == 200) {
-      final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
-      
-      // ✅ NEW: Get current month and year
-      final now = DateTime.now();
-      final currentMonth = now.month;
-      final currentYear = now.year;
-      
+      final data =
+          List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+
+      final today = DateTime.now();
+      final currentDate = DateTime(
+        today.year,
+        today.month,
+        today.day,
+      );
+
       final uniqueClients = <String>{};
-      
+
       for (var invoice in data) {
-        // ✅ NEW: Parse invoice date and check if it's from current month
-        final invoiceDate = invoice['invoice_date']?.toString() ?? '';
-        
-        if (invoiceDate.isNotEmpty) {
-          try {
-            // Parse date in format dd/MM/yyyy
-            final dateParts = invoiceDate.split('/');
-            if (dateParts.length == 3) {
-              final day = int.parse(dateParts[0]);
-              final month = int.parse(dateParts[1]);
-              final year = int.parse(dateParts[2]);
-              
-              // ✅ NEW: Only include clients with invoices from current month
-              if (month == currentMonth && year == currentYear) {
-                final clientName = invoice['client_name']?.toString() ?? '';
-                if (clientName.isNotEmpty) {
-                  uniqueClients.add(clientName);
-                }
+        final maintenanceDate =
+            invoice['maintenance_date']?.toString() ?? '';
+
+        if (maintenanceDate.isEmpty) continue;
+
+        try {
+          final dateParts = maintenanceDate.split('/');
+
+          if (dateParts.length == 3) {
+            final maintenance = DateTime(
+              int.parse(dateParts[2]), // year
+              int.parse(dateParts[1]), // month
+              int.parse(dateParts[0]), // day
+            );
+
+            // ✅ Today and Future only
+            if (!maintenance.isBefore(currentDate)) {
+              final clientName =
+                  invoice['client_name']?.toString() ?? '';
+
+              if (clientName.isNotEmpty) {
+                uniqueClients.add(clientName);
               }
             }
-          } catch (e) {
-            debugPrint('Error parsing date: $invoiceDate - $e');
           }
+        } catch (e) {
+          debugPrint(
+              'Error parsing maintenance date: $maintenanceDate - $e');
         }
       }
-      
+
       setState(() {
-        clients = uniqueClients.toList();
+        clients = uniqueClients.toList()..sort();
         _loadingClients = false;
       });
-      
-      debugPrint('✅ Loaded ${clients.length} unique clients from CURRENT MONTH invoices');
+
+      debugPrint(
+          '✅ Loaded ${clients.length} clients with valid maintenance dates');
     } else {
       setState(() => _loadingClients = false);
     }
@@ -199,7 +210,6 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     setState(() => _loadingClients = false);
   }
 }
-
   // ── FETCH TASK MASTER (Task roles and their tasks) ──────────────────────
   Future<void> _fetchTaskMaster() async {
     setState(() => _loadingTaskMaster = true);

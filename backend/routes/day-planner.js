@@ -42,6 +42,17 @@ router.get('/', async (req, res) => {
       complete_deliverables_3: r.complete_deliverables_3 || '',
       balanced_deliverables_3: r.balanced_deliverables_3 || '',
 
+      deliverables_4: r.deliverables_4 || '',
+      complete_deliverables_4: r.complete_deliverables_4 || '',
+      balanced_deliverables_4: r.balanced_deliverables_4 || '',
+
+      deliverables_5: r.deliverables_5 || '',
+      complete_deliverables_5: r.complete_deliverables_5 || '',
+      balanced_deliverables_5: r.balanced_deliverables_5 || '',
+
+      deliverables_6: r.deliverables_6 || '',
+      complete_deliverables_6: r.complete_deliverables_6 || '',
+      balanced_deliverables_6: r.balanced_deliverables_6 || '',
       today_plan: r.today_plan || '',
       status: r.status || '',
       remarks: r.remarks || '',
@@ -62,6 +73,9 @@ router.post('/', async (req, res) => {
     deliverables1, completeDeliverables1, balancedDeliverables1,
     deliverables2, completeDeliverables2, balancedDeliverables2,
     deliverables3, completeDeliverables3, balancedDeliverables3,
+    deliverables4, completeDeliverables4, balancedDeliverables4,
+    deliverables5, completeDeliverables5, balancedDeliverables5,
+    deliverables6, completeDeliverables6, balancedDeliverables6,
     todayPlan, status, remarks,
   } = req.body;
 
@@ -76,14 +90,20 @@ router.post('/', async (req, res) => {
          deliverables_1, complete_deliverables_1, balanced_deliverables_1,
          deliverables_2, complete_deliverables_2, balanced_deliverables_2,
          deliverables_3, complete_deliverables_3, balanced_deliverables_3,
+         deliverables_4, complete_deliverables_4, balanced_deliverables_4,
+         deliverables_5, complete_deliverables_5, balanced_deliverables_5,
+         deliverables_6, complete_deliverables_6, balanced_deliverables_6,
          today_plan, status, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         employeeName, employeeRole || null, date, reportType || "Morning", client || null, maintenanceDate || null, ads || null,
         todayLeads || null, todayReport || null,
         deliverables1 || null, completeDeliverables1 || null, balancedDeliverables1 || null,
         deliverables2 || null, completeDeliverables2 || null, balancedDeliverables2 || null,
         deliverables3 || null, completeDeliverables3 || null, balancedDeliverables3 || null,
+        deliverables4 || null, completeDeliverables4 || null, balancedDeliverables4 || null,
+        deliverables5 || null, completeDeliverables5 || null, balancedDeliverables5 || null,
+        deliverables6 || null, completeDeliverables6 || null, balancedDeliverables6 || null,
         todayPlan || null, status || null, remarks || null,
       ]
     );
@@ -131,6 +151,9 @@ router.put('/:id', async (req, res) => {
     deliverables1, completeDeliverables1, balancedDeliverables1,
     deliverables2, completeDeliverables2, balancedDeliverables2,
     deliverables3, completeDeliverables3, balancedDeliverables3,
+    deliverables4, completeDeliverables4, balancedDeliverables4,
+    deliverables5, completeDeliverables5, balancedDeliverables5,
+    deliverables6, completeDeliverables6, balancedDeliverables6,
     todayPlan, status, remarks,
   } = req.body;
 
@@ -141,6 +164,9 @@ router.put('/:id', async (req, res) => {
         deliverables_1 = ?, complete_deliverables_1 = ?, balanced_deliverables_1 = ?,
         deliverables_2 = ?, complete_deliverables_2 = ?, balanced_deliverables_2 = ?,
         deliverables_3 = ?, complete_deliverables_3 = ?, balanced_deliverables_3 = ?,
+        deliverables_4 = ?, complete_deliverables_4 = ?, balanced_deliverables_4 = ?,
+        deliverables_5 = ?, complete_deliverables_5 = ?, balanced_deliverables_5 = ?,
+        deliverables_6 = ?, complete_deliverables_6 = ?, balanced_deliverables_6 = ?,
         today_plan = ?, status = ?, remarks = ?
        WHERE id = ?`,
       [
@@ -148,6 +174,9 @@ router.put('/:id', async (req, res) => {
         deliverables1 || null, completeDeliverables1 || null, balancedDeliverables1 || null,
         deliverables2 || null, completeDeliverables2 || null, balancedDeliverables2 || null,
         deliverables3 || null, completeDeliverables3 || null, balancedDeliverables3 || null,
+        deliverables4 || null, completeDeliverables4 || null,balancedDeliverables4 || null,
+        deliverables5 || null, completeDeliverables5 || null, balancedDeliverables5 || null,
+        deliverables6 || null, completeDeliverables6 || null, balancedDeliverables6 || null,
         todayPlan || null, status || null, remarks || null,
         id,
       ]
@@ -496,6 +525,17 @@ router.get("/today/:employee", async (req, res) => {
       deliverables_3: r.deliverables_3 || '',
       complete_deliverables_3: r.complete_deliverables_3 || '',
       balanced_deliverables_3: r.balanced_deliverables_3 || '',
+      deliverables_4: r.deliverables_4 || '',
+      complete_deliverables_4: r.complete_deliverables_4 || '',
+      balanced_deliverables_4: r.balanced_deliverables_4 || '',
+
+      deliverables_5: r.deliverables_5 || '',
+      complete_deliverables_5: r.complete_deliverables_5 || '',
+      balanced_deliverables_5: r.balanced_deliverables_5 || '',
+
+      deliverables_6: r.deliverables_6 || '',
+      complete_deliverables_6: r.complete_deliverables_6 || '',
+      balanced_deliverables_6: r.balanced_deliverables_6 || '',
       today_plan: r.today_plan || '',
       report_type: r.report_type,
       status: r.status || '',

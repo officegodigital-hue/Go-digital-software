@@ -9,6 +9,7 @@ import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/employee_dashboard/designer_dashboard_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/ads_handler_dashboard_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/page_handler_dashboard_page.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/assigned_tasks_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/day_planner_screen.dart';
@@ -95,7 +96,7 @@ void initState() {
         // return PageHandlerDashboardPage(
         //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
         // );
-        return VideographerDashboardPage(
+        return PageHandlerDashboardPage(
   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
   onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
 );

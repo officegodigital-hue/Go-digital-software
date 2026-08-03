@@ -328,7 +328,7 @@ router.post('/:id/restart', async (req, res) => {
   } catch (err) {
     console.error('POST /tracking-items/:id/restart ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
-  }
+  } 
 });
 
 // POST /api/tracking-items/:id/complete

@@ -159,7 +159,7 @@ Future<void> _fetchClientsFromInvoices() async {
 
       for (final invoice in data) {
         final invoiceDate =
-            invoice["invoice_date"]?.toString() ?? "";
+            invoice["maintenance_date"]?.toString() ?? "";
 
         if (invoiceDate.isEmpty) continue;
 

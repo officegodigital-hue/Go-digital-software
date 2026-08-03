@@ -144,8 +144,13 @@ if (n.statusCode == 200) {
         setState(() {
           assignedClients  = data['assignedClients'] as int? ?? 0;
           activeClients     = data['activeClients'] as int? ?? 0;
-          taskPending        = data['taskPending'] as int? ?? 0;
-          upcomingDeadlines  = data['upcomingDeadlines'] as int? ?? 0;
+         taskPending = int.tryParse(
+  data['taskPending']?.toString() ?? '0',
+) ?? 0;
+
+upcomingDeadlines = int.tryParse(
+  data['upcomingDeadlines']?.toString() ?? '0',
+) ?? 0;
           approved = productivity['approved'] ?? 0;
 rework = productivity['rework'] ?? 0;
 rejected = productivity['rejected'] ?? 0;

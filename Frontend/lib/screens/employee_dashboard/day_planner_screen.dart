@@ -21,9 +21,39 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 
   final ScrollController _horizontalController = ScrollController();
 
+   int get totalClients => filteredRows.length;
+
+  int get completeCount =>
+      filteredRows.where((e) => (e['status'] ?? '') == 'COMPLETE').length;
+
+  int get pendingCount =>
+      filteredRows.where((e) => (e['status'] ?? '') == 'PENDING').length;
+
+  int get processingCount =>
+      filteredRows.where((e) => (e['status'] ?? '') == 'PROCESSING').length;
+
+  int get holdCount =>
+      filteredRows.where((e) => (e['status'] ?? '') == 'HOLD').length;
+
+  int get notStartCount =>
+      filteredRows.where((e) => (e['status'] ?? '') == 'NOT START').length;
+
+
   DateTime selectedDate = DateTime.now();
   String employeeName = '';
   String employeeRole = '';
+  Timer? _autoSaveTimer;
+
+
+  final TextEditingController _searchController = TextEditingController();
+
+  double get completionPercentage {
+  if (dayPlanRows.isEmpty) return 0;
+
+  return completeCount / dayPlanRows.length;
+}
+
+String _searchText = '';
 
   bool _hasAdsColumn() {
   for (final client in assignedClients) {
@@ -64,67 +94,39 @@ List<Map<String, dynamic>> additionalTasks = [];
 
   String _deadlineLevel = 'none'; // 'none' | 'warning' | 'urgent' | 'admin_notified'
 
-// Update your function signature and logic
-// String buildProgress(String taskString, {int completed = 0, bool balance = false}) {
-//   if (taskString.trim().isEmpty) return '';
 
-//   List<String> result = [];
-
-//   for (final part in taskString.split(',')) {
-//     final item = part.trim();
-//     final match = RegExp(r'^(.*?)\((\d+)\)$').firstMatch(item);
-
-//     String task;
-//     int total;
-
-//     if (match != null) {
-//       task = match.group(1)!.trim();
-//       total = int.parse(match.group(2)!);
-//     } else {
-//       task = item;
-//       total = 1; 
-//     }
-
-//     result.add(
-//       balance
-//           ? '$task(${total - completed}/$total)'
-//           : '$task($completed/$total)',
-//     );
-//   }
-
-//   return result.join(', ');
-// }
- 
-  // FIX: rows now carry a local '_editing' flag. New rows start unlocked
-  // (editable) so you can fill them in immediately; existing/previously
-  // saved rows start locked (read-only) until Edit is tapped, then Save
-  // locks them again. This is the Edit/Save workflow that was missing.
-  List<Map<String, dynamic>> dayPlanRows = [
-    // {
-    //   'id': 1,
-    //   'date': DateTime.now(),
-    //   'client': '',
-    //   'ads': '',
-    //   'today_leads': '',
-    //   'today_report': '',
-    //   'deliverables_1': '',
-    //   'complete_deliverables_1': '',
-    //   'balanced_deliverables_1': '',
-    //   'deliverables_2': '',
-    //   'complete_deliverables_2': '',
-    //   'balanced_deliverables_2': '',
-    //   'deliverables_3': '',
-    //   'complete_deliverables_3': '',
-    //   'balanced_deliverables_3': '',
-    //   'today_plan': '',
-    //   'status': '',
-    //   'remarks': '',
-    //   '_editing': true,
-    // },
-  ];
+  List<Map<String, dynamic>> dayPlanRows = [];
 
 bool _didInitialLoad = false;
 
+bool _validateRows() {
+  for (final row in filteredRows) {
+    // if ((row['client'] ?? '').toString().trim().isEmpty) {
+    //   _showValidationMessage("Please select a client.");
+    //   return false;
+    // }
+
+    if ((row['today_plan'] ?? '').toString().trim().isEmpty) {
+      _showValidationMessage("Please enter today's plan.");
+      return false;
+    }
+
+    if ((row['status'] ?? '').toString().trim().isEmpty) {
+      _showValidationMessage("Please select status.");
+      return false;
+    }
+  }
+
+  return true;
+}
+void _showValidationMessage(String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.orange,
+    ),
+  );
+}
   @override
   void initState() {
     super.initState();
@@ -137,6 +139,8 @@ bool _didInitialLoad = false;
   @override
   void dispose() {
     _horizontalController.dispose();
+    _autoSaveTimer?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -157,6 +161,24 @@ bool _didInitialLoad = false;
   _checkDeadlineStatus();
     }
   }
+
+void _scheduleAutoSave(Map<String, dynamic> row) {
+  _autoSaveTimer?.cancel();
+
+  _autoSaveTimer = Timer(
+    const Duration(seconds: 2),
+    () async {
+      if (row['id'] != null) {
+  await _saveRow(
+    row,
+    lockRow: false,
+    showMessage: false,
+  );
+}
+    },
+  );
+}
+
 Future<void> _checkDeadlineStatus() async {
     if (employeeName.isEmpty) return;
     try {
@@ -220,8 +242,8 @@ Future<void> _checkDeadlineStatus() async {
   }
 
 void _prefillRoleFieldsForClient(
-    Map<String, dynamic> row,
-    String clientName,
+  Map<String, dynamic> row,
+  String clientName,
 ) {
   final auth = Provider.of<AuthService>(context, listen: false);
 
@@ -230,33 +252,24 @@ void _prefillRoleFieldsForClient(
 
   if (myName.isEmpty) return;
 
-  // Clear previous values
-  // row['ads'] = '';
-  // row['deliverables_1'] = '';
-  // row['deliverables_2'] = '';
-  // row['deliverables_3'] = '';
-
   row['ads'] = '';
 
-for(int i=1;i<=3;i++){
-
- row['deliverables_$i'] = '';
-
- row['complete_deliverables_$i'] = '';
-
- row['balanced_deliverables_$i'] = '';
-
-}
+  // Clear all deliverables
+  for (int i = 1; i <= 6; i++) {
+    row['deliverables_$i'] = '';
+    row['complete_deliverables_$i'] = '';
+    row['balanced_deliverables_$i'] = '';
+  }
 
   final clientTasks = assignedTasks.where(
-    (task) =>
-        (task['client_name'] ?? '').toString() == clientName,
+    (task) => (task['client_name'] ?? '').toString() == clientName,
   );
 
-  for (final task in clientTasks) {
+  int nextIndex = 1;
 
+  for (final task in clientTasks) {
     //---------------------------------------------
-    // ADS HANDLER
+    // ADS
     //---------------------------------------------
     final adsEmployee =
         (task['ads_handling'] ?? '').toString().trim().toUpperCase();
@@ -266,10 +279,16 @@ for(int i=1;i<=3;i++){
     }
 
     //---------------------------------------------
-    // PAGE HANDLER
+    // PAGE
     //---------------------------------------------
     final pageEmployee =
         (task['page_handling'] ?? '').toString().trim().toUpperCase();
+
+    if (pageEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['pages_platform'] ?? '').toString();
+      nextIndex++;
+    }
 
     //---------------------------------------------
     // DESIGNER
@@ -277,71 +296,50 @@ for(int i=1;i<=3;i++){
     final designerEmployee =
         (task['designer'] ?? '').toString().trim().toUpperCase();
 
-    final pageTask =
-        (task['pages_platform'] ?? '').toString();
-
-    final designerTask =
-        (task['designer_tasks'] ?? '').toString();
-
-    bool isPageAssigned = pageEmployee == myName;
-    bool isDesignerAssigned = designerEmployee == myName;
-
-    //---------------------------------------------
-    // ONLY PAGE HANDLER
-    //---------------------------------------------
-    if (isPageAssigned && !isDesignerAssigned) {
-
-      row['deliverables_1'] = pageTask;
-
+    if (designerEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['designer_tasks'] ?? '').toString();
+      nextIndex++;
     }
 
     //---------------------------------------------
-    // ONLY DESIGNER
-    //---------------------------------------------
-    else if (!isPageAssigned && isDesignerAssigned) {
-
-      row['deliverables_1'] = designerTask;
-
-    }
-
-    //---------------------------------------------
-    // BOTH PAGE + DESIGNER
-    //---------------------------------------------
-    else if (isPageAssigned && isDesignerAssigned) {
-
-      row['deliverables_1'] = pageTask;
-
-      row['deliverables_2'] = designerTask;
-
-    }
-
-    //---------------------------------------------
-    // VIDEOGRAPHER (optional)
+    // VIDEOGRAPHER
     //---------------------------------------------
     final videoEmployee =
         (task['videographer'] ?? '').toString().trim().toUpperCase();
 
-    if (videoEmployee == myName) {
-      row['deliverables_3'] =
-          task['videographer_tasks'] ?? '';
+    if (videoEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['videographer_tasks'] ?? '').toString();
+      nextIndex++;
     }
 
     //---------------------------------------------
-    // DEVELOPER (optional)
+    // VIDEO EDITOR
+    //---------------------------------------------
+    final editorEmployee =
+        (task['video_editor'] ?? '').toString().trim().toUpperCase();
+
+    if (editorEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['video_editor_task'] ?? '').toString();
+      nextIndex++;
+    }
+
+    //---------------------------------------------
+    // DEVELOPER
     //---------------------------------------------
     final developerEmployee =
         (task['developer'] ?? '').toString().trim().toUpperCase();
 
-    if (developerEmployee == myName &&
-        (row['deliverables_3'] ?? '').toString().isEmpty) {
-
-      row['deliverables_3'] =
-          task['developer_tasks'] ?? '';
-
+    if (developerEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['developer_tasks'] ?? '').toString();
+      nextIndex++;
     }
 
     //---------------------------------------------
-    // UI UX (optional)
+    // UI UX
     //---------------------------------------------
     final uiuxEmployee =
         (task['ui_ux_designer'] ?? '')
@@ -349,76 +347,75 @@ for(int i=1;i<=3;i++){
             .trim()
             .toUpperCase();
 
-    if (uiuxEmployee == myName &&
-        (row['deliverables_3'] ?? '').toString().isEmpty) {
-
-      row['deliverables_3'] =
-          task['ui_ux_tasks'] ?? '';
-
+    if (uiuxEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['ui_ux_tasks'] ?? '').toString();
+      nextIndex++;
     }
-
-  
   }
 
-    final addTasks = additionalTasks.where(
-  (e) => (e['client_name'] ?? '') == clientName,
-).toList();
+  //---------------------------------------------
+  // ADDITIONAL TASKS
+  //---------------------------------------------
+  final addTasks = additionalTasks.where(
+    (e) => (e['client_name'] ?? '') == clientName,
+  );
 
-int nextIndex = 1;
+  for (final task in addTasks) {
+    if (nextIndex > 6) break;
 
-while (nextIndex <= 3 &&
-    (row['deliverables_$nextIndex'] ?? '').toString().isNotEmpty) {
-  nextIndex++;
-}
+    final total = int.tryParse(
+          task['no_of_rows'].toString(),
+        ) ??
+        1;
 
-for (final task in addTasks) {
-  if (nextIndex > 3) break;
+    final taskName = (task['deliverables'] ?? '').toString();
 
-  row['deliverables_$nextIndex'] =
-      "${task['deliverables']} (${task['no_of_rows']})";
+    row['deliverables_$nextIndex'] = "$taskName ($total)";
+    row['complete_deliverables_$nextIndex'] =
+        "$taskName (0/$total)";
+    row['balanced_deliverables_$nextIndex'] =
+        "$taskName ($total/$total)";
 
-  row['complete_deliverables_$nextIndex'] =
-      "${task['completed_count']}/${task['no_of_rows']}";
+    nextIndex++;
+  }
 
-  row['balanced_deliverables_$nextIndex'] =
-      "${task['balance_count']}/${task['no_of_rows']}";
-
-  nextIndex++;
-}
-
-// AUTO SET COMPLETE & BALANCE COUNT
-
-for (int i = 1; i <= 3; i++) {
-
+  //---------------------------------------------
+  // DEFAULT COMPLETE / BALANCE
+  //---------------------------------------------
+for (int i = 1; i <= 6; i++) {
   final deliverable =
       (row['deliverables_$i'] ?? '').toString().trim();
 
   if (deliverable.isNotEmpty) {
 
-    final match = RegExp(r'\((\d+)\)').firstMatch(deliverable);
+    final deliverableList = deliverable
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
 
-    int total = 1;
+    int total = deliverableList.length;
 
-    if (match != null) {
-      total = int.tryParse(match.group(1)!) ?? 1;
+    final completeList = <String>[];
+    final balancedList = <String>[];
+
+    for (final taskName in deliverableList) {
+
+      // default logic
+      completeList.add(taskName);
+      balancedList.add(taskName);
     }
 
-final taskName = deliverable.split('(').first.trim();
+    row['complete_deliverables_$i'] =
+        "${completeList.join(', ')} (0/$total)";
 
-row['complete_deliverables_$i'] =
-    "$taskName (0/$total)";
+    row['balanced_deliverables_$i'] =
+        "${balancedList.join(', ')} ($total/$total)";
 
-row['balanced_deliverables_$i'] =
-    "$taskName ($total/$total)";
-    // row['complete_deliverables_$i'] = "0/$total";
 
-    // row['balanced_deliverables_$i'] = "$total/$total";
-
-  } else {
-
-    row['complete_deliverables_$i'] = '';
-    row['balanced_deliverables_$i'] = '';
-
+    print(row['complete_deliverables_$i']);
+    print(row['balanced_deliverables_$i']);
   }
 }
 
@@ -438,7 +435,7 @@ Future<void> loadTodayDayPlan() async {
 
       setState(() {
         dayPlanRows.clear();
-
+ 
         for (final item in data) {
           dayPlanRows.add({
             'id': item['id'],
@@ -458,6 +455,17 @@ Future<void> loadTodayDayPlan() async {
             'deliverables_3': item['deliverables_3'] ?? '',
             'complete_deliverables_3': item['complete_deliverables_3'] ?? '',
             'balanced_deliverables_3': item['balanced_deliverables_3'] ?? '',
+            'deliverables_4': item['deliverables_4'] ?? '',
+'complete_deliverables_4': item['complete_deliverables_4'] ?? '',
+'balanced_deliverables_4': item['balanced_deliverables_4'] ?? '',
+
+'deliverables_5': item['deliverables_5'] ?? '',
+'complete_deliverables_5': item['complete_deliverables_5'] ?? '',
+'balanced_deliverables_5': item['balanced_deliverables_5'] ?? '',
+
+'deliverables_6': item['deliverables_6'] ?? '',
+'complete_deliverables_6': item['complete_deliverables_6'] ?? '',
+'balanced_deliverables_6': item['balanced_deliverables_6'] ?? '',
             'today_plan': item['today_plan'] ?? '',
             'status': item['status'] ?? '',
             'remarks': item['remarks'] ?? '',
@@ -465,30 +473,6 @@ Future<void> loadTodayDayPlan() async {
           });
         }
 
-        // Only add an empty row if the list is empty AND we are looking at today's date
-      //   if (dayPlanRows.isEmpty && isToday()) {
-      //     dayPlanRows.add({
-      //       'id': DateTime.now().millisecondsSinceEpoch,
-      //       'date': selectedDate, // Use selectedDate instead of DateTime.now()
-      //       'client': '',
-      //       'ads': '',
-      //       'today_leads': '',
-      //       'today_report': '',
-      //       'deliverables_1': '',
-      //       'complete_deliverables_1': '',
-      //       'balanced_deliverables_1': '',
-      //       'deliverables_2': '',
-      //       'complete_deliverables_2': '',
-      //       'balanced_deliverables_2': '',
-      //       'deliverables_3': '',
-      //       'complete_deliverables_3': '',
-      //       'balanced_deliverables_3': '',
-      //       'today_plan': '',
-      //       'status': '',
-      //       'remarks': '',
-      //       '_editing': true, // New rows start as editable
-      //     });
-      //   }
       });
     } 
     else {
@@ -619,6 +603,7 @@ String _formatMaintenanceDate(String value) {
       return d.year == selectedDate.year && d.month == selectedDate.month && d.day == selectedDate.day;
     }).toList();
   }
+  
 
  Future<void> loadProgress(Map<String, dynamic> row) async {
   final response = await http.get(
@@ -639,7 +624,7 @@ String _formatMaintenanceDate(String value) {
     //   row["balanced_deliverables_$index"] = buildProgress(list[i]["deliverable"], completed: completed, balance: true);
     // }
 
-    for (int i = 0; i < list.length && i < 3; i++) {
+    for (int i = 0; i < list.length && i < 6; i++) {
   final int index = i + 1;
 
   row["deliverables_$index"] = list[i]["deliverable"];
@@ -652,36 +637,7 @@ String _formatMaintenanceDate(String value) {
     setState(() {});
   }
 }
-  // void _addRow() {
-  //   setState(() {
-  //     dayPlanRows.add({
-  //       'id': DateTime.now().millisecondsSinceEpoch,
-  //       'date': selectedDate,
-  //       'client': assignedClients.isNotEmpty ? assignedClients.first : '',
-  //       'ads': '',
-  //       'today_leads': '',
-  //       'today_report': '',
-  //       'deliverables_1': '',
-  //       'complete_deliverables_1': '',
-  //       'balanced_deliverables_1': '',
-  //       'deliverables_2': '',
-  //       'complete_deliverables_2': '',
-  //       'balanced_deliverables_2': '',
-  //       'deliverables_3': '',
-  //       'complete_deliverables_3': '',
-  //       'balanced_deliverables_3': '',
-  //       'today_plan': '',
-  //       'status': '',
-  //       'remarks': '',
-  //       'date': selectedDate,
-  //       '_editing': true,
-  //     });
-  //   });
-  // }
-
-  // FIX: this now actually creates the row on the backend first and uses
-  // the REAL database id — the fake millisecond id was why new rows always
-  // failed to save (PUT to a nonexistent id returns 404 silently).
+ 
   Future<void> _addRow() async {
     try {
       final r = await http.post(
@@ -699,17 +655,43 @@ String _formatMaintenanceDate(String value) {
         final body = jsonDecode(r.body);
         final newId = body['data']['id'];
         setState(() {
-          dayPlanRows.add({
-            'id': newId,
-            'date': selectedDate,
-            'client': assignedClients.isNotEmpty ? assignedClients.first : '',
-            'ads': '', 'today_leads': '', 'today_report': '',
-            'deliverables_1': '', 'complete_deliverables_1': '', 'balanced_deliverables_1': '',
-            'deliverables_2': '', 'complete_deliverables_2': '', 'balanced_deliverables_2': '',
-            'deliverables_3': '', 'complete_deliverables_3': '', 'balanced_deliverables_3': '',
-            'today_plan': '', 'status': '', 'remarks': '',
-            '_editing': true,
-          });
+         dayPlanRows.add({
+  'id': newId,
+  'date': selectedDate,
+  'client': assignedClients.isNotEmpty ? assignedClients.first : '',
+  'ads': '',
+  'today_leads': '',
+  'today_report': '',
+
+  'deliverables_1': '',
+  'complete_deliverables_1': '',
+  'balanced_deliverables_1': '',
+
+  'deliverables_2': '',
+  'complete_deliverables_2': '',
+  'balanced_deliverables_2': '',
+
+  'deliverables_3': '',
+  'complete_deliverables_3': '',
+  'balanced_deliverables_3': '',
+
+  'deliverables_4': '',
+  'complete_deliverables_4': '',
+  'balanced_deliverables_4': '',
+
+  'deliverables_5': '',
+  'complete_deliverables_5': '',
+  'balanced_deliverables_5': '',
+
+  'deliverables_6': '',
+  'complete_deliverables_6': '',
+  'balanced_deliverables_6': '',
+
+  'today_plan': '',
+  'status': '',
+  'remarks': '',
+  '_editing': true,
+});;
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -766,16 +748,11 @@ String _formatMaintenanceDate(String value) {
     setState(() => row['_editing'] = true);
   }
 
-  // void _saveRow(Map<String, dynamic> row) {
-  //   setState(() => row['_editing'] = false);
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     const SnackBar(content: Text('✅ Row saved'), backgroundColor: Color(0xFF16A34A), duration: Duration(seconds: 2)),
-  //   );
-  // }
-
-  // PUT /api/day-planner/:id — sends this row's current field values to the
-// backend, then locks the row (read-only) on success.
-Future<void> _saveRow(Map<String, dynamic> row) async {
+Future<void> _saveRow(
+  Map<String, dynamic> row, {
+  bool lockRow = true,
+  bool showMessage = true,
+}) async {
   final id = row['id'];
 
   try {
@@ -794,6 +771,17 @@ Future<void> _saveRow(Map<String, dynamic> row) async {
       'deliverables3': row['deliverables_3'] ?? '',
       'completeDeliverables3': row['complete_deliverables_3'] ?? '',
       'balancedDeliverables3': row['balanced_deliverables_3'] ?? '',
+      'deliverables4': row['deliverables_4'] ?? '',
+'completeDeliverables4': row['complete_deliverables_4'] ?? '',
+'balancedDeliverables4': row['balanced_deliverables_4'] ?? '',
+
+'deliverables5': row['deliverables_5'] ?? '',
+'completeDeliverables5': row['complete_deliverables_5'] ?? '',
+'balancedDeliverables5': row['balanced_deliverables_5'] ?? '',
+
+'deliverables6': row['deliverables_6'] ?? '',
+'completeDeliverables6': row['complete_deliverables_6'] ?? '',
+'balancedDeliverables6': row['balanced_deliverables_6'] ?? '',
       'todayPlan': row['today_plan'] ?? '',
       'status': row['status'] ?? '',
       'remarks': row['remarks'] ?? '',
@@ -814,33 +802,41 @@ Future<void> _saveRow(Map<String, dynamic> row) async {
     print("RESPONSE : ${response.body}");
 
     if (response.statusCode == 200) {
-      setState(() {
-        row['_editing'] = false;
-      });
+  setState(() {
+    if (lockRow) {
+      row['_editing'] = false;
+    }
+  });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Saved Successfully"),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(response.body),
-          backgroundColor: Colors.red,
-        ),
-      );
+  if (showMessage) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Saved Successfully"),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+} else {
+      if (showMessage) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(response.body),
+      backgroundColor: Colors.red,
+    ),
+  );
+};
     }
   } catch (e) {
     print(e);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(e.toString()),
-        backgroundColor: Colors.red,
-      ),
-    );
+   if (showMessage) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(e.toString()),
+      backgroundColor: Colors.red,
+    ),
+  );
+}
   }
 }
 
@@ -859,60 +855,81 @@ void _setDeliverableProgress(
     row['balanced_$deliverableField'] = '1/1';
   }
 }
+Future<void> _confirmDelete(int id) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text("Delete Row"),
+        content: const Text(
+          "Are you sure you want to delete this row?",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              "Delete",
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      );
+    },
+  );
 
-  // FIX: bulk-locks every editable row for today at once — the "Submit"
-  // button next to Add Row, for when you're done filling the whole sheet
-  // and don't want to hit Save on each row individually.
-  // void _submitDay() {
-  //   setState(() {
-  //     for (final row in filteredRows) {
-  //       row['_editing'] = false;
-  //     }
-  //   });
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     const SnackBar(content: Text('✅ Day plan submitted'), backgroundColor: Color(0xFF16A34A), duration: Duration(seconds: 2)),
-  //   );
-  // }
+  if (result == true) {
+    _deleteRow(id);
+  }
+}
 
-//   Future<void> _submitDay() async {
-//   // 1. First, lock the rows locally
-//   setState(() {
-//     for (final row in filteredRows) {
-//       row['_editing'] = false;
-//     }
-//   });
-
-//   // 2. Call backend to lock in DB and send notification to Admin
-//   try {
-//     final response = await http.post(
-//       Uri.parse('$_baseUrl/day-planner/submit'),
-//       headers: {'Content-Type': 'application/json'},
-//       body: jsonEncode({
-//         'employeeName': employeeName,
-//         'date': '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
-//       }),
-//     );
-
-//     if (response.statusCode == 200) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(
-//           content: Text('✅ Day plan submitted & Admin notified!'),
-//           backgroundColor: Color(0xFF16A34A),
-//           duration: Duration(seconds: 2),
-//         ),
-//       );
-//     } else {
-//       throw Exception('Failed to submit');
-//     }
-//   } catch (e) {
-//     ScaffoldMessenger.of(context).showSnackBar(
-//       SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-//     );
-//   }
-// }
+Future<bool> _confirmSubmit() async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text("Submit Day Planner"),
+            content: const Text(
+              "After submitting, you cannot edit today's planner.\n\nDo you want to continue?",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                ),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  "Submit",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          );
+        },
+      ) ??
+      false;
+}
 
 Future<void> _submitDay() async {
 
+ final confirm = await _confirmSubmit();
+
+  if (!confirm) {
+    return;
+  }
+if (!_validateRows()) {
+  return;
+}
   // 1. Check any unsaved row
   final unsavedRows = filteredRows.where(
     (row) => row['_editing'] == true,
@@ -1014,8 +1031,139 @@ await _checkDeadlineStatus();
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // _buildTopBar(isTodayView),
+            // const SizedBox(height: 12),
+
             _buildTopBar(isTodayView),
-            const SizedBox(height: 12),
+
+const SizedBox(height: 12),
+
+SingleChildScrollView(
+  scrollDirection: Axis.horizontal,
+  child: Row(
+    children: [
+      _summaryCard(
+        "Total Clients",
+        "${dayPlanRows.length}",
+        Colors.blue,
+        Icons.people,
+        dayPlanRows.length,
+        dayPlanRows.length,
+      ),
+
+      _summaryCard(
+        "Completed",
+        "${dayPlanRows.where((e) => e['status'] == 'COMPLETE').length}",
+        Colors.green,
+        Icons.check_circle,
+        dayPlanRows.where((e) => e['status'] == 'COMPLETE').length,
+        dayPlanRows.length,
+      ),
+
+      _summaryCard(
+        "Pending",
+        "${dayPlanRows.where((e) => e['status'] == 'PENDING').length}",
+        Colors.orange,
+        Icons.pending_actions,
+        dayPlanRows.where((e) => e['status'] == 'PENDING').length,
+        dayPlanRows.length,
+      ),
+
+      _summaryCard(
+        "Processing",
+        "${dayPlanRows.where((e) => e['status'] == 'PROCESSING').length}",
+        Colors.purple,
+        Icons.autorenew,
+        dayPlanRows.where((e) => e['status'] == 'PROCESSING').length,
+        dayPlanRows.length,
+      ),
+
+      _summaryCard(
+        "Hold",
+        "${dayPlanRows.where((e) => e['status'] == 'HOLD').length}",
+        Colors.red,
+        Icons.pause_circle,
+        dayPlanRows.where((e) => e['status'] == 'HOLD').length,
+        dayPlanRows.length,
+      ),
+
+      _summaryCard(
+        "Not Start",
+        "${dayPlanRows.where((e) => e['status'] == 'NOT START').length}",
+        Colors.grey,
+        Icons.hourglass_empty,
+        dayPlanRows.where((e) => e['status'] == 'NOT START').length,
+        dayPlanRows.length,
+      ),
+    ],
+  ),
+),
+
+
+// const SizedBox(height: 20),
+
+// _productivityCard(),
+
+const SizedBox(height: 20),
+
+
+SizedBox(
+  width: 320,
+  child: TextField(
+    controller: _searchController,
+    onChanged: (value) {
+      setState(() {
+        _searchText = value;
+      });
+    },
+    decoration: InputDecoration(
+      hintText: "Search Client...",
+      hintStyle: TextStyle(color: Colors.grey.shade500),
+
+      prefixIcon: const Icon(
+        Icons.search_rounded,
+        color: Colors.blue,
+      ),
+
+      suffixIcon: _searchController.text.isNotEmpty
+          ? IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () {
+                _searchController.clear();
+                setState(() {
+                  _searchText = "";
+                });
+              },
+            )
+          : null,
+
+      filled: true,
+      fillColor: Colors.grey.shade100,
+
+      contentPadding: const EdgeInsets.symmetric(
+        vertical: 15,
+        horizontal: 16,
+      ),
+
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: BorderSide(
+          color: Colors.grey.shade300,
+        ),
+      ),
+
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: const BorderSide(
+          color: Colors.blue,
+          width: 2,
+        ),
+      ),
+    ),
+  ),
+),
+
+const SizedBox(height: 12),
 
             if (isTodayView && _buildDeadlineBanner() != null)
             _buildDeadlineBanner()!,
@@ -1117,17 +1265,217 @@ await _checkDeadlineStatus();
     );
   }
 
-  // ── Spreadsheet-style grid: frozen CLIENT column + wide scrollable rest ──
-  // FIX: no longer wrapped in Expanded — sizes to its content (header +
-  // however many rows exist), letting the outer page scroll vertically.
+Widget _summaryCard(
+  String title,
+  String value,
+  Color color,
+  IconData icon,
+  int count,
+  int total,
+) {
+  final double percent = total == 0 ? 0 : count / total;
+
+  return Container(
+    width: 180,
+    margin: const EdgeInsets.only(right: 12),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(color: color.withOpacity(.25)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(.05),
+          blurRadius: 8,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: color.withOpacity(.15),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 15),
+
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            value: percent,
+            minHeight: 8,
+            backgroundColor: Colors.grey.shade300,
+            valueColor: AlwaysStoppedAnimation(color),
+          ),
+        ),
+
+        const SizedBox(height: 6),
+
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            "${(percent * 100).toStringAsFixed(0)}%",
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _productivityCard() {
+  final int total = dayPlanRows.length;
+  final int completed = dayPlanRows
+      .where((e) => e['status'] == 'COMPLETE')
+      .length;
+
+  final double score = total == 0 ? 0 : completed / total;
+
+  String message;
+  Color color;
+
+  if (score >= .90) {
+    message = "Excellent";
+    color = Colors.green;
+  } else if (score >= .70) {
+    message = "Very Good";
+    color = Colors.blue;
+  } else if (score >= .50) {
+    message = "Good";
+    color = Colors.orange;
+  } else {
+    message = "Needs Improvement";
+    color = Colors.red;
+  }
+
+  return Container(
+  padding: const EdgeInsets.all(20),
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(18),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black12,
+        blurRadius: 8,
+      ),
+    ],
+  ),
+  child: Row(
+    children: [
+
+      /// Productivity
+      Expanded(
+        flex: 2,
+        child: Row(
+          children: [
+
+            CircularProgressIndicator(
+                value: score,
+                strokeWidth: 8,
+                color: color,
+                backgroundColor: Colors.grey.shade300,
+              ),
+
+            const SizedBox(width: 20),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Today's Productivity"),
+                Text("Needs Improvement"),
+                Text("1 / 3 Tasks Completed"),
+              ],
+            ),
+          ],
+        ),
+      ),
+
+      VerticalDivider(),
+
+      /// Working Hours
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            Text("⏱ Today's Working Time"),
+
+            SizedBox(height: 10),
+
+            Text(
+              "05h 42m",
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            SizedBox(height: 10),
+
+            Row(
+              children: [
+                Icon(Icons.circle,
+                    size: 10,
+                    color: Colors.green),
+                SizedBox(width: 6),
+                Text("Working"),
+              ],
+            )
+          ],
+        ),
+      )
+    ],
+  ),
+);
+}
   Widget _buildSheetGrid(List<Map<String, dynamic>> rows, bool isTodayView) {
     final showAds = _hasAdsColumn();
 
 final showD1 = _hasDeliverable(1);
 final showD2 = _hasDeliverable(2);
 final showD3 = _hasDeliverable(3);
+final showD4 = _hasDeliverable(4);
+final showD5 = _hasDeliverable(5);
+final showD6 = _hasDeliverable(6);
 
-final displayRows = rows;
+final displayRows = rows.where((row) {
+  final client =
+      (row['client'] ?? '').toString().toLowerCase();
+
+  return client.contains(
+    _searchText.toLowerCase(),
+  );
+}).toList();
 
     // if (rows.isEmpty) {
 
@@ -1219,6 +1567,24 @@ if(showD3)...[
   const _HeaderCell(width:150,label:'BALANCED DELIVERABLES 3'),
 ],
 
+if(showD4)...[
+  const _HeaderCell(width:150,label:'DELIVERABLES 4'),
+  const _HeaderCell(width:150,label:'COMPLETE DELIVERABLES 4'),
+  const _HeaderCell(width:150,label:'BALANCED DELIVERABLES 4'),
+],
+
+if(showD5)...[
+  const _HeaderCell(width:150,label:'DELIVERABLES 5'),
+  const _HeaderCell(width:150,label:'COMPLETE DELIVERABLES 5'),
+  const _HeaderCell(width:150,label:'BALANCED DELIVERABLES 5'),
+],
+
+if(showD6)...[
+  const _HeaderCell(width:150,label:'DELIVERABLES 6'),
+  const _HeaderCell(width:150,label:'COMPLETE DELIVERABLES 6'),
+  const _HeaderCell(width:150,label:'BALANCED DELIVERABLES 6'),
+],
+
 const _HeaderCell(width:180,label:'TODAY PLAN'),
 const _HeaderCell(width:130,label:'STATUS'),
 const _HeaderCell(width:180,label:'REMARKS'),
@@ -1229,7 +1595,7 @@ const _HeaderCell(width:130,label:'ACTION'),
                       ),
                       const Divider(height: 1, color: Color(0xFFE2E8F0)),
                       // ...rows.map((row) => SizedBox(
-                      ...displayRows.map((row) => SizedBox(width: _totalGridWidth, child: _buildDataRow(row, isTodayView, showAds, showD1, showD2, showD3))),
+                      ...displayRows.map((row) => SizedBox(width: _totalGridWidth, child: _buildDataRow(row, isTodayView, showAds, showD1, showD2, showD3,showD4 , showD5, showD6))),
                     ],
         ),
       
@@ -1252,6 +1618,9 @@ double get _totalGridWidth {
   final showD1 = _hasDeliverable(1);
   final showD2 = _hasDeliverable(2);
   final showD3 = _hasDeliverable(3);
+  final showD4 = _hasDeliverable(4);
+final showD5 = _hasDeliverable(5);
+final showD6 = _hasDeliverable(6);
 
   double width = 140;
 
@@ -1271,152 +1640,295 @@ double get _totalGridWidth {
     width += 150 * 3;
   }
 
+  if(showD4){
+  width += 150 * 3;
+}
+
+if(showD5){
+  width += 150 * 3;
+}
+
+if(showD6){
+  width += 150 * 3;
+}
+
   width += 180 + 130 + 180 + 130;
 
   return width;
 }
   
-  Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
-    final current = (row['client'] ?? '').toString();
-    final bool rowEditable = isTodayView && row['_editing'] == true;
-    return Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0052CC),
-        border: Border(bottom: BorderSide(color: Color(0xFF0044B3))),
-      ),
-      child: rowEditable
-          ? DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: current.isEmpty ? null : current,
-                isExpanded: true,
-                hint: const Text('— Select —', style: TextStyle(fontSize: 11, color: Colors.white70)),
-                dropdownColor: const Color(0xFF1A5FCC),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                items: assignedClients.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                // onChanged: (v) {
-                //   if (v != null) {
-                //     setState(() {
-                //       row['client'] = v;
-                //       _prefillRoleFieldsForClient(row, v);
-                //     });
-                //   }
-                // },
-                onChanged: (v) async {
-  if (v != null) {
-    setState(() {
-      row['client'] = v;
-row['maintenance_date'] = clientMaintenanceDates[v] ?? '';
-      // Prefill only Ads and Deliverables
-      _prefillRoleFieldsForClient(row, v);
+ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
 
-      // Keep Complete & Balanced empty
-      // row['complete_deliverables_1'] = '';
-      // row['balanced_deliverables_1'] = '';
+  final current = (row['client'] ?? '').toString();
 
-      // row['complete_deliverables_2'] = '';
-      // row['balanced_deliverables_2'] = '';
+  return Container(
+    height: 54,
+    padding: const EdgeInsets.symmetric(horizontal: 10),
 
-      // row['complete_deliverables_3'] = '';
-      // row['balanced_deliverables_3'] = '';
-    });
-
-    // Remove this if you don't want auto progress
-    // await loadProgress(row);
-  }
-}
-              ),
-            )
-          : Align(
-              alignment: Alignment.centerLeft,
-              child: Text(current.isEmpty ? '—' : current,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
-            ),
-    );
-  }
-
-  Widget _buildDataRow(Map<String, dynamic> row, bool isTodayView,bool showAds,bool showD1,bool showD2,bool showD3) {
-    final bool rowEditable = isTodayView && row['_editing'] == true;
-    return 
-  Row(
-children:[
-_textCell(row, 'maintenance_date', 140, false),
-if(showAds)...[
-  _textCell(row,'ads',140,rowEditable),
-  _dropdownCell(row,'today_leads',110,yesNoOptions,rowEditable),
-  _dropdownCell(row,'today_report',110,yesNoOptions,rowEditable),
-],
-
-if(showD1)...[
-  _textCell(row,'deliverables_1',150,rowEditable),
-  _textCell(row,'complete_deliverables_1',150,rowEditable),
-  _textCell(row,'balanced_deliverables_1',150,rowEditable),
-],
-
-if(showD2)...[
-  _textCell(row,'deliverables_2',150,rowEditable),
-  _textCell(row,'complete_deliverables_2',150,rowEditable),
-  _textCell(row,'balanced_deliverables_2',150,rowEditable),
-],
-
-if(showD3)...[
-  _textCell(row,'deliverables_3',150,rowEditable),
-  _textCell(row,'complete_deliverables_3',150,rowEditable),
-  _textCell(row,'balanced_deliverables_3',150,rowEditable),
-],
-
-_textCell(row,'today_plan',180,rowEditable),
-_dropdownCell(row,'status',130,statusOptions,rowEditable,useStatusBadge:true),
-_textCell(row,'remarks',180,rowEditable),
-_actionCell(row,isTodayView,rowEditable),
-
-],
-);
-}
-
-  Widget _textCell(Map<String, dynamic> row, String field, double width, bool rowEditable) {
-    final value = (row[field] ?? '').toString();
-    return Container(
-      width: width,
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(
-        border: Border(
-          right: BorderSide(color: Color(0xFFE2E8F0)),
-          bottom: BorderSide(color: Color(0xFFE2E8F0)),
+    decoration: const BoxDecoration(
+      color: Color(0xFF0052CC),
+      border: Border(
+        bottom: BorderSide(
+          color: Color(0xFF0044B3),
         ),
       ),
-      alignment: Alignment.centerLeft,
-      child: rowEditable
-          ? TextField(
-              controller: TextEditingController(text: value)
-                ..selection = TextSelection.collapsed(offset: value.length),
-              maxLines: 1,
-              style: const TextStyle(fontSize: 11),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: '—',
-                hintStyle: TextStyle(color: Color(0xFFCBD5E1)),
-              ),
-              onChanged: (v) => row[field] = v,
-            )
-          : Text(
-              value.isEmpty ? '—' : value,
-              style: TextStyle(fontSize: 11, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-    );
-  }
+    ),
 
-  // FIX: Today Leads / Today Report now show yellow for YES and red for NO
-  // — as a colored background, in both the editable dropdown and the
-  // read-only view, not just as plain text. Status reuses its existing
-  // badge colors as the cell background so the dropdown itself is
-  // color-coded too, not just the read-only badge.
+    alignment: Alignment.centerLeft,
+
+    child: Text(
+      current.isEmpty ? '—' : current,
+
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: Colors.white,
+      ),
+
+      overflow: TextOverflow.ellipsis,
+    ),
+  );
+}
+  Color _getRowColor(String status) {
+  switch (status.toUpperCase()) {
+    case 'COMPLETE':
+      return const Color(0xFFF0FDF4); // Light Green
+
+    case 'PENDING':
+      return const Color(0xFFFFFBEB); // Light Yellow
+
+    case 'PROCESSING':
+      return const Color(0xFFEFF6FF); // Light Blue
+
+    case 'HOLD':
+      return const Color(0xFFFEF2F2); // Light Red
+
+    case 'NOT START':
+      return const Color(0xFFF8FAFC); // Light Grey
+
+    default:
+      return Colors.white;
+  }
+}
+
+Widget _buildDataRow(
+  Map<String, dynamic> row,
+  bool isTodayView,
+  bool showAds,
+  bool showD1,
+  bool showD2,
+  bool showD3,
+  bool showD4,
+  bool showD5,
+  bool showD6,
+) {
+  final bool rowEditable = isTodayView && row['_editing'] == true;
+
+  return Row(
+    children: [
+
+      // Maintenance Date
+      _textCell(
+        row,
+        'maintenance_date',
+        140,
+        false,
+      ),
+
+
+      // ADS Section
+      if (showAds) ...[
+        _textCell(
+          row,
+          'ads',
+          140,
+          false,
+        ),
+
+        _dropdownCell(
+          row,
+          'today_leads',
+          110,
+          yesNoOptions,
+          rowEditable,
+        ),
+
+        _dropdownCell(
+          row,
+          'today_report',
+          110,
+          yesNoOptions,
+          rowEditable,
+        ),
+      ],
+
+
+      // Deliverable 1
+      if (showD1) ...[
+        _textCell(row, 'deliverables_1', 150, false),
+        _textCell(row, 'complete_deliverables_1', 150, false),
+        _textCell(row, 'balanced_deliverables_1', 150, false),
+      ],
+
+
+      // Deliverable 2
+      if (showD2) ...[
+        _textCell(row, 'deliverables_2', 150, false),
+        _textCell(row, 'complete_deliverables_2', 150, false),
+        _textCell(row, 'balanced_deliverables_2', 150, false),
+      ],
+
+
+      // Deliverable 3
+      if (showD3) ...[
+        _textCell(row, 'deliverables_3', 150, false),
+        _textCell(row, 'complete_deliverables_3', 150, false),
+        _textCell(row, 'balanced_deliverables_3', 150, false),
+      ],
+
+
+      // Deliverable 4
+      if (showD4) ...[
+        _textCell(row, 'deliverables_4', 150, false),
+        _textCell(row, 'complete_deliverables_4', 150, false),
+        _textCell(row, 'balanced_deliverables_4', 150, false),
+      ],
+
+
+      // Deliverable 5
+      if (showD5) ...[
+        _textCell(row, 'deliverables_5', 150, false),
+        _textCell(row, 'complete_deliverables_5', 150, false),
+        _textCell(row, 'balanced_deliverables_5', 150, false),
+      ],
+
+
+      // Deliverable 6
+      if (showD6) ...[
+        _textCell(row, 'deliverables_6', 150, false),
+        _textCell(row, 'complete_deliverables_6', 150, false),
+        _textCell(row, 'balanced_deliverables_6', 150, false),
+      ],
+
+
+      // Editable fields only
+      _textCell(
+        row,
+        'today_plan',
+        180,
+        rowEditable,
+      ),
+
+
+      _dropdownCell(
+        row,
+        'status',
+        130,
+        statusOptions,
+        rowEditable,
+        useStatusBadge: true,
+      ),
+
+
+      _textCell(
+        row,
+        'remarks',
+        180,
+        rowEditable,
+      ),
+
+
+      // Actions
+      _actionCell(
+        row,
+        isTodayView,
+        rowEditable,
+      ),
+    ],
+  );
+}
+ Widget _textCell(
+  Map<String, dynamic> row,
+  String field,
+  double width,
+  bool rowEditable,
+) {
+
+  final value = (row[field] ?? '').toString();
+
+  // Only these fields are editable
+  final editableFields = [
+    'today_plan',
+    'remarks',
+  ];
+
+  final canEdit = rowEditable && editableFields.contains(field);
+
+  return Container(
+    width: width,
+    height: 54,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    decoration: BoxDecoration(
+      color: _getRowColor(
+        (row['status'] ?? '').toString(),
+      ),
+      border: const Border(
+        right: BorderSide(color: Color(0xFFE2E8F0)),
+        bottom: BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+    ),
+    alignment: Alignment.centerLeft,
+
+    child: canEdit
+
+        ? TextField(
+            controller: TextEditingController(text: value)
+              ..selection = TextSelection.collapsed(
+                offset: value.length,
+              ),
+
+            maxLines: 1,
+
+            style: const TextStyle(
+              fontSize: 11,
+            ),
+
+            decoration: const InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: '—',
+              hintStyle: TextStyle(
+                color: Color(0xFFCBD5E1),
+              ),
+            ),
+
+            onChanged: (v) {
+
+              row[field] = v;
+
+              // auto update
+              _scheduleAutoSave(row);
+
+            },
+          )
+
+
+        : Text(
+            value.isEmpty ? '—' : value,
+
+            style: TextStyle(
+              fontSize: 11,
+              color: value.isEmpty
+                  ? const Color(0xFFCBD5E1)
+                  : const Color(0xFF334155),
+            ),
+
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+  );
+}
+  
   (Color, Color)? _yesNoColors(String field, String value) {
     if (field != 'today_leads' && field != 'today_report') return null;
     switch (value.toUpperCase()) {
@@ -1447,52 +1959,192 @@ _actionCell(row,isTodayView,rowEditable),
     }
   }
 
-  Widget _dropdownCell(Map<String, dynamic> row, String field, double width, List<String> options, bool rowEditable,
-      {bool useStatusBadge = false}) {
-    final current = (row[field] ?? '').toString();
-    final colorPair = _yesNoColors(field, current) ?? _statusColors(field, current);
+ Widget _dropdownCell(
+  Map<String, dynamic> row,
+  String field,
+  double width,
+  List<String> options,
+  bool isTodayView,
+  {bool useStatusBadge = false}
+) {
 
-    return Container(
-      width: width,
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        border: const Border(
-          right: BorderSide(color: Color(0xFFE2E8F0)),
-          bottom: BorderSide(color: Color(0xFFE2E8F0)),
+  final current = (row[field] ?? '').toString();
+
+  final colorPair =
+      _yesNoColors(field, current) ??
+      _statusColors(field, current);
+
+
+  // Only these dropdowns are editable
+  final editableDropdowns = [
+    'today_leads',
+    'today_report',
+    'status',
+  ];
+
+
+  final canEdit =
+      isTodayView &&
+      editableDropdowns.contains(field);
+
+
+
+  return Container(
+
+    width: width,
+
+    height: 54,
+
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+
+
+    decoration: BoxDecoration(
+
+      border: const Border(
+        right: BorderSide(
+          color: Color(0xFFE2E8F0),
         ),
-        color: colorPair?.$1,
-      ),
-      alignment: Alignment.centerLeft,
-      child: rowEditable
-          ? DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: current.isEmpty ? null : current,
-                isExpanded: true,
-                hint: const Text('— Select —', style: TextStyle(fontSize: 10, color: Color(0xFFCBD5E1))),
-                icon: Icon(Icons.arrow_drop_down, color: colorPair?.$2 ?? const Color(0xFF64748B), size: 16),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: colorPair?.$2 ?? const Color(0xFF0052CC)),
-                items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => row[field] = v);
-                },
-              ),
-            )
-          : Text(
-              current.isEmpty ? '—' : current,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: colorPair != null ? FontWeight.w700 : FontWeight.normal,
-                color: colorPair?.$2 ?? (current.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
-              ),
-            ),
-    );
-  }
 
-  // FIX: this is the Edit/Save/Delete action column. Previous-day rows
-  // (isTodayView == false) get no buttons at all — pure read-only. Today's
-  // rows show Edit (unlocks the row) when locked, or Save (locks it again)
-  // when unlocked, plus Delete always available for today's rows.
+        bottom: BorderSide(
+          color: Color(0xFFE2E8F0),
+        ),
+      ),
+
+
+      color: colorPair?.$1 ??
+          _getRowColor(
+            (row['status'] ?? '').toString(),
+          ),
+
+    ),
+
+
+    alignment: Alignment.centerLeft,
+
+
+    child: canEdit
+
+        ?
+
+    DropdownButtonHideUnderline(
+
+      child: DropdownButton<String>(
+
+        value: current.isEmpty
+            ? null
+            : current,
+
+
+        isExpanded: true,
+
+
+        hint: const Text(
+          '— Select —',
+          style: TextStyle(
+            fontSize: 10,
+            color: Color(0xFFCBD5E1),
+          ),
+        ),
+
+
+        icon: Icon(
+          Icons.arrow_drop_down,
+
+          color:
+              colorPair?.$2 ??
+              const Color(0xFF64748B),
+
+          size: 16,
+        ),
+
+
+
+        style: TextStyle(
+
+          fontSize: 10,
+
+          fontWeight:
+              FontWeight.w700,
+
+          color:
+              colorPair?.$2 ??
+              const Color(0xFF0052CC),
+
+        ),
+
+
+
+        items: options.map(
+
+          (o) => DropdownMenuItem(
+
+            value: o,
+
+            child: Text(o),
+
+          ),
+
+        ).toList(),
+
+
+
+        onChanged: (v){
+
+          if(v != null){
+
+            setState((){
+
+              row[field] = v;
+
+            });
+
+
+            _scheduleAutoSave(row);
+
+          }
+
+        },
+
+      ),
+
+    )
+
+
+
+    : Text(
+
+      current.isEmpty
+          ? '—'
+          : current,
+
+
+      style: TextStyle(
+
+        fontSize: 11,
+
+
+        fontWeight:
+            colorPair != null
+            ? FontWeight.w700
+            : FontWeight.normal,
+
+
+        color:
+            colorPair?.$2 ??
+            (
+              current.isEmpty
+              ? const Color(0xFFCBD5E1)
+              : const Color(0xFF334155)
+            ),
+
+      ),
+
+    ),
+
+
+  );
+}
+ 
   Widget _actionCell(Map<String, dynamic> row, bool isTodayView, bool rowEditable) {
     if (!isTodayView) {
       return Container(
@@ -1509,7 +2161,10 @@ _actionCell(row,isTodayView,rowEditable),
       height: 54,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
+  color: _getRowColor(
+    (row['status'] ?? '').toString(),
+  ),
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
       ),
       child: Row(
@@ -1531,7 +2186,8 @@ _actionCell(row,isTodayView,rowEditable),
             ),
           const SizedBox(width: 6),
           GestureDetector(
-            onTap: () => _deleteRow(row['id']),
+            // onTap: () => _deleteRow(row['id']),
+            onTap: () => _confirmDelete(row['id']),
             child: Container(
               width: 26,
               height: 26,
@@ -1543,6 +2199,8 @@ _actionCell(row,isTodayView,rowEditable),
       ),
     );
   }
+
+
 
   Widget _smallActionButton({required String label, required Color color, required IconData icon, required VoidCallback onTap}) {
     return GestureDetector(
@@ -1604,6 +2262,8 @@ class _HeaderCell extends StatelessWidget {
   final String label;
   const _HeaderCell({required this.width, required this.label});
 
+
+    
   @override
   Widget build(BuildContext context) {
     return SizedBox(

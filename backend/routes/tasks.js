@@ -107,15 +107,16 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
 
     const [rows] = await db.query(
       `
-      SELECT
-        id,
-        client_name,
-        deliverables,
-        ${taskColumn} as task,
-        ${employeeColumn} as employee
-      FROM task_assignments
-      WHERE ${employeeColumn}=?
-      ORDER BY created_at DESC
+     SELECT
+  id,
+  client_name,
+  deliverables,
+  ${taskColumn} as task,
+  ${employeeColumn} as employee
+FROM task_assignments
+WHERE ${employeeColumn}=?
+  AND is_assigned = 1
+ORDER BY created_at DESC
       `,
       [employeeName]
     );

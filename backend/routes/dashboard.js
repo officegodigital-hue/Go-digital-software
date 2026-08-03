@@ -56,13 +56,25 @@ router.get('/summary/:employeeName', async (req, res) => {
         FROM time_tracking_task_items t
         WHERE t.task_list_id = tl.id
           AND t.status = 'COMPLETED'
-    ) AS completed_rows
+    ) AS completed_rows,
+
+    (
+    SELECT COUNT(*)
+    FROM time_tracking_task_items t
+    WHERE t.task_list_id = tl.id
+      AND t.status = 'REJECTED'
+) AS rejected_rows
 
 FROM task_list tl
 
 LEFT JOIN time_tracking_task_items tti
-    ON tti.task_list_id = tl.id
-   AND tti.s_no = 1
+ON tti.id = (
+    SELECT id
+    FROM time_tracking_task_items t
+    WHERE t.task_list_id = tl.id
+    ORDER BY t.s_no DESC
+    LIMIT 1
+)
 
 LEFT JOIN manager_review mr
     ON mr.tracking_item_id = tti.id
@@ -84,8 +96,13 @@ const [todayRows] = await db.query(
     COALESCE(mr.manager_action,'ACTION') AS manager_action
 FROM task_list tl
 LEFT JOIN time_tracking_task_items tti
-ON tti.task_list_id=tl.id
-AND tti.s_no=1
+ON tti.id = (
+    SELECT id
+    FROM time_tracking_task_items t
+    WHERE t.task_list_id = tl.id
+    ORDER BY t.s_no DESC
+    LIMIT 1
+)
 LEFT JOIN manager_review mr
 ON mr.tracking_item_id=tti.id
 WHERE tl.employee_name=?
@@ -117,21 +134,31 @@ let rejected = 0;
       const status = r.status || 'IDLE';
       clientsSet.add(r.client_name);
 
-      const isOpen = status !== 'COMPLETED' && status !== 'REJECTED';
-      if (isOpen) {
-        activeClientsSet.add(r.client_name);
-        activeTasks++;
-      }
-      if (status === 'IN PROGRESS' || status === 'ON HOLD') {
-        taskPending++;
-      }
+      const isOpen = ![
+    'COMPLETED',
+    'REJECTED'
+].includes(status);
+
+if (isOpen) {
+    activeClientsSet.add(r.client_name);
+    activeTasks++;
+}
+      // if (status === 'IN PROGRESS' || status === 'ON HOLD') {
+      //   taskPending++;
+      // }
+      if (
+    status !== 'COMPLETED' &&
+    status !== 'REJECTED'
+) {
+    taskPending++;
+}
       if (status === 'ON HOLD') {
         onHoldCount++;
       }
-      if (status === 'REJECTED') {
-        rejectedTasks++;
-        rejectedClientsSet.add(r.client_name);
-      }
+      if ((r.rejected_rows ?? 0) > 0) {
+    rejectedTasks++;
+    rejectedClientsSet.add(r.client_name);
+}
 if (r.manager_action === 'APPROVED') {
     approved++;
 } else if (r.manager_action === 'REWORK') {
@@ -142,16 +169,37 @@ if (r.manager_action === 'APPROVED') {
     review++;
 }
 
-      if (
+    if (
     r.submission_date &&
     r.submission_date !== '0000-00-00'
 ) {
-    const due = new Date(r.submission_date);
 
-    if (!isNaN(due) &&
+    let due;
+
+    if (r.submission_date instanceof Date) {
+        due = new Date(r.submission_date);
+    } 
+    else {
+        const parts = r.submission_date.split('-');
+
+        if (parts.length === 3) {
+            due = new Date(
+                Number(parts[0]),
+                Number(parts[1]) - 1,
+                Number(parts[2])
+            );
+        }
+    }
+
+
+    if (
+        due &&
+        !isNaN(due) &&
         due >= today &&
         due <= threeDaysOut &&
-        status !== 'COMPLETED') {
+        status !== 'COMPLETED' &&
+        status !== 'REJECTED'
+    ) {
         upcomingDeadlines++;
     }
 }

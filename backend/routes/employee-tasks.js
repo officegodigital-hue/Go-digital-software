@@ -31,7 +31,7 @@ router.get('/by-employee/:name', async (req, res) => {
       ta.ui_ux_submit_date,
       ta.developer_submit_date
    FROM task_assignments ta
-   WHERE
+   WHERE(
       UPPER(ta.designer)       LIKE ? OR
       UPPER(ta.videographer)   LIKE ? OR
       UPPER(ta.video_editor)   LIKE ? OR
@@ -39,6 +39,8 @@ router.get('/by-employee/:name', async (req, res) => {
       UPPER(ta.page_handling)  LIKE ? OR
       UPPER(ta.ui_ux_designer) LIKE ? OR
       UPPER(ta.developer)      LIKE ?
+    )
+      AND ta.is_assigned = 1
    ORDER BY ta.created_at DESC`,
 [
   `%${name}%`,
@@ -79,6 +81,45 @@ router.get('/by-employee/:name', async (req, res) => {
 //   `%${name}%`,
 //   `%${name}%`
 // ]);
+
+for (const task of rows) {
+  // Skip if task already exists
+  const [exists] = await db.query(
+    `SELECT id
+     FROM task_list
+     WHERE task_assignment_id = ?
+       AND deliverables = ?
+     LIMIT 1`,
+    [task.id, task.deliverables]
+  );
+
+  if (exists.length === 0) {
+    await db.query(
+      `INSERT INTO task_list
+      (
+        task_assignment_id,
+        employee_id,
+        employee_name,
+        client_name,
+        deliverables,
+        duration,
+        submission_date,
+        no_of_rows
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        task.id,
+        null,                 // employee_id if available
+        name,                 // employee_name
+        task.client_name,
+        task.deliverables,
+        null,
+        null,
+        1
+      ]
+    );
+  }
+}
 
     return res.json({ success: true, data: rows });
   } catch (err) {
