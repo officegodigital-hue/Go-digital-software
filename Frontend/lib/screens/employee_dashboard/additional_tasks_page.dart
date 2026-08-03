@@ -137,61 +137,43 @@ bool _loadingClients = false;
   dynamic _employeeId;
 
 
+// ── FETCH CLIENTS FROM INVOICES TABLE (Updated for AWS & Local sync) ──────────────────
 Future<void> _fetchClientsFromInvoices() async {
   setState(() => _loadingClients = true);
 
   try {
-    final response =
-        await http.get(Uri.parse("$_baseUrl/invoices"));
+    final r = await http.get(Uri.parse('$_baseUrl/invoices'));
 
-    if (response.statusCode == 200) {
-      final body = jsonDecode(response.body);
+    if (r.statusCode == 200) {
+      final body = jsonDecode(r.body);
+      final data = List<Map<String, dynamic>>.from(body['data'] ?? body);
 
-      final data =
-          List<Map<String, dynamic>>.from(body["data"]);
+      final uniqueClients = <String>{};
 
-      final now = DateTime.now();
+      for (var invoice in data) {
+        // Date check-ai remove pannitu direct-ah client_name-ah matrum edukkalam 
+        // (Illana AWS server timezone/date format-nal filtering skip agalam)
+        final clientName = invoice['client_name']?.toString() ?? '';
 
-      final currentMonth = now.month;
-      final currentYear = now.year;
-
-      final Set<String> uniqueClients = {};
-
-      for (final invoice in data) {
-        final invoiceDate =
-            invoice["maintenance_date"]?.toString() ?? "";
-
-        if (invoiceDate.isEmpty) continue;
-
-        try {
-          final parts = invoiceDate.split("/");
-
-          final month = int.parse(parts[1]);
-          final year = int.parse(parts[2]);
-
-          if (month == currentMonth &&
-              year == currentYear) {
-            final client =
-                invoice["client_name"]?.toString() ?? "";
-
-            if (client.isNotEmpty) {
-              uniqueClients.add(client);
-            }
-          }
-        } catch (_) {}
+        if (clientName.isNotEmpty) {
+          uniqueClients.add(clientName);
+        }
       }
 
       setState(() {
-        clients = uniqueClients.toList();
+        clients = uniqueClients.toList()..sort();
+        _loadingClients = false;
       });
+
+      debugPrint('✅ Loaded ${clients.length} clients successfully');
+    } else {
+      setState(() => _loadingClients = false);
     }
   } catch (e) {
-    debugPrint(e.toString());
+    debugPrint('❌ Error fetching clients: $e');
+    setState(() => _loadingClients = false);
   }
-
-  setState(() => _loadingClients = false);
 }
-
   @override
   void initState() {
     super.initState();
