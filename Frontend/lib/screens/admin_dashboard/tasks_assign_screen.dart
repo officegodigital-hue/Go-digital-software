@@ -8,6 +8,9 @@ import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart'; 
 import 'package:flutter/gestures.dart';
 import '../../services/api_config.dart';
+import 'package:intl/intl.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+
 
 
 class TasksAssignScreen extends StatefulWidget {
@@ -875,6 +878,34 @@ Future<void> _addRow() async {
 
     final selectedTasks = <Map<String, dynamic>>[];
 
+    final existingValue = (row[dbFieldKey] ?? '').toString();
+
+if (existingValue.isNotEmpty) {
+  final items = existingValue.split(',');
+
+  for (final item in items) {
+    final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(item.trim());
+
+    if (match != null) {
+      final taskName = match.group(1)!.trim();
+      final count = int.parse(match.group(2)!);
+
+      final task = availableTasks.firstWhere(
+        (e) => e['task_name'] == taskName,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (task.isNotEmpty) {
+        selectedTasks.add({
+          'id': task['id'],
+          'name': taskName,
+          'count': count,
+        });
+      }
+    }
+  }
+}
+
     await showDialog(
       context: context,
       barrierColor: Colors.black12,
@@ -908,72 +939,147 @@ Future<void> _addRow() async {
                 ),
 
                 // Task List
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: availableTasks.length,
-                    itemBuilder: (context, index) {
-                      final task = availableTasks[index];
-                      final taskId = task['id'];
-                      final isSelected = selectedTasks.any((t) => t['id'] == taskId);
+               Expanded(
+  child: Column(
+    children: [
+      // Select All
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+        ),
+        child: Row(
+          children: [
+            Checkbox(
+              value: selectedTasks.length == availableTasks.length &&
+                  availableTasks.isNotEmpty,
+              tristate: true,
+              activeColor: const Color(0xFF0052CC),
+              onChanged: (val) {
+                setDialogState(() {
+                  if (val == true) {
+                    selectedTasks.clear();
 
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: const BoxDecoration(
-                          border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-                        ),
-                        child: Row(
-                          children: [
-                            Checkbox(
-                              value: isSelected,
-                              activeColor: const Color(0xFF0052CC),
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  if (val == true) {
-                                    selectedTasks.add({'id': taskId, 'name': task['task_name'], 'count': 1});
-                                  } else {
-                                    selectedTasks.removeWhere((t) => t['id'] == taskId);
-                                  }
-                                });
-                              },
-                            ),
-                            Expanded(
-                              child: Text(task['task_name'] ?? '',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                            ),
-                            if (isSelected)
-                              Container(
-                                width: 60,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: TextField(
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    hintText: '1',
-                                  ),
-                                  style: const TextStyle(fontSize: 11),
-                                  onChanged: (val) {
-                                    final idx = selectedTasks.indexWhere((t) => t['id'] == taskId);
-                                    if (idx != -1) {
-                                      setDialogState(() {
-                                        selectedTasks[idx]['count'] = int.tryParse(val) ?? 1;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
+                    for (final task in availableTasks) {
+                      selectedTasks.add({
+                        'id': task['id'],
+                        'name': task['task_name'],
+                        'count': 1,
+                      });
+                    }
+                  } else {
+                    selectedTasks.clear();
+                  }
+                });
+              },
+            ),
+            const Text(
+              "Select All",
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      // Task List
+      Expanded(
+        child: ListView.builder(
+          itemCount: availableTasks.length,
+          itemBuilder: (context, index) {
+            final task = availableTasks[index];
+            final taskId = task['id'];
+            final isSelected =
+                selectedTasks.any((t) => t['id'] == taskId);
+
+            return Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: isSelected,
+                    activeColor: const Color(0xFF0052CC),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        if (val == true) {
+                          selectedTasks.add({
+                            'id': taskId,
+                            'name': task['task_name'],
+                            'count': 1,
+                          });
+                        } else {
+                          selectedTasks.removeWhere(
+                              (t) => t['id'] == taskId);
+                        }
+                      });
                     },
                   ),
-                ),
 
+                  Expanded(
+                    child: Text(
+                      task['task_name'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF334155),
+                      ),
+                    ),
+                  ),
+
+                  if (isSelected)
+                    Container(
+                      width: 60,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: const Color(0xFFE2E8F0),
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: TextField(
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          hintText: '1',
+                        ),
+                        style: const TextStyle(fontSize: 11),
+                        onChanged: (val) {
+                          final idx = selectedTasks.indexWhere(
+                              (t) => t['id'] == taskId);
+
+                          if (idx != -1) {
+                            setDialogState(() {
+                              selectedTasks[idx]['count'] =
+                                  int.tryParse(val) ?? 1;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    ],
+  ),
+),
                 // Footer
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -1162,6 +1268,20 @@ Future<void> _toggleAssign(Map<String, dynamic> row) async {
     }
   }
 
+
+String formatDisplayDate(dynamic value) {
+  if (value == null || value.toString().trim().isEmpty) {
+    return '—';
+  }
+
+  try {
+    return DateFormat('dd/MM/yyyy')
+        .format(DateTime.parse(value.toString()).toLocal());
+  } catch (e) {
+    return value.toString();
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     final bool loading = _loadingTasks || _loadingEmployees || _loadingClients || _loadingTaskMaster || _loadingRoles;
@@ -1281,86 +1401,7 @@ Future<void> _toggleAssign(Map<String, dynamic> row) async {
                 ),
               ]),
             ))
-          // else
-          //   Container(
-          //     decoration: BoxDecoration(
-          //       color: Colors.white,
-          //       borderRadius: BorderRadius.circular(8),
-          //       border: Border.all(color: const Color(0xFFE2E8F0)),
-          //     ),
-          //     child: ClipRRect(
-          //       borderRadius: BorderRadius.circular(8),
-          //       child: Row(
-          //         crossAxisAlignment: CrossAxisAlignment.start,
-          //         children: [
-          //           SizedBox(
-          //             width: 200,
-          //             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          //               Container(
-          //                 height: 48,
-          //                 color: const Color(0xFF0052CC),
-          //                 padding: const EdgeInsets.symmetric(horizontal: 16),
-          //                 alignment: Alignment.centerLeft,
-          //                 child: const Text("CLIENT NAME",
-          //                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-          //               ),
-          //               ...visibleRows.map((row) => _buildClientCell(row)),
-          //               ...List.generate(4, (_) => _buildClientCell(null)),
-          //             ]),
-          //           ),
-          //           const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-          //           Expanded(
-          //             child: SingleChildScrollView(
-          //               scrollDirection: Axis.horizontal,
-          //               dragStartBehavior: DragStartBehavior.start, 
-          //               physics: const AlwaysScrollableScrollPhysics(),
-          //               child: Column(
-          //                 crossAxisAlignment: CrossAxisAlignment.start,
-          //                 children: [
-          //                   SizedBox(
-          //                     width: 4400,
-          //                     height: 48,
-          //                     child: Row(children: const [
-          //                       _HeaderCell(width: 200, label: "DELIVERABLES"),
-          //                       _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
-          //                       _HeaderCell(width: 140, label: "ADS HANDLER"),
-          //                       _HeaderCell(width: 160, label: "ADS TASKS"),
-          //                       _HeaderCell(width: 140, label: "ADS DATE"),
-          //                       _HeaderCell(width: 140, label: "PAGE HANDLER"),
-          //                       _HeaderCell(width: 160, label: "PAGE TASKS"),
-          //                       _HeaderCell(width: 140, label: "PAGE DATE"),
-          //                       _HeaderCell(width: 140, label: "DESIGNER"),
-          //                       _HeaderCell(width: 160, label: "DESIGN TASKS"),
-          //                       _HeaderCell(width: 140, label: "DESIGN DATE"),
-          //                       _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
-          //                       _HeaderCell(width: 160, label: "VIDEO TASKS"),
-          //                       _HeaderCell(width: 140, label: "VIDEO DATE"),
-          //                        _HeaderCell(width: 140, label: "VIDEO EDITOR"),
-          //                       _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-          //                       _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
-                               
-          //                       _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
-          //                       _HeaderCell(width: 160, label: "UI/UX TASKS"),
-          //                       _HeaderCell(width: 140, label: "UI/UX DATE"),
-          //                       _HeaderCell(width: 140, label: "DEVELOPER"),
-          //                       _HeaderCell(width: 160, label: "DEV TASKS"),
-          //                       _HeaderCell(width: 140, label: "DEV `DATE"),
-          //                       _HeaderCell(width: 140, label: "DEADLINE"),
-          //                       _HeaderCell(width: 160, label: "COMMENTS"),
-          //                       _HeaderCell(width: 140, label: "ACTION"),
-          //                     ]),
-          //                   ),
-          //                   const Divider(height: 1, color: Color(0xFFE2E8F0)),
-          //                   ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
-          //                   ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
-          //                 ],
-          //               ),
-          //             ),
-          //           ),
-          //         ],
-          //       ),
-          //     ),
-          //   ),
+         
 
           else
   Container(
@@ -1544,15 +1585,7 @@ Widget _buildClientCell(Map<String, dynamic>? row) {
 
   Widget _buildDataRow(Map<String, dynamic> row) {
     final bool assigned = row['is_assigned'] == 1 || row['is_assigned'] == true;
-    // final empItems = <DropdownMenuItem<String>>[
-    //   const DropdownMenuItem(value: '', child: Text('—', style: TextStyle(color: Color(0xFFCBD5E1)))),
-    //   ...employees.map((e) => DropdownMenuItem(value: e, child: Text(e))),
-    // ];
-
-    // String empVal(String key) {
-    //   final v = (row[key] ?? '').toString().toUpperCase();
-    //   return employees.contains(v) ? v : '';
-    // }
+   
     const noneMarker = 'NONE';
     final empItems = <DropdownMenuItem<String>>[
       const DropdownMenuItem(
@@ -1567,10 +1600,7 @@ Widget _buildClientCell(Map<String, dynamic>? row) {
       ...employees.map((e) => DropdownMenuItem(value: e, child: Text(e))),
     ];
 
-    // FIX: distinguishes "never touched" ('') from "explicitly set to None"
-    // ('NONE') — previously both collapsed to the same empty value, so
-    // there was no way to tell "forgot to assign" apart from "intentionally
-    // not assigning."
+    
     String empVal(String key) {
       final raw = (row[key] ?? '').toString();
       if (raw.isEmpty) return '';
@@ -1739,7 +1769,8 @@ Widget _buildClientCell(Map<String, dynamic>? row) {
           children: [
             Expanded(
               child: Text(
-                value.isEmpty ? '—' : value,
+                // value.isEmpty ? '—' : value,
+                formatDisplayDate(value),
                 style: TextStyle(fontSize: 11, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
               ),
             ),
@@ -1809,30 +1840,77 @@ Widget _deadlineCell(double width, Map<String, dynamic> row) {
     );
   }
 
-  Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(children: [
-        Expanded(
-          child: SizedBox(
-            height: 32,
-            child: ElevatedButton(
-              onPressed: () => _toggleAssign(row),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: assigned ? const Color(0xFF00C853) : const Color(0xFF0052CC),
-                padding: EdgeInsets.zero,
-              ),
-              child: FittedBox(
-                child: Text(
-                  assigned ? "EDIT" : "ASSIGN",
-                  style: const TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900),
+  // Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  //   return Container(
+  //     width: width,
+  //     padding: const EdgeInsets.symmetric(horizontal: 8),
+  //     child: Row(children: [
+  //       Expanded(
+  //         child: SizedBox(
+  //           height: 32,
+  //           child: ElevatedButton(
+  //             onPressed: () => _toggleAssign(row),
+  //             style: ElevatedButton.styleFrom(
+  //               backgroundColor: assigned ? const Color(0xFF00C853) : const Color(0xFF0052CC),
+  //               padding: EdgeInsets.zero,
+  //             ),
+  //             child: FittedBox(
+  //               child: Text(
+  //                 assigned ? "EDIT" : "ASSIGN",
+  //                 style: const TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900),
+  //               ),
+  //             ),
+  //           ),
+  //         ),
+  //       ),
+  //       const SizedBox(width: 4),
+  //       GestureDetector(
+  //         onTap: () => _deleteRow(row['id']),
+  //         child: Container(
+  //           width: 24,
+  //           height: 24,
+  //           decoration: BoxDecoration(
+  //             color: const Color(0xFFFEE2E2),
+  //             borderRadius: BorderRadius.circular(4),
+  //           ),
+  //           child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626)),
+  //         ),
+  //       ),
+  //     ]),
+  //   );
+  // }
+
+Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  return Container(
+    width: width,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    child: Row(
+      children: [
+        if (!assigned) ...[
+          Expanded(
+            child: SizedBox(
+              height: 32,
+              child: ElevatedButton(
+                onPressed: () => _toggleAssign(row),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0052CC),
+                  padding: EdgeInsets.zero,
+                ),
+                child: const FittedBox(
+                  child: Text(
+                    "ASSIGN",
+                    style: TextStyle(
+                      fontSize: 8,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 4),
+          const SizedBox(width: 4),
+        ],
         GestureDetector(
           onTap: () => _deleteRow(row['id']),
           child: Container(
@@ -1842,66 +1920,19 @@ Widget _deadlineCell(double width, Map<String, dynamic> row) {
               color: const Color(0xFFFEE2E2),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626)),
+            child: const Icon(
+              Icons.delete_outline,
+              size: 12,
+              color: Color(0xFFDC2626),
+            ),
           ),
         ),
-      ]),
-    );
-  }
+      ],
+    ),
+  );
+}
 
-//  Widget _empDropCell(
-//   double width, 
-//   String current, 
-//   List<DropdownMenuItem<String>> items,
-//   {required ValueChanged<String> onChanged}
-// ) {
-//   return Container(
-//     width: width,
-//     padding: const EdgeInsets.symmetric(horizontal: 10),
-//     decoration: const BoxDecoration(
-//       border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
-//     ),
-//     child: DropdownButtonHideUnderline(
-//       child: DropdownButton<String>(
-//         value: current.isEmpty ? null : current,
-//         isExpanded: true,
-//         hint: const Text(
-//           'NIL',  // ✅ NEW: Show "NIL" as hint
-//           style: TextStyle(
-//             fontSize: 10, 
-//             color: Color(0xFFCBD5E1),
-//             fontWeight: FontWeight.bold,
-//           ),
-//         ),
-//         icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B), size: 16),
-//         style: const TextStyle(
-//           fontSize: 10, 
-//           fontWeight: FontWeight.w700, 
-//           color: Color(0xFF0052CC),
-//         ),
-//         items: [
-//           // ✅ NEW: Add "NIL" option for empty/not applicable
-//           const DropdownMenuItem(
-//             value: 'NIL',
-//             child: Text(
-//               'NIL',
-//               style: TextStyle(
-//                 fontSize: 10,
-//                 color: Color(0xFF9CA3AF),
-//                 fontWeight: FontWeight.bold,
-//               ),
-//             ),
-//           ),
-//           // All employees
-//           ...items,
-//         ],
-//         onChanged: (v) {
-//           if (v != null) onChanged(v);
-//         },
-//       ),
-//     ),
-//   );
-// }
+
 
 Widget _empDropCell(double width, String current, List<DropdownMenuItem<String>> items,
       {required ValueChanged<String> onChanged}) {

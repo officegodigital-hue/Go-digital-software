@@ -624,11 +624,7 @@ await http.post(
     }
   }
 
-  // ── AUTO-SAVE — writes to time_tracking_task_items, sets trackingItemIds ───
-  // FIX: taskId is now passed in directly (from _buildRow's scope) instead of
-  // being recomputed via _taskIndexFor, which could resolve to a different
-  // row than the one actually being edited when duplicate client/task
-  // combinations exist.
+  
   Future<void> _autoSaveRow(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
     if (_employeeName == null) return;
 

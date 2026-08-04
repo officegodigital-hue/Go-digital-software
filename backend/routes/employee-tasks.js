@@ -91,6 +91,7 @@ for (const task of rows) {
   }
 }
 
+
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('GET /by-employee ERROR:', err.message);
@@ -118,6 +119,7 @@ router.get('/tracker', async (req, res) => {
     sql += ` ORDER BY client_name, single_task, row_index`;
 
     const [rows] = await db.query(sql, params);
+
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('GET /tracker ERROR:', err.message);
@@ -186,6 +188,11 @@ router.post('/tracker', async (req, res) => {
         isAdditional ? 1 : 0, deliverableName, durationLabel,
       ]
     );
+    const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
 
     return res.status(201).json({
       success: true,
@@ -233,11 +240,21 @@ router.put('/tracker/:id', async (req, res) => {
         req.params.id,
       ]
     );
+    
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Tracker row not found' });
 
-    return res.json({ success: true, message: 'Tracker row updated' });
-  } catch (err) {
+ const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
+
+return res.json({
+  success: true,
+  message: "Tracker row updated",
+});
+ } catch (err) {
     console.error('PUT /tracker/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -303,7 +320,13 @@ router.post('/tracker/save-all', async (req, res) => {
       );
     }
 
+
     await connection.commit();
+const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
     return res.json({ success: true, message: `${rows.length} row(s) saved successfully` });
   } catch (err) {
     await connection.rollback();
@@ -320,8 +343,17 @@ router.delete('/tracker/:id', async (req, res) => {
     const [result] = await db.query(`DELETE FROM task_tracker WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Not found' });
-    return res.json({ success: true, message: 'Deleted' });
-  } catch (err) {
+  const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
+
+return res.json({
+  success: true,
+  message: "Deleted",
+});
+} catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });

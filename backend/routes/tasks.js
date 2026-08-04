@@ -157,6 +157,7 @@ router.post('/', async (req, res) => {
   if (!clientName) return res.status(400).json({ success: false, message: 'clientName is required' });
 
   try {
+    const io = req.app.get("io");
     const [result] = await db.query(
       `INSERT INTO task_assignments (client_name, deliverables, ads_handling, ads_platform, ads_submit_date, 
        page_handling, pages_platform, page_submit_date, designer, designer_tasks, designer_submit_date, 
@@ -221,6 +222,7 @@ router.post('/', async (req, res) => {
 
     // ✅ Task assign seiyum pothu (isAssigned true-a irunthal) notification send agum
     if (isAssigned) {
+      
       const assignments = [
         { employeeName: designer,     tasks: designerTasks },
         { employeeName: videographer, tasks: videographerTasks },
@@ -248,6 +250,9 @@ router.post('/', async (req, res) => {
                 }
               }),
             });
+io.emit("taskAssigned", {
+  refresh: true,
+});
           } catch (notifyErr) {
             console.error('⚠️ task-assign notification failed:', notifyErr.message);
           }
@@ -280,6 +285,7 @@ videoEditorSubmitDate = null,
   } = req.body;
 
   try {
+    const io = req.app.get("io");
     // FIX: fetch the row BEFORE updating so we can tell which role
     // assignments actually changed — editing the deadline shouldn't
     // re-notify every employee on the task with a fresh "assigned" message.
@@ -296,12 +302,7 @@ videoEditorSubmitDate = null,
        ui_ux_designer=?, ui_ux_tasks=?, ui_ux_submit_date=?,
        developer=?, developer_tasks=?, developer_submit_date=?, deadline=?, maintenance_date=?, comments=?, is_assigned=?
        WHERE id=?`,
-      // [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate,
-      //  pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate,
-      //  videographer, videographerTasks, videographerSubmitDate, 
-      //  videoEditor, videoEditorTask, videoEditorSubmitDate,
-      //  uiUxDesigner, uiUxTasks, uiUxSubmitDate,
-      //  developer, developerTasks, developerSubmitDate, deadline, maintenanceDate, comments, isAssigned ? 1 : 0, req.params.id]
+    
 [
   clientName,
   deliverables,
@@ -371,6 +372,11 @@ videoEditorSubmitDate = null,
             ? `${assignedByName} assigned you a new task${tasks ? `: "${tasks}"` : ''} for ${clientName}.`
             : `${assignedByName} updated your task${tasks ? ` to: "${tasks}"` : ''} for ${clientName}.`,
         });
+       const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
       } catch (notifyErr) {
         console.error('⚠️ task-update notification failed (non-fatal):', notifyErr.message);
       }
@@ -393,6 +399,11 @@ router.patch('/:id/assign', async (req, res) => {
     );
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Task not found' });
+    const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
     return res.json({ success: true, message: 'Assignment toggled' });
   } catch (err) {
     console.error('PATCH /tasks/:id/assign ERROR:', err.message);
@@ -406,6 +417,11 @@ router.delete('/:id', async (req, res) => {
     const [result] = await db.query(`DELETE FROM task_assignments WHERE id=?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Task not found' });
+    const io = req.app.get("io");
+
+io.emit("taskAssigned", {
+  refresh: true,
+});
     return res.json({ success: true, message: 'Task deleted' });
   } catch (err) {
     console.error('DELETE /tasks/:id ERROR:', err.message);
