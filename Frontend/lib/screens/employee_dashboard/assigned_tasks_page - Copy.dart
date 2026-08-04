@@ -10,6 +10,7 @@ import '../../services/api_config.dart';
 import 'additional_tasks_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'employee_layout_page.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 enum TaskStatus { idle, running, held, completed, rejected }
 
@@ -71,6 +72,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   // final TextEditingController _clientSearchController = TextEditingController();
   TextEditingController? _clientSearchFieldController;
   String? _error;
+  late IO.Socket socket;
 
   String clientName      = '';
   String deliverableName = '';
@@ -134,13 +136,44 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   // AuthService actually exposes, so task_list.employee_id is reliably saved.
   dynamic _employeeId;
 
+  // @override
+  // void initState() {
+  //   super.initState();
+  //   _resolveLoggedInEmployee();
+  //   _fetchTimingData();
+  //   _fetchEmployeeAssignedTasks();
+  // }
+
   @override
-  void initState() {
-    super.initState();
-    _resolveLoggedInEmployee();
-    _fetchTimingData();
-    _fetchEmployeeAssignedTasks();
-  }
+void initState() {
+  super.initState();
+
+  _resolveLoggedInEmployee();
+  _fetchTimingData();
+  _fetchEmployeeAssignedTasks();
+
+  socket = IO.io(
+    ApiConfig.baseUrl.replaceAll('/api', ''),
+    {
+      'transports': ['websocket'],
+      'autoConnect': true,
+    },
+  );
+
+  socket.onConnect((_) {
+    debugPrint("Socket Connected");
+  });
+
+  socket.on("taskAssigned", (_) async {
+    debugPrint("New task assigned");
+
+    await _fetchEmployeeAssignedTasks();
+
+    if (mounted) {
+      setState(() {});
+    }
+  });
+}
 
   // FIX: centralised employee resolution — tries the common key variants so a
   // schema/key rename in AuthService.user doesn't silently null out employeeId.
@@ -914,6 +947,8 @@ debugPrint("================================");
 
   @override
   void dispose() {
+
+  socket.dispose();
     //  _clientSearchController.dispose();
     _horizontalController.dispose();
     for (final t in taskTimers.values) {

@@ -474,6 +474,7 @@ Future<void> loadTodayDayPlan() async {
         }
 
       });
+      await _fetchTotalWorkingHours();
     } 
     else {
       debugPrint('Failed to load day plan: ${response.statusCode}');
@@ -920,6 +921,32 @@ Future<bool> _confirmSubmit() async {
       false;
 }
 
+String totalWorkingTimeFormatted = "00h 00m";
+
+Future<void> _fetchTotalWorkingHours() async {
+  try {
+    String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
+    
+    final response = await http.get(
+      Uri.parse('$_baseUrl/day-planner/total-working-hours/${Uri.encodeComponent(employeeName)}?date=$formattedDate'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      int totalSecs = data['totalSeconds'] ?? 0;
+      
+      int hours = totalSecs ~/ 3600;
+      int minutes = (totalSecs % 3600) ~/ 60;
+
+      setState(() {
+        totalWorkingTimeFormatted = '${hours.toString().padLeft(2, '0')}h ${minutes.toString().padLeft(2, '0')}m';
+      });
+    }
+  } catch (e) {
+    debugPrint('Error fetching total working hours: $e');
+  }
+}
+
 Future<void> _submitDay() async {
   final confirm = await _confirmSubmit();
 
@@ -1065,66 +1092,172 @@ SingleChildScrollView(
 // _productivityCard(),
 
 const SizedBox(height: 20),
-
-
-SizedBox(
-  width: 320,
-  child: TextField(
-    controller: _searchController,
-    onChanged: (value) {
-      setState(() {
-        _searchText = value;
-      });
-    },
-    decoration: InputDecoration(
-      hintText: "Search Client...",
-      hintStyle: TextStyle(color: Colors.grey.shade500),
-
-      prefixIcon: const Icon(
-        Icons.search_rounded,
-        color: Colors.blue,
-      ),
-
-      suffixIcon: _searchController.text.isNotEmpty
-          ? IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () {
-                _searchController.clear();
-                setState(() {
-                  _searchText = "";
-                });
-              },
-            )
-          : null,
-
-      filled: true,
-      fillColor: Colors.grey.shade100,
-
-      contentPadding: const EdgeInsets.symmetric(
-        vertical: 15,
-        horizontal: 16,
-      ),
-
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide(
-          color: Colors.grey.shade300,
-        ),
-      ),
-
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: const BorderSide(
-          color: Colors.blue,
-          width: 2,
+Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: [
+    // 🟢 Left Side: Search Client Box
+    SizedBox(
+      width: 320,
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) {
+          setState(() {
+            _searchText = value;
+          });
+        },
+        decoration: InputDecoration(
+          hintText: "Search Client...",
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: Colors.blue,
+          ),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchText = "";
+                    });
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 15,
+            horizontal: 16,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(30),
+            borderSide: BorderSide(
+              color: Colors.grey.shade300,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(
+              color: Colors.blue,
+              width: 2,
+            ),
+          ),
         ),
       ),
     ),
-  ),
+
+    // 🟢 Right Side: Total Working Time Widget
+    Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.timer_rounded, size: 18, color: Color(0xFF004AAD)),
+          const SizedBox(width: 8),
+          Text(
+            "Total Working Time: $totalWorkingTimeFormatted", // Ungaloda dynamic variable
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E3A8A),
+            ),
+          ),
+        ],
+      ),
+    ),
+  ],
 ),
+const SizedBox(height: 20),
 
-const SizedBox(height: 12),
+// // SizedBox(
+//   width: 320,
+//   child: TextField(
+//     controller: _searchController,
+//     onChanged: (value) {
+//       setState(() {
+//         _searchText = value;
+//       });
+//     },
+//     decoration: InputDecoration(
+//       hintText: "Search Client...",
+//       hintStyle: TextStyle(color: Colors.grey.shade500),
 
+//       prefixIcon: const Icon(
+//         Icons.search_rounded,
+//         color: Colors.blue,
+//       ),
+
+//       suffixIcon: _searchController.text.isNotEmpty
+//           ? IconButton(
+//               icon: const Icon(Icons.close, size: 18),
+//               onPressed: () {
+//                 _searchController.clear();
+//                 setState(() {
+//                   _searchText = "";
+//                 });
+//               },
+//             )
+//           : null,
+
+//       filled: true,
+//       fillColor: Colors.grey.shade100,
+
+//       contentPadding: const EdgeInsets.symmetric(
+//         vertical: 15,
+//         horizontal: 16,
+//       ),
+
+//       enabledBorder: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(30),
+//         borderSide: BorderSide(
+//           color: Colors.grey.shade300,
+//         ),
+//       ),
+
+//       focusedBorder: OutlineInputBorder(
+//         borderRadius: BorderRadius.circular(30),
+//         borderSide: const BorderSide(
+//           color: Colors.blue,
+//           width: 2,
+//         ),
+//       ),
+//     ),
+//   ),
+// ),
+
+// const SizedBox(height: 12),
+
+// Container(
+//       height: 48,
+//       padding: const EdgeInsets.symmetric(horizontal: 16),
+//       decoration: BoxDecoration(
+//         color: const Color(0xFFEFF6FF),
+//         border: Border.all(color: const Color(0xFFBFDBFE)),
+//         borderRadius: BorderRadius.circular(24),
+//       ),
+//       child: Row(
+//         mainAxisSize: MainAxisSize.min,
+//         children: [
+//           const Icon(Icons.timer_rounded, size: 18, color: Color(0xFF004AAD)),
+//           const SizedBox(width: 8),
+//           Text(
+//             "Total Working Time: 05h 42m", // Inga ungaloda dynamic variable-ai pass seyyungal
+//             style: const TextStyle(
+//               fontSize: 12,
+//               fontWeight: FontWeight.bold,
+//               color: Color(0xFF1E3A8A),
+//             ),
+//           ),
+//         ],
+//       ),
+//     ),
+ 
             if (isTodayView && _buildDeadlineBanner() != null)
             _buildDeadlineBanner()!,
 
@@ -1617,6 +1750,21 @@ if(showD6){
   return width;
 }
   
+String get _formattedTotalWorkingHours {
+  int totalSeconds = 0;
+  
+  // Ella rows-layum irukkura duration-ai sum seyyungal (unakku thevaiyanal backend field-il irunthu eduthukollalam)
+  for (var row in dayPlanRows) {
+    // Ungaloda model-la duration iruntha inga add pannalam, 
+    // Illana active trackers-oda time-ai sum pannalam.
+  }
+
+  // Example format return seiyum helper:
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  return '${hours.toString().padLeft(2, '0')}h ${minutes.toString().padLeft(2, '0')}m';
+}
+
 Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
   return Container(
     height: 54,

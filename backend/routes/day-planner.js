@@ -313,6 +313,124 @@ router.delete('/:id', async (req, res) => {
 // });
 
 // POST /api/day-planner/submit
+// router.post('/submit', async (req, res) => {
+//   const { employeeName, date, reportType } = req.body;
+
+//   if (!employeeName || !date) {
+//     return res.status(400).json({
+//       success: false,
+//       message: 'employeeName and date are required'
+//     });
+//   }
+
+//   const currentReportType = reportType || "Morning";
+
+//   try {
+
+//     // Get planner rows
+//     const [plannerRows] = await db.query(
+//       `
+//       SELECT *
+//       FROM day_plan_rows
+//       WHERE employee_name = ?
+//       AND plan_date = ?
+//       AND report_type = ?
+//       ORDER BY id ASC
+//       `,
+//       [
+//         employeeName,
+//         date,
+//         currentReportType
+//       ]
+//     );
+
+//     if (plannerRows.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No planner rows found."
+//       });
+//     }
+
+//     // Mark submitted
+//     await db.query(
+//       `
+//       UPDATE day_plan_rows
+//       SET
+//           is_submitted = 1,
+//           submitted_at = NOW()
+//       WHERE employee_name = ?
+//       AND plan_date = ?
+//       AND report_type = ?
+//       `,
+//       [
+//         employeeName,
+//         date,
+//         currentReportType
+//       ]
+//     );
+
+//     // Get admins
+//     const [admins] = await db.query(
+//       `
+//       SELECT full_name
+//       FROM employee_users
+//       WHERE user_type='admin'
+//       AND is_active=1
+//       `
+//     );
+
+//     // Notify every admin
+//     for (const admin of admins) {
+
+//       await createNotification({
+
+//         senderName: employeeName,
+
+//         recipientName: admin.full_name,
+
+//         message: JSON.stringify({
+
+//           preview: `${employeeName} submitted ${currentReportType} Day Planner`,
+
+//           payload: {
+
+//             type: "PLAN_SUBMITTED",
+
+//             sender: employeeName,
+
+//             recipient: admin.full_name,
+
+//             reportType: currentReportType,
+
+//             date,
+
+//             plannerData: plannerRows
+
+//           }
+
+//         })
+
+//       });
+
+//     }
+
+//     return res.json({
+//       success: true,
+//       message: `${currentReportType} Day Planner submitted successfully.`
+//     });
+
+//   } catch (err) {
+
+//     console.error("POST /day-planner/submit ERROR:", err);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message
+//     });
+
+//   }
+// });
+
 router.post('/submit', async (req, res) => {
   const { employeeName, date, reportType } = req.body;
 
@@ -326,8 +444,19 @@ router.post('/submit', async (req, res) => {
   const currentReportType = reportType || "Morning";
 
   try {
+    // 1. Calculate total working hours for this employee on this date from time_tracking_task_items
+    const [timeRows] = await db.query(
+      `SELECT SUM(tti.duration_secs) AS total_secs
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tl.employee_name = ? 
+       AND DATE(tti.submit_date) = ?`,
+      [employeeName, date]
+    );
 
-    // Get planner rows
+    const totalWorkingSecs = timeRows[0]?.total_secs || 0;
+
+    // 2. Get planner rows
     const [plannerRows] = await db.query(
       `
       SELECT *
@@ -351,18 +480,20 @@ router.post('/submit', async (req, res) => {
       });
     }
 
-    // Mark submitted
+    // 3. Mark submitted AND save total working seconds into the row / records
     await db.query(
       `
       UPDATE day_plan_rows
       SET
           is_submitted = 1,
-          submitted_at = NOW()
+          submitted_at = NOW(),
+          total_working_secs = ?
       WHERE employee_name = ?
       AND plan_date = ?
       AND report_type = ?
       `,
       [
+        totalWorkingSecs,
         employeeName,
         date,
         currentReportType
@@ -379,7 +510,7 @@ router.post('/submit', async (req, res) => {
       `
     );
 
-    // Notify every admin
+    // Notify every admin with total working time included in payload
     for (const admin of admins) {
 
       await createNotification({
@@ -403,6 +534,8 @@ router.post('/submit', async (req, res) => {
             reportType: currentReportType,
 
             date,
+
+            totalWorkingSecs,
 
             plannerData: plannerRows
 
@@ -735,5 +868,26 @@ router.get('/admin/day-planner/submissions', async (req, res) => {
   }
 });
 
+router.get('/total-working-hours/:employeeName', async (req, res) => {
+  const { employeeName } = req.params;
+  const { date } = req.query; // optional date filter (YYYY-MM-DD)
+
+  try {
+    const [rows] = await db.query(
+      `SELECT SUM(tti.duration_secs) AS total_secs
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tl.employee_name = ? 
+       AND ( ? IS NULL OR DATE(tti.created_at) = ? OR DATE(tti.submit_date) = ? )`,
+      [employeeName, date || null, date || null, date || null]
+    );
+
+    const totalSeconds = rows[0]?.total_secs || 0;
+    return res.json({ success: true, totalSeconds });
+  } catch (err) {
+    console.error('Error calculating total working hours:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 module.exports = router;

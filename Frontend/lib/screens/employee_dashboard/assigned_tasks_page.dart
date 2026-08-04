@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -22,7 +23,7 @@ class AssignedTasksContent extends StatefulWidget {
   State<AssignedTasksContent> createState() => _AssignedTasksContentState();
 }
 
-class _AssignedTasksContentState extends State<AssignedTasksContent> {
+class _AssignedTasksContentState extends State<AssignedTasksContent> with WidgetsBindingObserver {
   // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
 
@@ -138,7 +139,28 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
 
   @override
   void initState() {
+    
     super.initState();
+
+     WidgetsBinding.instance.addObserver(this);
+
+    // 🟢 Browser close / tab close aagum pothu trigger aagum
+    html.window.onBeforeUnload.listen((event) {
+      if (currentRunningTaskKey != null) {
+        final prevKey = currentRunningTaskKey!;
+        final ctx = _rowContext[prevKey];
+        if (ctx != null) {
+          // Synchronous-ah local state-ai hold state-ku mathi save panna try pannalam
+          _handleHold(
+            prevKey,
+            ctx['task'] as Map<String, dynamic>,
+            ctx['rowIndex'] as int,
+            ctx['taskId'] as String,
+          );
+        }
+      }
+    });
+
     _resolveLoggedInEmployee();
     _fetchTimingData();
     _fetchEmployeeAssignedTasks();
@@ -167,6 +189,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
 
    @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     socket.dispose();
     //  _clientSearchController.dispose();
     _horizontalController.dispose();
@@ -175,6 +198,30 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     }
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      _holdActiveTaskOnAppClose();
+    }
+    super.didChangeAppLifecycleState(state);
+  }
+
+Future<void> _holdActiveTaskOnAppClose() async {
+    if (currentRunningTaskKey != null) {
+      final prevKey = currentRunningTaskKey!;
+      final ctx = _rowContext[prevKey];
+      if (ctx != null) {
+        await _handleHold(
+          prevKey,
+          ctx['task'] as Map<String, dynamic>,
+          ctx['rowIndex'] as int,
+          ctx['taskId'] as String,
+        );
+      }
+    }
+  }
+ 
 
   // FIX: centralised employee resolution — tries the common key variants so a
   // schema/key rename in AuthService.user doesn't silently null out employeeId.
@@ -629,7 +676,7 @@ Future<void> _restoreLastExpandedTask() async {
       }
     }
   }
-  
+
   TaskStatus _statusFromString(String s) {
     switch (s.toUpperCase()) {
       case 'IN PROGRESS': return TaskStatus.running;
@@ -854,11 +901,14 @@ debugPrint("================================");
   // wrong task_list row.
 
   Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
-    if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
-      // Note: we don't have that other row's task/taskId handy here; holding
-      // it just stops its timer bookkeeping locally without an extra network
-      // call, since its own Hold button remains available to the user.
-      taskTimers[currentRunningTaskKey]?.cancel();
+    // if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+    //   // Note: we don't have that other row's task/taskId handy here; holding
+    //   // it just stops its timer bookkeeping locally without an extra network
+    //   // call, since its own Hold button remains available to the user.
+    //   taskTimers[currentRunningTaskKey]?.cancel();
+    // }
+      if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+      await _autoHoldRunningTask(taskKey);
     }
     setState(() {
       taskStatus[taskKey]              = TaskStatus.running;
@@ -900,6 +950,9 @@ debugPrint("================================");
   }
 
   Future<void> _handleRestart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+      if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+      await _autoHoldRunningTask(taskKey);
+    }
     setState(() {
       taskStatus[taskKey] = TaskStatus.running;
       (taskRestartTimes[taskKey] ??= []).add(DateTime.now());
