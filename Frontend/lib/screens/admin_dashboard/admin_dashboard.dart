@@ -118,16 +118,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final clients = List<dynamic>.from(jsonDecode(results[0].body)['data'] ?? []);
       final statusRows = List<dynamic>.from(jsonDecode(results[1].body)['data'] ?? []);
 
+      // int active = 0;
+      // int inactive = 0;
+      // for (final c in clients) {
+      //   final status = (c['status'] as String? ?? '').toLowerCase();
+      //   if (status == 'verified' || status == 'complete') {
+      //     active++;
+      //   } else if (status == 'draft') {
+      //     inactive++;
+      //   }
+      // }
+
       int active = 0;
-      int inactive = 0;
-      for (final c in clients) {
-        final status = (c['status'] as String? ?? '').toLowerCase();
-        if (status == 'verified' || status == 'complete') {
-          active++;
-        } else if (status == 'draft') {
-          inactive++;
-        }
-      }
+int inactive = 0;
+
+for (final c in clients) {
+  final activeValue = c['is_active'];
+
+  final bool isActive =
+      activeValue == 1 ||
+      activeValue == true ||
+      activeValue.toString() == "1";
+
+  if (isActive) {
+    active++;
+  } else {
+    inactive++;
+  }
+}
 
       int pending = 0;
       for (final r in statusRows) {
