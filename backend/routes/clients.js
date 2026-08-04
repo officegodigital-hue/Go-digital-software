@@ -325,7 +325,7 @@ router.delete('/:id', async (req, res) => {
 router.get('/list', async (req, res) => {
   try {
     const [clients] = await db.query(
-      `SELECT id, company_name FROM clients WHERE status = 'verified' ORDER BY company_name ASC`
+      `SELECT id, company_name FROM clients WHERE status = 'verified' AND is_active = 1 ORDER BY company_name ASC`
     );
  
     res.json({

@@ -10,6 +10,7 @@ import '../../services/api_config.dart';
 import 'additional_tasks_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'employee_layout_page.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 enum TaskStatus { idle, running, held, completed, rejected }
 
@@ -71,6 +72,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
   // final TextEditingController _clientSearchController = TextEditingController();
   TextEditingController? _clientSearchFieldController;
   String? _error;
+  late IO.Socket socket;
 
   String clientName      = '';
   String deliverableName = '';
@@ -140,6 +142,38 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> {
     _resolveLoggedInEmployee();
     _fetchTimingData();
     _fetchEmployeeAssignedTasks();
+    _initSocketListener();
+  }
+
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+
+    socket.on('task_updated', (data) {
+      print("🔥 Real-time assignment update received: $data");
+      if (mounted) {
+        _fetchEmployeeAssignedTasks(); // Auto refresh tasks when assigned by admin!
+      }
+    });
+  }
+
+   @override
+  void dispose() {
+    socket.dispose();
+    //  _clientSearchController.dispose();
+    _horizontalController.dispose();
+    for (final t in taskTimers.values) {
+      t.cancel();
+    }
+    super.dispose();
   }
 
   // FIX: centralised employee resolution — tries the common key variants so a
@@ -557,11 +591,45 @@ print(r.body);
           debugPrint('✅ Restored: $taskKey → status=$statusStr, secs=$totalSecs');
         }
       });
+
+      await _restoreLastExpandedTask();
+
     } catch (e) {
       debugPrint('❌ Error loading saved tracker data: $e');
     }
   }
 
+
+Future<void> _restoreLastExpandedTask() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedTabIdx = prefs.getInt('last_selected_tab');
+    final savedExpandedId = prefs.getString('last_expanded_task');
+
+    if (savedTabIdx != null && savedTabIdx < taskTabNames.length) {
+      setState(() {
+        selectedTabIndex = savedTabIdx;
+      });
+    }
+
+    if (savedExpandedId != null) {
+      for (final tab in taskTabNames) {
+        final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
+        for (int i = 0; i < tasksForTab.length; i++) {
+          final t = tasksForTab[i];
+          final tid = '${t['client_name']}_${t['singleTask']}_$i';
+          if (tid == savedExpandedId) {
+            await _ensureTaskListEntry(t, tid);
+            setState(() {
+              expandedTaskId = savedExpandedId;
+              selectedTabIndex = taskTabNames.indexOf(tab);
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+  
   TaskStatus _statusFromString(String s) {
     switch (s.toUpperCase()) {
       case 'IN PROGRESS': return TaskStatus.running;
@@ -908,15 +976,7 @@ debugPrint("================================");
     return '$d day${d > 1 ? 's' : ''}';
   }
 
-  @override
-  void dispose() {
-    //  _clientSearchController.dispose();
-    _horizontalController.dispose();
-    for (final t in taskTimers.values) {
-      t.cancel();
-    }
-    super.dispose();
-  }
+ 
 
   // ── ACTION RECORDER — start/hold/restart/complete/reject ───────────────────
   // FIX: task_action table is gone. These now hit
@@ -1569,12 +1629,23 @@ ElevatedButton(
               )),
             ])),
 
-            ElevatedButton(
+         ElevatedButton(
               onPressed: () async {
                 if (!isExpand) {
                   await _ensureTaskListEntry(task, taskId);
                 }
                 setState(() => expandedTaskId = isExpand ? null : taskId);
+
+                // 🟢 SAVE OPEN STATE TO SHARED PREFERENCES ON CLICK
+                final prefs = await SharedPreferences.getInstance();
+                if (expandedTaskId != null) {
+                  await prefs.setString('last_expanded_task', expandedTaskId!);
+                  if (selectedTabIndex != null) {
+                    await prefs.setInt('last_selected_tab', selectedTabIndex!);
+                  }
+                } else {
+                  await prefs.remove('last_expanded_task');
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: isExpand ? AppColors.red : const Color(0xFFD9E8FF),
@@ -1582,7 +1653,8 @@ ElevatedButton(
               ),
               child: Text(isExpand ? 'HIDE' : 'OPEN'),
             ),
-          ]),
+
+ ]),
         ),
         if (isExpand) _buildTaskTable(task, taskId),
       ]);

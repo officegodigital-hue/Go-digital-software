@@ -221,7 +221,13 @@ router.post('/', async (req, res) => {
     };
 
     // ✅ Task assign seiyum pothu (isAssigned true-a irunthal) notification send agum
-    if (isAssigned) {
+    // Insert successful aana piragu DB value check pannunga
+const [rows] = await db.query(
+  `SELECT is_assigned FROM task_assignments WHERE id = ?`,
+  [result.insertId]
+);
+
+if (rows.length && rows[0].is_assigned == 1) {
       
       const assignments = [
         { employeeName: designer,     tasks: designerTasks },
@@ -259,6 +265,17 @@ io.emit("taskAssigned", {
         }
       }
     }
+    try {
+  const io = req.app.get('io');
+  if (io) {
+    io.emit('task_updated', { 
+      type: 'TASK_ASSIGNED', 
+      message: 'New task assigned by admin' 
+    });
+  }
+} catch (socketErr) {
+  console.error('Socket emit error:', socketErr);
+}
 
     return res.status(201).json({ success: true, message: 'Task created', data: { id: result.insertId } });
 
@@ -381,6 +398,17 @@ io.emit("taskAssigned", {
         console.error('⚠️ task-update notification failed (non-fatal):', notifyErr.message);
       }
     }
+    try {
+  const io = req.app.get('io');
+  if (io) {
+    io.emit('task_updated', { 
+      type: 'TASK_ASSIGNED', 
+      message: 'New task assigned by admin' 
+    });
+  }
+} catch (socketErr) {
+  console.error('Socket emit error:', socketErr);
+}
 
     return res.json({ success: true, message: 'Task updated' });
   } catch (err) {

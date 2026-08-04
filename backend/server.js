@@ -3,6 +3,9 @@ const express = require('express');
 const cors    = require('cors');
 const cron = require("node-cron");
 
+const http = require("http");
+const { Server } = require("socket.io");
+
 const employeeRoutes = require('./routes/employees');
 const timingRoutes    = require('./routes/timings'); 
 const clientRoutes     = require('./routes/clients');        
@@ -30,6 +33,26 @@ const DayPlannerRoutes = require('./routes/day-planner'); // Import the new rout
 const performanceRoutes = require('./routes/performance'); // ✅ Add performance route import
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+// ── 1. Create HTTP Server & Initialize Socket.io ─────────────────────────────
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+  }
+});
+
+// Make `io` accessible globally inside routes if needed (e.g., req.app.get('io'))
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  console.log(`⚡ A user connected: ${socket.id}`);
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 User disconnected: ${socket.id}`);
+  });
+});
 
 // ── CORS middleware — handles ALL methods including preflight ─────────────────
 app.use((req, res, next) => {
@@ -93,8 +116,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`GoDigital API running at http://localhost:${PORT}`);
-  console.log(`✅ Task tracking endpoints available at http://localhost:${PORT}/api/task-tracking`);
-  console.log(`✅ Action logging endpoints available at http://localhost:${PORT}/api/task-actions`);
+  console.log(`✅ Socket.io server is active and running`);
 });

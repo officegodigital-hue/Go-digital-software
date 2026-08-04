@@ -7,7 +7,8 @@ import '../../services/api_config.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import '../../services/socket_service.dart'; // (or direct socket setup)
 
 class ManagerReviewScreen extends StatefulWidget {
   const ManagerReviewScreen({super.key});
@@ -36,11 +37,11 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
   bool _loading = true;
   String? _error;
   Timer? _commentTimer;
+  late IO.Socket socket;
 
   final List<String> actionOptions = ["ACTION", "APPROVED", "REWORK", "REJECTED"];
 
   @override
-@override
 void initState() {
   super.initState();
 
@@ -62,9 +63,76 @@ void initState() {
 
     _fetchReviewData();
 
+  _initSocketListener();
   });
 }
 
+
+// void _initSocketListener() {
+//   socket = IO.io(ApiConfig.socketUrl, {
+//   'transports': ['websocket'],
+//   'autoConnect': true,
+// });
+
+//   socket.connect();
+
+//   socket.onConnect((_) {
+//     print("🟢 Connected : ${socket.id}");
+//   });
+
+//   socket.onDisconnect((_) {
+//     print("🔴 Disconnected");
+//   });
+
+//   socket.onConnectError((err) {
+//     print("❌ Connect Error : $err");
+//   });
+
+//   socket.onError((err) {
+//     print("❌ Socket Error : $err");
+//   });
+
+//   socket.onAny((event, data) {
+//     print("📡 Event => $event");
+//     print(data);
+//   });
+
+//   socket.on('task_updated', (data) {
+//     print("🔥 task_updated => $data");
+
+//     if (mounted) {
+//       _fetchReviewData();
+//     }
+//   });
+// }
+
+void _initSocketListener() {
+  socket = IO.io(
+    ApiConfig.socketUrl,
+    IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .enableForceNew()
+        .disableAutoConnect()
+        .build(),
+  );
+
+  socket.connect();
+
+
+  socket.on('task_updated', (data) {
+    print("🔥 $data");
+    _fetchReviewData();
+  });
+}
+
+  @override
+  void dispose() {
+    socket.dispose();
+    for (var row in reviewData) {
+      (row["controller"] as TextEditingController).dispose();
+    }
+    super.dispose();
+  }
 
 Future<void> loadUser() async {
 
@@ -146,6 +214,8 @@ Future<void> _fetchReviewData() async {
     });
   }
 }
+  
+  
   String _initialsFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '--';
@@ -334,13 +404,7 @@ Future<void> _saveComment(
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
   }
 
-  @override
-  void dispose() {
-    for (var row in reviewData) {
-      (row["controller"] as TextEditingController).dispose();
-    }
-    super.dispose();
-  }
+
 
   @override
   Widget build(BuildContext context) {

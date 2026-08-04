@@ -6,7 +6,7 @@ import '../../services/api_config.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class TaskStatusScreen extends StatefulWidget {
   const TaskStatusScreen({super.key});
@@ -34,6 +34,7 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
 
   bool _loading = true;
   String? _error;
+  late IO.Socket socket;
 
   
 @override
@@ -56,6 +57,27 @@ void initState() {
           '';
     });
 
+    _fetchReviewData();
+    _initSocketListener();
+  });
+}
+
+void _initSocketListener() {
+  socket = IO.io(
+    ApiConfig.socketUrl,
+    IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .enableForceNew()
+        .disableAutoConnect()
+        .build(),
+  );
+
+  socket.connect();
+
+  socket.off('task_updated'); // remove old listener
+
+  socket.on('task_updated', (data) {
+    print("🔥 $data");
     _fetchReviewData();
   });
 }
@@ -158,7 +180,7 @@ void dispose() {
   for (final row in reviewData) {
     (row["controller"] as TextEditingController).dispose();
   }
-
+socket.dispose();
   super.dispose();
 }
 

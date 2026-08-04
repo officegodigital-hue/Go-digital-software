@@ -196,6 +196,8 @@ void dispose() {
     }
   }
 
+  
+
   List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       // if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {

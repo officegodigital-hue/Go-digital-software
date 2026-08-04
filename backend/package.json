@@ -19,6 +19,7 @@
     "mysql2": "^3.22.6",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
-    "sequelize": "^6.37.8"
+    "sequelize": "^6.37.8",
+    "socket.io": "^4.8.3"
   }
 }

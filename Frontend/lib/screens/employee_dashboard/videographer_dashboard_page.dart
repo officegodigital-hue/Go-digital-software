@@ -11,7 +11,8 @@ import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/widgets/alerts_section.dart';
 import 'package:godigital_portal/widgets/productivity_card.dart';
 import '../../services/api_config.dart';
- 
+ import 'package:socket_io_client/socket_io_client.dart' as IO;
+
 class VideographerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
   final VoidCallback? onViewAllNotifications;
@@ -47,6 +48,7 @@ int review = 0;
   bool _loading = true;
   String? _error;
   String? _employeeName;
+  late IO.Socket socket;
 
   String? _daysLeftLabel(String? raw, String action) {
   if (raw == null || raw.isEmpty) return null;
@@ -81,6 +83,33 @@ int review = 0;
   void initState() {
     super.initState();
     _fetchDashboardSummary();
+  _initSocketListener(); // 🟢 Socket listener-ai call seyyungal
+  }
+
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+
+    socket.on('task_updated', (data) {
+      print("🔥 Dashboard live update received: $data");
+      if (mounted) {
+        _fetchDashboardSummary(); // Task update aana odane dashboard summary & table live-ah refresh aagum!
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    socket.dispose(); // 🟢 Widget close aagum pothu socket-ai dispose seyyungal
+    super.dispose();
   }
 
   Future<void> _fetchDashboardSummary() async {

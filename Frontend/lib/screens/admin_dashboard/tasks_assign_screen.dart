@@ -147,7 +147,75 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   // ── FETCH CLIENTS FROM INVOICES TABLE ──────────────────────────────────
-Future<void> _fetchClientsFromInvoices() async {
+// Future<void> _fetchClientsFromInvoices() async {
+//   setState(() => _loadingClients = true);
+
+//   try {
+//     final r = await http.get(Uri.parse('$_baseUrl/invoices'));
+
+//     if (r.statusCode == 200) {
+//       final data =
+//           List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+
+//       final today = DateTime.now();
+//       final currentDate = DateTime(
+//         today.year,
+//         today.month,
+//         today.day,
+//       );
+
+//       final uniqueClients = <String>{};
+
+//       for (var invoice in data) {
+//         final maintenanceDate =
+//             invoice['maintenance_date']?.toString() ?? '';
+
+//         if (maintenanceDate.isEmpty) continue;
+
+//         try {
+//           final dateParts = maintenanceDate.split('/');
+
+//           if (dateParts.length == 3) {
+//             final maintenance = DateTime(
+//               int.parse(dateParts[2]), // year
+//               int.parse(dateParts[1]), // month
+//               int.parse(dateParts[0]), // day
+//             );
+
+//             // ✅ Today and Future only
+//             if (!maintenance.isBefore(currentDate)) {
+//               final clientName =
+//                   invoice['client_name']?.toString() ?? '';
+
+//               if (clientName.isNotEmpty) {
+//                 uniqueClients.add(clientName);
+//               }
+//             }
+//           }
+//         } catch (e) {
+//           debugPrint(
+//               'Error parsing maintenance date: $maintenanceDate - $e');
+//         }
+//       }
+
+//       setState(() {
+//         clients = uniqueClients.toList()..sort();
+//         _loadingClients = false;
+//       });
+
+//       debugPrint(
+//           '✅ Loaded ${clients.length} clients with valid maintenance dates');
+//     } else {
+//       setState(() => _loadingClients = false);
+//     }
+//   } catch (e) {
+//     debugPrint('❌ Error fetching clients: $e');
+//     setState(() => _loadingClients = false);
+//   }
+// }
+ 
+
+ Future<void> _fetchClientsFromInvoices() async {
   setState(() => _loadingClients = true);
 
   try {
@@ -157,44 +225,14 @@ Future<void> _fetchClientsFromInvoices() async {
       final data =
           List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
 
-      final today = DateTime.now();
-      final currentDate = DateTime(
-        today.year,
-        today.month,
-        today.day,
-      );
-
       final uniqueClients = <String>{};
 
-      for (var invoice in data) {
-        final maintenanceDate =
-            invoice['maintenance_date']?.toString() ?? '';
+      for (final invoice in data) {
+        final clientName =
+            (invoice['client_name'] ?? '').toString().trim();
 
-        if (maintenanceDate.isEmpty) continue;
-
-        try {
-          final dateParts = maintenanceDate.split('/');
-
-          if (dateParts.length == 3) {
-            final maintenance = DateTime(
-              int.parse(dateParts[2]), // year
-              int.parse(dateParts[1]), // month
-              int.parse(dateParts[0]), // day
-            );
-
-            // ✅ Today and Future only
-            if (!maintenance.isBefore(currentDate)) {
-              final clientName =
-                  invoice['client_name']?.toString() ?? '';
-
-              if (clientName.isNotEmpty) {
-                uniqueClients.add(clientName);
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint(
-              'Error parsing maintenance date: $maintenanceDate - $e');
+        if (clientName.isNotEmpty) {
+          uniqueClients.add(clientName);
         }
       }
 
@@ -203,8 +241,7 @@ Future<void> _fetchClientsFromInvoices() async {
         _loadingClients = false;
       });
 
-      debugPrint(
-          '✅ Loaded ${clients.length} clients with valid maintenance dates');
+      debugPrint('✅ Loaded ${clients.length} unique clients');
     } else {
       setState(() => _loadingClients = false);
     }
@@ -213,6 +250,7 @@ Future<void> _fetchClientsFromInvoices() async {
     setState(() => _loadingClients = false);
   }
 }
+ 
   // ── FETCH TASK MASTER (Task roles and their tasks) ──────────────────────
   Future<void> _fetchTaskMaster() async {
     setState(() => _loadingTaskMaster = true);

@@ -319,12 +319,27 @@ WHERE tracking_item_id = ?
         },
     }),
 });
+
         }
 
     } catch (notifyErr) {
         console.error(notifyErr);
     }
 }
+
+try {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('task_updated', { 
+          type: 'MANAGER_REVIEW', 
+          trackingItemId: trackingItemId,
+          action: rows.length > 0 ? rows[0].manager_action : action 
+        });
+        console.log('📡 Broadcasted task_updated for tracking item:', trackingItemId);
+      }
+    } catch (socketErr) {
+      console.error('Socket emit error:', socketErr);
+    }
 
     return res.json({ success: true, message: 'Review updated', data: rows[0] });
   } catch (err) {

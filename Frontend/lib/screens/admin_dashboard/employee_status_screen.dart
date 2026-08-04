@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class EmployeeStatusScreen extends StatefulWidget {
   const EmployeeStatusScreen({super.key});
@@ -30,11 +30,39 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
 
   bool _loading = true;
   String? _error;
+  late IO.Socket socket;
 
   @override
   void initState() {
     super.initState();
     _fetchEmployeeStatus();
+    _initSocketListener();
+  }
+
+  @override
+  void dispose() {
+    socket.dispose(); 
+    super.dispose();
+  }
+
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+
+    socket.on('task_updated', (data) {
+      print("🔥 Admin live status update received: $data");
+      if (mounted) {
+        _fetchEmployeeStatus(); // Employee task change aanal admin screen automatic-ah refresh aagum!
+      }
+    });
   }
 
   Future<void> _fetchEmployeeStatus() async {
@@ -177,7 +205,7 @@ final allDone = totalRows > 0 && completedRows >= totalRows;
   bool statusMatch =
       !_isFilterMenuOpen ||
       activeFilter == "All" ||
-      row["status"]
+      row["priority"]
           .toString()
           .toUpperCase() ==
           activeFilter.toUpperCase();
@@ -332,12 +360,10 @@ const SizedBox(height: 20),
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 _buildFilterTab("All"),
-                                _buildFilterTab("Pending"),
-                                _buildFilterTab("In Progress"),
-                                _buildFilterTab("Review"),
-                                _buildFilterTab("Completed"),
-                                _buildFilterTab("Overdue"),
-                                _buildFilterTab("On Hold"),
+                                _buildFilterTab("Urgent"),
+                                _buildFilterTab("High"),
+                                _buildFilterTab("Medium"),
+                                _buildFilterTab("Low"),
                                 const SizedBox(width: 8),
                               ],
                             ),

@@ -6,6 +6,23 @@ const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
+// Helper to broadcast task updates via Socket.io
+const emitTaskUpdate = (req, trackingItemId, action) => {
+  try {
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('task_updated', {
+        type: 'TRACKING_ITEM_UPDATE',
+        trackingItemId: trackingItemId,
+        action: action
+      });
+      console.log('📡 Broadcasted task_updated for tracking item:', trackingItemId);
+    }
+  } catch (socketErr) {
+    console.error('Socket emit error:', socketErr);
+  }
+};
+
 function calculateWorkingDuration(row) {
 
   if (!row.start_time || !row.complete_time) {
@@ -264,6 +281,7 @@ WHERE id=?`,
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    emitTaskUpdate(req, id, 'IN PROGRESS');
     return res.json({ success: true, message: 'Task started', data: rows[0] });
   } catch (err) {
     console.error('POST /tracking-items/:id/start ERROR:', err.message);
@@ -294,6 +312,7 @@ router.post('/:id/hold', async (req, res) => {
     );
 
     const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    emitTaskUpdate(req, id, 'ON HOLD');
     return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: updated[0] });
   } catch (err) {
     console.error('POST /tracking-items/:id/hold ERROR:', err.message);
@@ -324,6 +343,7 @@ router.post('/:id/restart', async (req, res) => {
     );
 
     const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    emitTaskUpdate(req, id, 'IN PROGRESS');
     return res.json({ success: true, message: `Task restarted (slot ${slot})`, data: updated[0] });
   } catch (err) {
     console.error('POST /tracking-items/:id/restart ERROR:', err.message);
@@ -437,7 +457,7 @@ router.post('/:id/complete', async (req, res) => {
 
     }
 
-
+emitTaskUpdate(req, id, 'COMPLETED');
 
     return res.json({
 
@@ -490,6 +510,7 @@ router.post('/:id/reject', async (req, res) => {
      const durationSecs = calculateWorkingDuration(row);
 
 
+    emitTaskUpdate(req, id, 'REJECTED');
     return res.json({ success: true, message: 'Task rejected', data: rows[0] });
   } catch (err) {
     console.error('POST /tracking-items/:id/reject ERROR:', err.message);
@@ -507,6 +528,7 @@ console.log("formattedSubmitDate:", formattedSubmitDate);
     const [result] = await db.query(`DELETE FROM time_tracking_task_items WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
+    emitTaskUpdate(req, req.params.id, 'DELETED');
     return res.json({ success: true, message: 'Tracking item deleted' });
   } catch (err) {
     console.error('DELETE /tracking-items/:id ERROR:', err.message);

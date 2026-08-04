@@ -95,7 +95,10 @@ router.get('/', async (req, res) => {
               i.status, i.created_at, i.linked_quotation_id, i.linked_quotation_no,
               (SELECT ii.description FROM invoice_items ii
                 WHERE ii.invoice_id = i.id ORDER BY ii.sort_order ASC, ii.id ASC LIMIT 1) AS package_type
-       FROM invoices i ORDER BY i.id DESC`
+       FROM invoices i INNER JOIN clients c
+        ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name))
+      WHERE c.is_active = 1
+      ORDER BY i.id DESC`
     );
     return res.json({ success: true, data: rows });
   } catch (err) {

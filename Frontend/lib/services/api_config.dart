@@ -19,5 +19,17 @@ class ApiConfig {
     // Physical Android Phone
     // return 'http://192.168.1.100:5000/api';
   }
+
+static String get socketUrl {
+  if (kIsWeb) {
+    if (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1') {
+      return 'http://localhost:5000'; // <-- change 5000 to 3000
+    }
+
+    return Uri.base.origin;
+  }
+
+  return 'http://10.0.2.2:3000';
+}
 }
 

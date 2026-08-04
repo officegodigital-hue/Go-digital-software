@@ -12,6 +12,7 @@ import 'package:godigital_portal/core/widgets/status_badge.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/widgets/alerts_section.dart';
 import 'package:godigital_portal/widgets/productivity_card.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class AdsHandlerDashboardPage extends StatefulWidget {
   final VoidCallback? onOpenAssignedTask;
@@ -50,13 +51,39 @@ int review  = 0;
   bool _loading = true;
   String? _error;
   String? _employeeName;
+  late IO.Socket socket;
 
   @override
   void initState() {
     super.initState();
     _fetchDashboardSummary();
+    _initSocketListener();
+  }
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+
+    socket.on('task_updated', (data) {
+      print("🔥 Dashboard live update received: $data");
+      if (mounted) {
+        _fetchDashboardSummary(); // Task update aana odane dashboard summary & table live-ah refresh aagum!
+      }
+    });
   }
 
+@override
+  void dispose() {
+    socket.dispose(); // 🟢 Widget close aagum pothu socket-ai dispose seyyungal
+    super.dispose();
+  }
 String? _daysLeftLabel(String? raw, String action) {
     if (raw == null || raw.isEmpty) return null;
     if (action == 'COMPLETED' || action == 'REJECTED' || action == 'SUBMITTED') return null;
