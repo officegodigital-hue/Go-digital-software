@@ -66,6 +66,57 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/progress/:employee/:client', async (req, res) => {
+  const { employee, client } = req.params;
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+          tl.id AS task_list_id,
+          tl.deliverables,
+          tl.no_of_rows,
+          (
+              SELECT COUNT(*)
+              FROM time_tracking_task_items tti
+              WHERE tti.task_list_id = tl.id
+                AND tti.status = 'COMPLETED'
+          ) AS completed_count,
+          (
+              SELECT COUNT(*)
+              FROM time_tracking_task_items tti
+              WHERE tti.task_list_id = tl.id
+          ) AS total_tracked_rows
+      FROM task_list tl
+      WHERE tl.employee_name = ?
+        AND tl.client_name = ?
+      ORDER BY tl.id ASC
+      `,
+      [employee, client]
+    );
+
+    const data = rows.map((r) => {
+      // Total rows-ku 'no_of_rows'allathu tracked rows-il ethu periyatho athai eduthukollalam
+      const total = Math.max(r.no_of_rows || 1, r.total_tracked_rows || 1);
+      const completed = r.completed_count || 0;
+      const balance = Math.max(total - completed, 0);
+      const deliverableName = r.deliverables || 'Task';
+
+      return {
+        task_list_id: r.task_list_id,
+        deliverable: deliverableName,
+        completed: `${deliverableName} (${completed}/${total})`, // e.g. POSTER (1/5)
+        balanced: `${deliverableName} (${balance}/${total})`     // e.g. POSTER (4/5)
+      };
+    });
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /day-planner/progress ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/day-planner — create a new row
 router.post('/', async (req, res) => {
   const {
@@ -450,7 +501,7 @@ router.post('/submit', async (req, res) => {
        FROM time_tracking_task_items tti
        JOIN task_list tl ON tl.id = tti.task_list_id
        WHERE tl.employee_name = ? 
-       AND DATE(tti.submit_date) = ?`,
+       AND DATE(tti.updated_at) = ?`,
       [employeeName, date]
     );
 
@@ -564,60 +615,6 @@ router.post('/submit', async (req, res) => {
   }
 });
 
-router.get('/progress/:employee/:client', async (req, res) => {
-  try {
-
-    const employee = req.params.employee;
-    const client = req.params.client;
-
-    const [rows] = await db.query(`
-SELECT
-    tl.id,
-    tl.deliverables,
-    tl.no_of_rows,
-
-    (
-        SELECT COUNT(*)
-        FROM time_tracking_task_items tti
-        WHERE tti.task_list_id = tl.id
-        AND tti.status='COMPLETED'
-    ) completed
-
-FROM task_list tl
-
-WHERE
-tl.employee_name=?
-AND tl.client_name=?
-ORDER BY tl.id
-`,
-[
-employee,
-client
-]);
-
-const data = rows.map(r=>({
-
-deliverable:r.deliverables,
-
-completed:`${r.completed}/${r.no_of_rows}`,
-
-balance:`${r.no_of_rows-r.completed}/${r.no_of_rows}`
-
-}));
-
-return res.json({
-success:true,
-data
-});
-
-  } catch(err){
-      console.log(err);
-      res.status(500).json({
-        success:false,
-        message:err.message
-      });
-  }
-});
 
 router.get("/today/:employee", async (req, res) => {
   try {
@@ -886,6 +883,9 @@ router.get('/total-working-hours/:employeeName', async (req, res) => {
   }
 });
 // PUT /api/day-planner/working-hours — update total working seconds live
+// PUT /api/day-planner/working-hours — update total working seconds live
+// routes/day-planner.js
+// PUT /api/day-planner/working-hours
 router.put('/working-hours', async (req, res) => {
   const { employeeName, date, totalWorkingSecs } = req.body;
 
@@ -896,10 +896,9 @@ router.put('/working-hours', async (req, res) => {
   try {
     await db.query(
       `UPDATE day_plan_rows
-SET total_working_secs=?
-WHERE employee_name=?
-AND plan_date=?
-AND is_submitted=1`,
+       SET total_working_secs = ?
+       WHERE employee_name = ?
+       AND plan_date = ?`, // 🟢 Ingu iruntha 'AND is_submitted=1'-ai remove seithuvitten
       [totalWorkingSecs || 0, employeeName, date]
     );
 

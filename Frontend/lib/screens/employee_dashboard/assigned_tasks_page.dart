@@ -758,6 +758,8 @@ debugPrint("================================");
     final total  = taskTotalDurations[taskKey];
     final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
 
+
+
     final payload = {
       'taskListId': taskListId,
       'taskTimingId': null,
@@ -771,7 +773,7 @@ debugPrint("================================");
       'status': _statusString(status),
     };
     debugPrint("PAYLOAD submitDate => ${payload['submitDate']}");
-
+debugPrint("SUBMIT DATE = ${payload['submitDate']}");
     try {
       final r = await http.post(
         Uri.parse('$_baseUrl/tracking-items'),

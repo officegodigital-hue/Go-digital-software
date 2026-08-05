@@ -838,37 +838,139 @@ Map<String, dynamic> _buildPayload(
     ));
   }
 
-  Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
-    // if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
-    //   // Note: we don't have that other row's task/taskId handy here; holding
-    //   // it just stops its timer bookkeeping locally without an extra network
-    //   // call, since its own Hold button remains available to the user.
-    //   taskTimers[currentRunningTaskKey]?.cancel();
-    // }
+  // Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+  //   // if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+  //   //   // Note: we don't have that other row's task/taskId handy here; holding
+  //   //   // it just stops its timer bookkeeping locally without an extra network
+  //   //   // call, since its own Hold button remains available to the user.
+  //   //   taskTimers[currentRunningTaskKey]?.cancel();
+  //   // }
 
+  //   if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+  //     await _autoHoldRunningTask(taskKey);
+  //   }
+
+  //   setState(() {
+  //     taskStatus[taskKey]              = TaskStatus.running;
+  //     taskStartTimes[taskKey]          = DateTime.now();
+  //     taskCurrentSessionStart[taskKey] = DateTime.now();
+  //     taskDurations[taskKey]           = Duration.zero;
+  //     currentRunningTaskKey            = taskKey;
+  //     taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+  //       if (mounted) {
+  //         setState(() {
+  //         taskDurations[taskKey] =
+  //             DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+  //       });
+  //       }
+  //     });
+  //   });
+  //   await _autoHoldRunningTask(taskKey);
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.running;
+  //   });
+  //   await _autoSaveRow(taskKey, task, rowIndex, taskId);
+  //   await _recordTaskAction(taskKey, task, rowIndex, taskId, 'start');
+  // }
+
+  // Future<void> _handleHold(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.held;
+  //     (taskHoldTimes[taskKey] ??= []).add(DateTime.now());
+  //     taskTotalDurations[taskKey] =
+  //         (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+  //     taskTimers[taskKey]?.cancel();
+  //     taskTimers.remove(taskKey);
+  //     taskCurrentSessionStart.remove(taskKey);
+  //     taskDurations[taskKey] = Duration.zero;
+  //     currentRunningTaskKey  = null;
+  //   });
+  //   await _autoSaveRow(taskKey, task, rowIndex, taskId);
+  //   await _recordTaskAction(taskKey, task, rowIndex, taskId, 'hold');
+  // }
+
+  // Future<void> _handleRestart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+  //  if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+  //     await _autoHoldRunningTask(taskKey);
+  //   }
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.running;
+  //     (taskRestartTimes[taskKey] ??= []).add(DateTime.now());
+  //     taskCurrentSessionStart[taskKey] = DateTime.now();
+  //     taskDurations[taskKey]           = Duration.zero;
+  //     currentRunningTaskKey            = taskKey;
+  //     taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+  //       if (mounted) {
+  //         setState(() {
+  //         taskDurations[taskKey] =
+  //             DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+  //       });
+  //       }
+  //     });
+  //   });
+  //    await _autoHoldRunningTask(taskKey);
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.running;
+  //   });
+  //   await _autoSaveRow(taskKey, task, rowIndex, taskId);
+  //   await _recordTaskAction(taskKey, task, rowIndex, taskId, 'restart');
+  // }
+
+  // Future<void> _handleComplete(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.completed;
+  //     (taskCompletedTimes[taskKey] ??= []).add(DateTime.now());
+  //     taskTotalDurations[taskKey] =
+  //         (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+  //     taskTimers[taskKey]?.cancel();
+  //     taskTimers.remove(taskKey);
+  //     taskCurrentSessionStart.remove(taskKey);
+  //     taskDurations[taskKey] = Duration.zero;
+  //     currentRunningTaskKey  = null;
+  //   });
+  //   await _autoSaveRow(taskKey, task, rowIndex, taskId);
+  //   await _recordTaskAction(taskKey, task, rowIndex, taskId, 'complete');
+  // }
+
+  // Future<void> _handleReject(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+  //   setState(() {
+  //     taskStatus[taskKey] = TaskStatus.rejected;
+  //     (taskRejectedTimes[taskKey] ??= []).add(DateTime.now());
+  //     taskTotalDurations[taskKey] =
+  //         (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+  //     taskTimers[taskKey]?.cancel();
+  //     taskTimers.remove(taskKey);
+  //     taskCurrentSessionStart.remove(taskKey);
+  //     taskDurations[taskKey] = Duration.zero;
+  //     currentRunningTaskKey  = null;
+  //   });
+  //   await _autoSaveRow(taskKey, task, rowIndex, taskId);
+  //   await _recordTaskAction(taskKey, task, rowIndex, taskId, 'reject');
+  // }
+
+
+
+Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
-
+    
     setState(() {
       taskStatus[taskKey]              = TaskStatus.running;
       taskStartTimes[taskKey]          = DateTime.now();
       taskCurrentSessionStart[taskKey] = DateTime.now();
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
+      
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) {
           setState(() {
-          taskDurations[taskKey] =
-              DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-        });
+            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+          });
         }
       });
     });
-    await _autoHoldRunningTask(taskKey);
-    setState(() {
-      taskStatus[taskKey] = TaskStatus.running;
-    });
+
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'start');
   }
@@ -885,33 +987,32 @@ Map<String, dynamic> _buildPayload(
       taskDurations[taskKey] = Duration.zero;
       currentRunningTaskKey  = null;
     });
+    
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'hold');
   }
 
   Future<void> _handleRestart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
-   if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
+    if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
+    
     setState(() {
       taskStatus[taskKey] = TaskStatus.running;
       (taskRestartTimes[taskKey] ??= []).add(DateTime.now());
       taskCurrentSessionStart[taskKey] = DateTime.now();
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
+      
       taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) {
           setState(() {
-          taskDurations[taskKey] =
-              DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-        });
+            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+          });
         }
       });
     });
-     await _autoHoldRunningTask(taskKey);
-    setState(() {
-      taskStatus[taskKey] = TaskStatus.running;
-    });
+
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'restart');
   }
@@ -928,6 +1029,7 @@ Map<String, dynamic> _buildPayload(
       taskDurations[taskKey] = Duration.zero;
       currentRunningTaskKey  = null;
     });
+    
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'complete');
   }
@@ -944,10 +1046,12 @@ Map<String, dynamic> _buildPayload(
       taskDurations[taskKey] = Duration.zero;
       currentRunningTaskKey  = null;
     });
+    
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'reject');
   }
 
+  
   String formatTime(DateTime? dt) {
     if (dt == null) return '--:--:--';
     return '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}:${dt.second.toString().padLeft(2,'0')}';
@@ -2452,10 +2556,10 @@ Widget _pageHeader() {
                 Text('Rj: ${formatTime(taskRejectedTimes[taskKey]!.first)}',
                     style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFC40000))),
 
-              if (curStatus == TaskStatus.running && curDur != Duration.zero)
-                Padding(padding: const EdgeInsets.only(left: 12),
-                  child: Text('Running: ${formatDuration(curDur)}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF004AAD)))),
+              // if (curStatus == TaskStatus.running && curDur != Duration.zero)
+              //   Padding(padding: const EdgeInsets.only(left: 12),
+              //     child: Text('Running: ${formatDuration(curDur)}',
+              //         style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF004AAD)))),
             ]),
           ),
         ),

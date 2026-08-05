@@ -93,6 +93,112 @@ function calculateWorkingDuration(row, customEndTime = null) {
   return totalSeconds;
 }
 
+async function updateDayPlannerWorkingHours(employeeName) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+
+    const [rows] = await db.query(
+      `SELECT SUM(tti.duration_secs) AS total_secs
+       FROM time_tracking_task_items tti
+       INNER JOIN task_list tl
+          ON tl.id = tti.task_list_id
+       WHERE tl.employee_name = ?
+       AND DATE(COALESCE(tti.complete_time, tti.submit_date, tti.created_at)) = ?`,
+      [employeeName, today]
+    );
+
+    const totalSecs = rows[0]?.total_secs || 0;
+
+    await db.query(
+      `UPDATE day_plan_rows
+       SET total_working_secs = ?
+       WHERE employee_name = ?
+       AND plan_date = ?`,
+      [totalSecs, employeeName, today]
+    );
+
+    console.log(
+      `Updated Day Planner Working Hours : ${employeeName} = ${totalSecs}s`
+    );
+
+  } catch (err) {
+    console.error("updateDayPlannerWorkingHours:", err.message);
+  }
+}
+
+async function updateDayPlannerDeliverables(taskListId) {
+  try {
+
+    const [[task]] = await db.query(`
+      SELECT
+        employee_name,
+        client_name,
+        employee_role
+      FROM task_list
+      WHERE id = ?
+    `,[taskListId]);
+
+    if (!task) return;
+
+    // இதுல task_list table ல இருந்து latest deliverables
+    const [[deliverable]] = await db.query(`
+      SELECT
+        complete_deliverables_1,
+        balanced_deliverables_1,
+        complete_deliverables_2,
+        balanced_deliverables_2,
+        complete_deliverables_3,
+        balanced_deliverables_3,
+        complete_deliverables_4,
+        balanced_deliverables_4,
+        complete_deliverables_5,
+        balanced_deliverables_5,
+        complete_deliverables_6,
+        balanced_deliverables_6
+      FROM task_list
+      WHERE id = ?
+    `,[taskListId]);
+
+    await db.query(`
+      UPDATE day_plan_rows
+      SET
+        complete_deliverables_1=?,
+        balanced_deliverables_1=?,
+        complete_deliverables_2=?,
+        balanced_deliverables_2=?,
+        complete_deliverables_3=?,
+        balanced_deliverables_3=?,
+        complete_deliverables_4=?,
+        balanced_deliverables_4=?,
+        complete_deliverables_5=?,
+        balanced_deliverables_5=?,
+        complete_deliverables_6=?,
+        balanced_deliverables_6=?
+      WHERE employee_name=?
+      AND client_name=?
+      AND plan_date=CURDATE()
+    `,[
+      deliverable.complete_deliverables_1,
+      deliverable.balanced_deliverables_1,
+      deliverable.complete_deliverables_2,
+      deliverable.balanced_deliverables_2,
+      deliverable.complete_deliverables_3,
+      deliverable.balanced_deliverables_3,
+      deliverable.complete_deliverables_4,
+      deliverable.balanced_deliverables_4,
+      deliverable.complete_deliverables_5,
+      deliverable.balanced_deliverables_5,
+      deliverable.complete_deliverables_6,
+      deliverable.balanced_deliverables_6,
+      task.employee_name,
+      task.client_name
+    ]);
+
+  } catch(err){
+    console.error(err);
+  }
+}
+
 router.get('/by-task-list/:taskListId', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -151,11 +257,29 @@ router.post('/', async (req, res) => {
   }
 
   // Convert ISO datetime to YYYY-MM-DD
+  // let formattedSubmitDate = null;
+
+  // if (submitDate) {
+  //   formattedSubmitDate = submitDate.toString().split("T")[0];
+  // }
+
   let formattedSubmitDate = null;
 
-  if (submitDate) {
-    formattedSubmitDate = submitDate.toString().split("T")[0];
+if (submitDate) {
+
+  if (submitDate.includes('/')) {
+
+    const [dd, mm, yyyy] = submitDate.split('/');
+
+    formattedSubmitDate = `${yyyy}-${mm}-${dd}`;
+
+  } else {
+
+    formattedSubmitDate = submitDate.toString().split('T')[0];
+
   }
+
+}
 
   console.log("======================================");
   console.log("submitDate:", submitDate);
@@ -208,7 +332,7 @@ router.post('/', async (req, res) => {
         `UPDATE time_tracking_task_items
          SET
            task_timing_id = ?,
-           submit_date = ?,
+           submit_date = COALESCE(?, submit_date),
            task_description = ?,
            duration_secs = ?,
            comment = ?,
@@ -385,6 +509,20 @@ router.post('/:id/hold', async (req, res) => {
       [durationSecs, id]
     );
 
+    // 4. Get employee name
+const [[task]] = await db.query(
+  `SELECT employee_name
+   FROM task_list
+   WHERE id = ?`,
+  [updatedRow.task_list_id]
+);
+
+// 5. Update Day Planner working hours
+  if (task) {
+   await updateDayPlannerWorkingHours(task.employee_name);
+   await updateDayPlannerDeliverables(updatedRow.task_list_id);
+}
+
     emitTaskUpdate(req, id, 'ON HOLD');
     return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: { ...updatedRow, durationSecs } });
   } catch (err) {
@@ -420,6 +558,15 @@ router.post('/:id/complete', async (req, res) => {
       `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
       [durationSecs, id]
     );
+    const [[task]] = await db.query(
+  `SELECT employee_name
+   FROM task_list
+   WHERE id=?`,
+  [row.task_list_id]
+);
+
+await updateDayPlannerWorkingHours(task.employee_name);
+await updateDayPlannerDeliverables(row.task_list_id);
 
     emitTaskUpdate(req, id, 'COMPLETED');
     return res.json({ success: true, message: 'Task completed', data: { ...row, durationSecs } });
@@ -448,6 +595,16 @@ router.post('/:id/reject', async (req, res) => {
       `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
       [durationSecs, id]
     );
+
+    const [[task]] = await db.query(
+  `SELECT employee_name
+   FROM task_list
+   WHERE id=?`,
+  [row.task_list_id]
+);
+
+await updateDayPlannerWorkingHours(task.employee_name);
+await updateDayPlannerDeliverables(row.task_list_id);
 
     emitTaskUpdate(req, id, 'REJECTED');
     return res.json({ success: true, message: 'Task rejected', data: { ...row, durationSecs } });
@@ -480,6 +637,18 @@ router.post('/:id/restart', async (req, res) => {
     );
 
     const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+const updatedRow = updatedRows[0];
+
+const [[task]] = await db.query(
+  `SELECT employee_name
+   FROM task_list
+   WHERE id=?`,
+  [updatedRow.task_list_id]
+);
+
+await updateDayPlannerWorkingHours(task.employee_name);
+await updateDayPlannerDeliverables(updated.task_list_id);
+
     emitTaskUpdate(req, id, 'IN PROGRESS');
     return res.json({ success: true, message: `Task restarted (slot ${slot})`, data: updated[0] });
   } catch (err) {
@@ -659,9 +828,7 @@ router.post('/:id/restart', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
 
-    console.log("submitDate:", submitDate);
-console.log("formattedSubmitDate:", formattedSubmitDate);
-
+ 
     const [result] = await db.query(`DELETE FROM time_tracking_task_items WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Tracking item not found' });

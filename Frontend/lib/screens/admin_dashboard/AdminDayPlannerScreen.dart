@@ -60,10 +60,15 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     socket.connect();
     socket.off('task_updated');
     socket.on('task_updated', (data) {
-      print("🔥 Real-time update received: $data");
+      print("🔥 Admin Real-time update received: $data");
       if (mounted) {
-        _fetchTotalWorkingHours();
+        // 1. Refresh employee submissions list (overview table status/counts)
         _loadEmployeesAndSubmissions();
+        
+        // 2. If admin is currently viewing a specific employee's planner grid, auto-refresh it live!
+        if (selectedEmployee != null) {
+          _fetchEmployeeDayPlan(selectedEmployee!);
+        }
       }
     });
   }

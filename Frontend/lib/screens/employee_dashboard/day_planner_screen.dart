@@ -143,25 +143,64 @@ void _showValidationMessage(String message) {
   _initSocketListener();
   }
 
-  void _initSocketListener() {
-    socket = IO.io(
-      ApiConfig.socketUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableForceNew()
-          .disableAutoConnect()
-          .build(),
-    );
+  // void _initSocketListener() {
+  //   socket = IO.io(
+  //     ApiConfig.socketUrl,
+  //     IO.OptionBuilder()
+  //         .setTransports(['websocket'])
+  //         .enableForceNew()
+  //         .disableAutoConnect()
+  //         .build(),
+  //   );
 
-    socket.connect();
-    socket.off('task_updated');
-    socket.on('task_updated', (data) {
-      print("🔥 Day Planner Live Working Time Update: $data");
-      if (mounted) {
-        _fetchTotalWorkingHours(); // Auto refresh working time on any task update!
-      }
-    });
-  }
+  //   socket.connect();
+  //   socket.off('task_updated');
+  //   socket.on('task_updated', (data) {
+  //     print("🔥 Day Planner Live Working Time Update: $data");
+  //     if (mounted) {
+  //       _fetchTotalWorkingHours(); // Auto refresh working time on any task update!
+  //    loadTodayDayPlan();
+  //     }
+  //   });
+  // }
+
+ void _initSocketListener() {
+  socket = IO.io(
+    ApiConfig.socketUrl,
+    IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .enableForceNew()
+        .disableAutoConnect()
+        .build(),
+  );
+
+  socket.connect();
+
+  socket.off('task_updated');
+
+  socket.on('task_updated', (data) async {
+    print("🔥 task_updated : $data");
+
+    if (!mounted) return;
+
+    // Working hours
+    await _fetchTotalWorkingHours();
+
+    // Reload day planner rows
+    await loadTodayDayPlan();
+
+//     // Refresh completed/balanced deliverables
+//     for (final row in dayPlanRows) {
+//   if ((row['client'] ?? '').toString().isNotEmpty) {
+//     await loadProgress(row); // ✅ Map<String, dynamic>
+//   }
+// }
+
+    if (mounted) {
+      setState(() {});
+    }
+  });
+}
 
   @override
   void dispose() {
@@ -412,41 +451,32 @@ void _prefillRoleFieldsForClient(
   // DEFAULT COMPLETE / BALANCE
   //---------------------------------------------
 for (int i = 1; i <= 6; i++) {
-  final deliverable =
-      (row['deliverables_$i'] ?? '').toString().trim();
+    final deliverable = (row['deliverables_$i'] ?? '').toString().trim();
 
-  if (deliverable.isNotEmpty) {
+    if (deliverable.isNotEmpty) {
+      final deliverableList = deliverable
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
 
-    final deliverableList = deliverable
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+      final completeList = <String>[];
+      final balancedList = <String>[];
 
-    int total = deliverableList.length;
+      for (final taskName in deliverableList) {
+        // Parse e.g. "POSTER (1)" -> name="POSTER", total=1
+        final match = RegExp(r'^(.*?)\s*\((\d+)\)\s*$').firstMatch(taskName);
+        final name = match != null ? match.group(1)!.trim() : taskName;
+        final total = match != null ? int.tryParse(match.group(2)!) ?? 1 : 1;
 
-    final completeList = <String>[];
-    final balancedList = <String>[];
+        completeList.add('$name (0/$total)');
+        balancedList.add('$name ($total/$total)');
+      }
 
-    for (final taskName in deliverableList) {
-
-      // default logic
-      completeList.add(taskName);
-      balancedList.add(taskName);
+      row['complete_deliverables_$i'] = completeList.join(', ');
+      row['balanced_deliverables_$i'] = balancedList.join(', ');
     }
-
-    row['complete_deliverables_$i'] =
-        "${completeList.join(', ')} (0/$total)";
-
-    row['balanced_deliverables_$i'] =
-        "${balancedList.join(', ')} ($total/$total)";
-
-
-    print(row['complete_deliverables_$i']);
-    print(row['balanced_deliverables_$i']);
   }
-}
-
 }
 
 Future<void> loadTodayDayPlan() async {
@@ -636,21 +666,26 @@ String _formatMaintenanceDate(String value) {
 
 Future<void> loadProgress(Map<String, dynamic> row) async {
   try {
+    final clientName = row['client'] ?? '';
+    if (clientName.isEmpty) return;
+
     final response = await http.get(
-      Uri.parse('$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(row["client"])}')
+      Uri.parse('$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(clientName)}')
     );
 
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
-      final list = List<Map<String, dynamic>>.from(json["data"]);
+      final List<dynamic> list = json["data"] ?? [];
 
       setState(() {
         for (int i = 0; i < list.length && i < 6; i++) {
           final int index = i + 1;
-          row["deliverables_$index"] = list[i]["deliverable"];
-          // 🟢 Correctly map completed and balanced counts from backend task tracking
-          row["complete_deliverables_$index"] = list[i]["completed"];
-          row["balanced_deliverables_$index"] = list[i]["balance"];
+          final item = list[i];
+          
+          // 🟢 Backend-il irunthu varukira accurate completed & balanced strings-ai assign seyyungal
+          row["deliverables_$index"] = item["deliverable"] ?? '';
+          row["complete_deliverables_$index"] = item["completed"] ?? ''; // e.g. "POSTER (2/5)"
+          row["balanced_deliverables_$index"] = item["balanced"] ?? ''; // e.g. "POSTER (3/5)"
         }
       });
     }
@@ -658,7 +693,6 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
     debugPrint("Error loading progress: $e");
   }
 }
-
 
   Future<void> _addRow() async {
     try {
@@ -993,6 +1027,7 @@ Future<void> _fetchTotalWorkingHours() async {
         body: jsonEncode({
           'employeeName': employeeName,
           'date': formattedDate,
+          'reportType': 'Morning', // or dynamic if you have reportType state
           'totalWorkingSecs': totalSumSeconds,
         }),
       );
@@ -1867,6 +1902,7 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
             row['maintenance_date'] = clientMaintenanceDates[value] ?? '';
             _prefillRoleFieldsForClient(row, value);
           });
+          loadProgress(row);
           _scheduleAutoSave(row);
         },
       ),
