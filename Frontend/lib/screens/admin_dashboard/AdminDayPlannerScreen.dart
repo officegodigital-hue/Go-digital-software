@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/gestures.dart';
+import 'dart:async';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class AdminDayPlannerScreen extends StatefulWidget {
   const AdminDayPlannerScreen({super.key});
@@ -16,9 +18,10 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   final ScrollController _horizontalController = ScrollController();
+  Timer? _autoSaveTimer;
+  final TextEditingController _searchController = TextEditingController();
 
   DateTime selectedDate = DateTime.now();
-  // String selectedReportType = 'Morning'; // 'Morning' or 'Evening'
   String dateFilterMode = 'Today'; // 'Today' or 'This Month'
   String searchQuery = '';
   String employeeDropdownFilter = 'All Employees';
@@ -28,23 +31,56 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   List<Map<String, dynamic>> submissionStatusList = [];
   List<Map<String, dynamic>> dayPlanRows = [];
   bool isLoading = false;
+  late IO.Socket socket;
 
   bool _hasColumn(List<Map<String, dynamic>> rows, String field) {
-  return rows.any((r) {
-    final value = (r[field] ?? '').toString().trim();
-    return value.isNotEmpty && value != '-';
-  });
-}
+    return rows.any((r) {
+      final value = (r[field] ?? '').toString().trim();
+      return value.isNotEmpty && value != '-';
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _loadEmployeesAndSubmissions();
+    _initSocketListener();
+  }
+
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+    socket.off('task_updated');
+    socket.on('task_updated', (data) {
+      print("🔥 Real-time update received: $data");
+      if (mounted) {
+        _fetchTotalWorkingHours();
+        _loadEmployeesAndSubmissions();
+      }
+    });
+  }
+
+  Future<void> _fetchTotalWorkingHours() async {
+    if (selectedEmployee != null) {
+      await _fetchEmployeeDayPlan(selectedEmployee!);
+    }
+    await _loadEmployeesAndSubmissions();
   }
 
   @override
   void dispose() {
     _horizontalController.dispose();
+    _autoSaveTimer?.cancel();
+    _searchController.dispose();
+    socket.dispose();
     super.dispose();
   }
 
@@ -53,16 +89,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
 
     try {
-      // Corrected endpoint matching backend route prefix
-      // final subRes = await http.get(
-      //   Uri.parse('$_baseUrl/day-planner/submissions?date=$formattedDate&type=$selectedReportType'),
-      // );
-
       final subRes = await http.get(
-  Uri.parse(
-    '$_baseUrl/day-planner/submissions?date=$formattedDate',
-  ),
-);
+        Uri.parse('$_baseUrl/day-planner/submissions?date=$formattedDate'),
+      );
 
       if (subRes.statusCode == 200) {
         final subBody = jsonDecode(subRes.body);
@@ -121,6 +150,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             'today_plan': item['today_plan'] ?? '',
             'status': item['status'] ?? '',
             'remarks': item['remarks'] ?? '',
+            'total_working_secs': item['total_working_secs'] ?? 0,
           }).toList();
           isLoading = false;
         });
@@ -183,15 +213,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         ),
         Row(
           children: [
-            // Container(
-            //   decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(8)),
-            //   child: Row(
-            //     children: [
-            //       _tabButton('Morning', 'Morning'),
-            //       // _tabButton('Evening', 'Evening'),
-            //     ],
-            //   ),
-            // ),
             const SizedBox(width: 12),
             Row(
               children: [
@@ -258,24 +279,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       ],
     );
   }
-
-  // Widget _tabButton(String title, String type) {
-  //   bool isSelected = selectedReportType == type;
-  //   return GestureDetector(
-  //     onTap: () {
-  //       setState(() => selectedReportType = type);
-  //       _loadEmployeesAndSubmissions();
-  //     },
-  //     child: Container(
-  //       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-  //       decoration: BoxDecoration(
-  //         color: isSelected ? const Color(0xFF2A52BE) : Colors.transparent,
-  //         borderRadius: BorderRadius.circular(8),
-  //       ),
-  //       child: Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isSelected ? Colors.white : const Color(0xFF64748B))),
-  //     ),
-  //   );
-  // }
 
   Widget _buildSummaryCards() {
     int totalCount = employeesList.length;
@@ -508,28 +511,30 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
-  
+  String _formatWorkingTime(dynamic totalSecs) {
+    int secs = int.tryParse(totalSecs.toString()) ?? 0;
+    if (secs <= 0) return "00h 00m";
+    int hours = secs ~/ 3600;
+    int minutes = (secs % 3600) ~/ 60;
+    return '${hours.toString().padLeft(2, '0')}h ${minutes.toString().padLeft(2, '0')}m';
+  }
 
   Widget _buildGroupedSheetGrids(List<Map<String, dynamic>> rows) {
     final hasAds = _hasColumn(rows, 'ads');
-final hasLeads = _hasColumn(rows, 'today_leads');
-final hasReport = _hasColumn(rows, 'today_report');
-final hasRemarks = _hasColumn(rows, 'remarks');
+    final hasLeads = _hasColumn(rows, 'today_leads');
+    final hasReport = _hasColumn(rows, 'today_report');
+    final hasRemarks = _hasColumn(rows, 'remarks');
 
-double tableWidth = 140 + // Maintenance Date
-
-    (hasAds ? 140 : 0) +
-    (hasLeads ? 110 : 0) +
-    (hasReport ? 110 : 0) +
-
-    150 + // Deliverables 1
-    150 + // Complete 1
-    150 + // Balance 1
-
-    180 + // Today Plan
-    (hasRemarks ? 180 : 0) +
-
-    130; // Status
+    double tableWidth = 140 +
+        (hasAds ? 140 : 0) +
+        (hasLeads ? 110 : 0) +
+        (hasReport ? 110 : 0) +
+        150 +
+        150 +
+        150 +
+        180 +
+        (hasRemarks ? 180 : 0) +
+        130;
 
     if (rows.isEmpty) {
       return Container(
@@ -540,7 +545,6 @@ double tableWidth = 140 + // Maintenance Date
     }
 
     final Map<String, List<Map<String, dynamic>>> grouped = {};
-    
     for (var r in rows) {
       String dStr = r['date']?.toString().split('T')[0] ?? 'Unknown Date';
       grouped.putIfAbsent(dStr, () => []).add(r);
@@ -577,9 +581,24 @@ double tableWidth = 140 + // Maintenance Date
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     color: const Color(0xFF1E293B),
-                    child: Text(
-                      '📅 Date: $dateKey$dayName',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '📅 Date: $dateKey$dayName',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(Icons.timer_rounded, size: 14, color: Color(0xFF60A5FA)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Working Time: ${_formatWorkingTime(dateRows.isNotEmpty ? dateRows.first['total_working_secs'] : 0)}',
+                              style: const TextStyle(color: Color(0xFF93C5FD), fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                   ClipRRect(
@@ -628,66 +647,30 @@ double tableWidth = 140 + // Maintenance Date
                                 child: Column(
                                   children: [
                                     SizedBox(
-  width: tableWidth,
-  height: 40,
-  child: Row(
-                                    // SizedBox(
-                                    //   width: 1320,
-                                    //   height: 40,
-                                    //   child: Row(
-                                        // children: const [
-                                        //   _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
-                                        //   _HeaderCell(width: 140, label: 'ADS'),
-                                        //   _HeaderCell(width: 110, label: 'TODAY LEADS'),
-                                        //   _HeaderCell(width: 110, label: 'TODAY REPORT'),
-                                        //   _HeaderCell(width: 150, label: 'DELIVERABLES 1'),
-                                        //   _HeaderCell(width: 150, label: 'COMPLETE 1'),
-                                        //   _HeaderCell(width: 150, label: 'BALANCED 1'),
-                                        //   _HeaderCell(width: 180, label: 'TODAY PLAN'),
-                                        //   _HeaderCell(width: 130, label: 'STATUS'),
-                                        // ],
+                                      width: tableWidth,
+                                      height: 40,
+                                      child: Row(
                                         children: [
-
-  const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
-
-  if (hasAds)
-    const _HeaderCell(width: 140, label: 'ADS'),
-
-  if (hasLeads)
-    const _HeaderCell(width: 110, label: 'TODAY LEADS'),
-
-  if (hasReport)
-    const _HeaderCell(width: 110, label: 'TODAY REPORT'),
-
-  const _HeaderCell(width: 150, label: 'DELIVERABLES 1'),
-  const _HeaderCell(width: 150, label: 'COMPLETE 1'),
-  const _HeaderCell(width: 150, label: 'BALANCED 1'),
-  const _HeaderCell(width: 180, label: 'TODAY PLAN'),
-
-  if (hasRemarks)
-    const _HeaderCell(width: 180, label: 'REMARKS'),
-
-  const _HeaderCell(width: 130, label: 'STATUS'),
-],
+                                          const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
+                                          if (hasAds) const _HeaderCell(width: 140, label: 'ADS'),
+                                          if (hasLeads) const _HeaderCell(width: 110, label: 'TODAY LEADS'),
+                                          if (hasReport) const _HeaderCell(width: 110, label: 'TODAY REPORT'),
+                                          const _HeaderCell(width: 150, label: 'DELIVERABLES 1'),
+                                          const _HeaderCell(width: 150, label: 'COMPLETE 1'),
+                                          const _HeaderCell(width: 150, label: 'BALANCED 1'),
+                                          const _HeaderCell(width: 180, label: 'TODAY PLAN'),
+                                          if (hasRemarks) const _HeaderCell(width: 180, label: 'REMARKS'),
+                                          const _HeaderCell(width: 130, label: 'STATUS'),
+                                        ],
                                       ),
                                     ),
-                                    // const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                                    // ...dateRows.map((row) => SizedBox(width: 1320, child: _buildDataRow(row,))),
-
                                     const Divider(height: 1, color: Color(0xFFE2E8F0)),
-
-...dateRows.map(
-  (row) => SizedBox(
-    width: tableWidth,
-    child: _buildDataRow(
-      row,
-      hasAds,
-      hasLeads,
-      hasReport,
-      hasRemarks,
-    ),
-  ),
-),
+                                    ...dateRows.map(
+                                      (row) => SizedBox(
+                                        width: tableWidth,
+                                        child: _buildDataRow(row, hasAds, hasLeads, hasReport, hasRemarks),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -723,64 +706,28 @@ double tableWidth = 140 + // Maintenance Date
     );
   }
 
-//   Widget _buildDataRow(Map<String, dynamic> row) {
-// Widget _buildDataRow(
-//   Map<String, dynamic> row,
-//   bool hasAds,
-//   bool hasLeads,
-//   bool hasReport,
-//   bool hasRemarks,
-// ){
-//     return Row(
-//       children: [
-//         _textCell(row, 'maintenance_date', 140),
-//         _textCell(row, 'ads', 140),
-//         _textCell(row, 'today_leads', 110),
-//         _textCell(row, 'today_report', 110),
-//         _textCell(row, 'deliverables_1', 150),
-//         _textCell(row, 'complete_deliverables_1', 150),
-//         _textCell(row, 'balanced_deliverables_1', 150),
-//         _textCell(row, 'today_plan', 180),
-//         _statusCell(row['status'] ?? 'PENDING', 130),
-//       ],
-//     );
-//   }
-
-Widget _buildDataRow(
-  Map<String, dynamic> row,
-  bool hasAds,
-  bool hasLeads,
-  bool hasReport,
-  bool hasRemarks,
-) {
-  return Row(
-    children: [
-      _textCell(row, 'maintenance_date', 140),
-
-      if (hasAds)
-        _textCell(row, 'ads', 140),
-
-      if (hasLeads)
-        _textCell(row, 'today_leads', 110),
-
-      if (hasReport)
-        _textCell(row, 'today_report', 110),
-
-      _textCell(row, 'deliverables_1', 150),
-      _textCell(row, 'complete_deliverables_1', 150),
-      _textCell(row, 'balanced_deliverables_1', 150),
-
-      _textCell(row, 'today_plan', 180),
-
-      if (hasRemarks)
-        _textCell(row, 'remarks', 180),
-
-      _statusCell(row['status'] ?? 'PENDING', 130),
-    ],
-  );
-}
-
-
+  Widget _buildDataRow(
+    Map<String, dynamic> row,
+    bool hasAds,
+    bool hasLeads,
+    bool hasReport,
+    bool hasRemarks,
+  ) {
+    return Row(
+      children: [
+        _textCell(row, 'maintenance_date', 140),
+        if (hasAds) _textCell(row, 'ads', 140),
+        if (hasLeads) _textCell(row, 'today_leads', 110),
+        if (hasReport) _textCell(row, 'today_report', 110),
+        _textCell(row, 'deliverables_1', 150),
+        _textCell(row, 'complete_deliverables_1', 150),
+        _textCell(row, 'balanced_deliverables_1', 150),
+        _textCell(row, 'today_plan', 180),
+        if (hasRemarks) _textCell(row, 'remarks', 180),
+        _statusCell(row['status'] ?? 'PENDING', 130),
+      ],
+    );
+  }
 
   Widget _textCell(Map<String, dynamic> row, String field, double width) {
     final value = (row[field] ?? '').toString();

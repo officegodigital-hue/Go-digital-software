@@ -23,45 +23,76 @@ const emitTaskUpdate = (req, trackingItemId, action) => {
   }
 };
 
-function calculateWorkingDuration(row) {
+// function calculateWorkingDuration(row) {
 
-  if (!row.start_time || !row.complete_time) {
+//   if (!row.start_time || !row.complete_time) {
+//     return 0;
+//   }
+
+//   const start = new Date(row.start_time);
+//   const complete = new Date(row.complete_time);
+
+//   let totalSeconds =
+//     Math.floor((complete - start) / 1000);
+
+//   let holdSeconds = 0;
+
+//   for (let i = 1; i <= 10; i++) {
+
+//     const hold = row[`hold_time_${i}`];
+//     const restart = row[`restart_time_${i}`];
+
+//     if (hold && restart) {
+
+//       holdSeconds += Math.floor(
+//         (new Date(restart) - new Date(hold)) / 1000
+//       );
+
+//     }
+
+//   }
+
+//   totalSeconds -= holdSeconds;
+
+//   if (totalSeconds < 0)
+//     totalSeconds = 0;
+
+//   return totalSeconds;
+// }
+
+// GET /api/tracking-items/by-task-list/:taskListId — all rows for ONE task_list entry
+// All action timestamps are plain columns on this table now, so no JOIN is needed.
+
+function calculateWorkingDuration(row, customEndTime = null) {
+  if (!row.start_time) {
     return 0;
   }
 
   const start = new Date(row.start_time);
-  const complete = new Date(row.complete_time);
+  const end = customEndTime ? new Date(customEndTime) : (row.complete_time ? new Date(row.complete_time) : new Date());
 
-  let totalSeconds =
-    Math.floor((complete - start) / 1000);
-
+  let totalSeconds = Math.floor((end - start) / 1000);
   let holdSeconds = 0;
 
   for (let i = 1; i <= 10; i++) {
-
     const hold = row[`hold_time_${i}`];
     const restart = row[`restart_time_${i}`];
 
-    if (hold && restart) {
-
-      holdSeconds += Math.floor(
-        (new Date(restart) - new Date(hold)) / 1000
-      );
-
+    if (hold) {
+      const holdTime = new Date(hold);
+      const restartTime = restart ? new Date(restart) : (customEndTime ? new Date(customEndTime) : new Date());
+      if (restartingTime > holdTime) {
+        holdSeconds += Math.floor((restartTime - holdTime) / 1000);
+      }
     }
-
   }
 
   totalSeconds -= holdSeconds;
-
-  if (totalSeconds < 0)
-    totalSeconds = 0;
+  if (totalSeconds < 0) totalSeconds = 0;
 
   return totalSeconds;
 }
 
-// GET /api/tracking-items/by-task-list/:taskListId — all rows for ONE task_list entry
-// All action timestamps are plain columns on this table now, so no JOIN is needed.
 router.get('/by-task-list/:taskListId', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -290,6 +321,37 @@ WHERE id=?`,
 });
 
 // POST /api/tracking-items/:id/hold — fills the next empty hold_time_N (1-10)
+// router.post('/:id/hold', async (req, res) => {
+//   const { id } = req.params;
+//   try {
+//     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+//     if (rows.length === 0)
+//       return res.status(404).json({ success: false, message: 'Tracking item not found' });
+
+//     const row = rows[0];
+//     let slot = null;
+//     for (let i = 1; i <= 10; i++) {
+//       if (row[`hold_time_${i}`] === null) { slot = i; break; }
+//     }
+//     if (!slot) {
+//       return res.status(400).json({ success: false, message: 'Maximum 10 holds reached' });
+//     }
+
+//     await db.query(
+//       `UPDATE time_tracking_task_items SET hold_time_${slot} = NOW(), status = 'ON HOLD' WHERE id = ?`,
+//       [id]
+//     );
+
+//     const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+//     emitTaskUpdate(req, id, 'ON HOLD');
+//     return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: updated[0] });
+//   } catch (err) {
+//     console.error('POST /tracking-items/:id/hold ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// POST /api/tracking-items/:id/hold
 router.post('/:id/hold', async (req, res) => {
   const { id } = req.params;
   try {
@@ -306,16 +368,91 @@ router.post('/:id/hold', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Maximum 10 holds reached' });
     }
 
+    // 1. Update hold time and status
     await db.query(
       `UPDATE time_tracking_task_items SET hold_time_${slot} = NOW(), status = 'ON HOLD' WHERE id = ?`,
       [id]
     );
 
-    const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    // 2. Fetch updated row and calculate working duration so far
+    const [updatedRows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    const updatedRow = updatedRows[0];
+    const durationSecs = calculateWorkingDuration(updatedRow);
+
+    // 3. Save duration_secs immediately
+    await db.query(
+      `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
+      [durationSecs, id]
+    );
+
     emitTaskUpdate(req, id, 'ON HOLD');
-    return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: updated[0] });
+    return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: { ...updatedRow, durationSecs } });
   } catch (err) {
     console.error('POST /tracking-items/:id/hold ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/tracking-items/:id/complete
+router.post('/:id/complete', async (req, res) => {
+  const { id } = req.params;
+  const { performance } = req.body;
+
+  try {
+    const [result] = await db.query(
+      `UPDATE time_tracking_task_items
+       SET complete_time = IFNULL(complete_time, NOW()),
+           status = 'COMPLETED',
+           performance = ?
+       WHERE id = ?`,
+      [performance || 'N/A', id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Tracking item not found' });
+    }
+
+    const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    const row = rows[0];
+    const durationSecs = calculateWorkingDuration(row, row.complete_time);
+
+    await db.query(
+      `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
+      [durationSecs, id]
+    );
+
+    emitTaskUpdate(req, id, 'COMPLETED');
+    return res.json({ success: true, message: 'Task completed', data: { ...row, durationSecs } });
+  } catch (err) {
+    console.error('POST /tracking-items/:id/complete ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/tracking-items/:id/reject
+router.post('/:id/reject', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [result] = await db.query(
+      `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time, NOW()), status = 'REJECTED' WHERE id = ?`,
+      [id]
+    );
+    if (result.affectedRows === 0)
+      return res.status(404).json({ success: false, message: 'Tracking item not found' });
+
+    const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+    const row = rows[0];
+    const durationSecs = calculateWorkingDuration(row, row.reject_time);
+
+    await db.query(
+      `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
+      [durationSecs, id]
+    );
+
+    emitTaskUpdate(req, id, 'REJECTED');
+    return res.json({ success: true, message: 'Task rejected', data: { ...row, durationSecs } });
+  } catch (err) {
+    console.error('POST /tracking-items/:id/reject ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -353,170 +490,170 @@ router.post('/:id/restart', async (req, res) => {
 
 // POST /api/tracking-items/:id/complete
 // POST /api/tracking-items/:id/complete
-router.post('/:id/complete', async (req, res) => {
-  const { id } = req.params;
-  const { performance } = req.body;
+// router.post('/:id/complete', async (req, res) => {
+//   const { id } = req.params;
+//   const { performance } = req.body;
 
-  try {
+//   try {
 
-    // 1. Update task as completed
-    const [result] = await db.query(
-      `UPDATE time_tracking_task_items
-       SET
-       complete_time = IFNULL(complete_time, NOW()),
-       status = 'COMPLETED',
-       performance = ?
-       WHERE id = ?`,
-      [performance || 'N/A', id]
-    );
-
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tracking item not found'
-      });
-    }
+//     // 1. Update task as completed
+//     const [result] = await db.query(
+//       `UPDATE time_tracking_task_items
+//        SET
+//        complete_time = IFNULL(complete_time, NOW()),
+//        status = 'COMPLETED',
+//        performance = ?
+//        WHERE id = ?`,
+//       [performance || 'N/A', id]
+//     );
 
 
-    // 2. Get completed task data
-    const [rows] = await db.query(
-      `SELECT * 
-       FROM time_tracking_task_items 
-       WHERE id = ?`,
-      [id]
-    );
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Tracking item not found'
+//       });
+//     }
 
 
-    const row = rows[0];
+//     // 2. Get completed task data
+//     const [rows] = await db.query(
+//       `SELECT * 
+//        FROM time_tracking_task_items 
+//        WHERE id = ?`,
+//       [id]
+//     );
 
 
-    // 3. Calculate working duration
-    const durationSecs = calculateWorkingDuration(row);
+//     const row = rows[0];
 
 
-    // 4. Save calculated duration
-    await db.query(
-      `UPDATE time_tracking_task_items
-       SET duration_secs = ?
-       WHERE id = ?`,
-      [durationSecs, id]
-    );
+//     // 3. Calculate working duration
+//     const durationSecs = calculateWorkingDuration(row);
+
+
+//     // 4. Save calculated duration
+//     await db.query(
+//       `UPDATE time_tracking_task_items
+//        SET duration_secs = ?
+//        WHERE id = ?`,
+//       [durationSecs, id]
+//     );
 
 
 
-    // 5. Create notification for admin
-    try {
+//     // 5. Create notification for admin
+//     try {
 
-      const [taskInfo] = await db.query(
-        `SELECT 
-            tl.employee_name,
-            tl.deliverables
-         FROM task_list tl
-         WHERE tl.id = ?`,
-        [row.task_list_id]
-      );
-
-
-      if (taskInfo.length > 0 && taskInfo[0].employee_name) {
+//       const [taskInfo] = await db.query(
+//         `SELECT 
+//             tl.employee_name,
+//             tl.deliverables
+//          FROM task_list tl
+//          WHERE tl.id = ?`,
+//         [row.task_list_id]
+//       );
 
 
-        // Get all admins
-        const [admins] = await db.query(
-          `SELECT full_name
-           FROM employees
-           WHERE role = 'admin'`
-        );
+//       if (taskInfo.length > 0 && taskInfo[0].employee_name) {
 
 
-        // Send notification to every admin
-        for (const admin of admins) {
-
-          await createNotification({
-
-            senderName: taskInfo[0].employee_name,
-
-            recipientName: admin.full_name,
-
-            message:
-              `Task "${taskInfo[0].deliverables}" has been submitted for review.`
-
-          });
-
-        }
-
-      }
+//         // Get all admins
+//         const [admins] = await db.query(
+//           `SELECT full_name
+//            FROM employees
+//            WHERE role = 'admin'`
+//         );
 
 
-    } catch (notifyErr) {
+//         // Send notification to every admin
+//         for (const admin of admins) {
 
-      console.error(
-        '⚠️ complete notification failed (non-fatal):',
-        notifyErr.message
-      );
+//           await createNotification({
 
-    }
+//             senderName: taskInfo[0].employee_name,
 
-emitTaskUpdate(req, id, 'COMPLETED');
+//             recipientName: admin.full_name,
 
-    return res.json({
+//             message:
+//               `Task "${taskInfo[0].deliverables}" has been submitted for review.`
 
-      success: true,
+//           });
 
-      message: 'Task completed',
+//         }
 
-      data: {
-        ...row,
-        durationSecs
-      }
-
-    });
+//       }
 
 
-  } catch (err) {
+//     } catch (notifyErr) {
 
-    console.error(
-      'POST /tracking-items/:id/complete ERROR:',
-      err.message
-    );
+//       console.error(
+//         '⚠️ complete notification failed (non-fatal):',
+//         notifyErr.message
+//       );
+
+//     }
+
+// emitTaskUpdate(req, id, 'COMPLETED');
+
+//     return res.json({
+
+//       success: true,
+
+//       message: 'Task completed',
+
+//       data: {
+//         ...row,
+//         durationSecs
+//       }
+
+//     });
 
 
-    return res.status(500).json({
+//   } catch (err) {
 
-      success: false,
+//     console.error(
+//       'POST /tracking-items/:id/complete ERROR:',
+//       err.message
+//     );
 
-      message: err.message
 
-    });
+//     return res.status(500).json({
 
-  }
+//       success: false,
 
-});
+//       message: err.message
+
+//     });
+
+//   }
+
+// });
 
 // POST /api/tracking-items/:id/reject
-router.post('/:id/reject', async (req, res) => {
-  const { id } = req.params;
-  try {
+// router.post('/:id/reject', async (req, res) => {
+//   const { id } = req.params;
+//   try {
 
-    const [result] = await db.query(
-      `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time,NOW()), status = 'REJECTED' WHERE id = ?`,
-      [id]
-    );
-    if (result.affectedRows === 0)
-      return res.status(404).json({ success: false, message: 'Tracking item not found' });
+//     const [result] = await db.query(
+//       `UPDATE time_tracking_task_items SET reject_time = IFNULL(reject_time,NOW()), status = 'REJECTED' WHERE id = ?`,
+//       [id]
+//     );
+//     if (result.affectedRows === 0)
+//       return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
-    const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
-     const row = rows[0];
-     const durationSecs = calculateWorkingDuration(row);
+//     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
+//      const row = rows[0];
+//      const durationSecs = calculateWorkingDuration(row);
 
 
-    emitTaskUpdate(req, id, 'REJECTED');
-    return res.json({ success: true, message: 'Task rejected', data: rows[0] });
-  } catch (err) {
-    console.error('POST /tracking-items/:id/reject ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+//     emitTaskUpdate(req, id, 'REJECTED');
+//     return res.json({ success: true, message: 'Task rejected', data: rows[0] });
+//   } catch (err) {
+//     console.error('POST /tracking-items/:id/reject ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // DELETE /api/tracking-items/:id
 router.delete('/:id', async (req, res) => {

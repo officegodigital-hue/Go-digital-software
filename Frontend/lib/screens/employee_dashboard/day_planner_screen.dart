@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../services/api_config.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 
 class DayPlannerScreen extends StatefulWidget {
@@ -43,6 +44,11 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   String employeeName = '';
   String employeeRole = '';
   Timer? _autoSaveTimer;
+  late IO.Socket socket;
+
+  // Unique clients opened in planner rows vs Total unique assigned clients to this employee
+int get openedUniqueClientsCount => dayPlanRows.map((e) => e['client']).where((c) => c.toString().isNotEmpty).toSet().length;
+int get totalAssignedClientsCount => assignedClients.length;
 
 
   final TextEditingController _searchController = TextEditingController();
@@ -134,6 +140,27 @@ void _showValidationMessage(String message) {
     // employeeName is still '' at this point, so both calls were hitting
     // the backend with a blank name.
   _checkDeadlineStatus();
+  _initSocketListener();
+  }
+
+  void _initSocketListener() {
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
+
+    socket.connect();
+    socket.off('task_updated');
+    socket.on('task_updated', (data) {
+      print("🔥 Day Planner Live Working Time Update: $data");
+      if (mounted) {
+        _fetchTotalWorkingHours(); // Auto refresh working time on any task update!
+      }
+    });
   }
 
   @override
@@ -141,6 +168,7 @@ void _showValidationMessage(String message) {
     _horizontalController.dispose();
     _autoSaveTimer?.cancel();
     _searchController.dispose();
+    socket.dispose();
     super.dispose();
   }
 
@@ -606,39 +634,32 @@ String _formatMaintenanceDate(String value) {
   }
   
 
- Future<void> loadProgress(Map<String, dynamic> row) async {
-  final response = await http.get(
-    Uri.parse('$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(row["client"])}')
-  );
+Future<void> loadProgress(Map<String, dynamic> row) async {
+  try {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(row["client"])}')
+    );
 
-  if (response.statusCode == 200) {
-    final json = jsonDecode(response.body);
-    final list = List<Map<String, dynamic>>.from(json["data"]);
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      final list = List<Map<String, dynamic>>.from(json["data"]);
 
-    // for (int i = 0; i < list.length && i < 3; i++) {
-    //   final int index = i + 1;
-    //   final int completed = int.tryParse(list[i]["completed"].toString().split('/')[0]) ?? 0;
-      
-    //   row["deliverables_$index"] = list[i]["deliverable"];
-    //   // Update these cells with the actual count
-    //   row["complete_deliverables_$index"] = buildProgress(list[i]["deliverable"], completed: completed);
-    //   row["balanced_deliverables_$index"] = buildProgress(list[i]["deliverable"], completed: completed, balance: true);
-    // }
-
-    for (int i = 0; i < list.length && i < 6; i++) {
-  final int index = i + 1;
-
-  row["deliverables_$index"] = list[i]["deliverable"];
-
-  // Don't auto fill
-  row["complete_deliverables_$index"] = "";
-  row["balanced_deliverables_$index"] = "";
-}
-
-    setState(() {});
+      setState(() {
+        for (int i = 0; i < list.length && i < 6; i++) {
+          final int index = i + 1;
+          row["deliverables_$index"] = list[i]["deliverable"];
+          // 🟢 Correctly map completed and balanced counts from backend task tracking
+          row["complete_deliverables_$index"] = list[i]["completed"];
+          row["balanced_deliverables_$index"] = list[i]["balance"];
+        }
+      });
+    }
+  } catch (e) {
+    debugPrint("Error loading progress: $e");
   }
 }
- 
+
+
   Future<void> _addRow() async {
     try {
       final r = await http.post(
@@ -928,19 +949,54 @@ Future<void> _fetchTotalWorkingHours() async {
     String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
     
     final response = await http.get(
-      Uri.parse('$_baseUrl/day-planner/total-working-hours/${Uri.encodeComponent(employeeName)}?date=$formattedDate'),
+      Uri.parse('$_baseUrl/dashboard/live-tracking-tasks/$employeeName?date=$formattedDate'),
     );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      int totalSecs = data['totalSeconds'] ?? 0;
-      
-      int hours = totalSecs ~/ 3600;
-      int minutes = (totalSecs % 3600) ~/ 60;
+      final body = jsonDecode(response.body);
+      final rows = List<dynamic>.from(body['data'] ?? []);
+
+      // 🟢 Parse duration values from the list like live_tracking_tasks_page.dart
+      int totalSumSeconds = 0;
+      for (var row in rows) {
+        String durStr = (row['duration'] ?? '').toString().toLowerCase();
+        
+        int hrs = 0;
+        int mins = 0;
+
+        if (durStr.contains('hrs') || durStr.contains('hr')) {
+          final parts = durStr.split('hr');
+          hrs = int.tryParse(parts[0].trim()) ?? 0;
+          if (parts.length > 1 && parts[1].contains('min')) {
+            final minPart = parts[1].replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
+            mins = int.tryParse(minPart) ?? 0;
+          }
+        } else if (durStr.contains('min')) {
+          final minPart = durStr.replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
+          mins = int.tryParse(minPart) ?? 0;
+        }
+
+        totalSumSeconds += (hrs * 3600) + (mins * 60);
+      }
+
+      int totalHours = totalSumSeconds ~/ 3600;
+      int totalMinutes = (totalSumSeconds % 3600) ~/ 60;
 
       setState(() {
-        totalWorkingTimeFormatted = '${hours.toString().padLeft(2, '0')}h ${minutes.toString().padLeft(2, '0')}m';
+        totalWorkingTimeFormatted = '${totalHours.toString().padLeft(2, '0')}h ${totalMinutes.toString().padLeft(2, '0')}m';
       });
+
+      // 🟢 Automatically sync total working seconds to backend day_plan_rows
+      await http.put(
+        Uri.parse('$_baseUrl/day-planner/working-hours'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'employeeName': employeeName,
+          'date': formattedDate,
+          'totalWorkingSecs': totalSumSeconds,
+        }),
+      );
+
     }
   } catch (e) {
     debugPrint('Error fetching total working hours: $e');
@@ -1029,13 +1085,21 @@ SingleChildScrollView(
   scrollDirection: Axis.horizontal,
   child: Row(
     children: [
+      // _summaryCard(
+      //   "Total Clients",
+      //   "${dayPlanRows.length}",
+      //   Colors.blue,
+      //   Icons.people,
+      //   dayPlanRows.length,
+      //   dayPlanRows.length,
+      // ),
       _summaryCard(
         "Total Clients",
-        "${dayPlanRows.length}",
+        "$openedUniqueClientsCount/$totalAssignedClientsCount", // 🟢 Shows e.g., 2/5 format
         Colors.blue,
         Icons.people,
-        dayPlanRows.length,
-        dayPlanRows.length,
+        openedUniqueClientsCount,
+        totalAssignedClientsCount,
       ),
 
       _summaryCard(
@@ -1311,7 +1375,7 @@ const SizedBox(height: 20),
 
    await loadTodayDayPlan();
    await _checkDeadlineStatus();
-
+   await _fetchTotalWorkingHours();
 }
             },
             child: Container(
@@ -1770,7 +1834,7 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
     height: 54,
     padding: const EdgeInsets.symmetric(horizontal: 8),
     decoration: const BoxDecoration(
-      color: Color(0xFF0052CC),
+      color: Color(0xFF0052CC), // 🟢 Blue background requested
       border: Border(
         bottom: BorderSide(color: Color(0xFF0044B3)),
       ),
@@ -1778,46 +1842,38 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
     child: DropdownButtonHideUnderline(
       child: DropdownButton<String>(
         isExpanded: true,
-        dropdownColor: Colors.white,
-        value: assignedClients.contains(row['client'])
-            ? row['client']
-            : null,
+        dropdownColor: Color(0xFF0052CC),
+        value: assignedClients.contains(row['client']) ? row['client'] : null,
         hint: const Text(
           "Select Client",
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: Colors.white, fontSize: 12),
         ),
-        icon: const Icon(
-          Icons.arrow_drop_down,
-          color: Colors.white,
-        ),
+        icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
         style: const TextStyle(
           color: Colors.white,
           fontSize: 12,
+          fontWeight: FontWeight.bold,
         ),
         items: assignedClients.map((client) {
           return DropdownMenuItem(
             value: client,
-            child: Text(client),
+            child: Text(client, style: const TextStyle(color: Colors.white, fontSize: 12)),
           );
         }).toList(),
         onChanged: (value) {
           if (value == null) return;
-
           setState(() {
             row['client'] = value;
-
-            row['maintenance_date'] =
-                clientMaintenanceDates[value] ?? '';
-
+            row['maintenance_date'] = clientMaintenanceDates[value] ?? '';
             _prefillRoleFieldsForClient(row, value);
           });
-
           _scheduleAutoSave(row);
         },
       ),
     ),
   );
 }
+
 
   Color _getRowColor(String status) {
   switch (status.toUpperCase()) {

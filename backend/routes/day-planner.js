@@ -93,8 +93,8 @@ router.post('/', async (req, res) => {
          deliverables_4, complete_deliverables_4, balanced_deliverables_4,
          deliverables_5, complete_deliverables_5, balanced_deliverables_5,
          deliverables_6, complete_deliverables_6, balanced_deliverables_6,
-         today_plan, status, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         today_plan, status, remarks, total_working_secs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         employeeName, employeeRole || null, date, reportType || "Morning", client || null, maintenanceDate || null, ads || null,
         todayLeads || null, todayReport || null,
@@ -104,7 +104,7 @@ router.post('/', async (req, res) => {
         deliverables4 || null, completeDeliverables4 || null, balancedDeliverables4 || null,
         deliverables5 || null, completeDeliverables5 || null, balancedDeliverables5 || null,
         deliverables6 || null, completeDeliverables6 || null, balancedDeliverables6 || null,
-        todayPlan || null, status || null, remarks || null,
+        todayPlan || null, status || null, remarks || null, 0,
       ]
     );
 
@@ -622,10 +622,8 @@ data
 router.get("/today/:employee", async (req, res) => {
   try {
     const employee = req.params.employee;
-    // Get the date from the query string (e.g., /api/day-planner/today/Arun?date=2026-07-10)
     const { date, reportType } = req.query; 
 
-    // If a date is provided, filter by it; otherwise, default to today's date
     const sql = `
       SELECT *, DATE_FORMAT(plan_date, '%Y-%m-%d') AS plan_date_str
       FROM day_plan_rows
@@ -635,7 +633,6 @@ router.get("/today/:employee", async (req, res) => {
       ORDER BY id
     `;
 
-    // const params = date ? [employee, date] : [employee];
     const params = date
     ? [employee, date, reportType || "Morning"]
     : [employee, reportType || "Morning"];
@@ -661,11 +658,9 @@ router.get("/today/:employee", async (req, res) => {
       deliverables_4: r.deliverables_4 || '',
       complete_deliverables_4: r.complete_deliverables_4 || '',
       balanced_deliverables_4: r.balanced_deliverables_4 || '',
-
       deliverables_5: r.deliverables_5 || '',
       complete_deliverables_5: r.complete_deliverables_5 || '',
       balanced_deliverables_5: r.balanced_deliverables_5 || '',
-
       deliverables_6: r.deliverables_6 || '',
       complete_deliverables_6: r.complete_deliverables_6 || '',
       balanced_deliverables_6: r.balanced_deliverables_6 || '',
@@ -674,6 +669,7 @@ router.get("/today/:employee", async (req, res) => {
       status: r.status || '',
       remarks: r.remarks || '',
       isSubmitted: !!r.is_submitted,
+      total_working_secs: r.total_working_secs || 0, // 🟢 Fixed mapping for working seconds
     }));
 
     res.json(data);
@@ -886,6 +882,30 @@ router.get('/total-working-hours/:employeeName', async (req, res) => {
     return res.json({ success: true, totalSeconds });
   } catch (err) {
     console.error('Error calculating total working hours:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+// PUT /api/day-planner/working-hours — update total working seconds live
+router.put('/working-hours', async (req, res) => {
+  const { employeeName, date, totalWorkingSecs } = req.body;
+
+  if (!employeeName || !date) {
+    return res.status(400).json({ success: false, message: 'employeeName and date are required' });
+  }
+
+  try {
+    await db.query(
+      `UPDATE day_plan_rows
+SET total_working_secs=?
+WHERE employee_name=?
+AND plan_date=?
+AND is_submitted=1`,
+      [totalWorkingSecs || 0, employeeName, date]
+    );
+
+    return res.json({ success: true, message: 'Working hours updated successfully' });
+  } catch (err) {
+    console.error('PUT /day-planner/working-hours ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

@@ -31,6 +31,7 @@ class EmployeeSidebar extends StatelessWidget {
     case 'Notifications': return Icons.notifications;
     case 'Daily Reports': return Icons.checklist_outlined;
     case 'Assigned Task': return Icons.assignment;
+    case 'Live Tracking Tasks': return Icons.location_on;
     case 'Task Planner': return Icons.event_note_outlined;
     case 'Task Review': return Icons.fact_check_outlined;
     case 'Task Status': return Icons.fact_check_outlined;

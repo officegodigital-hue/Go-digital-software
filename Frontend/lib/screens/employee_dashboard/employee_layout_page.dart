@@ -26,6 +26,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
+import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_page.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
@@ -132,6 +133,10 @@ void initState() {
 
         case 'Additional Task':
   return AdditionalTasksPage(role: loggedInRole);
+
+  
+      case 'Live Tracking Tasks':
+        return LiveTrackingTasksPage();
 
       case 'Daily Reports':
         return const DailyReportsPage();
