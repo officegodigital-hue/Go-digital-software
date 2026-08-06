@@ -165,19 +165,21 @@ void dispose() {
   //   }
   // }
 
-  bool _isInSelectedMonth(String maintenanceDate) {
+bool _isInSelectedMonth(String invoiceDate) {
   try {
-    final date = DateFormat('dd/MM/yyyy').parse(maintenanceDate);
+    final date = DateFormat('dd/MM/yyyy').parse(invoiceDate);
     return date.month == _selectedMonth && date.year == _selectedYear;
   } catch (e) {
     return false;
   }
 }
 
-  bool _isInMaintenanceDateRange(String maintenanceDate) {
+  // bool _isInMaintenanceDateRange(String maintenanceDate) {
+  bool _isInInvoiceDateRange(String invoiceDate) {
     try {
-      final date = DateFormat('dd/MM/yyyy').parse(maintenanceDate);
-      
+      // final date = DateFormat('dd/MM/yyyy').parse(maintenanceDate);
+      final date = DateFormat('dd/MM/yyyy').parse(invoiceDate);
+
       if (_fromMaintenanceDate != null && _toMaintenanceDate != null) {
         return date.isAfter(_fromMaintenanceDate!) && date.isBefore(_toMaintenanceDate!.add(const Duration(days: 1)));
       }
@@ -200,13 +202,13 @@ void dispose() {
 
   List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
-      // if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
-      //   return false;
-      // }
+      if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
+        return false;
+      }
 
-      if (!_isInSelectedMonth(row['maintenance_date'] ?? '')) {
-  return false;
-}
+//       if (!_isInSelectedMonth(row['maintenance_date'] ?? '')) {
+//   return false;
+// }
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
       final status = (row["status"] ?? '').toString().toUpperCase();
@@ -222,8 +224,12 @@ void dispose() {
       if (statusA != 'PAID' && statusB == 'PAID') return -1;
       
       try {
-        final dateA = DateFormat('dd/MM/yyyy').parse(a['maintenance_date'] ?? '');
-        final dateB = DateFormat('dd/MM/yyyy').parse(b['maintenance_date'] ?? '');
+        // final dateA = DateFormat('dd/MM/yyyy').parse(a['maintenance_date'] ?? '');
+        // final dateB = DateFormat('dd/MM/yyyy').parse(b['maintenance_date'] ?? '');
+
+        final dateA = DateFormat('dd/MM/yyyy').parse(a['invoice_date'] ?? '');
+final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
+
         return dateA.compareTo(dateB);
       } catch (e) {
         return 0;

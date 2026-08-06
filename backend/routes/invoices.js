@@ -115,12 +115,42 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
 
     const [items] = await db.query(
-      `SELECT id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order
-       FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order ASC, id ASC`,
+      `SELECT 
+ id,
+ package_id,
+ description,
+ qty,
+ rate,
+ tax_percent,
+ discount_amount,
+ amount,
+ paid_amount,
+ pending_amount,
+ sort_order
+FROM invoice_items
+WHERE invoice_id = ?
+ORDER BY sort_order ASC, id ASC`,
       [req.params.id]
     );
+    const [payments] = await db.query(
+  `
+  SELECT 
+    id,
+    invoice_id,
+    paid_date,
+    total_amount,
+    paid_total_amount,
+    paid_amount,
+    balanced_amount,
+    created_at
+  FROM invoice_payments
+  WHERE invoice_id = ?
+  ORDER BY id DESC
+  `,
+  [req.params.id]
+);
 
-    return res.json({ success: true, data: { ...iRows[0], items } });
+    return res.json({ success: true, data: { ...iRows[0], items, payments } });
   } catch (err) {
     console.error('GET /invoices/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -135,85 +165,207 @@ router.get('/:id', async (req, res) => {
 // }
 router.post('/', async (req, res) => {
   const {
-    invoiceNo, clientName, invoiceDate, maintenanceDate, includeGST, discount, notes,
-    subtotal, tax, totalAmount, paidAmount, balanceAmount, items,
+    invoiceNo,
+    clientName,
+    invoiceDate,
+    maintenanceDate,
+    includeGST,
+    discount,
+    notes,
+    subtotal,
+    tax,
+    totalAmount,
+    paidAmount,
+    balanceAmount,
+    items,
   } = req.body;
 
-  if (!invoiceNo || !clientName || !Array.isArray(items) || items.length === 0)
-    return res.status(400).json({ success: false, message: 'invoiceNo, clientName and at least one item are required' });
+  if (!invoiceNo || !clientName || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'invoiceNo, clientName and at least one item are required',
+    });
+  }
 
-  // Auto-derive status from paid/total if not explicitly given
-  const total = totalAmount || 0;
-  const paid  = paidAmount || 0;
+  // Auto Status
+  const total = Number(totalAmount || 0);
+  const paid = Number(paidAmount || 0);
+
   let status = 'DRAFT';
   if (paid <= 0) status = 'DRAFT';
   else if (paid >= total) status = 'PAID';
   else status = 'PARTIAL';
 
   const connection = await db.getConnection();
+
   try {
     await connection.beginTransaction();
 
+    // ===========================
+    // INSERT INVOICE
+    // ===========================
     const [result] = await connection.query(
       `INSERT INTO invoices
-        (invoice_no, client_name, invoice_date, maintenance_date, include_gst,
-         discount, subtotal, tax, total_amount, paid_amount, balance_amount, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (
+        invoice_no,
+        client_name,
+        invoice_date,
+        maintenance_date,
+        include_gst,
+        discount,
+        subtotal,
+        tax,
+        total_amount,
+        paid_amount,
+        balance_amount,
+        status,
+        notes
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        invoiceNo, clientName, invoiceDate || '', maintenanceDate || '',
+        invoiceNo,
+        clientName,
+        invoiceDate || '',
+        maintenanceDate || '',
         includeGST ? 1 : 0,
-        discount || 0, subtotal || 0, tax || 0, total, paid, balanceAmount || 0,
-        status, notes || '',
+        discount || 0,
+        subtotal || 0,
+        tax || 0,
+        total,
+        paid,
+        balanceAmount || 0,
+        status,
+        notes || '',
       ]
     );
 
     const invoiceId = result.insertId;
 
+    // ===========================
+    // INSERT ITEMS
+    // ===========================
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
+
       await connection.query(
         `INSERT INTO invoice_items
-          (invoice_id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (
+            invoice_id,
+            package_id,
+            description,
+            qty,
+            rate,
+            tax_percent,
+            discount_amount,
+            amount,
+            paid_amount,
+            pending_amount,
+            sort_order
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          invoiceId, it.packageId || null, it.description || '',
-          it.qty || 1, it.rate || 0, it.amount || 0,
-          it.paidAmount || 0, it.pendingAmount || 0, i,
-        ]
+  invoiceId,
+  it.packageId || null,
+  it.description || '',
+  it.qty || 1,
+  it.rate || 0,
+  it.tax || 0,
+  it.discount || 0,
+  it.amount || 0,
+  it.paidAmount || 0,
+  it.pendingAmount || 0,
+  i,
+]
       );
     }
+
+    // ===========================
+    // INSERT PAYMENT HISTORY
+    // ===========================
+    await connection.query(
+      `INSERT INTO invoice_payments
+      (
+          invoice_id,
+          paid_date,
+          total_amount,
+          paid_total_amount,
+          paid_amount,
+          balanced_amount
+      )
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        invoiceId,
+        invoiceDate || new Date(),
+        total,
+        paid,
+        paid,
+        balanceAmount || 0,
+      ]
+    );
 
     await connection.commit();
 
     return res.status(201).json({
       success: true,
-      message: 'Invoice created',
-      data: { id: invoiceId, invoiceNo, status },
+      message: 'Invoice created successfully',
+      data: {
+        id: invoiceId,
+        invoiceNo,
+        status,
+      },
     });
+
   } catch (err) {
     await connection.rollback();
+
     console.error('POST /invoices ERROR:', err.message);
-    if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({ success: false, message: `Invoice "${invoiceNo}" already exists` });
-    return res.status(500).json({ success: false, message: err.message });
+
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message: `Invoice "${invoiceNo}" already exists`,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+
   } finally {
     connection.release();
   }
 });
 
 // PUT /api/invoices/:id — update invoice + replace its line items
+// PUT /api/invoices/:id
 router.put('/:id', async (req, res) => {
   const {
-    clientName, invoiceDate, maintenanceDate, includeGST, discount, notes,
-    subtotal, tax, totalAmount, paidAmount, balanceAmount, items, status,
+    clientName,
+    invoiceDate,
+    maintenanceDate,
+    includeGST,
+    discount,
+    notes,
+    subtotal,
+    tax,
+    totalAmount,
+    paidAmount,
+    balanceAmount,
+    items,
+    status,
   } = req.body;
 
-  if (!clientName || !Array.isArray(items) || items.length === 0)
-    return res.status(400).json({ success: false, message: 'clientName and at least one item are required' });
+  if (!clientName || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'clientName and at least one item are required',
+    });
+  }
 
-  // Auto-derive status from paid/total if not explicitly given
-  const total = totalAmount || 0;
-  const paid  = paidAmount || 0;
+  const total = Number(totalAmount || 0);
+  const paid = Number(paidAmount || 0);
+
   let derivedStatus = status;
   if (!derivedStatus) {
     if (paid <= 0) derivedStatus = 'DRAFT';
@@ -222,52 +374,154 @@ router.put('/:id', async (req, res) => {
   }
 
   const connection = await db.getConnection();
+
   try {
     await connection.beginTransaction();
 
+    // Get previous paid amount
+    const [[oldInvoice]] = await connection.query(
+      `SELECT paid_amount FROM invoices WHERE id = ?`,
+      [req.params.id]
+    );
+
+    if (!oldInvoice) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found',
+      });
+    }
+
+    const oldPaid = Number(oldInvoice.paid_amount || 0);
+    const newPayment = paid - oldPaid;
+
+    // Update invoice
     const [result] = await connection.query(
       `UPDATE invoices
-       SET client_name = ?, invoice_date = ?, maintenance_date = ?, include_gst = ?,
-           discount = ?, subtotal = ?, tax = ?, total_amount = ?, paid_amount = ?, balance_amount = ?,
-           status = ?, notes = ?
+       SET
+         client_name = ?,
+         invoice_date = ?,
+         maintenance_date = ?,
+         include_gst = ?,
+         discount = ?,
+         subtotal = ?,
+         tax = ?,
+         total_amount = ?,
+         paid_amount = ?,
+         balance_amount = ?,
+         status = ?,
+         notes = ?
        WHERE id = ?`,
       [
-        clientName, invoiceDate || '', maintenanceDate || '',
+        clientName,
+        invoiceDate || '',
+        maintenanceDate || '',
         includeGST ? 1 : 0,
-        discount || 0, subtotal || 0, tax || 0, total, paid, balanceAmount || 0,
-        derivedStatus, notes || '',
+        discount || 0,
+        subtotal || 0,
+        tax || 0,
+        total,
+        paid,
+        balanceAmount || 0,
+        derivedStatus,
+        notes || '',
         req.params.id,
       ]
     );
 
     if (result.affectedRows === 0) {
       await connection.rollback();
-      return res.status(404).json({ success: false, message: 'Invoice not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found',
+      });
     }
 
-    // Replace all line items
-    await connection.query(`DELETE FROM invoice_items WHERE invoice_id = ?`, [req.params.id]);
+    // Delete old items
+    await connection.query(
+      `DELETE FROM invoice_items WHERE invoice_id = ?`,
+      [req.params.id]
+    );
 
+    // Insert updated items
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
+
       await connection.query(
         `INSERT INTO invoice_items
-          (invoice_id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (
+          invoice_id,
+          package_id,
+          description,
+          qty,
+          rate,
+          tax_percent,
+          discount_amount,
+          amount,
+          paid_amount,
+          pending_amount,
+          sort_order
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          req.params.id, it.packageId || null, it.description || '',
-          it.qty || 1, it.rate || 0, it.amount || 0,
-          it.paidAmount || 0, it.pendingAmount || 0, i,
+  req.params.id,
+  it.packageId || null,
+  it.description || '',
+  it.qty || 1,
+  it.rate || 0,
+  it.tax || 0,
+  it.discount || 0,
+  it.amount || 0,
+  it.paidAmount || 0,
+  it.pendingAmount || 0,
+  i,
+]
+      );
+    }
+
+    // Insert payment history only if new payment received
+    if (newPayment > 0) {
+      await connection.query(
+        `INSERT INTO invoice_payments
+        (
+          invoice_id,
+          paid_date,
+          total_amount,
+          paid_total_amount,
+          paid_amount,
+          balanced_amount
+        )
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.params.id,
+          invoiceDate || new Date(),
+          total,
+          paid,
+          newPayment,
+          balanceAmount || 0,
         ]
       );
     }
 
     await connection.commit();
-    return res.json({ success: true, message: 'Invoice updated', data: { status: derivedStatus } });
+
+    return res.json({
+      success: true,
+      message: 'Invoice updated successfully',
+      data: {
+        status: derivedStatus,
+      },
+    });
+
   } catch (err) {
     await connection.rollback();
     console.error('PUT /invoices/:id ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+
   } finally {
     connection.release();
   }
@@ -296,15 +550,46 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // DELETE /api/invoices/:id — delete invoice (cascades to items)
+// DELETE /api/invoices/:id — delete invoice and cascade to items & payments
 router.delete('/:id', async (req, res) => {
+  const invoiceId = req.params.id;
+  const connection = await db.getConnection();
+
   try {
-    const [result] = await db.query(`DELETE FROM invoices WHERE id = ?`, [req.params.id]);
-    if (result.affectedRows === 0)
+    await connection.beginTransaction();
+
+    // 1. Delete associated invoice items first
+    await connection.query(
+      `DELETE FROM invoice_items WHERE invoice_id = ?`,
+      [invoiceId]
+    );
+
+    // 2. Delete associated invoice payment history records
+    await connection.query(
+      `DELETE FROM invoice_payments WHERE invoice_id = ?`,
+      [invoiceId]
+    );
+
+    // 3. Delete the parent invoice record
+    const [result] = await connection.query(
+      `DELETE FROM invoices WHERE id = ?`,
+      [invoiceId]
+    );
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ success: false, message: 'Invoice not found' });
-    return res.json({ success: true, message: 'Invoice deleted' });
+    }
+
+    await connection.commit();
+    return res.json({ success: true, message: 'Invoice and related records deleted successfully' });
+
   } catch (err) {
+    await connection.rollback();
     console.error('DELETE /invoices/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
   }
 });
 
