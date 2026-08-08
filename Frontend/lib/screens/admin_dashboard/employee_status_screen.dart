@@ -671,7 +671,7 @@ const SizedBox(height: 20),
                   child: Row(
                     children: const [
                       Expanded(flex: 3, child: Text("CLIENT", style: _headerStyle)),
-                      Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _headerStyle)),
+                      Expanded(flex: 2, child: Text("EMPLOYEE NAME", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("DURATION", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("PRIORITY", style: _headerStyle)),
@@ -735,7 +735,7 @@ Expanded(
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 3,
+                                    flex: 2,
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -746,10 +746,10 @@ Expanded(
                                           alignment: Alignment.center,
                                           child: Text(
                                             row["initials"],
-                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3)),
+                                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3)),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(width: 5),
                                         Text(
                                           row["name"],
                                           style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500),
