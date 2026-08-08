@@ -40,6 +40,65 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       filteredRows.where((e) => (e['status'] ?? '') == 'NOT START').length;
 
 
+int _getMaxAllowedRowsForClient(String clientName) {
+  int count = 0;
+  final auth = Provider.of<AuthService>(context, listen: false);
+  final myName = (auth.user?['fullName'] as String? ?? '').trim().toUpperCase();
+
+  if (myName.isEmpty) return 1;
+
+  final clientTasks = assignedTasks.where(
+    (task) => (task['client_name'] ?? '').toString() == clientName,
+  );
+
+  for (final task in clientTasks) {
+    final adsEmp = (task['ads_handling'] ?? '').toString().trim().toUpperCase();
+    if (adsEmp == myName && (task['ads_platform'] ?? '').toString().trim().isNotEmpty) {
+      count++;
+    }
+
+    const roleColumns = [
+      'page_handling', 'designer',
+      'videographer', 'video_editor', 'developer', 'ui_ux_designer'
+    ];
+
+    for (final col in roleColumns) {
+      final taskValues = (task[col == 'page_handling' ? 'pages_platform' : '${col}_tasks'] ?? '').toString().trim();
+      final roleEmp = (task[col] ?? '').toString().trim().toUpperCase();
+      if (roleEmp == myName && taskValues.isNotEmpty) {
+        final commaCount = taskValues.split(',').where((e) => e.trim().isNotEmpty).length;
+        count += commaCount > 0 ? commaCount : 1;
+      }
+    }
+  }
+
+  // Additional tasks check
+  final addTasks = additionalTasks.where(
+    (e) => (e['client_name'] ?? '').toString() == clientName,
+  );
+  for (final _ in addTasks) {
+    count++;
+  }
+
+  // 🟢 Exact count mattumae return seiyum (extra buffer illamal)
+  return count > 0 ? count : 1;
+}
+
+bool _isClientSelectionAllowed(String clientName, String? currentRowId) {
+  int maxAllowed = _getMaxAllowedRowsForClient(clientName);
+  
+  // Intha date-ku under-la irukkura rows-il antha client evvalvu murai select seiyappattullar
+  int currentSelectedCount = filteredRows.where((r) {
+    // Current row-ah thavira maththa rows-ai count seiyavendum (editing time-il error varamal irukka)
+    if (currentRowId != null && r['id'].toString() == currentRowId.toString()) {
+      return false;
+    }
+    return r['client'] == clientName;
+  }).length;
+
+  return currentSelectedCount < maxAllowed;
+}
+
   DateTime selectedDate = DateTime.now();
   String employeeName = '';
   String employeeRole = '';
@@ -164,6 +223,7 @@ void _showValidationMessage(String message) {
   //   });
   // }
 
+
  void _initSocketListener() {
   socket = IO.io(
     ApiConfig.socketUrl,
@@ -246,6 +306,8 @@ void _scheduleAutoSave(Map<String, dynamic> row) {
   );
 }
 
+
+
 Future<void> _checkDeadlineStatus() async {
     if (employeeName.isEmpty) return;
     try {
@@ -313,15 +375,12 @@ void _prefillRoleFieldsForClient(
   String clientName,
 ) {
   final auth = Provider.of<AuthService>(context, listen: false);
-
-  final myName =
-      (auth.user?['fullName'] as String? ?? '').trim().toUpperCase();
+  final myName = (auth.user?['fullName'] as String? ?? '').trim().toUpperCase();
 
   if (myName.isEmpty) return;
 
   row['ads'] = '';
 
-  // Clear all deliverables
   for (int i = 1; i <= 6; i++) {
     row['deliverables_$i'] = '';
     row['complete_deliverables_$i'] = '';
@@ -335,95 +394,62 @@ void _prefillRoleFieldsForClient(
   int nextIndex = 1;
 
   for (final task in clientTasks) {
-    //---------------------------------------------
-    // ADS
-    //---------------------------------------------
-    final adsEmployee =
-        (task['ads_handling'] ?? '').toString().trim().toUpperCase();
-
+    // 1. ADS
+    final adsEmployee = (task['ads_handling'] ?? '').toString().trim().toUpperCase();
     if (adsEmployee == myName) {
       row['ads'] = task['ads_platform'] ?? '';
     }
 
-    //---------------------------------------------
-    // PAGE
-    //---------------------------------------------
-    final pageEmployee =
-        (task['page_handling'] ?? '').toString().trim().toUpperCase();
-
-    if (pageEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['pages_platform'] ?? '').toString();
+    // 2. PAGE
+    final pageEmployee = (task['page_handling'] ?? '').toString().trim().toUpperCase();
+    final pageTask = (task['pages_platform'] ?? '').toString().trim();
+    if (pageEmployee == myName && pageTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = pageTask;
       nextIndex++;
     }
 
-    //---------------------------------------------
-    // DESIGNER
-    //---------------------------------------------
-    final designerEmployee =
-        (task['designer'] ?? '').toString().trim().toUpperCase();
-
-    if (designerEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['designer_tasks'] ?? '').toString();
+    // 3. DESIGNER
+    final designerEmployee = (task['designer'] ?? '').toString().trim().toUpperCase();
+    final designerTask = (task['designer_tasks'] ?? '').toString().trim();
+    if (designerEmployee == myName && designerTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = designerTask;
       nextIndex++;
     }
 
-    //---------------------------------------------
-    // VIDEOGRAPHER
-    //---------------------------------------------
-    final videoEmployee =
-        (task['videographer'] ?? '').toString().trim().toUpperCase();
-
-    if (videoEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['videographer_tasks'] ?? '').toString();
+    // 4. VIDEOGRAPHER
+    final videoEmployee = (task['videographer'] ?? '').toString().trim().toUpperCase();
+    final videoTask = (task['videographer_tasks'] ?? '').toString().trim();
+    if (videoEmployee == myName && videoTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = videoTask;
       nextIndex++;
     }
 
-    //---------------------------------------------
-    // VIDEO EDITOR
-    //---------------------------------------------
-    final editorEmployee =
-        (task['video_editor'] ?? '').toString().trim().toUpperCase();
-
-    if (editorEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['video_editor_task'] ?? '').toString();
+    // 5. VIDEO EDITOR
+    final editorEmployee = (task['video_editor'] ?? '').toString().trim().toUpperCase();
+    final editorTask = (task['video_editor_task'] ?? '').toString().trim();
+    if (editorEmployee == myName && editorTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = editorTask;
       nextIndex++;
     }
 
-    //---------------------------------------------
-    // DEVELOPER
-    //---------------------------------------------
-    final developerEmployee =
-        (task['developer'] ?? '').toString().trim().toUpperCase();
-
-    if (developerEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['developer_tasks'] ?? '').toString();
+    // 6. DEVELOPER
+    final developerEmployee = (task['developer'] ?? '').toString().trim().toUpperCase();
+    final devTask = (task['developer_tasks'] ?? '').toString().trim();
+    if (developerEmployee == myName && devTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = devTask;
       nextIndex++;
     }
 
-    //---------------------------------------------
-    // UI UX
-    //---------------------------------------------
-    final uiuxEmployee =
-        (task['ui_ux_designer'] ?? '')
-            .toString()
-            .trim()
-            .toUpperCase();
-
-    if (uiuxEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['ui_ux_tasks'] ?? '').toString();
+    // 7. UI UX
+    final uiuxEmployee = (task['ui_ux_designer'] ?? '').toString().trim().toUpperCase();
+    final uiuxTask = (task['ui_ux_tasks'] ?? '').toString().trim();
+    if (uiuxEmployee == myName && uiuxTask.isNotEmpty && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] = uiuxTask;
       nextIndex++;
     }
   }
 
-  //---------------------------------------------
-  // ADDITIONAL TASKS
-  //---------------------------------------------
+  // Additional Tasks
   final addTasks = additionalTasks.where(
     (e) => (e['client_name'] ?? '') == clientName,
   );
@@ -431,26 +457,15 @@ void _prefillRoleFieldsForClient(
   for (final task in addTasks) {
     if (nextIndex > 6) break;
 
-    final total = int.tryParse(
-          task['no_of_rows'].toString(),
-        ) ??
-        1;
-
+    final total = int.tryParse(task['no_of_rows'].toString()) ?? 1;
     final taskName = (task['deliverables'] ?? '').toString();
 
     row['deliverables_$nextIndex'] = "$taskName ($total)";
-    row['complete_deliverables_$nextIndex'] =
-        "$taskName (0/$total)";
-    row['balanced_deliverables_$nextIndex'] =
-        "$taskName ($total/$total)";
-
     nextIndex++;
   }
 
-  //---------------------------------------------
-  // DEFAULT COMPLETE / BALANCE
-  //---------------------------------------------
-for (int i = 1; i <= 6; i++) {
+  // Default Complete / Balance Formatting
+  for (int i = 1; i <= 6; i++) {
     final deliverable = (row['deliverables_$i'] ?? '').toString().trim();
 
     if (deliverable.isNotEmpty) {
@@ -464,7 +479,6 @@ for (int i = 1; i <= 6; i++) {
       final balancedList = <String>[];
 
       for (final taskName in deliverableList) {
-        // Parse e.g. "POSTER (1)" -> name="POSTER", total=1
         final match = RegExp(r'^(.*?)\s*\((\d+)\)\s*$').firstMatch(taskName);
         final name = match != null ? match.group(1)!.trim() : taskName;
         final total = match != null ? int.tryParse(match.group(2)!) ?? 1 : 1;
@@ -694,7 +708,7 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
   }
 }
 
-  Future<void> _addRow() async {
+Future<void> _addRow() async {
     try {
       final r = await http.post(
         Uri.parse('$_baseUrl/day-planner'),
@@ -703,7 +717,7 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
           'employeeName': employeeName,
           'employeeRole': employeeRole,
           'date': '${selectedDate.year.toString().padLeft(4, '0')}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
-          'client': assignedClients.isNotEmpty ? assignedClients.first : '',
+          'client': '', // 🟢 Blank-ah irukkanum, appo thaan Select Client nu show aagum
         }),
       );
 
@@ -712,42 +726,35 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
         final newId = body['data']['id'];
         setState(() {
          dayPlanRows.add({
-  'id': newId,
-  'date': selectedDate,
-  'client': assignedClients.isNotEmpty ? assignedClients.first : '',
-  'ads': '',
-  'today_leads': '',
-  'today_report': '',
-
-  'deliverables_1': '',
-  'complete_deliverables_1': '',
-  'balanced_deliverables_1': '',
-
-  'deliverables_2': '',
-  'complete_deliverables_2': '',
-  'balanced_deliverables_2': '',
-
-  'deliverables_3': '',
-  'complete_deliverables_3': '',
-  'balanced_deliverables_3': '',
-
-  'deliverables_4': '',
-  'complete_deliverables_4': '',
-  'balanced_deliverables_4': '',
-
-  'deliverables_5': '',
-  'complete_deliverables_5': '',
-  'balanced_deliverables_5': '',
-
-  'deliverables_6': '',
-  'complete_deliverables_6': '',
-  'balanced_deliverables_6': '',
-
-  'today_plan': '',
-  'status': '',
-  'remarks': '',
-  '_editing': true,
-});;
+          'id': newId,
+          'date': selectedDate,
+          'client': '', // 🟢 Blank default value
+          'ads': '',
+          'today_leads': '',
+          'today_report': '',
+          'deliverables_1': '',
+          'complete_deliverables_1': '',
+          'balanced_deliverables_1': '',
+          'deliverables_2': '',
+          'complete_deliverables_2': '',
+          'balanced_deliverables_2': '',
+          'deliverables_3': '',
+          'complete_deliverables_3': '',
+          'balanced_deliverables_3': '',
+          'deliverables_4': '',
+          'complete_deliverables_4': '',
+          'balanced_deliverables_4': '',
+          'deliverables_5': '',
+          'complete_deliverables_5': '',
+          'balanced_deliverables_5': '',
+          'deliverables_6': '',
+          'complete_deliverables_6': '',
+          'balanced_deliverables_6': '',
+          'today_plan': '',
+          'status': '',
+          'remarks': '',
+          '_editing': true,
+        });
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1191,10 +1198,11 @@ SingleChildScrollView(
 // _productivityCard(),
 
 const SizedBox(height: 20),
+// 🟢 Search box matrum 3 Buttons (Date, Add Row, Submit) irukkum Row section
 Row(
   mainAxisAlignment: MainAxisAlignment.spaceBetween,
   children: [
-    // 🟢 Left Side: Search Client Box
+    // Left Side: Search Client Box
     SizedBox(
       width: 320,
       child: TextField(
@@ -1245,33 +1253,70 @@ Row(
       ),
     ),
 
-    // 🟢 Right Side: Total Working Time Widget
-    Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.timer_rounded, size: 18, color: Color(0xFF004AAD)),
-          const SizedBox(width: 8),
-          Text(
-            "Total Working Time: $totalWorkingTimeFormatted", // Ungaloda dynamic variable
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E3A8A),
+    // Right Side: Date Picker, Add Row & Submit Buttons (Mela irunthathu inge maattappattullathu)
+    Row(
+      children: [
+        GestureDetector(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: selectedDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (picked != null) {
+              setState(() {
+                selectedDate = picked;
+              });
+              await loadTodayDayPlan();
+              await _checkDeadlineStatus();
+              await _fetchTotalWorkingHours();
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFF0052CC), width: 1.5),
+              borderRadius: BorderRadius.circular(6),
+              color: const Color(0xFFF0F4F8),
             ),
+            child: Row(children: [
+              const Icon(Icons.calendar_today, size: 15, color: Color(0xFF0052CC)),
+              const SizedBox(width: 8),
+              Text(_formatDate(selectedDate),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+            ]),
+          ),
+        ),
+        if (isTodayView) ...[
+          const SizedBox(width: 10),
+          ElevatedButton.icon(
+            onPressed: _addRow,
+            icon: const Icon(Icons.add, size: 16, color: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0052CC),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            label: const Text('Add Row', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton.icon(
+            onPressed: _submitDay,
+            icon: const Icon(Icons.check_circle_outline, size: 16, color: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16A34A),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            label: const Text('Submit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
           ),
         ],
-      ),
+      ],
     ),
   ],
 ),
+
 const SizedBox(height: 20),
 
 // // SizedBox(
@@ -1379,7 +1424,7 @@ const SizedBox(height: 20),
     );
   }
 
-  Widget _buildTopBar(bool isTodayView) {
+Widget _buildTopBar(bool isTodayView) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1392,67 +1437,31 @@ const SizedBox(height: 20),
             const Text('Day Plan Sheet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ],
         ),
-        Row(children: [
-          GestureDetector(
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: selectedDate,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030),
-              );
-              // if (picked != null) setState(() => selectedDate = picked);
-              if (picked != null) {
-
-   setState(() {
-      selectedDate = picked;
-   });
-
-   await loadTodayDayPlan();
-   await _checkDeadlineStatus();
-   await _fetchTotalWorkingHours();
-}
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF0052CC), width: 1.5),
-                borderRadius: BorderRadius.circular(6),
-                color: const Color(0xFFF0F4F8),
-              ),
-              child: Row(children: [
-                const Icon(Icons.calendar_today, size: 15, color: Color(0xFF0052CC)),
-                const SizedBox(width: 8),
-                Text(_formatDate(selectedDate),
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
-              ]),
-            ),
+        // 🟢 Top right-il ippo Total Working Time widget varum
+        Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
+            borderRadius: BorderRadius.circular(21),
           ),
-          if (isTodayView) ...[
-            const SizedBox(width: 10),
-            ElevatedButton.icon(
-              onPressed: _addRow,
-              icon: const Icon(Icons.add, size: 16, color: Colors.white),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0052CC),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.timer_rounded, size: 16, color: Color(0xFF004AAD)),
+              const SizedBox(width: 8),
+              Text(
+                "Total Working Time: $totalWorkingTimeFormatted",
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E3A8A),
+                ),
               ),
-              label: const Text('Add Row', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-            ),
-            const SizedBox(width: 10),
-            ElevatedButton.icon(
-              onPressed: _submitDay,
-              icon: const Icon(Icons.check_circle_outline, size: 16, color: Colors.white),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF16A34A),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              ),
-              label: const Text('Submit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-            ),
-          ],
-        ]),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1865,11 +1874,13 @@ String get _formattedTotalWorkingHours {
 }
 
 Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
+  final currentClient = row['client']?.toString() ?? '';
+
   return Container(
     height: 54,
     padding: const EdgeInsets.symmetric(horizontal: 8),
     decoration: const BoxDecoration(
-      color: Color(0xFF0052CC), // 🟢 Blue background requested
+      color: Color(0xFF0052CC),
       border: Border(
         bottom: BorderSide(color: Color(0xFF0044B3)),
       ),
@@ -1877,11 +1888,11 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
     child: DropdownButtonHideUnderline(
       child: DropdownButton<String>(
         isExpanded: true,
-        dropdownColor: Color(0xFF0052CC),
-        value: assignedClients.contains(row['client']) ? row['client'] : null,
+        dropdownColor: const Color(0xFF0052CC),
+        value: currentClient.isNotEmpty && assignedClients.contains(currentClient) ? currentClient : null,
         hint: const Text(
           "Select Client",
-          style: TextStyle(color: Colors.white, fontSize: 12),
+          style: TextStyle(color: Colors.white70, fontSize: 12),
         ),
         icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
         style: const TextStyle(
@@ -1890,13 +1901,34 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
           fontWeight: FontWeight.bold,
         ),
         items: assignedClients.map((client) {
-          return DropdownMenuItem(
+          bool isAllowed = _isClientSelectionAllowed(client, row['id']?.toString());
+          bool isCurrentRowClient = currentClient == client;
+
+          return DropdownMenuItem<String>(
             value: client,
-            child: Text(client, style: const TextStyle(color: Colors.white, fontSize: 12)),
+            enabled: isAllowed || isCurrentRowClient,
+            child: Text(
+              client,
+              style: TextStyle(
+                color: (isAllowed || isCurrentRowClient) ? Colors.white : Colors.white38,
+                fontSize: 12,
+              ),
+            ),
           );
         }).toList(),
         onChanged: (value) {
           if (value == null) return;
+          
+          if (!_isClientSelectionAllowed(value, row['id']?.toString())) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Limit reached for $value based on its assigned tasks/deliverables!'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            return;
+          }
+
           setState(() {
             row['client'] = value;
             row['maintenance_date'] = clientMaintenanceDates[value] ?? '';
@@ -1909,7 +1941,6 @@ Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
     ),
   );
 }
-
 
   Color _getRowColor(String status) {
   switch (status.toUpperCase()) {

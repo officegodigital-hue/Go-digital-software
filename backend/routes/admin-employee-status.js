@@ -50,6 +50,13 @@ router.get('/employee-status', async (req, res) => {
     ), 0) AS hold_rows,
 
     COALESCE((
+    SELECT COUNT(*)
+    FROM time_tracking_task_items
+    WHERE task_list_id = tl.id
+    AND UPPER(status) = 'REJECTED'
+), 0) AS rejected_rows,
+
+    COALESCE((
         SELECT COUNT(*)
         FROM time_tracking_task_items
         WHERE task_list_id = tl.id
@@ -100,7 +107,7 @@ ORDER BY tl.submission_date ASC;
 
       // Fallback: If no tracking items exist yet in the table, set all rows as 'Not Started'
       let notStarted = r.not_started_rows;
-      const totalTracked = r.completed_rows + r.hold_rows + r.processing_rows + r.not_started_rows;
+      const totalTracked = r.completed_rows + r.hold_rows + r.processing_rows + r.not_started_rows + r.rejected_rows;
       if (totalTracked === 0 && r.no_of_rows > 0) {
         notStarted = r.no_of_rows;
       }
@@ -116,6 +123,7 @@ ORDER BY tl.submission_date ASC;
         priority,
         completedRows: r.completed_rows || 0,
         holdRows: r.hold_rows || 0,
+        rejectedRows: r.rejected_rows || 0,
         processingRows: r.processing_rows || 0,
         notStartedRows: notStarted,
         totalRows: r.no_of_rows || 1,
@@ -126,6 +134,81 @@ ORDER BY tl.submission_date ASC;
   } catch (err) {
     console.error('GET /admin/employee-status ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/admin/employee-status/:taskListId/details
+router.get('/employee-status/:taskListId/details', async (req, res) => {
+  try {
+    const { taskListId } = req.params;
+
+    if (!taskListId || isNaN(Number(taskListId))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid task list ID',
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        id,
+        task_list_id,
+        task_timing_id,
+        s_no,
+        submit_date,
+        task_description,
+        duration_secs,
+        comment,
+        performance,
+        status,
+        created_at,
+        updated_at,
+        start_time,
+        complete_time,
+        reject_time,
+        hold_time_1,
+        hold_time_2,
+        hold_time_3,
+        hold_time_4,
+        hold_time_5,
+        hold_time_6,
+        hold_time_7,
+        hold_time_8,
+        hold_time_9,
+        hold_time_10,
+        restart_time_1,
+        restart_time_2,
+        restart_time_3,
+        restart_time_4,
+        restart_time_5,
+        restart_time_6,
+        restart_time_7,
+        restart_time_8,
+        restart_time_9,
+        restart_time_10
+      FROM time_tracking_task_items
+      WHERE task_list_id = ?
+      ORDER BY s_no ASC
+      `,
+      [Number(taskListId)]
+    );
+
+    return res.json({
+      success: true,
+      data: rows,
+    });
+
+  } catch (err) {
+    console.error(
+      'GET /admin/employee-status/:taskListId/details ERROR:',
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 

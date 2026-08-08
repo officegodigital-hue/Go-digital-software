@@ -89,6 +89,260 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     }
   }
 
+Future<void> _showTaskDetails(int taskListId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/admin/employee-status/$taskListId/details'),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load task details');
+      }
+
+      final body = jsonDecode(response.body);
+      final List details = List.from(body['data'] ?? []);
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) {
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            backgroundColor: Colors.white,
+            elevation: 8,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 650,
+                maxHeight: 600,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Professional Header ──
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0F4CC9),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.assignment_outlined, color: Colors.white, size: 20),
+                            SizedBox(width: 10),
+                            Text(
+                              'Task Details Breakdown',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                          onPressed: () => Navigator.pop(context),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ── Scrollable Content Body ──
+                  Expanded(
+                    child: details.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(30),
+                              child: Text(
+                                'No task details found.',
+                                style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          )
+                        : Scrollbar(
+                            thumbVisibility: true,
+                            child: ListView.separated(
+                              padding: const EdgeInsets.all(20),
+                              itemCount: details.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final item = details[index];
+                                final status = (item['status']?.toString() ?? 'IDLE').toUpperCase();
+                                
+                                // Status badge color logic
+                                Color statusBg = const Color(0xFFF1F5F9);
+                                Color statusText = const Color(0xFF64748B);
+                                if (status == 'COMPLETED') {
+                                  statusBg = const Color(0xFFDCFCE7);
+                                  statusText = const Color(0xFF16A34A);
+                                } else if (status == 'ON HOLD') {
+                                  statusBg = const Color(0xFFFEF3C7);
+                                  statusText = const Color(0xFFD97706);
+                                } else if (status == 'REJECTED') {
+                                  statusBg = const Color(0xFFFEE2E2);
+                                  statusText = const Color(0xFFDC2626);
+                                } else if (status == 'IN PROGRESS') {
+                                  statusBg = const Color(0xFFE0F2FE);
+                                  statusText = const Color(0xFF0369A1);
+                                }
+
+                                return Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.01),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            'Task Item #${item['s_no'] ?? index + 1}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF0F4CC9),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: statusBg,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              status,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: statusText,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'COMMAND / DESCRIPTION',
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8)),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        item['task_description']?.toString().isNotEmpty == true
+                                            ? item['task_description'].toString()
+                                            : '--',
+                                        style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontWeight: FontWeight.w500),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _detailItem('Performance', item['performance']?.toString() ?? '--'),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      const Text(
+                                        'COMMENTS',
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8)),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        item['comment']?.toString().trim().isNotEmpty == true
+                                            ? item['comment'].toString()
+                                            : '--',
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                  ),
+
+                  // ── Professional Footer ──
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F4CC9),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load task details: $e')),
+      );
+    }
+  }
+
+
+Widget _detailItem(String title, String value) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF64748B),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        value,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF334155),
+        ),
+      ),
+    ],
+  );
+}
+
   // Turns one backend row into the exact map shape the existing table
   // widgets expect — this is the only place that knows about colors/labels.
   Map<String, dynamic> _mapRow(dynamic row) {
@@ -98,26 +352,26 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     final daysLeft = row['daysLeft'] as int?;
 
     final priorityColors = _priorityColors(priority);
-    // final statusInfo = _statusDisplay(rawStatus);
     final timeInfo = _timeLeftDisplay(daysLeft);
 
-    // FIX: new "completed/total" label, e.g. "5/12", from the backend's
-    // completedRows/totalRows counts.
-final completedRows = row['completedRows'] as int? ?? 0;
-final totalRows = row['totalRows'] as int? ?? 0;
+    final completedRows = row['completedRows'] as int? ?? 0;
+    final totalRows = row['totalRows'] as int? ?? 0;
 
-final holdRows = row['holdRows'] as int? ?? 0;
-final processingRows = row['processingRows'] as int? ?? 0;
-final notStartedRows = row['notStartedRows'] as int? ?? 0;
+    final holdRows = row['holdRows'] as int? ?? 0;
+    final rejectedRows = row['rejectedRows'] as int? ?? 0;
+    final processingRows = row['processingRows'] as int? ?? 0;
+    final notStartedRows = row['notStartedRows'] as int? ?? 0;
 
-final completedLabel = '$completedRows/$totalRows';
-final holdLabel = '$holdRows/$totalRows';
-final processingLabel = '$processingRows/$totalRows';
-final notStartedLabel = '$notStartedRows/$totalRows';
+    final completedLabel = '$completedRows/$totalRows';
+    final holdLabel = '$holdRows/$totalRows';
+    final rejectedLabel = '$rejectedRows/$totalRows';
+    final processingLabel = '$processingRows/$totalRows';
+    final notStartedLabel = '$notStartedRows/$totalRows';
 
-final allDone = totalRows > 0 && completedRows >= totalRows;
+    final allDone = totalRows > 0 && completedRows >= totalRows;
 
     return {
+      "taskListId": row['taskListId'], // 👈 Intha line thaan missing-ah irunthathu
       "client": row['clientName'] ?? '',
       "initials": _initialsFor(employeeName),
       "name": employeeName,
@@ -129,19 +383,18 @@ final allDone = totalRows > 0 && completedRows >= totalRows;
       "date": _formatDate(row['submissionDate'] as String?),
       "timeLeft": timeInfo.$1,
       "timeColor": timeInfo.$2,
-      // "status": statusInfo.$1,
-      // "statusBg": statusInfo.$2,
-      // "statusText": statusInfo.$3,
       "completedLabel": completedLabel,
-"completedAllDone": allDone,
-
-"holdTask": holdLabel,
-"processingTask": processingLabel,
-"notStartedTask": notStartedLabel,
+      "completedAllDone": allDone,
+      "holdTask": holdLabel,
+      "rejectedTask": rejectedLabel,
+      "processingTask": processingLabel,
+      "notStartedTask": notStartedLabel,
     };
   }
 
-  String _initialsFor(String name) {
+
+
+ String _initialsFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '--';
     if (parts.length == 1) return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
@@ -254,7 +507,7 @@ final allDone = totalRows > 0 && completedRows >= totalRows;
                   SizedBox(height: 4),
                   Text(
                     "Assign, monitor, and manage employee tasks based on departments, projects, and client deliverables.",
-                    style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                    style: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
                   ),
                 ],
               ),
@@ -328,7 +581,7 @@ Container(
       hintText: "Search Client / Employee / Task",
       hintStyle: TextStyle(
         color: Colors.grey.shade500,
-        fontSize: 13,
+        fontSize: 10,
       ),
       prefixIcon: const Icon(
         Icons.search_rounded,
@@ -417,18 +670,23 @@ const SizedBox(height: 20),
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Row(
                     children: const [
-                      Expanded(flex: 2, child: Text("CLIENT", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("EMPLOYEE NAME", style: _headerStyle)),
+                      Expanded(flex: 3, child: Text("CLIENT", style: _headerStyle)),
+                      Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("TIME/DURATION", style: _headerStyle)),
+                      Expanded(flex: 2, child: Text("DURATION", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("PRIORITY", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("DUE DATE", style: _headerStyle)),
                       // Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
                       // Expanded(flex: 2, child: Text("COMPLETED TASK", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("COMPLETED TASK", style: _headerStyle)),
-Expanded(flex: 2, child: Text("HOLD TASK", style: _headerStyle)),
-Expanded(flex: 2, child: Text("PROCESSING TASK", style: _headerStyle)),
-Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
+                      Expanded(flex: 2, child: Text("COMPLETED", style: _headerStyle)),
+Expanded(flex: 2, child: Text("HOLD", style: _headerStyle)),
+Expanded(flex: 2, child: Text("REJECTED", style: _headerStyle)),
+Expanded(flex: 2, child: Text("PROCESSING", style: _headerStyle)),
+Expanded(flex: 2, child: Text("PENDING", style: _headerStyle)),
+Expanded(
+  flex: 1,
+  child: Text("VIEW", style: _headerStyle),
+),
                     ],
                   ),
                 ),
@@ -444,7 +702,7 @@ Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(_error!, style: const TextStyle(color: Color(0xFF64748B), fontSize: 13)),
+                                  Text(_error!, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
                                   const SizedBox(height: 10),
                                   TextButton(onPressed: _fetchEmployeeStatus, child: const Text('Retry')),
                                 ],
@@ -454,7 +712,7 @@ Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
                               ? const Center(
                                   child: Text(
                                     "No employee task matches this status group.",
-                                    style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                                    style: TextStyle(color: Color(0xFF64748B), fontSize: 10),
                                   ),
                                 )
                               : ListView.separated(
@@ -470,14 +728,14 @@ Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    flex: 2,
+                                    flex: 3,
                                     child: Text(
                                       row["client"],
-                                      style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w500),
+                                      style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontWeight: FontWeight.w500),
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 2,
+                                    flex: 3,
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -501,11 +759,11 @@ Expanded(flex: 2, child: Text("NOT STARTED TASK", style: _headerStyle)),
                                   ),
                                   Expanded(
                                     flex: 2,
-                                    child: Text(row["task"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
+                                    child: Text(row["task"], style: const TextStyle(fontSize: 10, color: Color(0xFF475569))),
                                   ),
                                   Expanded(
                                     flex: 2,
-                                    child: Text(row["duration"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
+                                    child: Text(row["duration"], style: const TextStyle(fontSize: 10, color: Color(0xFF475569))),
                                   ),
                                   Expanded(
                                     flex: 2,
@@ -575,6 +833,19 @@ Expanded(
     ),
   ),
 ),
+Expanded(
+  flex: 2,
+  child: Text(
+    row["rejectedTask"],
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      color: row["rejectedTask"].toString().startsWith("0/")
+          ? const Color(0xFF64748B)
+          : const Color(0xFFDC2626),
+    ),
+  ),
+),
 
 Expanded(
   flex: 2,
@@ -601,6 +872,20 @@ Expanded(
           ? const Color(0xFF64748B)
           : const Color(0xFFDC2626),
     ),
+  ),
+),
+
+Expanded(
+  flex: 1,
+  child: IconButton(
+    icon: const Icon(
+      Icons.visibility_outlined,
+      size: 20,
+      color: Color(0xFF2563EB),
+    ),
+    onPressed: () {
+      _showTaskDetails(row["taskListId"]);
+    },
   ),
 ),
                                 ],
