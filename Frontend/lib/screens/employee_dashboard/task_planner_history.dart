@@ -162,39 +162,43 @@ for (var item in records) {
     });
   }
 
-  Future<void> updateTask(TaskPlannerHistoryItem item, String newClient, String newFeedback) async {
-    setState(() => loading = true);
-    try {
-      final r = await http.put(
-        Uri.parse("$_baseUrl/feedback/${item.id}"),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $authToken",
-        },
-        body: jsonEncode({
-          "clientName": newClient,
-          "feedback": newFeedback,
-        }),
-      );
+ Future<void> updateTask(TaskPlannerHistoryItem item, String newContentType, String newContent) async {
+  setState(() => loading = true);
+  try {
+    final r = await http.put(
+      Uri.parse("$_baseUrl/task-planner/${item.id}"),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $authToken",
+      },
+      body: jsonEncode({
+        "contentType": newContentType, 
+        "content": newContent,         
+      }),
+    );
 
-      if (r.statusCode == 200) {
-        showSnack("✅ Updated successfully", true);
-        loadHistory();
-      } else {
-        showSnack("❌ Failed to update", false);
-        setState(() => loading = false);
-      }
-    } catch (e) {
-      showSnack("❌ Error updating record", false);
+    if (r.statusCode == 200) {
+      showSnack("✅ Updated successfully & Notification sent", true);
+      loadHistory();
+    } else {
+      // Backend-ilirunthu varum error message-ah print panni paarkalam
+      final resBody = jsonDecode(r.body);
+      final errorMsg = resBody["message"] ?? "Failed to update";
+      showSnack("❌ $errorMsg", false);
       setState(() => loading = false);
     }
+  } catch (e) {
+    showSnack("❌ Error updating record: $e", false);
+    setState(() => loading = false);
   }
+}
 
-  Future<void> deleteFeedback(int id) async {
+
+  Future<void> deleteTask(int id) async {
     setState(() => loading = true);
     try {
       final r = await http.delete(
-        Uri.parse("$_baseUrl/feedback/$id"),
+        Uri.parse("$_baseUrl/task-planner/$id"), // Correct endpoint path
         headers: {"Authorization": "Bearer $authToken"},
       );
 
@@ -212,27 +216,27 @@ for (var item in records) {
   }
 
   void showEditDialog(TaskPlannerHistoryItem item) {
-    final clientCtrl = TextEditingController(text: item.contentType);
+    final contentCtrl = TextEditingController(text: item.contentType);
     final feedbackCtrl = TextEditingController(text: item.content);
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Edit Feedback", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text("Edit Task Planner", style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: 420,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: clientCtrl,
-                decoration: const InputDecoration(labelText: "Client Name", border: OutlineInputBorder()),
+                controller: contentCtrl,
+                decoration: const InputDecoration(labelText: "Content Type", border: OutlineInputBorder()),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: feedbackCtrl,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: "Feedback", border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: "Content", border: OutlineInputBorder()),
               ),
             ],
           ),
@@ -243,7 +247,7 @@ for (var item in records) {
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF004AAD), foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
-              updateTask(item, clientCtrl.text.trim(), feedbackCtrl.text.trim());
+              updateTask(item, contentCtrl.text.trim(), feedbackCtrl.text.trim());
             },
             child: const Text("Save"),
           ),
@@ -264,7 +268,7 @@ for (var item in records) {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
-              deleteFeedback(id);
+              deleteTask(id);
             },
             child: const Text("Delete"),
           ),

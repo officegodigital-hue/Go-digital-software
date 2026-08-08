@@ -227,44 +227,42 @@ const [rows] = await db.query(
   [result.insertId]
 );
 
-if (rows.length && rows[0].is_assigned == 1) {
-      
-      const assignments = [
-        { employeeName: designer,     tasks: designerTasks },
-        { employeeName: videographer, tasks: videographerTasks },
-        { employeeName: videoEditor,  tasks: videoEditorTask },
-        { employeeName: uiUxDesigner, tasks: uiUxTasks },
-        { employeeName: developer,    tasks: developerTasks },
-        { employeeName: adsHandling,  tasks: adsPlatform },
-        { employeeName: pageHandling, tasks: pagesPlatform },
-      ];
+// if (rows.length && rows[0].is_assigned == 1) {
+//   const assignments = [
+//     { employeeName: designer,     tasks: designerTasks },
+//     { employeeName: videographer, tasks: videographerTasks },
+//     { employeeName: videoEditor,  tasks: videoEditorTask },
+//     { employeeName: uiUxDesigner, tasks: uiUxTasks },
+//     { employeeName: developer,    tasks: developerTasks },
+//     { employeeName: adsHandling,  tasks: adsPlatform },
+//     { employeeName: pageHandling, tasks: pagesPlatform },
+//   ];
 
-      for (const { employeeName, tasks } of assignments) {
-        if (employeeName && employeeName.trim() !== '' && employeeName.toUpperCase() !== 'NONE') {
-          try {
-            await createNotification({
-              senderName: assignedByName,
-              recipientName: employeeName,
-              message: JSON.stringify({
-                preview: `${assignedByName} assigned you a new task for ${clientName}`,
-                payload: {
-                  type: "TASK_ASSIGNED",
-                  sender: assignedByName,
-                  recipient: employeeName,
-                  client: clientName,
-                  taskName: tasks || deliverables,
-                }
-              }),
-            });
-io.emit("taskAssigned", {
-  refresh: true,
-});
-          } catch (notifyErr) {
-            console.error('⚠️ task-assign notification failed:', notifyErr.message);
-          }
-        }
-      }
-    }
+//   for (const { employeeName, tasks } of assignments) {
+//     if (employeeName && employeeName.trim() !== '' && employeeName.toUpperCase() !== 'NONE') {
+//       try {
+//         await createNotification({
+//           senderName: assignedByName,
+//           recipientName: employeeName,
+//           message: JSON.stringify({
+//             preview: `${assignedByName} assigned you a new task for ${clientName}`,
+//             payload: {
+//               type: "TASK_ASSIGNED",
+//               sender: assignedByName,
+//               recipient: employeeName,
+//               client: clientName,
+//               taskName: tasks || deliverables,
+//             }
+//           }),
+//         });
+//       } catch (notifyErr) {
+//         console.error('⚠️ task-assign notification failed:', notifyErr.message);
+//       }
+//     }
+//   }
+// }
+
+
     try {
   const io = req.app.get('io');
   if (io) {
@@ -361,6 +359,7 @@ videoEditorSubmitDate = null,
 
 
     );
+
     if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Task not found' });
 
     // FIX: notify only when a role's employee OR their task text actually
@@ -375,29 +374,29 @@ videoEditorSubmitDate = null,
       { employeeName: pageHandling, tasks: pagesPlatform,     oldEmployee: existing.page_handling, oldTasks: existing.pages_platform },
     ];
 
-    for (const { employeeName, tasks, oldEmployee, oldTasks } of roleChanges) {
-      if (!employeeName || employeeName.trim() === '') continue;
-      const changed = employeeName !== oldEmployee || tasks !== oldTasks;
-      if (!changed) continue;
+//     for (const { employeeName, tasks, oldEmployee, oldTasks } of roleChanges) {
+//       if (!employeeName || employeeName.trim() === '') continue;
+//       const changed = employeeName !== oldEmployee || tasks !== oldTasks;
+//       if (!changed) continue;
 
-      const isNewAssignment = employeeName !== oldEmployee;
-      try {
-        await createNotification({
-          senderName: assignedByName,
-          recipientName: employeeName,
-          message: isNewAssignment
-            ? `${assignedByName} assigned you a new task${tasks ? `: "${tasks}"` : ''} for ${clientName}.`
-            : `${assignedByName} updated your task${tasks ? ` to: "${tasks}"` : ''} for ${clientName}.`,
-        });
-       const io = req.app.get("io");
+//       const isNewAssignment = employeeName !== oldEmployee;
+//       try {
+//         await createNotification({
+//           senderName: assignedByName,
+//           recipientName: employeeName,
+//           message: isNewAssignment
+//             ? `${assignedByName} assigned you a new task${tasks ? `: "${tasks}"` : ''} for ${clientName}.`
+//             : `${assignedByName} updated your task${tasks ? ` to: "${tasks}"` : ''} for ${clientName}.`,
+//         });
+//        const io = req.app.get("io");
 
-io.emit("taskAssigned", {
-  refresh: true,
-});
-      } catch (notifyErr) {
-        console.error('⚠️ task-update notification failed (non-fatal):', notifyErr.message);
-      }
-    }
+// io.emit("taskAssigned", {
+//   refresh: true,
+// });
+//       } catch (notifyErr) {
+//         console.error('⚠️ task-update notification failed (non-fatal):', notifyErr.message);
+//       }
+//     }
     try {
   const io = req.app.get('io');
   if (io) {
@@ -418,26 +417,78 @@ io.emit("taskAssigned", {
 });
 
 // PATCH /api/tasks/:id/assign — toggle is_assigned
+// PATCH /api/tasks/:id/assign — toggle is_assigned & trigger notification
 router.patch('/:id/assign', async (req, res) => {
   const { isAssigned } = req.body;
   try {
+    // 1. Task-oda current details-ah fetch pannunga (yar yaru antha task-la irukaanga nu paaka)
+    const [existingRows] = await db.query(`SELECT * FROM task_assignments WHERE id = ?`, [req.params.id]);
+    if (existingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    const task = existingRows[0];
+
+    // 2. is_assigned status-ah database-la update pannunga
     const [result] = await db.query(
       `UPDATE task_assignments SET is_assigned=? WHERE id=?`,
       [isAssigned ? 1 : 0, req.params.id]
     );
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Task not found' });
-    const io = req.app.get("io");
 
-io.emit("taskAssigned", {
-  refresh: true,
-});
-    return res.json({ success: true, message: 'Assignment toggled' });
+    // 3. User "ASSIGN" pandrapo mattum (isAssigned true-ah irunthal) notification send agum
+    if (isAssigned) {
+      const assignedByName = req.body.assignedByName || 'Admin';
+      const clientName = task.client_name;
+
+      const assignments = [
+        { employeeName: task.designer,     tasks: task.designer_tasks },
+        { employeeName: task.videographer, tasks: task.videographer_tasks },
+        { employeeName: task.video_editor,  tasks: task.video_editor_task },
+        { employeeName: task.ui_ux_designer, tasks: task.ui_ux_tasks },
+        { employeeName: task.developer,    tasks: task.developer_tasks },
+        { employeeName: task.ads_handling,  tasks: task.ads_platform },
+        { employeeName: task.page_handling, tasks: task.pages_platform },
+      ];
+
+      for (const { employeeName, tasks } of assignments) {
+        if (employeeName && employeeName.trim() !== '' && employeeName.toUpperCase() !== 'NONE') {
+          try {
+            await createNotification({
+              senderName: assignedByName,
+              recipientName: employeeName,
+              message: JSON.stringify({
+                preview: `${assignedByName} assigned you a new task for ${clientName}`,
+                payload: {
+                  type: "TASK_ASSIGNED",
+                  sender: assignedByName,
+                  recipient: employeeName,
+                  client: clientName,
+                  taskName: tasks || task.deliverables,
+                }
+              }),
+            });
+          } catch (notifyErr) {
+            console.error('⚠️ task-assign notification failed:', notifyErr.message);
+          }
+        }
+      }
+    }
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("taskAssigned", { refresh: true });
+      io.emit('task_updated', { type: 'TASK_ASSIGNED', message: 'Task assigned' });
+    }
+
+    return res.json({ success: true, message: 'Assignment toggled and notifications sent' });
   } catch (err) {
     console.error('PATCH /tasks/:id/assign ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+
 
 // DELETE /api/tasks/:id
 router.delete('/:id', async (req, res) => {

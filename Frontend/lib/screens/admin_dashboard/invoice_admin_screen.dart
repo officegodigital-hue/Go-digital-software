@@ -1245,34 +1245,54 @@ double _parseAmount(dynamic value) {
     ),
   ),
 
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(4)),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: status,
-                    isDense: true,
-                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: statusText),
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: statusText),
-                    dropdownColor: Colors.white,
-                    items: _statusBg.keys.map((s) => DropdownMenuItem(
-                      value: s,
-                      child: Text(s, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _statusText[s])),
-                    )).toList(),
-                    onChanged: (val) {
-                      if (val != null && val != status) _updateInvoiceStatus(id, val);
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
+          // Expanded(
+          //   flex: 2,
+          //   child: Align(
+          //     alignment: Alignment.centerLeft,
+          //     child: Container(
+          //       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          //       decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(4)),
+          //       child: DropdownButtonHideUnderline(
+          //         child: DropdownButton<String>(
+          //           value: status,
+          //           isDense: true,
+          //           icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: statusText),
+          //           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: statusText),
+          //           dropdownColor: Colors.white,
+          //           items: _statusBg.keys.map((s) => DropdownMenuItem(
+          //             value: s,
+          //             child: Text(s, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _statusText[s])),
+          //           )).toList(),
+          //           onChanged: (val) {
+          //             if (val != null && val != status) _updateInvoiceStatus(id, val);
+          //           },
+          //         ),
+          //       ),
+          //     ),
+          //   ),
+          // ),
 
-          
+          Expanded(
+  flex: 2,
+  child: Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: statusBg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: statusText,
+        ),
+      ),
+    ),
+  ),
+),
           // ✅ ACTIONS COLUMN WITH PDF PREVIEW
           Expanded(
             flex: 2,

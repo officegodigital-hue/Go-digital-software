@@ -91,38 +91,60 @@ router.post('/', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   const { contentType, content } = req.body;
+  const id = req.params.id;
+
   try {
+    // 1. First, check if this ID is in task_planner_shares
+    const [shares] = await db.query(`SELECT * FROM task_planner_shares WHERE id = ?`, [id]);
+    
+    if (shares.length > 0) {
+      const share = shares[0];
+      
+      // Update in share table
+      await db.query(
+        `UPDATE task_planner_shares SET content_type = ?, content = ?, updated_at = NOW() WHERE id = ?`,
+        [contentType || '', content || '', id]
+      );
+
+      // Send Notification
+      await createNotification({
+        senderName: share.receiver_employee_name,
+        recipientName: share.sender_employee_name,
+        message: JSON.stringify({
+          preview: `${share.receiver_employee_name} updated your shared task planner`,
+          payload: {
+            type: "TASK_PLANNER_UPDATED",
+            shareId: id,
+            contentType,
+            content,
+            updatedAt: new Date().toLocaleString("en-IN"),
+          }
+        })
+      }).catch(err => console.error("Notification error:", err));
+
+      return res.json({ success: true, message: 'Updated in shares & Notification sent' });
+    } 
+    
+    // 2. If not in shares, check main task_planner table
     const [result] = await db.query(
       `UPDATE task_planner SET content_type = ?, content = ? WHERE id = ?`,
-      [contentType || '', content || '', req.params.id]
+      [contentType || '', content || '', id]
     );
-    if (result.affectedRows === 0)
+
+    if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Row not found' });
-    return res.json({ success: true, message: 'Updated' });
+    }
+
+    return res.json({ success: true, message: 'Updated in main planner' });
+
   } catch (err) {
     console.error('PUT /task-planner/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATCH /api/task-planner/:id/share
-//
-// Called on every Share button click.
-// ALWAYS INSERTs a brand-new row into task_planner_shares.
-// NEVER updates any existing share record.
-// Also clears the content field on the main task_planner row.
-//
-// Body fields:
-//   senderEmployeeName  — full name of logged-in employee (who is sharing)
-//   senderEmployeeId    — DB id of logged-in employee
-//   contentType         — the content type label
-//   content             — the actual content being shared
-//   receiverEmployeeName — full name of the employee being shared to
-//   receiverEmployeeId  — DB id of the employee being shared to
-//   receiverRole        — role label (Designer, Page Handler, etc.)
-//   receiverShort       — short initials (D, PH, etc.)
-// ─────────────────────────────────────────────────────────────────────────────
+
+
 router.patch('/:id/share', async (req, res) => {
   const {
     senderEmployeeName,
@@ -240,14 +262,63 @@ router.patch('/:id/reset', async (req, res) => {
 // DELETE /api/task-planner/:id
 // Deletes the section; CASCADE removes all its share history automatically
 // ─────────────────────────────────────────────────────────────────────────────
+// router.delete('/:id', async (req, res) => {
+//   try {
+//     const [result] = await db.query(
+//       `DELETE FROM task_planner WHERE id = ?`, [req.params.id]
+//     );
+//     if (result.affectedRows === 0)
+//       return res.status(404).json({ success: false, message: 'Row not found' });
+//     return res.json({ success: true, message: 'Deleted' });
+//   } catch (err) {
+//     console.error('DELETE /task-planner/:id ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.delete('/:id', async (req, res) => {
   try {
+    // Optional: Share record iruntha athai thedi notification anuppalam
+    const [[share]] = await db.query(
+      `SELECT * FROM task_planner_shares WHERE id = ?`,
+      [req.params.id]
+    ).catch(() => [[]]);
+
     const [result] = await db.query(
-      `DELETE FROM task_planner WHERE id = ?`, [req.params.id]
+      `DELETE FROM task_planner_shares WHERE id = ?`, [req.params.id]
     );
-    if (result.affectedRows === 0)
+    
+    // Fallback to main table if not found in shares
+    let affected = result.affectedRows;
+    if (affected === 0) {
+      const [mainResult] = await db.query(
+        `DELETE FROM task_planner WHERE id = ?`, [req.params.id]
+      );
+      affected = mainResult.affectedRows;
+    }
+
+    if (affected === 0)
       return res.status(404).json({ success: false, message: 'Row not found' });
-    return res.json({ success: true, message: 'Deleted' });
+
+    // Send notification if it was a share item deleted
+    if (share) {
+      await createNotification({
+        senderName: share.receiver_employee_name,
+        recipientName: share.sender_employee_name,
+        message: JSON.stringify({
+          preview: `${share.receiver_employee_name} deleted the shared task planner`,
+          payload: {
+            type: "TASK_PLANNER_DELETED",
+             contentType,
+      content,
+            shareId: share.id,
+            deletedAt: new Date().toLocaleString("en-IN"),
+          }
+        })
+      }).catch(err => console.error("Notification error:", err));
+    }
+
+    return res.json({ success: true, message: 'Deleted successfully' });
   } catch (err) {
     console.error('DELETE /task-planner/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });

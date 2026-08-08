@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../layouts/admin_layout.dart';
 import '../services/auth_service.dart';
 import '../../services/api_config.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:audioplayers/audioplayers.dart'; // Audio play panrakaaga
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -544,26 +546,30 @@ if (!categoryMatched) {
 
     categoryTag = "Task Review";
 
-  } 
-  else if (typeStr.contains("PLAN")) {
-
-    categoryTag = "Daily Planner";
-
-  } 
-  else if (typeStr.contains("SHARE") ||
+  }
+  // ✅ TASK PLANNER must be Content Shared
+  else if (typeStr.contains("TASK_PLANNER") ||
+           typeStr.contains("SHARE") ||
            typeStr.contains("CONTENT") ||
            typeStr.contains("VIDEO")) {
 
     categoryTag = "Content Shared";
 
-  } 
+  }
+  // ✅ Only actual day planner notifications
+  else if (typeStr.contains("DAY_PLANNER") ||
+           typeStr == "PLAN_SUBMITTED" ||
+           typeStr == "DAY_PLAN_SUBMITTED") {
+
+    categoryTag = "Daily Planner";
+
+  }
   else if (typeStr.contains("TASK") ||
            typeStr.contains("ASSIGN")) {
 
     categoryTag = "Task Assigned";
 
   }
-
 }
 
 
@@ -876,12 +882,62 @@ if (!seen) {
   if (!mounted) return;
 
   if (msg.startsWith("PLAN_SUBMITTED")) {
-    final parts = msg.split("|");
-    if (parts.length >= 3) {
-      _showDayPlanPopup(parts[1].trim(), parts[2].trim());
-    }
-    return;
-  }
+  final parts = msg.split("|");
+
+  final employee = parts.length >= 2
+      ? parts[1].trim()
+      : "Employee";
+
+  final time = parts.length >= 3
+      ? parts[2].trim()
+      : "";
+
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      title: const Row(
+        children: [
+          Icon(
+            Icons.notifications_active,
+            color: Color(0xFF0052CC),
+          ),
+          SizedBox(width: 10),
+          Text(
+            "Daily Planner",
+            style: TextStyle(
+              color: Color(0xFF0052CC),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        "$employee submitted the day planner today at $time.",
+        style: const TextStyle(
+          fontSize: 15,
+          color: Color(0xFF1E293B),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      actions: [
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0052CC),
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Close"),
+        ),
+      ],
+    ),
+  );
+
+  return;
+}
 
   try {
     final Map<String, dynamic> data =
@@ -892,29 +948,84 @@ if (!seen) {
         ? Map<String, dynamic>.from(data["payload"])
         : {};
 
-        // ⭐ DAY PLANNER SUBMIT POPUP
-if(payload["type"] == "PLAN_SUBMITTED") {
+// ⭐ DAY PLANNER SUBMITTED - SIMPLE MESSAGE ONLY
+if (payload["type"] == "PLAN_SUBMITTED" ||
+    payload["type"] == "DAY_PLAN_SUBMITTED") {
 
   final employee =
-      payload["sender"]?.toString() ?? "";
+      payload["sender"]?.toString() ??
+      log["senderName"]?.toString() ??
+      "Employee";
 
-  final date =
-      payload["date"]?.toString() ?? "";
+  final submittedAt =
+      payload["submittedAt"]?.toString() ??
+      payload["time"]?.toString() ??
+      log["time"]?.toString() ??
+      "";
 
+  String displayTime = submittedAt;
 
-  final plannerData =
-      payload["plannerData"] ?? [];
+  // If submittedAt is ISO datetime, convert to AM/PM
+  try {
+    final parsed = DateTime.parse(submittedAt).toLocal();
 
+    final hour = parsed.hour;
+    final minute = parsed.minute;
 
-  _showDayPlanPopupFromNotification(
-      employee,
-      date,
-      List<Map<String,dynamic>>.from(plannerData)
+    final period = hour >= 12 ? "PM" : "AM";
+    final hour12 = hour % 12 == 0 ? 12 : hour % 12;
+
+    displayTime =
+        "$hour12:${minute.toString().padLeft(2, '0')} $period";
+  } catch (_) {
+    // Keep existing time if parsing fails
+  }
+
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      title: const Row(
+        children: [
+          Icon(
+            Icons.notifications_active,
+            color: Color(0xFF0052CC),
+          ),
+          SizedBox(width: 10),
+          Text(
+            "Daily Planner",
+            style: TextStyle(
+              color: Color(0xFF0052CC),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        "$employee submitted the day planner today at $displayTime.",
+        style: const TextStyle(
+          fontSize: 15,
+          color: Color(0xFF1E293B),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      actions: [
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0052CC),
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Close"),
+        ),
+      ],
+    ),
   );
 
-
   return;
-
 }
 
         final String popupTitle =

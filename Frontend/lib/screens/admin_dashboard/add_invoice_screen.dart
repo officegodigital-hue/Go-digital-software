@@ -1043,6 +1043,8 @@ void _selectClient(Map<String, dynamic> client) {
     }
   }
 
+  
+
   @override
 Widget build(BuildContext context) {
   double subtotal = 0;
@@ -1594,24 +1596,65 @@ if (balanceAmount < 0) {
     );
   }
 
+  // Widget _buildPaidAmountField(_InvoiceItemRow row) {
+  //   return SizedBox(
+  //     height: 38,
+  //     child: TextField(
+  //       controller: row.paidCtrl,
+  //       textAlign: TextAlign.right,
+  //       readOnly: _viewOnly,
+  //       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+  //       onChanged: (value) => setState(() {}),
+  //       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+  //       decoration: InputDecoration(
+  //         contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+  //         enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+  //         focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF0052CC))),
+  //       ),
+  //     ),
+  //   );
+  // }
   Widget _buildPaidAmountField(_InvoiceItemRow row) {
-    return SizedBox(
-      height: 38,
-      child: TextField(
-        controller: row.paidCtrl,
-        textAlign: TextAlign.right,
-        readOnly: _viewOnly,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        onChanged: (value) => setState(() {}),
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-        decoration: InputDecoration(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-          enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-          focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFF0052CC))),
+  return SizedBox(
+    height: 38,
+    child: TextField(
+      controller: row.paidCtrl,
+      textAlign: TextAlign.right,
+      readOnly: _viewOnly,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+
+      onChanged: (value) {
+        final entered = double.tryParse(value) ?? 0.0;
+
+        // Maximum amount that can be paid
+        final maxPaid = _rowAmount(row);
+
+        if (entered > maxPaid) {
+          row.paidCtrl.text = maxPaid.toStringAsFixed(2);
+          row.paidCtrl.selection = TextSelection.fromPosition(
+            TextPosition(offset: row.paidCtrl.text.length),
+          );
+        }
+
+        setState(() {});
+      },
+
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: InputDecoration(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        enabledBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Color(0xFFCBD5E1)),
+        ),
+        focusedBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Color(0xFF0052CC)),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
  Widget _buildBeautifulPackageDropdown(_InvoiceItemRow row) {
   final validValue =

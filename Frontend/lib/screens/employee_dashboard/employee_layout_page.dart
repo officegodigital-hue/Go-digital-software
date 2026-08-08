@@ -202,27 +202,97 @@ void initState() {
         final loggedInRole = _getRoleFromString(rawRole);
         debugPrint('🎯 Role: $loggedInRole');
 
-        return Scaffold(
-          body: Row(children: [
-            EmployeeSidebar(
-              selectedMenu: selectedMenu,
-              menuItems:    loggedInRole.menuItems,
-              onMenuTap: saveMenu,
+     
+//         return Scaffold(
+//           body: Row(children: [
+//             EmployeeSidebar(
+//               selectedMenu: selectedMenu,
+//               menuItems:    loggedInRole.menuItems,
+//               onMenuTap: saveMenu,
+//             ),
+//             Expanded(child: Column(children: [
+//               // EmployeeTopbar(role: loggedInRole),
+//   //             EmployeeTopbar(
+//   // role: loggedInRole,
+//   // onOpenNotifications: () {
+//   //   setState(() {
+//   //     selectedMenu = 'Notifications';
+//   //   });
+//   // },
+// // ),
+// EmployeeTopbar(
+//   role: loggedInRole,
+
+//   onOpenNotifications: () {
+//     setState(() {
+//       selectedMenu = 'Notifications';
+//     });
+//   },
+
+//   onOpenAssignedTasks: () {
+//     setState(() {
+//       selectedMenu = 'Assigned Task';
+//     });
+//   },
+// ),
+//               Expanded(child: getSelectedPage(loggedInRole)),
+//             ])),
+//           ]),
+//         );
+     return Scaffold(
+  body: Row(
+    children: [
+      // ─────────────────────────────────────────────
+      // SIDEBAR
+      // ─────────────────────────────────────────────
+      EmployeeSidebar(
+        selectedMenu: selectedMenu,
+        menuItems: loggedInRole.menuItems,
+        onMenuTap: saveMenu,
+      ),
+
+      // ─────────────────────────────────────────────
+      // MAIN AREA
+      // ─────────────────────────────────────────────
+      Expanded(
+        child: Stack(
+          children: [
+
+            // PAGE CONTENT
+            Positioned.fill(
+              top: 54,
+              child: getSelectedPage(loggedInRole),
             ),
-            Expanded(child: Column(children: [
-              // EmployeeTopbar(role: loggedInRole),
-              EmployeeTopbar(
-  role: loggedInRole,
-  onOpenNotifications: () {
-    setState(() {
-      selectedMenu = 'Notifications';
-    });
-  },
-),
-              Expanded(child: getSelectedPage(loggedInRole)),
-            ])),
-          ]),
-        );
+
+            // TOPBAR - ALWAYS ABOVE PAGE
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 54,
+              child: EmployeeTopbar(
+                role: loggedInRole,
+
+                onOpenNotifications: () {
+                  setState(() {
+                    selectedMenu = 'Notifications';
+                  });
+                },
+
+                onOpenAssignedTasks: () {
+                  setState(() {
+                    selectedMenu = 'Assigned Task';
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+);
+     
       },
     );
   }

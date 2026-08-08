@@ -6,6 +6,7 @@ class ProductivityCard extends StatelessWidget {
   final int rework;
   final int rejected;
   final int review;
+  final int others;
 
   const ProductivityCard({
     super.key,
@@ -13,12 +14,13 @@ class ProductivityCard extends StatelessWidget {
     required this.rework,
     required this.rejected,
     required this.review,
+  required this.others,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 210,
+      height: 245,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.card,
@@ -86,6 +88,11 @@ class ProductivityCard extends StatelessWidget {
   title: 'Review',
   value: review.toString(),
   color: Colors.purple,
+),
+          _ProductivityItem(
+  title: 'Others',
+  value: others.toString(),
+  color: AppColors.textGrey,
 ),
         ],
       ),

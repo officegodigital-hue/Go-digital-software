@@ -35,6 +35,8 @@ bool _showPopup = false;
 String? _latestMessage;
 
 final AudioPlayer _audioPlayer = AudioPlayer();
+ final TextEditingController _searchController = TextEditingController();
+
 
 Set<int> _knownNotificationIds = {};
   
@@ -50,6 +52,8 @@ void dispose() {
   _pollingTimer?.cancel();
   _popupTimer?.cancel();
   _audioPlayer.dispose();
+
+    _searchController.dispose();
   super.dispose();
 }
 
@@ -159,7 +163,7 @@ void _playNotificationSound() async {
 }
   @override
   Widget build(BuildContext context) {
-    final TextEditingController searchController = TextEditingController();
+    // final TextEditingController searchController = TextEditingController();
 
     final authService = context.watch<AuthService>();
 
@@ -319,263 +323,372 @@ Padding(
           ),
 
           // ── RIGHT PANEL ───────────────────────────────────────────────────────
-          Expanded(
+ Expanded(
   child: Stack(
     clipBehavior: Clip.none,
     children: [
-      Column(
-              children: [
-                // ── TOP BAR ────────────────────────────────────────────────────
-                Container(
-                  height: 64,
-                  color: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Search bar
-                      Expanded(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 440),
-                          child: Container(
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF4F6FA),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFE0E4EF)),
-                            ),
-                            
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children:  [
-                                SizedBox(width: 12),
-                                Icon(Icons.search, size: 17, color: Color(0xFFADB5BD)),
-                                SizedBox(width: 8),
-                                Expanded(
-  child: TextField(
-  controller: searchController,
-  onChanged: (value) {
-    widget.onSearch?.call(value);
-  },
-  decoration: const InputDecoration(
-    hintText: 'Search...',
-    border: InputBorder.none,
-  ),
-)),
-                              ],
-                            ),
-                          ),
+
+      // ============================================================
+      // PAGE CONTENT
+      // ============================================================
+      Positioned.fill(
+        child: Column(
+          children: [
+
+            // Space reserved for Topbar
+            const SizedBox(height: 65),
+
+            // Page Content
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: SelectionArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: widget.child,
                         ),
                       ),
-
-                      const Spacer(),
-
-                      // Quick Add button
-                      ElevatedButton.icon(
-                        onPressed: () {
-                        Navigator.pushNamed(context, '/client-history');
-                          },
-                        icon: const Icon(Icons.add, size: 15, color: Colors.white),
-                        label: const Text(
-                          'Quick Add',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2A52BE),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          elevation: 0,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-
-                      // Notification bell + red dot
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.notifications_outlined, size: 20, color: Color(0xFF555F6E)),
-                            onPressed: () {
-                              Navigator.pushNamed(context, '/notifications');
-                            },
-                            padding: const EdgeInsets.all(6),
-                            constraints: const BoxConstraints(),
-                          ),
-                          // Positioned(
-                          //   right: 4, top: 4,
-                          //   child: Container(
-                          //     width: 8, height: 8,
-                          //     decoration: const BoxDecoration(
-                          //       color: Color(0xFFFF4757), shape: BoxShape.circle),
-                          //   ),
-                          // ),
-                          if (_unreadCount > 0)
-  Positioned(
-    right: 2,
-    top: 2,
-    child: Container(
-      padding: const EdgeInsets.all(4),
-      decoration: const BoxDecoration(
-        color: Colors.red,
-        shape: BoxShape.circle,
-      ),
-      constraints: const BoxConstraints(
-        minWidth: 18,
-        minHeight: 18,
-      ),
-      child: Text(
-        "$_unreadCount",
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
-    ),
+
+      // ============================================================
+      // FIXED TOP BAR - ALWAYS IN FRONT
+      // ============================================================
+      Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: Material(
+          color: Colors.white,
+          elevation: 4,
+          shadowColor: Colors.black.withValues(alpha: 0.12),
+          child: Container(
+            height: 64,
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+
+                // ==================================================
+                // SEARCH BAR
+                // ==================================================
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 440,
+                    ),
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F6FA),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFFE0E4EF),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+
+                          const SizedBox(width: 12),
+
+                          const Icon(
+                            Icons.search,
+                            size: 17,
+                            color: Color(0xFFADB5BD),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          Expanded(
+                            child: TextField(
+                              controller: _searchController,
+                              // onChanged: (value) {
+                              //   widget.onSearch?.call(value);
+                              // },
+                              onChanged: (value) {
+  setState(() {});
+  widget.onSearch?.call(value);
+},
+
+                             decoration: const InputDecoration(
+  hintText: 'Search clients, employees, tasks...',
+  hintStyle: TextStyle(
+    fontSize: 13,
+    color: Color(0xFF9AA3B2),
   ),
+  border: InputBorder.none,
+  isDense: true,
+  contentPadding: EdgeInsets.zero,
+),
+                            ),
+                          ),
+
+                          // Clear button
+                          if (_searchController.text.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(
+                                Icons.close,
+                                size: 18,
+                                color: Color(0xFF7B8494),
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 40,
+                                minHeight: 40,
+                              ),
+                              onPressed: () {
+                                _searchController.clear();
+
+                                widget.onSearch?.call('');
+
+                                setState(() {});
+                              },
+                            ),
+
+                          const SizedBox(width: 4),
                         ],
                       ),
-                      const SizedBox(width: 2),
-
-                      // IconButton(
-                      //   icon: const Icon(Icons.help_outline_rounded, size: 20, color: Color(0xFF555F6E)),
-                      //   onPressed: () {},
-                      //   padding: const EdgeInsets.all(6),
-                      //   constraints: const BoxConstraints(),
-                      // ),
-                      IconButton(
-  icon: const Icon(
-    Icons.help_outline_rounded, size: 20, color: Color(0xFF555F6E)
-  ),
-  onPressed: () {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Help Center"),
-        content: const Text(
-          "Need assistance?\n\nEmail: support@godigital.com\nPhone: +91 XXXXX XXXXX",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
-          ),
-        ],
-      ),
-    );
-  },
-  
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(),
-),
-                      
-                      const SizedBox(width: 2),
-
-                      IconButton(
-                        icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF555F6E)),
-                        onPressed: () { 
-                          Navigator.pushNamed(context, '/settings');
-                          },
-                        padding: const EdgeInsets.all(6),
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 12),
-
-                      // Divider
-                      Container(width: 1, height: 36, color: const Color(0xFFE0E4EF)),
-                      const SizedBox(width: 14),
-
-                      // Admin name + role
-                      Column(
-  mainAxisAlignment: MainAxisAlignment.center,
-  crossAxisAlignment: CrossAxisAlignment.end,
-  children: [
-    Text(
-      userName,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: Color(0xFF1A1A2E),
-      ),
-    ),
-    Text(
-      userType,
-      style: const TextStyle(
-        fontSize: 11,
-        color: Color(0xFF8A94A6),
-      ),
-    ),
-    Text(
-      userRole,
-      style: const TextStyle(
-        fontSize: 8,
-        color: Color(0xFF8A94A6),
-      ),
-    ),
-  ],
-),
-                      const SizedBox(width: 10),
-
-                      // Avatar
-                    CircleAvatar(
-  radius: 18,
-  backgroundColor: const Color(0xFF2A52BE),
-  child: Text(
-    initials,
-    style: const TextStyle(
-      color: Colors.white,
-      fontSize: 11,
-      fontWeight: FontWeight.w700,
-    ),
-  ),
-),
-],
+                    ),
                   ),
                 ),
 
-                // Divider below topbar
-                const Divider(height: 1, thickness: 1, color: Color(0xFFE0E4EF)),
+                const Spacer(),
 
-                // ── PAGE CONTENT ──────────────────────────────────────────────
-                // Navigator.canPop(context) 
-                // ? Expanded(child: child)
-                // : Expanded(
-                //     child: SelectionArea(
-                //       child: child,
-                //     ),
-                //   ),
-                // ── PAGE CONTENT ──────────────────────────────────────────────
-Expanded(
-  child: LayoutBuilder(
-    builder: (context, constraints) {
-      return SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: ConstrainedBox(
-          // Screen-in minimun height-ai urudhi seigiradhu, content perithaanal scroll aagum
-          constraints: BoxConstraints(
-            minHeight: constraints.maxHeight,
-          ),
-          child: SelectionArea(
-            child: Padding(
-              padding: const EdgeInsets.all(28), // Content-badding inge shift seiyapattulladhu
-              child: widget.child,
+                // ==================================================
+                // QUICK ADD
+                // ==================================================
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/client-history',
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.add,
+                    size: 15,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    'Quick Add',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2A52BE),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                // ==================================================
+                // NOTIFICATION
+                // ==================================================
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+
+                    IconButton(
+                      icon: const Icon(
+                        Icons.notifications_outlined,
+                        size: 20,
+                        color: Color(0xFF555F6E),
+                      ),
+                      onPressed: () {
+                        Navigator.pushNamed(
+                          context,
+                          '/notifications',
+                        );
+                      },
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                    ),
+
+                    if (_unreadCount > 0)
+                      Positioned(
+                        right: 2,
+                        top: 2,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 18,
+                            minHeight: 18,
+                          ),
+                          child: Text(
+                            '$_unreadCount',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+
+                const SizedBox(width: 2),
+
+                // ==================================================
+                // HELP
+                // ==================================================
+                IconButton(
+                  icon: const Icon(
+                    Icons.help_outline_rounded,
+                    size: 20,
+                    color: Color(0xFF555F6E),
+                  ),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text("Help Center"),
+                        content: const Text(
+                          "Need assistance?\n\n"
+                          "Email: support@godigital.com\n"
+                          "Phone: +91 XXXXX XXXXX",
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text("Close"),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(),
+                ),
+
+                const SizedBox(width: 2),
+
+                // ==================================================
+                // SETTINGS
+                // ==================================================
+                IconButton(
+                  icon: const Icon(
+                    Icons.settings_outlined,
+                    size: 20,
+                    color: Color(0xFF555F6E),
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/settings',
+                    );
+                  },
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(),
+                ),
+
+                const SizedBox(width: 12),
+
+                // ==================================================
+                // DIVIDER
+                // ==================================================
+                Container(
+                  width: 1,
+                  height: 36,
+                  color: const Color(0xFFE0E4EF),
+                ),
+
+                const SizedBox(width: 14),
+
+                // ==================================================
+                // ADMIN NAME
+                // ==================================================
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      userName,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    Text(
+                      userType,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF8A94A6),
+                      ),
+                    ),
+                    Text(
+                      userRole,
+                      style: const TextStyle(
+                        fontSize: 8,
+                        color: Color(0xFF8A94A6),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(width: 10),
+
+                // ==================================================
+                // AVATAR
+                // ==================================================
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: const Color(0xFF2A52BE),
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      );
-    },
-  ),
-),
-              ],
-            
-            ),
-          if (_showPopup)
+      ),
+
+      // ============================================================
+      // NOTIFICATION POPUP - TOPBAR ABOVE EVERYTHING
+      // ============================================================
+      if (_showPopup)
         Positioned(
           top: 70,
           right: 20,
           child: Material(
             elevation: 10,
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             child: Container(
               width: 320,
@@ -586,29 +699,48 @@ Expanded(
                 border: Border.all(
                   color: const Color(0xFF2A52BE),
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
+
                   const Icon(
                     Icons.notifications_active,
                     color: Color(0xFF2A52BE),
                   ),
+
                   const SizedBox(width: 12),
+
                   Expanded(
                     child: Column(
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
+
                         const Text(
                           "New Notification",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
+                            fontSize: 13,
                           ),
                         ),
+
+                        const SizedBox(height: 3),
+
                         Text(
                           _latestMessage ?? "",
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
                         ),
                       ],
                     ),

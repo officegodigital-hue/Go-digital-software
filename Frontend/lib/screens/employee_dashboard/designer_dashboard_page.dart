@@ -38,12 +38,14 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> {
   int assignedClients = 0;
   int activeTasks = 0;
   int taskPending = 0;
+  int holdTasks = 0;
   int rejectedTasks = 0;
 
   int approved = 0;
 int rejected = 0;
 int rework = 0;
 int review  = 0;
+int others = 0;
 
   bool _loading = true;
   String? _error;
@@ -138,13 +140,15 @@ int review  = 0;
       setState(() {
         assignedClients = data['assignedClients'] ?? 0;
         activeTasks = data['activeTasks'] ?? 0;
-        taskPending = data['taskPending'] ?? 0;
+        // taskPending = data['taskPending'] ?? 0;
+        holdTasks = data['onHoldCount'] ?? 0;
         rejectedTasks = data['rejectedTasks'] ?? 0;
 
         approved = productivity['approved'] ?? 0;
         rework = productivity['rework'] ?? 0;
         rejected = productivity['rejected'] ?? 0;
         review = productivity['review'] ?? 0;
+        others = productivity['others'] ?? 0;
 
         recentNotifications = notificationData;
 
@@ -306,6 +310,7 @@ child: ProductivityCard(
   rework: rework,
   rejected: rejected,
   review: review,
+  others: others,
 ),
               ),
             ],
@@ -388,9 +393,13 @@ child: ProductivityCard(
         const SizedBox(width: 28),
         Expanded(
           child: MetricCard(
-            icon: Icons.pending_actions,
-            title: 'Pending Task',
-            value: taskPending.toString().padLeft(2, '0'),
+            // icon: Icons.pending_actions,
+
+    icon: Icons.pause_circle_outline,
+            // title: 'Pending Task',
+            title: 'Hold Task',
+            // value: taskPending.toString().padLeft(2, '0'),
+            value: holdTasks.toString().padLeft(2, '0'),
             label: 'Action required',
             color: AppColors.orange,
           ),

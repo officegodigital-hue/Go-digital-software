@@ -123,6 +123,7 @@ LIMIT 6`,
     let review = 0;
 let rework = 0;
 let rejected = 0;
+let others = 0;
     let upcomingDeadlines = 0;
 
     const today = new Date();
@@ -159,15 +160,30 @@ if (isOpen) {
     rejectedTasks++;
     rejectedClientsSet.add(r.client_name);
 }
-if (r.manager_action === 'APPROVED') {
+// Productivity Count
+if (status === 'COMPLETED') {
+  if (r.manager_action === 'APPROVED') {
     approved++;
-} else if (r.manager_action === 'REWORK') {
+  } else if (r.manager_action === 'REWORK') {
     rework++;
-} else if (r.manager_action === 'REJECTED') {
+  } else if (r.manager_action === 'REJECTED') {
     rejected++;
-} else {
+  } else {
+    // COMPLETED + ACTION => Review Pending
     review++;
+  }
+} else if (status !== 'REJECTED') {
+  others++;
 }
+// if (r.manager_action === 'APPROVED') {
+//     approved++;
+// } else if (r.manager_action === 'REWORK') {
+//     rework++;
+// } else if (r.manager_action === 'REJECTED') {
+//     rejected++;
+// } else {
+//     review++;
+// }
 
     if (
     r.submission_date &&
@@ -283,7 +299,8 @@ return {
     approved,
     rework,
     rejected,
-    review
+    review,
+    others,
 },
       },
     });

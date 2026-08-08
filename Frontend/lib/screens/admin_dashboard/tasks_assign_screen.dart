@@ -1244,41 +1244,61 @@ Future<void> _saveRow(Map<String, dynamic> row) async {
   }
 
 Future<void> _toggleAssign(Map<String, dynamic> row) async {
-    final newVal = !(row['is_assigned'] == 1 || row['is_assigned'] == true);
+  final newVal = !(row['is_assigned'] == 1 || row['is_assigned'] == true);
 
-    // Only enforce validation when actually assigning — unassigning is
-    // always allowed with no checks, so a mistake can always be undone.
-    if (newVal) {
-      final missing = _missingFieldsFor(row);
-      if (missing.isNotEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Please fill in or select "None" for: ${missing.join(", ")} before assigning.',
-              ),
-              backgroundColor: const Color(0xFFDC2626),
-              duration: const Duration(seconds: 3),
+  if (newVal) {
+    final missing = _missingFieldsFor(row);
+    if (missing.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please fill in or select "None" for: ${missing.join(", ")} before assigning.',
             ),
-          );
-        }
-        return; // blocks the save — nothing reaches the backend
+            backgroundColor: const Color(0xFFDC2626),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
-    }
-
-    setState(() => row['is_assigned'] = newVal ? 1 : 0);
-    await _saveRow(row);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(newVal ? '✅ Task assigned and saved' : 'Task unassigned and saved'),
-          backgroundColor: newVal ? const Color(0xFF16A34A) : const Color(0xFF64748B),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      return; 
     }
   }
- 
+
+  try {
+    // Neradiy-a PATCH route-kku request anuppurathu moolamama backend-la notification trigger aagum
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/tasks/${row["id"]}/assign'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'isAssigned': newVal,
+        'assignedByName': _adminName,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      setState(() => row['is_assigned'] = newVal ? 1 : 0);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(newVal ? '✅ Task assigned and notifications sent!' : 'Task unassigned'),
+            backgroundColor: newVal ? const Color(0xFF16A34A) : const Color(0xFF64748B),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update assignment status'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  } catch (e) {
+    debugPrint("Toggle assign error: $e");
+  }
+}
+
+
   String _cleanRoleValue(dynamic v) {
     final s = (v ?? '').toString();
     return s.toUpperCase() == 'NONE' ? '' : s;

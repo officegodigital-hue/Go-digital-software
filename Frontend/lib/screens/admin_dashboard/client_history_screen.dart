@@ -16,7 +16,7 @@ class ClientHistoryScreen extends StatefulWidget {
 class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
   // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
-
+List<Map<String, dynamic>> filteredClients = [];
   List<Map<String, dynamic>> _clients = [];
   bool _loading = true;
   String? _error;
@@ -33,10 +33,18 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       final response = await http.get(Uri.parse('$_baseUrl/clients'));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
-        setState(() {
-          _clients = List<Map<String, dynamic>>.from(body['data']);
-          _loading = false;
-        });
+        // setState(() {
+        //   _clients = List<Map<String, dynamic>>.from(body['data']);
+        //   _loading = false;
+        // });
+        final clients =
+    List<Map<String, dynamic>>.from(body['data'] ?? []);
+
+setState(() {
+  _clients = clients;
+  filteredClients = clients;
+  _loading = false;
+});
       } else {
         setState(() { _error = 'Server returned ${response.statusCode}'; _loading = false; });
       }
@@ -44,6 +52,44 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       setState(() { _error = 'Cannot connect to server'; _loading = false; });
     }
   }
+
+  void _filterClients(String query) {
+  final search = query.trim().toLowerCase();
+
+  setState(() {
+    if (search.isEmpty) {
+      filteredClients = List<Map<String, dynamic>>.from(_clients);
+      return;
+    }
+
+    filteredClients = _clients.where((client) {
+      final companyName =
+          client['company_name']?.toString().toLowerCase() ?? '';
+
+      final industry =
+          client['industry']?.toString().toLowerCase() ?? '';
+
+      final contactPerson =
+          client['contact_person']?.toString().toLowerCase() ?? '';
+
+      final email =
+          client['email']?.toString().toLowerCase() ?? '';
+
+      final status =
+          client['status']?.toString().toLowerCase() ?? '';
+
+      final phone =
+          client['phone']?.toString().toLowerCase() ?? '';
+
+      return companyName.contains(search) ||
+          industry.contains(search) ||
+          contactPerson.contains(search) ||
+          email.contains(search) ||
+          status.contains(search) ||
+          phone.contains(search);
+    }).toList();
+  });
+}
 
   // ── Update status via Verify / Pending buttons ────────────────────────────────
   // Future<void> _updateStatus(int id, String status) async {
@@ -63,6 +109,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
   //     _showSnack('Cannot connect to server');
   //   }
   // }
+
+
 
 Future<void> _updateStatus(int id, String status) async {
   try {
@@ -253,6 +301,7 @@ Future<void> _updateOrder(int clientId, int newPosition) async {
     return AdminLayout(
       pageTitle: 'Client Onboarding',
       currentRoute: '/client',
+      onSearch: _filterClients,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -340,22 +389,51 @@ Future<void> _updateOrder(int clientId, int newPosition) async {
                       ),
                     ])),
                   )
-                else if (_clients.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(40),
-                    child: Center(child: Text('No clients yet. Click "Client Onboarding" to add one.',
-                        style: TextStyle(color: Color(0xFF94A3B8)))),
-                  )
-                else
-                  ..._clients.asMap().entries.expand((entry) {
-                    final i = entry.key;
-                    final c = entry.value;
-                    final row = _buildRow(i+1, c);
-                    if (i < _clients.length - 1) {
-                      return [row, const Divider(height: 1, color: Color(0xFFE2E8F0))];
-                    }
-                    return [row];
-                  }),
+                  else if (filteredClients.isEmpty)
+  const Padding(
+    padding: EdgeInsets.all(40),
+    child: Center(
+      child: Text(
+        'No clients found.',
+        style: TextStyle(color: Color(0xFF94A3B8)),
+      ),
+    ),
+  )
+else
+                // else if (_clients.isEmpty)
+                //   const Padding(
+                //     padding: EdgeInsets.all(40),
+                //     child: Center(child: Text('No clients yet. Click "Client Onboarding" to add one.',
+                //         style: TextStyle(color: Color(0xFF94A3B8)))),
+                //   )
+                // else
+                  // ..._clients.asMap().entries.expand((entry) {
+                  //   final i = entry.key;
+                  //   final c = entry.value;
+                  //   final row = _buildRow(i+1, c);
+                  //   if (i < _clients.length - 1 ||i < filteredClients.length - 1) {
+                  //     return [row, const Divider(height: 1, color: Color(0xFFE2E8F0))];
+                  //   }
+                  //   return [row];
+                  // }),
+                  ...filteredClients.asMap().entries.expand((entry) {
+  final i = entry.key;
+  final c = entry.value;
+
+  final row = _buildRow(i + 1, c);
+
+  if (i < filteredClients.length - 1) {
+    return [
+      row,
+      const Divider(
+        height: 1,
+        color: Color(0xFFE2E8F0),
+      ),
+    ];
+  }
+
+  return [row];
+}),
               ],
             ),
           ),

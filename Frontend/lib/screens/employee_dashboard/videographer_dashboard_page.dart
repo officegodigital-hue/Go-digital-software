@@ -44,6 +44,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
 int rejected = 0;
 int rework = 0;
 int review = 0;
+int others = 0;
 
   bool _loading = true;
   String? _error;
@@ -158,6 +159,7 @@ approved = productivity['approved'] ?? 0;
 rework = productivity['rework'] ?? 0;
 rejected = productivity['rejected'] ?? 0;
 review = productivity['review'] ?? 0;
+others = productivity['others'] ?? 0;
 recentNotifications = notificationData;
           tasks = rawTasks.map((t) {
   final action = t['action'] ?? 'IDLE';
@@ -285,6 +287,7 @@ recentNotifications = notificationData;
   rework: rework,
   rejected: rejected,
   review: review,
+  others: others,
 ),
               ),
             ],

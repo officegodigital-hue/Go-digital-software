@@ -72,21 +72,23 @@ router.get('/shares', async (req, res) => {
 });
 
 // POST /api/videographer-planner — create a new row
-router.post('/', async (req, res) => {
-  const { employeeName, clientName = '', schedulingDetails = '' } = req.body;
-  if (!employeeName)
-    return res.status(400).json({ success: false, message: 'employeeName required' });
-  try {
-    const [result] = await db.query(
-      `INSERT INTO videographer_planner (employee_name, client_name, scheduling_details)
-       VALUES (?, ?, ?)`,
-      [employeeName.toUpperCase(), clientName, schedulingDetails]
-    );
-    return res.status(201).json({ success: true, data: { id: result.insertId } });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+// router.post('/', async (req, res) => {
+//   const { employeeName, clientName = '', schedulingDetails = '' } = req.body;
+//   if (!employeeName)
+//     return res.status(400).json({ success: false, message: 'employeeName required' });
+//   try {
+//     const [result] = await db.query(
+//       `INSERT INTO videographer_planner (employee_name, client_name, scheduling_details)
+//        VALUES (?, ?, ?)`,
+//       [employeeName.toUpperCase(), clientName, schedulingDetails]
+//     );
+//     return res.status(201).json({ success: true, data: { id: result.insertId } });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+
 
 // PUT /api/videographer-planner/:id — save before sharing
 // router.put('/:id', async (req, res) => {
@@ -114,10 +116,24 @@ router.put('/:id', async (req, res) => {
     status,
   } = req.body;
 
-  // Status-ai uppercase-a mathi, empty-ah iruntha 'HOLD' set panrathu
-  const finalStatus = (status || 'HOLD').toUpperCase();
+  // Status-ai uppercase-a mathi, empty-ah iruntha 'PROCESS' set panrathu
+  const finalStatus = (status || 'PROCESS').toUpperCase();
 
   try {
+    const [[share]] = await db.query(
+  `SELECT sender_employee_name, receiver_employee_name
+   FROM videographer_planner_shares
+   WHERE id = ?`,
+  [req.params.id]
+);
+
+if (!share) {
+  return res.status(404).json({
+    success: false,
+    message: "History record not found",
+  });
+}
+
     const [result] = await db.query(
       `UPDATE videographer_planner_shares
        SET client_name = ?,
@@ -138,6 +154,20 @@ router.put('/:id', async (req, res) => {
         message: 'History record not found',
       });
     }
+    await createNotification({
+   recipientName: share.receiver_employee_name,
+   senderName: share.sender_employee_name,
+  message: JSON.stringify({
+    preview: `${share.sender_employee_name} updated your shared video task`,
+    payload: {
+      type: "VIDEOGRAPHER_SHARE_UPDATED",
+      clientName,
+      schedulingDetails,
+      status: finalStatus,
+      updatedAt: new Date(),
+    },
+  }),
+});
 
     return res.json({
       success: true,
@@ -182,7 +212,7 @@ router.patch('/:id/share', async (req, res) => {
         req.params.id,
         senderEmployeeName.toUpperCase(), senderEmployeeId || null,
         clientName || '', schedulingDetails || '',
-  status || 'HOLD',
+  status || 'PROCESS',
         receiverEmployeeName, receiverEmployeeId || null,
         receiverRole, receiverShort || '',
       ]
@@ -198,7 +228,7 @@ await createNotification({
       sender: senderEmployeeName,
       client: clientName,
       schedulingDetails: schedulingDetails,
-      status: status || "HOLD",
+      status: status || "PROCESS",
       sharedAt: new Date(),
     }
   }),
@@ -207,7 +237,7 @@ await createNotification({
     // Clear fields on main row so it's ready for next entry
     await connection.query(
       `UPDATE videographer_planner SET client_name = '', scheduling_details = '',
-       status = 'HOLD' WHERE id = ?`,
+       status = 'PROCESS' WHERE id = ?`,
       [req.params.id]
     );
 
@@ -225,7 +255,7 @@ await createNotification({
 router.patch('/:id/reset', async (req, res) => {
   try {
     await db.query(
-      `UPDATE videographer_planner SET client_name = '', scheduling_details = '', status ='HOLD'  WHERE id = ?`,
+      `UPDATE videographer_planner SET client_name = '', scheduling_details = '', status ='PROCESS'  WHERE id = ?`,
       [req.params.id]
     );
     return res.json({ success: true, message: 'Row reset' });
@@ -237,6 +267,21 @@ router.patch('/:id/reset', async (req, res) => {
 // DELETE /api/videographer-planner/:id
 router.delete('/:id', async (req, res) => {
   try {
+
+    const [[share]] = await db.query(
+  `SELECT sender_employee_name, receiver_employee_name
+   FROM videographer_planner_shares
+   WHERE id = ?`,
+  [req.params.id]
+);
+
+if (!share) {
+  return res.status(404).json({
+    success: false,
+    message: "History record not found",
+  });
+}
+
     const [result] = await db.query(
       `DELETE FROM videographer_planner_shares WHERE id = ?`,
       [req.params.id]
@@ -248,6 +293,17 @@ router.delete('/:id', async (req, res) => {
         message: 'History record not found',
       });
     }
+    await createNotification({
+  senderName: share.sender_employee_name,
+  recipientName: share.receiver_employee_name,
+  message: JSON.stringify({
+    preview: `${share.sender_employee_name} deleted your shared video task`,
+    payload: {
+      type: "VIDEOGRAPHER_SHARE_DELETED",
+      deletedAt: new Date(),
+    },
+  }),
+});
 
     return res.json({
       success: true,

@@ -41,12 +41,14 @@ class _AdsHandlerDashboardPageState extends State<AdsHandlerDashboardPage> {
   int assignedClients = 0;
   int activeClients = 0;
   int taskPending = 0;
+  int holdTasks = 0;
   int upcomingDeadlines = 0;
 
   int approved = 0;
 int rejected = 0;
 int rework = 0;
 int review  = 0;
+int others = 0;
 
   bool _loading = true;
   String? _error;
@@ -139,12 +141,14 @@ if (n.statusCode == 200) {
         setState(() {
           assignedClients   = data['assignedClients'] as int? ?? 0;
           activeClients     = data['activeClients'] as int? ?? 0;
-          taskPending        = data['taskPending'] as int? ?? 0;
+          // taskPending        = data['taskPending'] as int? ?? 0;
+          holdTasks = data['onHoldCount'] ?? 0;
           upcomingDeadlines  = data['upcomingDeadlines'] as int? ?? 0;
           approved = productivity['approved'] ?? 0;
 rework = productivity['rework'] ?? 0;
 rejected = productivity['rejected'] ?? 0;
 review = productivity['review'] ?? 0;
+others = productivity['others'] ?? 0;
 recentNotifications = notificationData;
           tasks = rawTasks.map((t) {
   final action = t['action'] ?? 'IDLE';
@@ -276,6 +280,7 @@ String getTodayDate() {
   rework: rework,
   rejected: rejected,
   review: review,
+  others: others,
 ),
               ),
             ],
@@ -362,15 +367,24 @@ String getTodayDate() {
           ),
         ),
         const SizedBox(width: 28),
+        // Expanded(
+        //   child: MetricCard(
+        //     icon: Icons.pending_actions,
+        //     title: 'Task Pending',
+        //     value: taskPending.toString().padLeft(2, '0'),
+        //     label: 'Action required',
+        //     color: AppColors.orange,
+        //   ),
+        // ),
         Expanded(
-          child: MetricCard(
-            icon: Icons.pending_actions,
-            title: 'Task Pending',
-            value: taskPending.toString().padLeft(2, '0'),
-            label: 'Action required',
-            color: AppColors.orange,
-          ),
-        ),
+  child: MetricCard(
+    icon: Icons.pause_circle_outline,
+    title: 'Hold Task',
+    value: holdTasks.toString().padLeft(2, '0'),
+    label: 'Action required',
+    color: AppColors.orange,
+  ),
+),
         const SizedBox(width: 28),
         Expanded(
           child: MetricCard(

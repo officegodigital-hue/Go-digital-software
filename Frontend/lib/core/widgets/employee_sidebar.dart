@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../constants/app_colors.dart';
 
 class EmployeeSidebar extends StatelessWidget {
@@ -14,32 +13,22 @@ class EmployeeSidebar extends StatelessWidget {
     required this.onMenuTap,
   });
 
-  // IconData _iconForMenu(String title) {
-  //   if (title == 'Dashboard') return Icons.dashboard_outlined;
-  //   if (title == 'Notifications') return Icons.notifications_none;
-  //   if (title.contains('Daily')) return Icons.checklist_outlined;
-  //   if (title.contains('Assigned')) return Icons.assignment_outlined;
-  //   if (title.contains('Planner')) return Icons.event_note_outlined;
-  //   if (title.contains('Feedback')) return Icons.feedback_outlined;
-  //   return Icons.circle_outlined;
-  // }
-
   IconData _iconForMenu(String title) {
-  switch (title) { 
-    case 'Dashboard': return Icons.dashboard;
-    case 'Day Planner': return Icons.task;
-    case 'Notifications': return Icons.notifications;
-    case 'Daily Reports': return Icons.checklist_outlined;
-    case 'Assigned Task': return Icons.assignment;
-    case 'Live Tracking Tasks': return Icons.task_alt;
-    case 'Task Planner': return Icons.event_note_outlined;
-    case 'Task Review': return Icons.fact_check_outlined;
-    case 'Task Status': return Icons.fact_check_outlined;
-    case 'Video Task Planner': return Icons.event_note_outlined;
-    case 'Feedback': return Icons.feedback_outlined;
-    default: return Icons.circle_outlined;
+    switch (title) { 
+      case 'Dashboard': return Icons.dashboard;
+      case 'Day Planner': return Icons.task;
+      case 'Notifications': return Icons.notifications;
+      case 'Daily Reports': return Icons.checklist_outlined;
+      case 'Assigned Task': return Icons.assignment;
+      case 'Live Tracking Tasks': return Icons.task_alt;
+      case 'Task Planner': return Icons.event_note_outlined;
+      case 'Task Review': return Icons.fact_check_outlined;
+      case 'Task Status': return Icons.fact_check_outlined;
+      case 'Video Task Planner': return Icons.event_note_outlined;
+      case 'Feedback': return Icons.feedback_outlined;
+      default: return Icons.circle_outlined;
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -47,57 +36,83 @@ class EmployeeSidebar extends StatelessWidget {
       width: 220,
       color: AppColors.sidebar,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 32),
-          const Text(
-            'GoDigital Employee',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 36),
-
-          ...menuItems.map(
-            (menu) => _SidebarItem(
-              icon: _iconForMenu(menu),
-              title: menu,
-              isActive: selectedMenu == menu,
-              onTap: () => onMenuTap(menu),
+          // Brand Header matching AdminLayout height
+          Container(
+            height: 64,
+            width: double.infinity,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: const Text(
+              'GoDigital Employee',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
 
-          const Spacer(),
+          // Thin divider below brand
+          Container(height: 1, color: const Color(0xFF232D42)),
+          const SizedBox(height: 10),
 
-Container(height: 1, color: Colors.white24),
-
-          // _SidebarItem(
-          //   icon: Icons.home,
-          //   title: 'HOME',
-          //   isActive: false,
-          //   onTap: () {
-          //     Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
-          //   },
-          // ),
-
-          _SidebarItem(
-            icon: Icons.logout,
-            title: 'Logout',
-            isActive: false,
-            onTap: () {
-              Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-            },
+          // Expanded scrollable menu items catalog (prevents overflow)
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: menuItems.map(
+                  (menu) => _SidebarItem(
+                    icon: _iconForMenu(menu),
+                    title: menu,
+                    isActive: selectedMenu == menu,
+                    onTap: () => onMenuTap(menu),
+                  ),
+                ).toList(),
+              ),
+            ),
           ),
 
-          const SizedBox(height: 16),
+          // Anchored Logout Bottom Panel
+          Container(height: 1, color: const Color(0xFF232D42)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.logout_rounded, size: 17, color: Color(0xFF8A94A6)),
+                      SizedBox(width: 12),
+                      Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF8A94A6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
 }
-
-
 
 class _SidebarItem extends StatelessWidget {
   final IconData icon;
@@ -114,32 +129,37 @@ class _SidebarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        height: 46,
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 14),
-            Icon(icon, color: Colors.white, size: 18),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              color: isActive ? AppColors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
             ),
-          ],
+            child: Row(
+              children: [
+                Icon(icon, size: 17, color: isActive ? Colors.white : const Color(0xFF8A94A6)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                      color: isActive ? Colors.white : const Color(0xFF8A94A6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
