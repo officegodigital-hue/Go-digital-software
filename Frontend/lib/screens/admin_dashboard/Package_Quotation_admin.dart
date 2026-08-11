@@ -21,6 +21,7 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
   List<Map<String, dynamic>> packagesData = [];
   bool _loadingPackages = true;
   String? _packagesError;
+  String _searchQuery = '';
 
   final ScrollController _quotationScrollController = ScrollController();
 
@@ -747,6 +748,12 @@ print("Response Body: ${response.body}");
     return AdminLayout(
       pageTitle: "Package & Quotation",
       currentRoute: "/quotation",
+      onSearch: (query) {
+        setState(() {
+          _searchQuery = query; // 🔍 Topbar search input varum pothu call aagum
+          _currentPage = 1;     // First page-kku reset seiyum
+        });
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -835,6 +842,18 @@ print("Response Body: ${response.body}");
 
   List<Map<String, dynamic>> _buildFilteredQuotations() {
     return quotationsData.where((Map<String, dynamic> row) {
+      // 🔍 Search filtering logic (Quotation No, Client Name, Package Type)
+      if (_searchQuery.trim().isNotEmpty) {
+        final query = _searchQuery.trim().toLowerCase();
+        final quotNo = (row['quotation_no'] ?? '').toString().toLowerCase();
+        final clientName = (row['client_name'] ?? '').toString().toLowerCase();
+        final packageType = (row['package_type'] ?? '').toString().toLowerCase();
+
+        if (!quotNo.contains(query) && !clientName.contains(query) && !packageType.contains(query)) {
+          return false;
+        }
+      }
+
       if (!_isFilterMenuOpen || activeFilter == "All") return true;
       final dynamic statusDynamic = row["status"];
       if (statusDynamic == null) return false;

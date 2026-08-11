@@ -32,12 +32,26 @@ static String get _baseUrl => ApiConfig.baseUrl;
 ];
   bool _loading = true;
   String? _error;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _fetchEmployees();
     // _fetchRoles();
+  }
+
+  List<Map<String, dynamic>> get _filteredEmployees {
+    if (_searchQuery.trim().isEmpty) {
+      return employeeUsers;
+    }
+    final query = _searchQuery.trim().toLowerCase();
+    return employeeUsers.where((item) {
+      final name = (item['full_name'] ?? '').toString().toLowerCase();
+      final staffId = (item['staff_id'] ?? '').toString().toLowerCase();
+      final role = (item['role'] ?? '').toString().toLowerCase();
+      return name.contains(query) || staffId.contains(query) || role.contains(query);
+    }).toList();
   }
 
   // ── FETCH ─────────────────────────────────────────────────────────────────────
@@ -502,6 +516,11 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
     return AdminLayout(
       pageTitle: 'Admin Panel',
       currentRoute: '/admin-panel',
+      onSearch: (query) {
+        setState(() {
+          _searchQuery = query; // 🔍 Topbar search input varum pothu call aagum
+        });
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -599,12 +618,12 @@ void _showUserModal(BuildContext context, {Map<String, dynamic>? editEmployee}) 
                   SizedBox(
                     height: 420,
                     child: ListView.separated(
-                      itemCount: employeeUsers.length,
+                      itemCount: _filteredEmployees.length,
                       physics: const BouncingScrollPhysics(),
                       separatorBuilder: (_, _) =>
                           const Divider(height: 1, color: Color(0xFFE2E8F0)),
                       itemBuilder: (_, index) {
-                        final item   = employeeUsers[index];
+                        final item   = _filteredEmployees[index];
                         final bool active =
                             (item['is_active'] == 1 || item['is_active'] == true);
                         final int id = item['id'] ?? 0;

@@ -35,6 +35,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   double _collectedAmount = 0;
   double _outstandingBalance = 0;
   bool _loadingMetrics = true;
+  String _searchQuery = '';
 
   static const int _invoicesPerPage = 999;
   int _currentPage = 1;
@@ -200,15 +201,23 @@ bool _isInSelectedMonth(String invoiceDate) {
 
   
 
-  List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
+List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
         return false;
       }
 
-//       if (!_isInSelectedMonth(row['maintenance_date'] ?? '')) {
-//   return false;
-// }
+      // 🔍 Search filtering logic (Invoice No, Client Name, Package Type)
+      if (_searchQuery.trim().isNotEmpty) {
+        final query = _searchQuery.trim().toLowerCase();
+        final invNo = (row['invoice_no'] ?? '').toString().toLowerCase();
+        final clientName = (row['client_name'] ?? '').toString().toLowerCase();
+        final packageType = (row['package_type'] ?? '').toString().toLowerCase();
+
+        if (!invNo.contains(query) && !clientName.contains(query) && !packageType.contains(query)) {
+          return false;
+        }
+      }
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
       final status = (row["status"] ?? '').toString().toUpperCase();
@@ -224,11 +233,8 @@ bool _isInSelectedMonth(String invoiceDate) {
       if (statusA != 'PAID' && statusB == 'PAID') return -1;
       
       try {
-        // final dateA = DateFormat('dd/MM/yyyy').parse(a['maintenance_date'] ?? '');
-        // final dateB = DateFormat('dd/MM/yyyy').parse(b['maintenance_date'] ?? '');
-
         final dateA = DateFormat('dd/MM/yyyy').parse(a['invoice_date'] ?? '');
-final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
+        final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
 
         return dateA.compareTo(dateB);
       } catch (e) {
@@ -748,6 +754,12 @@ double _parseAmount(dynamic value) {
     return AdminLayout(
       pageTitle: "Invoice Management",
       currentRoute: "/invoice",
+      onSearch: (query) {
+        setState(() {
+          _searchQuery = query; // 🔍 Topbar search input varum pothu call aagum
+          _currentPage = 1;     // First page-kku reset seiyum
+        });
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

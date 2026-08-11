@@ -44,6 +44,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   bool _loadingTaskMaster = true;
   String? _error;
   String? _adminName;
+  String _searchQuery = '';
 
   // ── CONVERT TEXT TO SNAKE_CASE ───────────────────────────────────────────
   String _toSnakeCase(String text) {
@@ -1344,14 +1345,42 @@ String formatDisplayDate(dynamic value) {
   Widget build(BuildContext context) {
     final bool loading = _loadingTasks || _loadingEmployees || _loadingClients || _loadingTaskMaster || _loadingRoles;
 
-    final visibleRows = taskRows.where((r) {
-  final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
-  return _showAssigned ? assigned : !assigned;
-}).toList();
+final visibleRows = taskRows.where((r) {
+      final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
+      if (_showAssigned != assigned) return false;
+
+      // 🔍 Search filtering logic (Client Name & Employee Name fields)
+      if (_searchQuery.trim().isEmpty) return true;
+
+      final query = _searchQuery.trim().toLowerCase();
+      final clientName = (r['client_name'] ?? '').toString().toLowerCase();
+
+      // Ella employee columns-aiyum check seiyalam
+      final employeeFields = [
+        r['ads_handling'],
+        r['page_handling'],
+        r['designer'],
+        r['videographer'],
+        r['video_editor'],
+        r['ui_ux_designer'],
+        r['developer']
+      ];
+
+      final matchEmployee = employeeFields.any(
+        (emp) => (emp ?? '').toString().toLowerCase().contains(query),
+      );
+
+      return clientName.contains(query) || matchEmployee;
+    }).toList();
 
     return AdminLayout(
       pageTitle: "Tasks Assign",
       currentRoute: "/tasks",
+      onSearch: (query) {
+        setState(() {
+          _searchQuery = query;
+        });
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

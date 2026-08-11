@@ -39,6 +39,8 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
   Timer? _commentTimer;
   late IO.Socket socket;
 
+  String _searchQuery = '';
+
   final List<String> actionOptions = ["ACTION", "APPROVED", "REWORK", "REJECTED"];
 
   @override
@@ -410,6 +412,17 @@ Future<void> _saveComment(
   Widget build(BuildContext context) {
     // ── REACTIVE DATA FILTERING ENGINE ──
     List<Map<String, dynamic>> filteredReviews = reviewData.where((row) {
+      // 🔍 Search filtering logic (Client Name & Employee Name)
+      if (_searchQuery.trim().isNotEmpty) {
+        final query = _searchQuery.trim().toLowerCase();
+        final clientName = (row["client"] ?? '').toString().toLowerCase();
+        final employeeName = (row["name"] ?? '').toString().toLowerCase();
+
+        if (!clientName.contains(query) && !employeeName.contains(query)) {
+          return false;
+        }
+      }
+
       if (!_isFilterMenuOpen || activeFilter == "All") return true;
       return row["action"].toString().toUpperCase() == activeFilter.toUpperCase();
     }).toList();
@@ -417,6 +430,11 @@ Future<void> _saveComment(
     return AdminLayout(
       pageTitle: "Manager Review",
       currentRoute: "/manager-review",
+      onSearch: (query) {
+        setState(() {
+          _searchQuery = query; // 🔍 Topbar search input varum pothu call aagum
+        });
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
