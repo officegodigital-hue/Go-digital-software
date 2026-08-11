@@ -155,7 +155,7 @@ bool _hasDeliverable(int no) {
 List<Map<String, dynamic>> additionalTasks = [];
 
   static const List<String> statusOptions = ['NOT START', 'PENDING', 'COMPLETE', 'HOLD', 'PROCESSING'];
-  static const List<String> yesNoOptions = ['YES', 'NO'];
+  static const List<String> yesNoOptions = ['YES', 'NO', 'NULL'];
 
   String _deadlineLevel = 'none'; // 'none' | 'warning' | 'urgent' | 'admin_notified'
 
@@ -628,28 +628,35 @@ String _formatMaintenanceDate(String value) {
 }
 
         if (additionalRes.statusCode == 200) {
-        final addJson = jsonDecode(additionalRes.body);
-        final addRows = List<Map<String, dynamic>>.from(addJson['data'] ?? []);
-        allTasksList.addAll(addRows);
-        
+  final addJson = jsonDecode(additionalRes.body);
+  final addRows = List<Map<String, dynamic>>.from(addJson['data'] ?? []);
+  allTasksList.addAll(addRows);
 
-       for (final row in addRows) {
-  final clientName = row['client_name']?.toString() ?? '';
+  for (final row in addRows) {
+    final clientName = row['client_name']?.toString() ?? '';
 
-  final maintDate =
-      row['maintenance_date']?.toString() ??
-      row['submission_date']?.toString() ??
-      '';
+    // 🟢 Fix: submission_date-ai sariyaana format-ku convert seyyungal
+    final rawDate = row['submission_date']?.toString() ?? '';
+    String formattedMaintDate = '';
 
-  if (clientName.isNotEmpty) {
-    uniqueClients.add(clientName);
+    if (rawDate.isNotEmpty) {
+      try {
+        final parsedDate = DateTime.parse(rawDate);
+        formattedMaintDate = "${parsedDate.day.toString().padLeft(2, '0')}/${parsedDate.month.toString().padLeft(2, '0')}/${parsedDate.year}";
+      } catch (_) {
+        formattedMaintDate = rawDate; // Fallback if already formatted
+      }
+    }
 
-    if (maintDate.isNotEmpty) {
-      maintMap[clientName] = _formatMaintenanceDate(maintDate);
+    if (clientName.isNotEmpty) {
+      uniqueClients.add(clientName);
+
+      if (formattedMaintDate.isNotEmpty) {
+        maintMap[clientName] = formattedMaintDate;
+      }
     }
   }
 }
-      }
 
         setState(() {
           assignedTasks = rows;
@@ -2186,16 +2193,18 @@ Widget _buildDataRow(
 }
   
   (Color, Color)? _yesNoColors(String field, String value) {
-    if (field != 'today_leads' && field != 'today_report') return null;
-    switch (value.toUpperCase()) {
-      case 'YES':
-        return (const Color(0xFFFEF9C3), const Color(0xFF854D0E)); // yellow
-      case 'NO':
-        return (const Color(0xFFFEE2E2), const Color(0xFFDC2626)); // red
-      default:
-        return null;
-    }
+  if (field != 'today_leads' && field != 'today_report') return null;
+  switch (value.toUpperCase()) {
+    case 'YES':
+      return (const Color(0xFFFEF9C3), const Color(0xFF854D0E)); // yellow
+    case 'NO':
+      return (const Color(0xFFFEE2E2), const Color(0xFFDC2626)); // red
+    case 'NULL':
+      return (const Color(0xFFF1F5F9), const Color(0xFF64748B)); // neutral grey for null
+    default:
+      return null;
   }
+}
 
   (Color, Color)? _statusColors(String field, String value) {
     if (field != 'status') return null;
@@ -2225,7 +2234,7 @@ Widget _buildDataRow(
 ) {
 
   final current = (row[field] ?? '').toString();
-
+final dropdownValue = current.isEmpty ? null : current;
   final colorPair =
       _yesNoColors(field, current) ??
       _statusColors(field, current);
@@ -2287,22 +2296,17 @@ Widget _buildDataRow(
     DropdownButtonHideUnderline(
 
       child: DropdownButton<String>(
+  // 🟢 Ingae current-ku pathil dropdownValue-ai use seyyungal
+  value: (dropdownValue != null && options.contains(dropdownValue)) ? dropdownValue : null,
 
-        value: current.isEmpty
-            ? null
-            : current,
-
-
-        isExpanded: true,
-
-
-        hint: const Text(
-          '— Select —',
-          style: TextStyle(
-            fontSize: 10,
-            color: Color(0xFFCBD5E1),
-          ),
-        ),
+  isExpanded: true,
+  hint: const Text(
+    '— Select —',
+    style: TextStyle(
+      fontSize: 10,
+      color: Color(0xFFCBD5E1),
+    ),
+  ),
 
 
         icon: Icon(
