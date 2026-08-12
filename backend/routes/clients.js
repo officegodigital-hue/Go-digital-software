@@ -38,7 +38,19 @@ function computePercent(client, credentialCount) {
 // GET /api/clients — list all clients WITH completion % and credential count
 router.get('/', async (req, res) => {
   try {
-    const [clients] = await db.query(`SELECT * FROM clients ORDER BY display_order ASC`);
+    // const [clients] = await db.query(`SELECT * FROM clients ORDER BY display_order ASC`);
+
+    const [clients] = await db.query(`
+  SELECT *
+  FROM clients
+  ORDER BY
+    CASE
+      WHEN is_active = 1 THEN 0
+      ELSE 1
+    END ASC,
+    display_order ASC,
+    id ASC
+`);
 
     const [credCounts] = await db.query(
       `SELECT client_id, COUNT(*) as cnt FROM client_credentials
@@ -429,75 +441,202 @@ router.patch('/:id/order', async (req, res) => {
     await conn.beginTransaction();
 
     const clientId = Number(req.params.id);
-    const newPos = Number(req.body.position);
+    const requestedPos = Number(req.body.position);
 
-    const [[client]] = await conn.query(
-      "SELECT display_order FROM clients WHERE id=?",
-      [clientId]
+    if (!Number.isInteger(clientId) || !Number.isInteger(requestedPos)) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid client id or position',
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Get all clients in the correct base order
+    // Active first, Inactive last
+    // ---------------------------------------------------------
+    const [clients] = await conn.query(
+      `
+      SELECT id, display_order, is_active
+      FROM clients
+      ORDER BY
+        is_active DESC,
+        CASE
+          WHEN display_order IS NULL OR display_order <= 0 THEN 999999
+          ELSE display_order
+        END ASC,
+        id ASC
+      FOR UPDATE
+      `
     );
 
-    if (!client) {
+    if (!clients.length) {
       await conn.rollback();
+
       return res.status(404).json({
-        success:false
+        success: false,
+        message: 'No clients found',
       });
     }
 
-    const oldPos = client.display_order;
-
-    if (newPos == oldPos) {
-      await conn.rollback();
-      return res.json({
-        success:true
-      });
-    }
-
-    if (newPos > oldPos) {
-
-      await conn.query(
-        `UPDATE clients
-         SET display_order=display_order-1
-         WHERE display_order>? AND display_order<=?`,
-        [oldPos,newPos]
-      );
-
-    } else {
-
-      await conn.query(
-        `UPDATE clients
-         SET display_order=display_order+1
-         WHERE display_order>=? AND display_order<?`,
-        [newPos,oldPos]
-      );
-
-    }
-
-    await conn.query(
-      `UPDATE clients
-       SET display_order=?
-       WHERE id=?`,
-      [newPos,clientId]
+    const clientIndex = clients.findIndex(
+      c => Number(c.id) === clientId
     );
+
+    if (clientIndex === -1) {
+      await conn.rollback();
+
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found',
+      });
+    }
+
+    const selectedClient = clients[clientIndex];
+
+    // ---------------------------------------------------------
+    // Separate Active / Inactive
+    // ---------------------------------------------------------
+    let activeClients = clients.filter(
+      c => Number(c.is_active) === 1
+    );
+
+    let inactiveClients = clients.filter(
+      c => Number(c.is_active) !== 1
+    );
+
+    // ---------------------------------------------------------
+    // Reorder ONLY inside the client's group
+    //
+    // Active client:
+    //   position 1 = first active
+    //
+    // Inactive client:
+    //   position 1 = first inactive
+    // ---------------------------------------------------------
+    if (Number(selectedClient.is_active) === 1) {
+      const currentIndex = activeClients.findIndex(
+        c => Number(c.id) === clientId
+      );
+
+      let targetIndex = requestedPos - 1;
+
+      // Keep within active list
+      targetIndex = Math.max(
+        0,
+        Math.min(targetIndex, activeClients.length - 1)
+      );
+
+      const [movedClient] = activeClients.splice(
+        currentIndex,
+        1
+      );
+
+      activeClients.splice(
+        targetIndex,
+        0,
+        movedClient
+      );
+    } else {
+      const currentIndex = inactiveClients.findIndex(
+        c => Number(c.id) === clientId
+      );
+
+      let targetIndex = requestedPos - 1;
+
+      // Keep within inactive list
+      targetIndex = Math.max(
+        0,
+        Math.min(targetIndex, inactiveClients.length - 1)
+      );
+
+      const [movedClient] = inactiveClients.splice(
+        currentIndex,
+        1
+      );
+
+      inactiveClients.splice(
+        targetIndex,
+        0,
+        movedClient
+      );
+    }
+
+    // ---------------------------------------------------------
+    // Final order:
+    //
+    // Active
+    // 1
+    // 2
+    // 3
+    //
+    // Inactive
+    // 4
+    // 5
+    // 6
+    // ---------------------------------------------------------
+    const finalClients = [
+      ...activeClients,
+      ...inactiveClients,
+    ];
+
+    // ---------------------------------------------------------
+    // First give temporary negative values.
+    //
+    // This avoids duplicate display_order conflicts if
+    // display_order has UNIQUE constraint.
+    // ---------------------------------------------------------
+    for (let i = 0; i < finalClients.length; i++) {
+      await conn.query(
+        `
+        UPDATE clients
+        SET display_order = ?
+        WHERE id = ?
+        `,
+        [
+          -(i + 1),
+          finalClients[i].id,
+        ]
+      );
+    }
+
+    // ---------------------------------------------------------
+    // Now save clean 1..N sequence
+    // ---------------------------------------------------------
+    for (let i = 0; i < finalClients.length; i++) {
+      await conn.query(
+        `
+        UPDATE clients
+        SET display_order = ?
+        WHERE id = ?
+        `,
+        [
+          i + 1,
+          finalClients[i].id,
+        ]
+      );
+    }
 
     await conn.commit();
 
-    res.json({
-      success:true
+    return res.json({
+      success: true,
+      message: 'Client order updated successfully',
     });
 
-  } catch(e){
-
+  } catch (e) {
     await conn.rollback();
 
-    res.status(500).json({
-      success:false,
-      message:e.message
+    console.error('Client reorder error:', e);
+
+    return res.status(500).json({
+      success: false,
+      message: e.message,
     });
 
-  } finally{
+  } finally {
     conn.release();
   }
-
 });
 
 module.exports = router;

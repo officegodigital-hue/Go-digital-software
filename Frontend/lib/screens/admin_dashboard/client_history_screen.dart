@@ -20,6 +20,10 @@ List<Map<String, dynamic>> filteredClients = [];
   List<Map<String, dynamic>> _clients = [];
   bool _loading = true;
   String? _error;
+  String _searchQuery = '';
+
+  String activeFilter = 'Active';
+bool _isFilterMenuOpen = false;
 
   @override
   void initState() {
@@ -42,9 +46,11 @@ List<Map<String, dynamic>> filteredClients = [];
 
 setState(() {
   _clients = clients;
-  filteredClients = clients;
   _loading = false;
 });
+
+_applyClientFilter();
+
       } else {
         setState(() { _error = 'Server returned ${response.statusCode}'; _loading = false; });
       }
@@ -53,16 +59,32 @@ setState(() {
     }
   }
 
-  void _filterClients(String query) {
-  final search = query.trim().toLowerCase();
-
+ void _applyClientFilter() {
   setState(() {
-    if (search.isEmpty) {
-      filteredClients = List<Map<String, dynamic>>.from(_clients);
-      return;
-    }
-
     filteredClients = _clients.where((client) {
+
+      // ─────────────────────────────────────
+      // ACTIVE / INACTIVE FILTER
+      // ─────────────────────────────────────
+      final bool isActive =
+          client['is_active'] == 1 ||
+          client['is_active'] == true;
+
+      if (activeFilter == 'Active' && !isActive) {
+        return false;
+      }
+
+      if (activeFilter == 'Inactive' && isActive) {
+        return false;
+      }
+
+      // ─────────────────────────────────────
+      // SEARCH FILTER
+      // ─────────────────────────────────────
+      if (_searchQuery.isEmpty) {
+        return true;
+      }
+
       final companyName =
           client['company_name']?.toString().toLowerCase() ?? '';
 
@@ -81,36 +103,22 @@ setState(() {
       final phone =
           client['phone']?.toString().toLowerCase() ?? '';
 
-      return companyName.contains(search) ||
-          industry.contains(search) ||
-          contactPerson.contains(search) ||
-          email.contains(search) ||
-          status.contains(search) ||
-          phone.contains(search);
+      return companyName.contains(_searchQuery) ||
+          industry.contains(_searchQuery) ||
+          contactPerson.contains(_searchQuery) ||
+          email.contains(_searchQuery) ||
+          status.contains(_searchQuery) ||
+          phone.contains(_searchQuery);
     }).toList();
   });
 }
 
-  // ── Update status via Verify / Pending buttons ────────────────────────────────
-  // Future<void> _updateStatus(int id, String status) async {
-  //   try {
-  //     final response = await http.patch(
-  //       Uri.parse('$_baseUrl/clients/$id/status'),
-  //       headers: {'Content-Type': 'application/json'},
-  //       body: jsonEncode({'status': status}),
-  //     );
-  //     if (response.statusCode == 200) {
-  //       _fetchClients();
-  //       _showSnack('Status updated to $status', success: true);
-  //     } else {
-  //       _showSnack('Failed to update status');
-  //     }
-  //   } catch (e) {
-  //     _showSnack('Cannot connect to server');
-  //   }
-  // }
+  void _filterClients(String query) {
+  _searchQuery = query.trim().toLowerCase();
+  _applyClientFilter();
+}
 
-
+ 
 
 Future<void> _updateStatus(int id, String status) async {
   try {
@@ -344,9 +352,107 @@ Future<void> _updateOrder(int clientId, int newPosition) async {
           ),
 
           const SizedBox(height: 24),
+// ─────────────────────────────────────────────
+// FILTER CONTROL BAR
+// ─────────────────────────────────────────────
+Padding(
+  padding: const EdgeInsets.symmetric(
+    horizontal: 24,
+    vertical: 14,
+  ),
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
 
+      const Text(
+        'Clients',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF1E293B),
+        ),
+      ),
+
+      Row(
+        children: [
+
+          // FILTER OPTIONS
+          if (_isFilterMenuOpen) ...[
+            _buildFilterTab('All'),
+            _buildFilterTab('Active'),
+            _buildFilterTab('Inactive'),
+
+            const SizedBox(width: 8),
+          ],
+
+          // FILTER BUTTON
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isFilterMenuOpen = !_isFilterMenuOpen;
+
+                if (!_isFilterMenuOpen) {
+                  activeFilter = 'Active';
+                }
+              });
+
+              if (!_isFilterMenuOpen) {
+                _applyClientFilter();
+              }
+            },
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: _isFilterMenuOpen
+                    ? const Color(0xFFF1F5F9)
+                    : Colors.transparent,
+                border: Border.all(
+                  color: const Color(0xFFCBD5E1),
+                ),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isFilterMenuOpen
+                        ? Icons.filter_list_off_rounded
+                        : Icons.filter_list_rounded,
+                    size: 14,
+                    color: const Color(0xFF475569),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _isFilterMenuOpen
+                        ? 'Hide Filters'
+                        : 'Filters',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF475569),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ],
+  ),
+),
+
+const Divider(
+  height: 1,
+  thickness: 1,
+  color: Color(0xFFE2E8F0),
+),
           // ── Table ──────────────────────────────────────────────────────────
           Container(
+            
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -367,7 +473,7 @@ Future<void> _updateOrder(int clientId, int newPosition) async {
                     Expanded(flex: 3, child: Text('COMPLETION', style: _th)),
                     Expanded(flex: 2, child: Text('STATUS', style: _th, )),
                     Expanded(flex: 2, child: Text('ACTIVE', style: _th)),
-                    Expanded(flex: 3, child: Align(alignment: Alignment.centerRight, child: Text('ACTIONS', style: _th))),
+                    Expanded(flex: 4, child: Align(alignment: Alignment.center, child: Text('ACTIONS', style: _th))),
                   ]),
                 ),
 
@@ -416,11 +522,19 @@ else
                   //   }
                   //   return [row];
                   // }),
-                  ...filteredClients.asMap().entries.expand((entry) {
+...filteredClients.asMap().entries.expand((entry) {
   final i = entry.key;
   final c = entry.value;
 
-  final row = _buildRow(i + 1, c);
+  final int displayOrder =
+      (c['display_order'] == null || c['display_order'] == 0)
+          ? (i + 1)
+          : int.tryParse(c['display_order'].toString()) ?? (i + 1);
+
+  final row = _buildRow(
+    displayOrder,
+    c,
+  );
 
   if (i < filteredClients.length - 1) {
     return [
@@ -453,17 +567,18 @@ else
 
     return Container(
       height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       color: Colors.white,
       child: Row(
         children: [
 
           Expanded(
   flex: 1,
-  child: Center(
+  child: Align(
+    alignment: Alignment.centerLeft,
     child: SizedBox(
-      width: 55,
-      height: 36,
+      width: 40,
+      height: 30,
       child: TextFormField(
         initialValue: index.toString(),
         textAlign: TextAlign.center,
@@ -495,21 +610,30 @@ else
 
           if (newPosition == null) return;
 
+          // Same position
           if (newPosition == index) return;
 
-          final ok = await _confirmReorder(index, newPosition);
+          // Confirm reorder
+          final ok = await _confirmReorder(
+            index,
+            newPosition,
+          );
 
           if (!ok) {
-            _fetchClients();
+            await _fetchClients();
             return;
           }
 
-          await _updateOrder(id, newPosition);
+          await _updateOrder(
+            id,
+            newPosition,
+          );
         },
       ),
     ),
   ),
 ),
+          
           // Company
           Expanded(flex: 3, child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -577,30 +701,49 @@ else
             ),
           )),
 
-          Expanded(
+         Expanded(
   flex: 2,
-  child: Center(
-    child: GestureDetector(
-      onTap: () => _toggleClientStatus(id, active),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 4,
-        ),
-        decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFFDCFCE7)
-              : const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          active ? 'ACTIVE' : 'IN-ACTIVE',
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w900,
-            color: active
-                ? const Color(0xFF16A34A)
-                : const Color(0xFF64748B),
+  child: Align(
+    alignment: Alignment.centerLeft,
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _toggleClientStatus(id, active),
+          borderRadius: BorderRadius.circular(6),
+          hoverColor: active
+              ? const Color(0xFFBBF7D0)
+              : const Color(0xFFE2E8F0),
+          splashColor: active
+              ? const Color(0xFF86EFAC)
+              : const Color(0xFFCBD5E1),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 7,
+            ),
+            decoration: BoxDecoration(
+              color: active
+                  ? const Color(0xFFDCFCE7)
+                  : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: active
+                    ? const Color(0xFFBBF7D0)
+                    : const Color(0xFFE2E8F0),
+              ),
+            ),
+            child: Text(
+              active ? 'ACTIVE' : 'IN-ACTIVE',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: active
+                    ? const Color(0xFF16A34A)
+                    : const Color(0xFF64748B),
+              ),
+            ),
           ),
         ),
       ),
@@ -609,7 +752,7 @@ else
 ),
 
           // Actions
-          Expanded(flex: 3, child: Row(
+          Expanded(flex: 4, child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
 
@@ -686,6 +829,57 @@ else
       ),
     );
   }
+
+
+Widget _buildFilterTab(String label) {
+  final bool isActive =
+      activeFilter.toLowerCase() == label.toLowerCase();
+
+  return Container(
+    margin: const EdgeInsets.only(right: 4),
+    child: OutlinedButton(
+      onPressed: () {
+        setState(() {
+          activeFilter = label;
+        });
+
+        // Current search query-யும் preserve செய்ய
+        // AdminLayout search direct callback ஆக இருப்பதால்
+        // data filter மட்டும் re-apply செய்கிறோம்.
+        _applyClientFilter();
+      },
+      style: OutlinedButton.styleFrom(
+        backgroundColor:
+            isActive ? const Color(0xFF0052CC) : Colors.transparent,
+        side: BorderSide(
+          color: isActive
+              ? const Color(0xFF0052CC)
+              : const Color(0xFFE2E8F0),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(4),
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 8,
+        ),
+        elevation: 0,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight:
+              isActive ? FontWeight.bold : FontWeight.w600,
+          color: isActive
+              ? Colors.white
+              : const Color(0xFF64748B),
+        ),
+      ),
+    ),
+  );
+}
+
 
   static const TextStyle _th = TextStyle(
       fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
