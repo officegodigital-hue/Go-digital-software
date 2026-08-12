@@ -18,7 +18,7 @@ import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
-import 'package:godigital_portal/screens/home_screen.dart';
+// import 'package:godigital_portal/screens/home_screen.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
@@ -68,7 +68,7 @@ class MyApp extends StatelessWidget {
           '/': (context) => const AuthGate(),
 
           // Home Screen (After Login)
-          '/home': (context) => const HomeScreen(),
+          // '/home': (context) => const HomeScreen(),
 
 
           // Admin Dashboard
