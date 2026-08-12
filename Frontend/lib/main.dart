@@ -18,7 +18,7 @@ import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
-// import 'package:godigital_portal/screens/home_screen.dart';
+import 'package:godigital_portal/screens/home_screen.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
@@ -64,10 +64,11 @@ class MyApp extends StatelessWidget {
         },
         routes: {
           // Authentication
-          '/': (context) => const LoginScreen(),
+          // '/': (context) => const LoginScreen(),
+          '/': (context) => const AuthGate(),
 
           // Home Screen (After Login)
-          // '/home': (context) => const HomeScreen(),
+          '/home': (context) => const HomeScreen(),
 
 
           // Admin Dashboard
@@ -125,7 +126,40 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, auth, _) {
+        // Wait until localStorage authentication is loaded
+        if (!auth.isInitialized) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        // No saved login
+        if (!auth.isAuthenticated) {
+          return const LoginScreen();
+        }
+
+        // Saved Admin login
+        if (auth.userType?.toLowerCase().trim() == 'admin') {
+          return const AdminGuard(
+            child: AdminDashboard(),
+          );
+        }
+
+        // Saved Employee login
+        return const EmployeeLayoutPage();
+      },
+    );
+  }
+}
 
 
 class AdminGuard extends StatelessWidget {
