@@ -506,6 +506,7 @@ Future<void> _loadRememberedUser() async {
     email,
     password,
     isAdmin,
+    _rememberDevice,
   );
 
   if (!mounted) return;

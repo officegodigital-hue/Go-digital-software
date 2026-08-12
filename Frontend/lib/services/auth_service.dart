@@ -74,6 +74,7 @@ class AuthService extends ChangeNotifier {
     String email,
     String password,
     bool isAdmin,
+    bool rememberDevice,
   ) async {
     _isLoading = true;
     _error = null;

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import 'package:godigital_portal/services/auth_service.dart';
 
 class EmployeeSidebar extends StatelessWidget {
   final String selectedMenu;
@@ -83,9 +85,25 @@ class EmployeeSidebar extends StatelessWidget {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () {
-                  Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-                },
+                // onTap: () {
+                //   Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                // },
+                onTap: () async {
+  final authService = Provider.of<AuthService>(
+    context,
+    listen: false,
+  );
+
+  await authService.logout();
+
+  if (!context.mounted) return;
+
+  Navigator.pushNamedAndRemoveUntil(
+    context,
+    '/',
+    (route) => false,
+  );
+},
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),

@@ -292,10 +292,26 @@ Padding(
   child: Material(
     color: Colors.transparent,
     child: InkWell(
-      onTap: () {
-        Navigator.pushNamedAndRemoveUntil(
-            context, '/', (route) => false);
-      },
+      // onTap: () {
+      //   Navigator.pushNamedAndRemoveUntil(
+      //       context, '/', (route) => false);
+      // },
+      onTap: () async {
+  final authService = Provider.of<AuthService>(
+    context,
+    listen: false,
+  );
+
+  await authService.logout();
+
+  if (!mounted) return;
+
+  Navigator.pushNamedAndRemoveUntil(
+    context,
+    '/',
+    (route) => false,
+  );
+},
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
