@@ -18,33 +18,28 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-@override
-void initState() {
-  super.initState();
-  _loadRememberedUser();
-}
-
-Future<void> _loadRememberedUser() async {
-  final prefs = await SharedPreferences.getInstance();
-
-  final rememberedUser =
-      prefs.getString('remembered_login_user');
-
-  final rememberedPassword =
-      prefs.getString('remembered_login_password');
-
-  if (!mounted) return;
-
-  if (rememberedUser != null && rememberedUser.isNotEmpty) {
-    setState(() {
-      _emailController.text = rememberedUser;
-      _passwordController.text = rememberedPassword ?? '';
-      _rememberDevice = true;
-    });
-
-    debugPrint('📥 Remembered login loaded');
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedUser();
   }
-}
+
+  Future<void> _loadRememberedUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rememberedUser = prefs.getString('remembered_login_user');
+    final rememberedPassword = prefs.getString('remembered_login_password');
+
+    if (!mounted) return;
+
+    if (rememberedUser != null && rememberedUser.isNotEmpty) {
+      setState(() {
+        _emailController.text = rememberedUser;
+        _passwordController.text = rememberedPassword ?? '';
+        _rememberDevice = true;
+      });
+      debugPrint('📥 Remembered login loaded');
+    }
+  }
 
   @override
   void dispose() {
@@ -57,21 +52,38 @@ Future<void> _loadRememberedUser() async {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          _buildTopBar(),
-          const Divider(height: 1, thickness: 1, color: Color(0xFFE0E0E0)),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isDesktop = constraints.maxWidth >= 900;
-                return isDesktop
-                    ? _buildDesktopLayout()
-                    : _buildMobileLayout();
-              },
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTopBar(),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFE0E0E0)),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Screen height & width base panni responsive handle pannalam
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: constraints.maxWidth >= 1000 ? 950 : double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                          child: constraints.maxWidth >= 900
+                              ? _buildDesktopLayout()
+                              : _buildMobileLayout(),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -83,8 +95,7 @@ Future<void> _loadRememberedUser() async {
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
         children: [
-          const Icon(Icons.grid_view_rounded,
-              size: 26, color: Color(0xFF1A1A2E)),
+          const Icon(Icons.grid_view_rounded, size: 26, color: Color(0xFF1A1A2E)),
           const SizedBox(width: 8),
           const Text(
             'GoDigital Portal',
@@ -111,31 +122,34 @@ Future<void> _loadRememberedUser() async {
 
   Widget _buildDesktopLayout() {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          child: Center(child: _buildLogo(logoWidth: 300)),
+          child: Center(child: _buildLogo(logoWidth: 280)),
         ),
-        Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 60.0, vertical: 40.0),
-          child: _buildLoginCard(cardWidth: 390),
+        const SizedBox(width: 40),
+        SizedBox(
+          width: 400,
+          child: _buildLoginCard(cardWidth: double.infinity),
         ),
       ],
     );
   }
 
-  // ── Mobile layout (logo top, card below, scrollable) ───────────────────────
+  // ── Mobile / Tablet layout (logo top, card below) ───────────────────────────
 
   Widget _buildMobileLayout() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-      child: Column(
-        children: [
-          _buildLogo(logoWidth: 200),
-          const SizedBox(height: 32),
-          _buildLoginCard(cardWidth: double.infinity),
-        ],
-      ),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildLogo(logoWidth: 180),
+        const SizedBox(height: 24),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: _buildLoginCard(cardWidth: double.infinity),
+        ),
+      ],
     );
   }
 
@@ -154,7 +168,6 @@ Future<void> _loadRememberedUser() async {
   Widget _buildLoginCard({required double cardWidth}) {
     return Container(
       width: cardWidth,
-      constraints: const BoxConstraints(maxWidth: 420),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -207,9 +220,7 @@ Future<void> _loadRememberedUser() async {
             color: isSelected ? const Color(0xFFF0F4FF) : Colors.white,
             border: Border(
               bottom: BorderSide(
-                color: isSelected
-                    ? const Color(0xFF2A52BE)
-                    : const Color(0xFFDDDDDD),
+                color: isSelected ? const Color(0xFF2A52BE) : const Color(0xFFDDDDDD),
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -219,11 +230,8 @@ Future<void> _loadRememberedUser() async {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
-              fontWeight:
-                  isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: isSelected
-                  ? const Color(0xFF1A3A8F)
-                  : const Color(0xFF666666),
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+              color: isSelected ? const Color(0xFF1A3A8F) : const Color(0xFF666666),
             ),
           ),
         ),
@@ -271,10 +279,7 @@ Future<void> _loadRememberedUser() async {
                 ),
                 child: Text(
                   authService.error!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red.shade700,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.red.shade700),
                 ),
               ),
 
@@ -321,8 +326,7 @@ Future<void> _loadRememberedUser() async {
               obscureText: _obscurePassword,
               enabled: !authService.isLoading,
               suffixIcon: GestureDetector(
-                onTap: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
+                onTap: () => setState(() => _obscurePassword = !_obscurePassword),
                 child: Icon(
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
                   size: 18,
@@ -342,11 +346,9 @@ Future<void> _loadRememberedUser() async {
                     value: _rememberDevice,
                     onChanged: authService.isLoading
                         ? null
-                        : (v) =>
-                            setState(() => _rememberDevice = v ?? false),
+                        : (v) => setState(() => _rememberDevice = v ?? false),
                     activeColor: const Color(0xFF2A52BE),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(3)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                     side: const BorderSide(color: Color(0xFFCCCCCC)),
                   ),
                 ),
@@ -368,8 +370,7 @@ Future<void> _loadRememberedUser() async {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1A3A8F),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   elevation: 0,
                   disabledBackgroundColor: Colors.grey.shade400,
                 ),
@@ -378,17 +379,14 @@ Future<void> _loadRememberedUser() async {
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           strokeWidth: 2,
                         ),
                       )
                     : const Text(
                         'Sign In',
                         style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5),
+                            fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.5),
                       ),
               ),
             ),
@@ -433,9 +431,7 @@ Future<void> _loadRememberedUser() async {
     return Text(
       text,
       style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          color: Color(0xFF333333)),
+          fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF333333)),
     );
   }
 
@@ -455,10 +451,8 @@ Future<void> _loadRememberedUser() async {
       enabled: enabled,
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle:
-            const TextStyle(color: Color(0xFFBBBBBB), fontSize: 14),
-        prefixIcon:
-            Icon(prefixIcon, size: 18, color: const Color(0xFFAAAAAA)),
+        hintStyle: const TextStyle(color: Color(0xFFBBBBBB), fontSize: 14),
+        prefixIcon: Icon(prefixIcon, size: 18, color: const Color(0xFFAAAAAA)),
         suffixIcon: suffixIcon,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
@@ -470,137 +464,83 @@ Future<void> _loadRememberedUser() async {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
-          borderSide:
-              const BorderSide(color: Color(0xFF2A52BE), width: 1.5),
+          borderSide: const BorderSide(color: Color(0xFF2A52BE), width: 1.5),
         ),
         filled: true,
         fillColor: const Color(0xFFFAFAFA),
-        contentPadding:
-            const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
       ),
     );
   }
 
   // ── Login handler ───────────────────────────────────────────────────────────
 
- Future<void> _handleLogin() async {
-  final email = _emailController.text.trim();
-  final password = _passwordController.text.trim();
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
-  if (email.isEmpty || password.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please enter email and password.'),
-        backgroundColor: Colors.redAccent,
-      ),
-    );
-    return;
-  }
-
-  final authService = context.read<AuthService>();
-  final isAdmin = _selectedTab == 1;
-
-  debugPrint('🔐 Login attempt: $email (admin: $isAdmin)');
-
-  final success = await authService.login(
-    email,
-    password,
-    isAdmin,
-    _rememberDevice,
-  );
-
-  if (!mounted) return;
-
-  if (success) {
-    // ── Remember this device ─────────────────────────────────────
-    final prefs = await SharedPreferences.getInstance();
-
-    if (_rememberDevice) {
-      // Save email
-      await prefs.setString(
-        'remembered_login_user',
-        email,
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter email and password.'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
-
-      // Save password
-      await prefs.setString(
-        'remembered_login_password',
-        password,
-      );
-
-      debugPrint('💾 Remembered login details');
-    } else {
-      // Remove saved email
-      await prefs.remove('remembered_login_user');
-
-      // Remove saved password
-      await prefs.remove('remembered_login_password');
-
-      debugPrint('🗑️ Remembered login details removed');
+      return;
     }
 
-    // ── Existing role-based navigation ───────────────────────────
-    debugPrint(
-      '✅ Login successful! Role: ${authService.userRole}',
-    );
+    final authService = context.read<AuthService>();
+    final isAdmin = _selectedTab == 1;
 
-    _navigateBasedOnRole(
-      authService.userRole,
+    final success = await authService.login(
+      email,
+      password,
       isAdmin,
+      _rememberDevice,
     );
-  } else {
-    debugPrint(
-      '❌ Login failed: ${authService.error}',
-    );
-  }
-} // ── Role-based navigation ───────────────────────────────────────────────────
 
-  /// Navigate to appropriate route based on user's database role
-  /// Handles actual database roles: 'UI/ UX Designer', 'Graphic Designer', 
-  /// 'Digital Marketing', 'Video Editor', 'Web Developer'
+    if (!mounted) return;
+
+    if (success) {
+      final prefs = await SharedPreferences.getInstance();
+
+      if (_rememberDevice) {
+        await prefs.setString('remembered_login_user', email);
+        await prefs.setString('remembered_login_password', password);
+      } else {
+        await prefs.remove('remembered_login_user');
+        await prefs.remove('remembered_login_password');
+      }
+
+      _navigateBasedOnRole(authService.userRole, isAdmin);
+    }
+  }
+
   void _navigateBasedOnRole(String? role, bool isAdmin) {
-  if (isAdmin) {
-    debugPrint('➡️ Navigating to: /admin');
-    Navigator.pushReplacementNamed(context, '/admin');
-    return;
+    if (isAdmin) {
+      Navigator.pushReplacementNamed(context, '/admin');
+      return;
+    }
+
+    final roleStr = role?.toLowerCase().trim() ?? '';
+    String route = '/employee';
+
+    if (roleStr.contains('ui') ||
+        roleStr.contains('ux') ||
+        roleStr.contains('graphic') ||
+        roleStr.contains('designer') ||
+        roleStr.contains('web')) {
+      route = '/designer';
+    } else if (roleStr.contains('video') || roleStr.contains('editor')) {
+      route = '/videographer';
+    } else if (roleStr.contains('ads')) {
+      route = '/adsHandler';
+    } else if (roleStr.contains('page')) {
+      route = '/pageHandler';
+    }
+
+    Navigator.pushReplacementNamed(context, route);
   }
-
-  final roleStr = role?.toLowerCase().trim() ?? '';
-
-  debugPrint('👤 User role: $roleStr');
-
-  String route = '/employee';
-
-  // UI/UX Designer, Graphic Designer, Web Developer
-  if (roleStr.contains('ui') ||
-      roleStr.contains('ux') ||
-      roleStr.contains('graphic') ||
-      roleStr.contains('designer') ||
-      roleStr.contains('web')) {
-    route = '/designer';
-  }
-
-  // Video Editor
-  else if (roleStr.contains('video') ||
-      roleStr.contains('editor')) {
-    route = '/videographer';
-  }
-
-  // Ads Handler
-  else if (roleStr.contains('ads')) {
-    route = '/adsHandler';
-  }
-
-  // Page Handler
-  else if (roleStr.contains('page')) {
-    route = '/pageHandler';
-  }
-
-  debugPrint('➡️ Navigating to: $route');
-
-  Navigator.pushReplacementNamed(context, route);
-}
-
 
   void _handleCreateAccount() {
     debugPrint('Create Admin Account tapped');
