@@ -137,12 +137,10 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   // AuthService actually exposes, so task_list.employee_id is reliably saved.
   dynamic _employeeId;
 
-  @override
+ @override
   void initState() {
-    
     super.initState();
-
-     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
 
     // 🟢 Browser close / tab close aagum pothu trigger aagum
     html.window.onBeforeUnload.listen((event) {
@@ -164,34 +162,66 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     _resolveLoggedInEmployee();
     _fetchTimingData();
     _fetchEmployeeAssignedTasks();
+  
+    
     _initSocketListener();
   }
 
-  void _initSocketListener() {
-    socket = IO.io(
-      ApiConfig.socketUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableForceNew()
-          .disableAutoConnect()
-          .build(),
-    );
+  // void _initSocketListener() {
+  //   socket = IO.io(
+  //     ApiConfig.socketUrl,
+  //     IO.OptionBuilder()
+  //         .setTransports(['websocket'])
+  //         .enableForceNew()
+  //         .disableAutoConnect()
+  //         .build(),
+  //   );
 
-    socket.connect();
+  //   socket.connect();
 
-    socket.on('task_updated', (data) {
-      print("🔥 Real-time assignment update received: $data");
-      if (mounted) {
-        _fetchEmployeeAssignedTasks(); // Auto refresh tasks when assigned by admin!
-      }
-    });
-  }
+  //   socket.on('task_updated', (data) {
+  //    if (mounted) {
+  //       _fetchEmployeeAssignedTasks(); // Auto refresh tasks when assigned by admin!
+  //     }
+  //   });
+  // }
+  
+
+ void _initSocketListener() {
+  socket = IO.io(
+    ApiConfig.socketUrl,
+    IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .enableForceNew()
+        .disableAutoConnect()
+        .build(),
+  );
+
+  socket.connect();
+
+  socket.on('task_updated', (data) {
+    print("🔥 task_updated received: $data");
+
+    if (!mounted) return;
+
+    // START / HOLD / RESTART / COMPLETE / REJECT
+    // tracking item update என்றால் full page refresh செய்யக்கூடாது.
+    if (data is Map &&
+        data['type'] == 'TRACKING_ITEM_UPDATE') {
+      print("⏭️ Tracking action update - keeping current tab/task");
+      return;
+    }
+
+    // Admin புதிய task assign/update செய்தால் மட்டும்
+    // full task list refresh ஆகட்டும்.
+    _fetchEmployeeAssignedTasks();
+  });
+}
 
    @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     socket.dispose();
-    //  _clientSearchController.dispose();
     _horizontalController.dispose();
     for (final t in taskTimers.values) {
       t.cancel();
@@ -201,7 +231,8 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    // Only trigger hold on absolute detachment, preventing accidental pause/refresh state jumps
+    if (state == AppLifecycleState.detached) {
       _holdActiveTaskOnAppClose();
     }
     super.didChangeAppLifecycleState(state);
@@ -506,12 +537,24 @@ print(r.body);
           }
         }
 
-        setState(() {
-          assignedTasks = processed;
-          taskTabNames  = allTabs.toList();
-          if (taskTabNames.isNotEmpty) selectedTabIndex = 0;
-          _loadingTasks = false;
-        });
+        final oldTabIndex = selectedTabIndex;
+
+setState(() {
+  assignedTasks = processed;
+  taskTabNames = allTabs.toList();
+
+  if (taskTabNames.isNotEmpty) {
+    if (oldTabIndex != null &&
+        oldTabIndex >= 0 &&
+        oldTabIndex < taskTabNames.length) {
+      selectedTabIndex = oldTabIndex;
+    } else {
+      selectedTabIndex = 0;
+    }
+  }
+
+  _loadingTasks = false;
+});
         await Future.delayed(const Duration(milliseconds: 100));
 
         // ── Pull real duration + no_of_rows from task_list for every task ────
@@ -528,14 +571,7 @@ print(r.body);
     }
   }
 
-  // ── LOAD SAVED TRACKER DATA and restore all field states (legacy table) ────
-  // FIX: previously this hard-coded rowIndex 0 into the taskId
-  // ('${clientName}_${singleTask}_0'), so any client/task pair that wasn't
-  // the FIRST occurrence in the list silently restored into the wrong row
-  // (or overwrote row 0's data). It now resolves the same index that was
-  // used when the row was originally saved, matching on taskAssignmentId
-  // when the saved row has one.
-  Future<void> _loadSavedTrackerData() async {
+ Future<void> _loadSavedTrackerData() async {
     if (_employeeName == null || _employeeName!.isEmpty) return;
 
     try {
@@ -543,19 +579,12 @@ print(r.body);
         Uri.parse('$_baseUrl/employee-tasks/tracker?employee=$_employeeName'),
       );
 
-      debugPrint('📡 Tracker GET Status: ${r.statusCode}');
-
       if (r.statusCode != 200) return;
 
       final response = jsonDecode(r.body);
       final savedRows = List<dynamic>.from(response['data'] ?? []);
 
-      if (savedRows.isEmpty) {
-        debugPrint('⚠️ No saved rows found for this employee.');
-        return;
-      }
-
-      debugPrint('📦 Restoring ${savedRows.length} saved tracker rows...');
+      if (savedRows.isEmpty) return;
 
       setState(() {
         for (var saved in savedRows) {
@@ -634,8 +663,6 @@ print(r.body);
           if (rejectedTimeStr != null && rejectedTimeStr.isNotEmpty) {
             try { taskRejectedTimes[taskKey] = [DateTime.parse(rejectedTimeStr).toLocal()]; } catch (_) {}
           }
-
-          debugPrint('✅ Restored: $taskKey → status=$statusStr, secs=$totalSecs');
         }
       });
 
@@ -646,35 +673,33 @@ print(r.body);
     }
   }
 
-
 Future<void> _restoreLastExpandedTask() async {
     final prefs = await SharedPreferences.getInstance();
     final savedTabIdx = prefs.getInt('last_selected_tab');
     final savedExpandedId = prefs.getString('last_expanded_task');
 
-    if (savedTabIdx != null && savedTabIdx < taskTabNames.length) {
-      setState(() {
+    setState(() {
+      if (savedTabIdx != null && savedTabIdx < taskTabNames.length) {
         selectedTabIndex = savedTabIdx;
-      });
-    }
+      }
 
-    if (savedExpandedId != null) {
-      for (final tab in taskTabNames) {
-        final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
-        for (int i = 0; i < tasksForTab.length; i++) {
-          final t = tasksForTab[i];
-          final tid = '${t['client_name']}_${t['singleTask']}_$i';
-          if (tid == savedExpandedId) {
-            await _ensureTaskListEntry(t, tid);
-            setState(() {
+      if (savedExpandedId != null) {
+        for (final tab in taskTabNames) {
+          final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
+          for (int i = 0; i < tasksForTab.length; i++) {
+            final t = tasksForTab[i];
+            final tid = '${t['client_name']}_${t['singleTask']}_$i';
+            if (tid == savedExpandedId) {
               expandedTaskId = savedExpandedId;
               selectedTabIndex = taskTabNames.indexOf(tab);
-            });
-            break;
+              // Ensure tracking data for this specific restored task is loaded immediately
+              _ensureTaskListEntry(t, tid);
+              break;
+            }
           }
         }
       }
-    }
+    });
   }
 
   TaskStatus _statusFromString(String s) {
@@ -1136,11 +1161,7 @@ Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowInde
 
  
 
-  // ── ACTION RECORDER — start/hold/restart/complete/reject ───────────────────
-  // FIX: task_action table is gone. These now hit
-  // POST /api/tracking-items/:trackingItemId/{start|hold|restart|complete|reject},
-  // which writes the timestamp straight onto the time_tracking_task_items row.
-  Future<void> _recordTaskAction(
+ Future<void> _recordTaskAction(
       String taskKey, Map<String, dynamic> task, int rowIndex, String taskId, String action) async {
     final taskListId = taskListIds[taskId];
     final trackingItemId = trackingItemIds[taskKey];
@@ -1167,7 +1188,8 @@ Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowInde
       );
       if (r.statusCode == 200) {
         debugPrint('✅ action recorded: $action for $taskKey');
-        await _loadTrackingItemsForTask(taskId, taskListId);
+        // Do NOT call _loadTrackingItemsForTask here, as local states are already 
+        // updated optimistically and instantly by individual _handleX methods.
       } else {
         debugPrint('❌ action failed ($action, ${r.statusCode}): ${r.body}');
       }
@@ -1175,12 +1197,7 @@ Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowInde
       debugPrint('❌ action error ($action): $e');
     }
   }
-
-  // ── FIX: wipes all in-memory row state for one taskId before a fresh
-  // reload. Without this, once taskListIds[taskId] is cached, re-opening a
-  // task never re-fetched tracking items, so wiping the DB (e.g. TRUNCATE
-  // time_tracking_task_items) left old Start/Hold/Completed/Rejected state
-  // showing in the UI even though the backend now has nothing for that task.
+  
   void _clearLocalStateForTask(String taskId) {
     final prefix = '${taskId}_row_';
     final allKeys = <String>{
