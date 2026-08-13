@@ -64,34 +64,87 @@ const emitTaskUpdate = (req, trackingItemId, action) => {
 // All action timestamps are plain columns on this table now, so no JOIN is needed.
 
 function calculateWorkingDuration(row, customEndTime = null) {
-  if (!row.start_time) {
-    return 0;
-  }
+  if (!row.start_time) return 0;
 
-  const start = new Date(row.start_time);
-  const end = customEndTime ? new Date(customEndTime) : (row.complete_time ? new Date(row.complete_time) : new Date());
-
-  let totalSeconds = Math.floor((end - start) / 1000);
-  let holdSeconds = 0;
+  let totalSeconds = 0;
+  let activeStart = new Date(row.start_time);
 
   for (let i = 1; i <= 10; i++) {
     const hold = row[`hold_time_${i}`];
     const restart = row[`restart_time_${i}`];
 
-    if (hold) {
+    // START / RESTART → HOLD
+    if (hold && activeStart) {
       const holdTime = new Date(hold);
-      const restartTime = restart ? new Date(restart) : (customEndTime ? new Date(customEndTime) : new Date());
-      if (restartingTime > holdTime) {
-        holdSeconds += Math.floor((restartTime - holdTime) / 1000);
+
+      if (holdTime > activeStart) {
+        totalSeconds += Math.floor(
+          (holdTime - activeStart) / 1000
+        );
       }
+
+      activeStart = null;
+    }
+
+    // HOLD → RESTART
+    if (restart) {
+      activeStart = new Date(restart);
+    } else if (hold) {
+      // Still on HOLD
+      activeStart = null;
+      break;
     }
   }
 
-  totalSeconds -= holdSeconds;
-  if (totalSeconds < 0) totalSeconds = 0;
+  // Last RESTART → COMPLETE / REJECT
+  if (activeStart) {
+    const end = customEndTime
+      ? new Date(customEndTime)
+      : row.complete_time
+        ? new Date(row.complete_time)
+        : row.reject_time
+          ? new Date(row.reject_time)
+          : new Date();
+
+    if (end > activeStart) {
+      totalSeconds += Math.floor(
+        (end - activeStart) / 1000
+      );
+    }
+  }
 
   return totalSeconds;
 }
+
+// function calculateWorkingDuration(row, customEndTime = null) {
+//   if (!row.start_time) {
+//     return 0;
+//   }
+
+//   const start = new Date(row.start_time);
+//   const end = customEndTime ? new Date(customEndTime) : (row.complete_time ? new Date(row.complete_time) : new Date());
+
+//   let totalSeconds = Math.floor((end - start) / 1000);
+//   let holdSeconds = 0;
+
+//   for (let i = 1; i <= 10; i++) {
+//     const hold = row[`hold_time_${i}`];
+//     const restart = row[`restart_time_${i}`];
+
+//     if (hold) {
+//       const holdTime = new Date(hold);
+//       const restartTime = restart ? new Date(restart) : (customEndTime ? new Date(customEndTime) : new Date());
+//       if (restartTime > holdTime) {
+//         holdSeconds += Math.floor((restartTime - holdTime) / 1000);
+//       }
+//     }
+//   }
+
+//   totalSeconds -= holdSeconds;
+//   if (totalSeconds < 0) totalSeconds = 0;
+
+//   return totalSeconds;
+// }
 
 async function updateDayPlannerWorkingHours(employeeName) {
   try {
@@ -837,6 +890,62 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /tracking-items/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+router.post('/recalculate-completed-durations', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT *
+      FROM time_tracking_task_items
+      WHERE status IN ('COMPLETED', 'REJECTED')
+        AND start_time IS NOT NULL
+    `);
+
+    let updated = 0;
+
+    for (const row of rows) {
+      const endTime =
+        row.complete_time ||
+        row.reject_time ||
+        null;
+
+      const durationSecs = calculateWorkingDuration(
+        row,
+        endTime
+      );
+
+      await db.query(
+        `UPDATE time_tracking_task_items
+         SET duration_secs = ?
+         WHERE id = ?`,
+        [durationSecs, row.id]
+      );
+
+      console.log(
+        `ID ${row.id}: duration_secs = ${durationSecs}`
+      );
+
+      updated++;
+    }
+
+    return res.json({
+      success: true,
+      message: 'Completed durations recalculated successfully',
+      totalUpdated: updated
+    });
+
+  } catch (err) {
+    console.error(
+      'RECALCULATE COMPLETED DURATIONS ERROR:',
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
 

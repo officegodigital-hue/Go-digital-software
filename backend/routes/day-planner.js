@@ -572,7 +572,7 @@ router.post('/submit', async (req, res) => {
 
         message: JSON.stringify({
 
-          preview: `${employeeName} submitted ${currentReportType} Day Planner`,
+          preview: `${employeeName} submitted  Day Planner`,
 
           payload: {
 
