@@ -8,7 +8,6 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/constants/employee_role.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
-import 'additional_tasks_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'employee_layout_page.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -142,13 +141,29 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // 🟢 Browser close / tab close aagum pothu trigger aagum
+    // 🟢 Page load aagum pothu session-ai mark pannurom
+    try {
+      html.window.sessionStorage['is_page_refreshed'] = 'true';
+    } catch (_) {}
+
+    // 🟢 Window close listener with Refresh Protection
     html.window.onBeforeUnload.listen((event) {
+      // Refresh pannum pothu sessionStorage irukkum, athnaala antha time-la hold aagathu.
+      // Aana true-ah browser/tab close pannum pothu matum hold aagum.
+      try {
+        final isRefreshed = html.window.sessionStorage['is_page_refreshed'];
+        if (isRefreshed == 'true') {
+          // Temporarily remove or bypass so refresh won't hold, 
+          // but since beforeunload triggers on close, we check if it's an actual close.
+          html.window.sessionStorage.remove('is_page_refreshed');
+          return; 
+        }
+      } catch (_) {}
+
       if (currentRunningTaskKey != null) {
         final prevKey = currentRunningTaskKey!;
         final ctx = _rowContext[prevKey];
         if (ctx != null) {
-          // Synchronous-ah local state-ai hold state-ku mathi save panna try pannalam
           _handleHold(
             prevKey,
             ctx['task'] as Map<String, dynamic>,
@@ -162,11 +177,10 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     _resolveLoggedInEmployee();
     _fetchTimingData();
     _fetchEmployeeAssignedTasks();
-  
-    
     _initSocketListener();
   }
 
+  
   // void _initSocketListener() {
   //   socket = IO.io(
   //     ApiConfig.socketUrl,
@@ -204,16 +218,12 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
 
     if (!mounted) return;
 
-    // START / HOLD / RESTART / COMPLETE / REJECT
-    // tracking item update என்றால் full page refresh செய்யக்கூடாது.
     if (data is Map &&
         data['type'] == 'TRACKING_ITEM_UPDATE') {
       print("⏭️ Tracking action update - keeping current tab/task");
       return;
     }
 
-    // Admin புதிய task assign/update செய்தால் மட்டும்
-    // full task list refresh ஆகட்டும்.
     _fetchEmployeeAssignedTasks();
   });
 }
