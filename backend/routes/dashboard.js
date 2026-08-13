@@ -549,12 +549,92 @@ router.get("/admin-notifications", async (req, res) => {
 });
 
 // GET /api/dashboard/live-tracking-tasks/:employeeName?date=YYYY-MM-DD
+// router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
+//   const { employeeName } = req.params;
+//   const { date } = req.query; // optional date filter
+
+//   if (!employeeName) {
+//     return res.status(400).json({ success: false, message: 'employeeName is required' });
+//   }
+
+//   try {
+//     const targetDate = date ? date : null;
+
+//     const query = `
+//       SELECT
+//         tl.id AS task_list_id,
+//         tl.client_name,
+//         tl.deliverables AS task,
+//         tti.duration AS estimated_duration,
+//         tti.task_description,
+//         tl.submission_date,
+//         tti.id AS tracking_item_id,
+//         tti.status,
+//         tti.updated_at,
+//         (
+//           SELECT COALESCE(SUM(duration_secs), 0)
+//           FROM time_tracking_task_items t
+//           WHERE t.task_list_id = tl.id
+//         ) AS total_duration_secs,
+//         COALESCE(mr.manager_action, 'ACTION') AS manager_action,
+//         mr.manager_comment
+//       FROM task_list tl
+//       JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+//       LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+//       WHERE tl.employee_name = ?
+//       AND ( ? IS NULL OR DATE(tti.updated_at) = ? )
+//       ORDER BY tti.updated_at DESC
+//     `;
+
+//     const [rows] = await db.query(query, [employeeName, targetDate, targetDate]);
+
+//     // 🟢 Calculate total working seconds for the selected date
+//     let totalWorkingSecs = 0;
+
+//     const data = rows.map((r) => {
+//       const durSecs = r.total_duration_secs || 0;
+//       totalWorkingSecs += durSecs; // Sum up all task durations
+
+//       let durationStr = r.estimated_duration || 'N/A';
+//       if (durSecs > 0) {
+//         const hrs = Math.floor(durSecs / 3600);
+//         const mins = Math.floor((durSecs % 3600) / 60);
+//         durationStr = hrs > 0 ? `${hrs} hrs ${mins} mins` : `${mins} mins`;
+//       }
+
+//       return {
+//         trackingItemId: r.tracking_item_id,
+//         client_name: r.client_name,
+//         employee_name: employeeName,
+//         task: r.task,
+//         duration: durationStr,
+//         status: r.status || 'IDLE',
+//         manager_action: r.manager_action,
+//         manager_comment: r.manager_comment || '',
+//         updated_at: r.updated_at
+//       };
+//     });
+
+//     return res.json({ 
+//       success: true, 
+//       totalWorkingSecs, // Send total secs to frontend
+//       data 
+//     });
+//   } catch (err) {
+//     console.error('GET /dashboard/live-tracking-tasks ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
   const { employeeName } = req.params;
-  const { date } = req.query; // optional date filter
+  const { date } = req.query;
 
   if (!employeeName) {
-    return res.status(400).json({ success: false, message: 'employeeName is required' });
+    return res.status(400).json({
+      success: false,
+      message: 'employeeName is required'
+    });
   }
 
   try {
@@ -565,63 +645,109 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
         tl.id AS task_list_id,
         tl.client_name,
         tl.deliverables AS task,
-        tl.duration AS estimated_duration,
+
+        tti.duration_secs,
+        tti.task_description,
+        
+
         tl.submission_date,
+
         tti.id AS tracking_item_id,
         tti.status,
+        
+        tti.comment,
         tti.updated_at,
-        (
-          SELECT COALESCE(SUM(duration_secs), 0)
-          FROM time_tracking_task_items t
-          WHERE t.task_list_id = tl.id
-        ) AS total_duration_secs,
+
         COALESCE(mr.manager_action, 'ACTION') AS manager_action,
         mr.manager_comment
+
       FROM task_list tl
-      JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
-      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+
+      JOIN time_tracking_task_items tti
+        ON tti.task_list_id = tl.id
+
+      LEFT JOIN manager_review mr
+        ON mr.tracking_item_id = tti.id
+
       WHERE tl.employee_name = ?
-      AND ( ? IS NULL OR DATE(tti.updated_at) = ? )
+        AND (? IS NULL OR DATE(tti.updated_at) = ?)
+
       ORDER BY tti.updated_at DESC
     `;
 
-    const [rows] = await db.query(query, [employeeName, targetDate, targetDate]);
+    const [rows] = await db.query(query, [
+      employeeName,
+      targetDate,
+      targetDate
+    ]);
 
-    // 🟢 Calculate total working seconds for the selected date
+    // Selected date total working time
     let totalWorkingSecs = 0;
 
     const data = rows.map((r) => {
-      const durSecs = r.total_duration_secs || 0;
-      totalWorkingSecs += durSecs; // Sum up all task durations
+      const durationSecs = Number(r.duration_secs) || 0;
 
-      let durationStr = r.estimated_duration || 'N/A';
-      if (durSecs > 0) {
-        const hrs = Math.floor(durSecs / 3600);
-        const mins = Math.floor((durSecs % 3600) / 60);
-        durationStr = hrs > 0 ? `${hrs} hrs ${mins} mins` : `${mins} mins`;
+      totalWorkingSecs += durationSecs;
+
+      let durationStr = '0 mins';
+
+      if (durationSecs > 0) {
+        const hrs = Math.floor(durationSecs / 3600);
+        const mins = Math.floor((durationSecs % 3600) / 60);
+
+        if (hrs > 0 && mins > 0) {
+          durationStr = `${hrs} hrs ${mins} mins`;
+        } else if (hrs > 0) {
+          durationStr = `${hrs} hrs`;
+        } else {
+          durationStr = `${mins} mins`;
+        }
       }
 
       return {
         trackingItemId: r.tracking_item_id,
+
         client_name: r.client_name,
+
         employee_name: employeeName,
+
+        // Task / deliverable
         task: r.task,
+
+        // Task description
+        task_description: r.task_description || '',
+
+        // Actual tracking duration
         duration: durationStr,
+
         status: r.status || 'IDLE',
+
         manager_action: r.manager_action,
+
         manager_comment: r.manager_comment || '',
+
+         comment: r.comment || '',
+         
         updated_at: r.updated_at
       };
     });
 
-    return res.json({ 
-      success: true, 
-      totalWorkingSecs, // Send total secs to frontend
-      data 
+    return res.json({
+      success: true,
+      totalWorkingSecs,
+      data
     });
+
   } catch (err) {
-    console.error('GET /dashboard/live-tracking-tasks ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(
+      'GET /dashboard/live-tracking-tasks ERROR:',
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
 

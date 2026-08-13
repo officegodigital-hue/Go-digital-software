@@ -39,6 +39,7 @@ class EmployeeLayoutPage extends StatefulWidget {
 
 class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   String selectedMenu = 'Dashboard';
+  String searchQuery = '';
   Future<void> loadMenu() async {
   final prefs = await SharedPreferences.getInstance();
 
@@ -54,6 +55,7 @@ Future<void> saveMenu(String menu) async {
 
   setState(() {
     selectedMenu = menu;
+     searchQuery = "";
   });
 }
 @override
@@ -136,7 +138,7 @@ void initState() {
 
   
       case 'Live Tracking Tasks':
-        return LiveTrackingTasksPage();
+        return LiveTrackingTasksPage(searchQuery: searchQuery,);
 
       case 'Daily Reports':
         return const DailyReportsPage();
@@ -154,7 +156,7 @@ void initState() {
         return const VideographerTaskPlannerHistoryPage();
 
       case 'Task Review':
-        return const ManagerReviewScreen();
+        return  ManagerReviewScreen(searchQuery: searchQuery,);
 
       
       case 'Task Status':
@@ -283,6 +285,12 @@ void initState() {
                   setState(() {
                     selectedMenu = 'Assigned Task';
                   });
+                },
+
+                onSearch: (value) {
+    setState(() {
+      searchQuery = value;
+    });
                 },
               ),
             ),

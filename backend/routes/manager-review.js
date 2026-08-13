@@ -132,11 +132,11 @@ router.get('/task-status/:employeeName', async (req, res) => {
           tl.client_name,
           tl.employee_name,
           tl.deliverables AS task,
-          tl.duration AS estimated_duration,
-          tti.status,
+          tti.task_description AS task_description,
           tti.duration_secs,
-          COALESCE(mr.manager_action,'ACTION') AS manager_action,
-          COALESCE(mr.manager_comment,'') AS manager_comment
+          tti.status,
+          COALESCE(mr.manager_action, 'ACTION') AS manager_action,
+          COALESCE(mr.manager_comment, '') AS manager_comment
       FROM time_tracking_task_items tti
 
       JOIN task_list tl
@@ -147,7 +147,7 @@ router.get('/task-status/:employeeName', async (req, res) => {
 
       WHERE
           tl.employee_name = ?
-          AND tti.status='COMPLETED'
+          AND tti.status = 'COMPLETED'
 
       ORDER BY tti.updated_at DESC
       `,
@@ -156,10 +156,7 @@ router.get('/task-status/:employeeName', async (req, res) => {
 
     const data = rows.map(r => ({
       ...r,
-      duration:
-        r.status === "COMPLETED"
-          ? formatDuration(r.duration_secs)
-          : (r.estimated_duration || "N/A")
+      duration: formatDuration(r.duration_secs)
     }));
 
     res.json({
@@ -168,16 +165,15 @@ router.get('/task-status/:employeeName', async (req, res) => {
     });
 
   } catch (err) {
-
-    console.log(err);
+    console.error('GET /manager-review/task-status ERROR:', err);
 
     res.status(500).json({
-      success:false,
-      message:err.message
+      success: false,
+      message: err.message
     });
-
   }
 });
+
 
 // PATCH /api/manager-review/:trackingItemId — find-or-create the review row
 // for this tracking item, then update action and/or comment on it. Either

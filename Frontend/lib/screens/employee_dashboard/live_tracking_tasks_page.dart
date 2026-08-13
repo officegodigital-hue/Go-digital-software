@@ -8,7 +8,11 @@ import '../../services/auth_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class LiveTrackingTasksPage extends StatefulWidget {
-  const LiveTrackingTasksPage({super.key});
+   final String searchQuery;
+  const LiveTrackingTasksPage({
+    super.key,
+     this.searchQuery = '',
+     });
 
   @override
   State<LiveTrackingTasksPage> createState() => _LiveTrackingTasksPageState();
@@ -16,7 +20,7 @@ class LiveTrackingTasksPage extends StatefulWidget {
 
 class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
   static String get _baseUrl => ApiConfig.baseUrl;
-
+String searchQuery = "";
   String activeFilter = "All";
   String loggedInEmployeeName = "";
   bool _isFilterMenuOpen = false;
@@ -106,10 +110,12 @@ Future<void> _fetchLiveTasks() async {
             "trackingItemId": row['trackingItemId'],
             "client": row['client_name'] ?? '',
             "task": row['task'] ?? '',
+             "taskDescription": row['task_description'] ?? '',
             "duration": row['duration'] ?? 'N/A',
             "status": row['status'] ?? 'IDLE',
             "action": row['manager_action'] ?? 'ACTION',
-            "comment": row['manager_comment'] ?? '',
+            // "comment": row['manager_comment'] ?? '',
+            "comment": row['comment'] ?? '',
           };
         }).toList();
 
@@ -167,10 +173,60 @@ Future<void> _fetchLiveTasks() async {
 
   @override
   Widget build(BuildContext context) {
+    // List<Map<String, dynamic>> filteredTasks = liveTasksData.where((row) {
+    //   if (!_isFilterMenuOpen || activeFilter == "All") return true;
+    //   return row["status"].toString().toUpperCase() == activeFilter.toUpperCase();
+    // }).toList();
     List<Map<String, dynamic>> filteredTasks = liveTasksData.where((row) {
-      if (!_isFilterMenuOpen || activeFilter == "All") return true;
-      return row["status"].toString().toUpperCase() == activeFilter.toUpperCase();
-    }).toList();
+  // ─────────────────────────────
+  // STATUS FILTER
+  // ─────────────────────────────
+  final statusMatches =
+      activeFilter == "All" ||
+      row["status"].toString().toUpperCase() ==
+          activeFilter.toUpperCase();
+
+  // ─────────────────────────────
+  // SEARCH FILTER
+  // ─────────────────────────────
+  final search = widget.searchQuery.trim().toLowerCase();
+
+  if (search.isEmpty) {
+    return statusMatches;
+  }
+
+  final client =
+      row["client"]?.toString().toLowerCase() ?? '';
+
+  final task =
+      row["task"]?.toString().toLowerCase() ?? '';
+
+  final duration =
+      row["duration"]?.toString().toLowerCase() ?? '';
+
+  final description =
+      row["taskDescription"]?.toString().toLowerCase() ?? '';
+
+  final status =
+      row["status"]?.toString().toLowerCase() ?? '';
+
+  final action =
+      row["action"]?.toString().toLowerCase() ?? '';
+
+  final comment =
+      row["comment"]?.toString().toLowerCase() ?? '';
+
+  final searchMatches =
+      client.contains(search) ||
+      task.contains(search) ||
+      duration.contains(search) ||
+      description.contains(search) ||
+      status.contains(search) ||
+      action.contains(search) ||
+      comment.contains(search);
+
+  return statusMatches && searchMatches;
+}).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -313,6 +369,7 @@ Future<void> _fetchLiveTasks() async {
                           Expanded(flex: 2, child: Text("CLIENT", style: _headerStyle)),
                           Expanded(flex: 2, child: Text("TASK", style: _headerStyle)),
                           Expanded(flex: 2, child: Text("DURATION", style: _headerStyle)),
+                          Expanded(flex: 2, child: Text("TASK DESCRIPTION", style: _headerStyle)),
                           Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
                           Expanded(flex: 2, child: Text("REVIEW ACTION", style: _headerStyle)),
                           Expanded(flex: 3, child: Text("COMMENT", style: _headerStyle)),
@@ -343,6 +400,7 @@ Future<void> _fetchLiveTasks() async {
                                               Expanded(flex: 2, child: Text(row["client"], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
                                               Expanded(flex: 2, child: Text(row["task"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
                                               Expanded(flex: 2, child: Text(row["duration"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
+                                              Expanded(flex: 2, child: Text(row["taskDescription"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
                                               Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: _buildStatusBadge(row["status"]))),
                                               Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: Text(row["action"], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
                                               Expanded(flex: 3, child: Text(row["comment"].isEmpty ? "-" : row["comment"], style: const TextStyle(fontSize: 12, color: Color(0xFF334155)), overflow: TextOverflow.ellipsis)),

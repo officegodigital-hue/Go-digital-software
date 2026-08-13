@@ -9,7 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO; // Add import
 
 class ManagerReviewScreen extends StatefulWidget {
-  const ManagerReviewScreen({super.key});
+    final String searchQuery;
+
+  const ManagerReviewScreen({
+    super.key,
+    this.searchQuery = '',
+  });
 
   @override
   State<ManagerReviewScreen> createState() => _ManagerReviewScreenState();
@@ -132,6 +137,7 @@ Future<void> _fetchReviewData() async {
             "initials": _initialsFor(employeeName),
             "name": employeeName,
             "task": row['task'] ?? '',
+            "taskDescription": row['task_description'] ?? '',
             "duration": row['duration'] ?? 'N/A',
             "status": row['status'] ?? 'COMPLETED',
             "action":
@@ -367,10 +373,66 @@ void dispose() {
   @override
   Widget build(BuildContext context) {
     // ── REACTIVE DATA FILTERING ENGINE ──
-    List<Map<String, dynamic>> filteredReviews = reviewData.where((row) {
-      if (!_isFilterMenuOpen || activeFilter == "All") return true;
-      return row["action"].toString().toUpperCase() == activeFilter.toUpperCase();
-    }).toList();
+    // List<Map<String, dynamic>> filteredReviews = reviewData.where((row) {
+    //   if (!_isFilterMenuOpen || activeFilter == "All") return true;
+    //   return row["action"].toString().toUpperCase() == activeFilter.toUpperCase();
+    // }).toList();
+
+    final String query = widget.searchQuery.trim().toLowerCase();
+
+List<Map<String, dynamic>> filteredReviews = reviewData.where((row) {
+
+  // Searchable fields
+  final client =
+      (row["client"] ?? "").toString().toLowerCase();
+
+  final employee =
+      (row["name"] ?? "").toString().toLowerCase();
+
+  final task =
+      (row["task"] ?? "").toString().toLowerCase();
+
+  final duration =
+      (row["duration"] ?? "").toString().toLowerCase();
+
+  final taskDescription =
+    (row["taskDescription"] ?? "").toString().toLowerCase();
+
+  final status =
+      (row["status"] ?? "").toString().toLowerCase();
+
+  final action =
+      (row["action"] ?? "").toString().toLowerCase();
+
+  final controller =
+      row["controller"] as TextEditingController?;
+
+  final comment =
+      controller?.text.toLowerCase() ?? "";
+
+  // SEARCH
+  final searchMatches =
+      query.isEmpty ||
+      client.contains(query) ||
+      employee.contains(query) ||
+      task.contains(query) ||
+      taskDescription.contains(query) ||
+      duration.contains(query) ||
+      status.contains(query) ||
+      action.contains(query) ||
+      comment.contains(query);
+
+  if (!searchMatches) {
+    return false;
+  }
+
+  // ACTION FILTER
+  if (!_isFilterMenuOpen || activeFilter == "All") {
+    return true;
+  }
+
+  return action == activeFilter.toLowerCase();
+}).toList();
 
     return Scaffold(
   backgroundColor: const Color(0xFFF8FAFC),
@@ -489,6 +551,10 @@ void dispose() {
                       Expanded(flex: 2, child: Text("CLIENT", style: _headerStyle)),
                       Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
+                      Expanded(
+  flex: 3,
+  child: Text("TASK DESCRIPTION", style: _headerStyle),
+),
                       Expanded(flex: 2, child: Text("TIME/DURATION", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
                       Expanded(flex: 2, child: Text("ACTION", style: _headerStyle)),
@@ -567,6 +633,19 @@ void dispose() {
                                     flex: 2,
                                     child: Text(row["task"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
                                   ),
+                                  // TASK DESCRIPTION
+Expanded(
+  flex: 3,
+  child: Text(
+    row["taskDescription"] ?? "-",
+    style: const TextStyle(
+      fontSize: 13,
+      color: Color(0xFF475569),
+    ),
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+  ),
+),
                                   Expanded(
                                     flex: 2,
                                     child: Text(row["duration"], style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
@@ -635,15 +714,15 @@ void dispose() {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text("Showing 1 to ${filteredReviews.length} of ${filteredReviews.length} review records", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                      Row(
-                        children: [
-                          _buildPageButton("<", false),
-                          _buildPageButton("1", true),
-                          _buildPageButton("2", false),
-                          _buildPageButton("3", false),
-                          _buildPageButton(">", false),
-                        ],
-                      ),
+                      // Row(
+                      //   children: [
+                      //     _buildPageButton("<", false),
+                      //     _buildPageButton("1", true),
+                      //     _buildPageButton("2", false),
+                      //     _buildPageButton("3", false),
+                      //     _buildPageButton(">", false),
+                      //   ],
+                      // ),
                     ],
                   ),
                 ),

@@ -22,12 +22,14 @@ class EmployeeTopbar extends StatefulWidget {
   final EmployeeRole role;
 final VoidCallback? onOpenNotifications;
 final VoidCallback? onOpenAssignedTasks;
+final Function(String)? onSearch;
 
 const EmployeeTopbar({
   super.key,
   required this.role,
   this.onOpenNotifications,
   this.onOpenAssignedTasks,
+  this.onSearch,
 });
 
   @override
@@ -43,11 +45,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
-Timer? _searchDebounce;
 
-List<Map<String, dynamic>> _searchResults = [];
-bool _isSearching = false;
-bool _showSearchResults = false;
 
   @override
   void initState() {
@@ -59,278 +57,11 @@ bool _showSearchResults = false;
   void dispose() {
     _pollingTimer?.cancel();
     _popupTimer?.cancel();
-    _searchDebounce?.cancel();
   _searchController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
 
-Future<void> _searchTasks(String query) async {
-  final searchText = query.trim();
-
-  if (searchText.isEmpty) {
-    if (mounted) {
-      setState(() {
-        _searchResults = [];
-        _showSearchResults = false;
-        _isSearching = false;
-      });
-    }
-    return;
-  }
-
-  final authService = Provider.of<AuthService>(
-    context,
-    listen: false,
-  );
-
-  final employeeName =
-      authService.user?['fullName']?.toString() ?? '';
-
-  if (employeeName.isEmpty) return;
-
-  setState(() {
-    _isSearching = true;
-    _showSearchResults = true;
-  });
-
-  try {
-    final role = _getBackendRole();
-
-    final url = Uri.parse(
-      '${ApiConfig.baseUrl}/tasks/employee/'
-      '${Uri.encodeComponent(employeeName)}/'
-      '${Uri.encodeComponent(role)}',
-    );
-
-    final response = await http.get(url);
-
-    if (response.statusCode != 200) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-
-    final body = jsonDecode(response.body);
-
-    final List rows = body['data'] ?? [];
-
-    final results = rows
-        .map<Map<String, dynamic>>(
-          (e) => Map<String, dynamic>.from(e),
-        )
-        .where((row) {
-          final client =
-              (row['client_name'] ?? '').toString().toLowerCase();
-
-          final task =
-              (row['task'] ?? '').toString().toLowerCase();
-
-          final deliverables =
-              (row['deliverables'] ?? '').toString().toLowerCase();
-
-          final search =
-              searchText.toLowerCase();
-
-          return client.contains(search) ||
-              task.contains(search) ||
-              deliverables.contains(search);
-        })
-        .take(8)
-        .toList();
-
-    if (!mounted) return;
-
-    setState(() {
-      _searchResults = results;
-      _isSearching = false;
-      _showSearchResults = true;
-    });
-  } catch (e) {
-    debugPrint('Search error: $e');
-
-    if (!mounted) return;
-
-    setState(() {
-      _searchResults = [];
-      _isSearching = false;
-    });
-  }
-}
-
-void _onSearchChanged(String value) {
-  _searchDebounce?.cancel();
-
-  _searchDebounce = Timer(
-    const Duration(milliseconds: 400),
-    () {
-      _searchTasks(value);
-    },
-  );
-}
-
-void _openSearchResult(Map<String, dynamic> result) {
-  final clientName =
-      result['client_name']?.toString() ?? '';
-
-  debugPrint('Opening search result: $clientName');
-
-  setState(() {
-    _showSearchResults = false;
-    _searchController.clear();
-    _searchResults = [];
-  });
-
-  FocusScope.of(context).unfocus();
-
-  if (widget.onOpenAssignedTasks != null) {
-    widget.onOpenAssignedTasks!();
-  }
-}
-
-Widget _buildSearchResults() {
-  if (_isSearching) {
-    return const Padding(
-      padding: EdgeInsets.all(20),
-      child: Center(
-        child: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppColors.primary,
-          ),
-        ),
-      ),
-    );
-  }
-
-  if (_searchResults.isEmpty) {
-    return const Padding(
-      padding: EdgeInsets.all(20),
-      child: Row(
-        children: [
-          Icon(
-            Icons.search_off,
-            size: 20,
-            color: AppColors.textGrey,
-          ),
-          SizedBox(width: 10),
-          Text(
-            'No tasks or clients found',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textGrey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  return ListView.separated(
-    shrinkWrap: true,
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    itemCount: _searchResults.length,
-    separatorBuilder: (_, __) => const Divider(
-      height: 1,
-      color: Color(0xFFE2E8F0),
-    ),
-    itemBuilder: (context, index) {
-      final item = _searchResults[index];
-
-      final client =
-          item['client_name']?.toString() ?? '-';
-
-      final task =
-          item['task']?.toString() ?? '';
-
-      final deliverables =
-          item['deliverables']?.toString() ?? '';
-
-      return InkWell(
-        onTap: () => _openSearchResult(item),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 11,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(
-                    alpha: 0.08,
-                  ),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: const Icon(
-                  Icons.business_center_outlined,
-                  size: 17,
-                  color: AppColors.primary,
-                ),
-              ),
-
-              const SizedBox(width: 10),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      client,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-
-                    const SizedBox(height: 3),
-
-                    if (task.isNotEmpty)
-                      Text(
-                        task,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.textGrey,
-                        ),
-                      )
-                    else if (deliverables.isNotEmpty)
-                      Text(
-                        deliverables,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.textGrey,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-              const Icon(
-                Icons.arrow_forward_ios,
-                size: 12,
-                color: AppColors.textGrey,
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
 
   void _startPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
@@ -414,8 +145,7 @@ Widget _buildSearchResults() {
     }
   }
 
-  // Top-right பகுதியில் 3 வினாடிகள் மட்டும் Popup காட்ட வழிமுறை
-  void _triggerTopRightPopup(String message) {
+   void _triggerTopRightPopup(String message) {
     setState(() {
       _latestMessage = message;
       _showPopup = true;
@@ -472,93 +202,55 @@ Widget _buildSearchResults() {
                 SizedBox(
   width: 460,
   height: 38,
-  child: Stack(
-    clipBehavior: Clip.none,
-    children: [
-      Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(
-            color: const Color(0xFFE2E8F0),
-          ),
+  child: Container(
+    height: 38,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF1F5F9),
+      borderRadius: BorderRadius.circular(7),
+      border: Border.all(
+        color: const Color(0xFFE2E8F0),
+      ),
+    ),
+    child: TextField(
+      controller: _searchController,
+      onChanged: (value) {
+        widget.onSearch?.call(value);
+      },
+      decoration: InputDecoration(
+        hintText: 'Search clients, tasks...',
+        hintStyle: const TextStyle(
+          fontSize: 12,
+          color: AppColors.textGrey,
         ),
-        child: TextField(
-          controller: _searchController,
-          onChanged: _onSearchChanged,
-          onTap: () {
-            if (_searchController.text.trim().isNotEmpty) {
-              setState(() {
-                _showSearchResults = true;
-              });
-            }
-          },
-          decoration: InputDecoration(
-            hintText: 'Search clients, tasks...',
-            hintStyle: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textGrey,
-            ),
-            prefixIcon: const Icon(
-              Icons.search,
-              size: 18,
-              color: AppColors.textGrey,
-            ),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(
-                      Icons.close,
-                      size: 16,
-                      color: AppColors.textGrey,
-                    ),
-                    onPressed: () {
-                      _searchController.clear();
-
-                      setState(() {
-                        _searchResults = [];
-                        _showSearchResults = false;
-                      });
-                    },
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 10,
-            ),
-          ),
+        prefixIcon: const Icon(
+          Icons.search,
+          size: 18,
+          color: AppColors.textGrey,
+        ),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(
+                  Icons.close,
+                  size: 16,
+                  color: AppColors.textGrey,
+                ),
+                onPressed: () {
+                  _searchController.clear();
+                  widget.onSearch?.call('');
+                  setState(() {});
+                },
+              )
+            : null,
+        border: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
         ),
       ),
-
-      // SEARCH RESULTS
-      if (_showSearchResults)
-        Positioned(
-          top: 44,
-          left: 0,
-          child: Material(
-            elevation: 10,
-            borderRadius: BorderRadius.circular(10),
-            color: Colors.white,
-            child: Container(
-              width: 460,
-              constraints: const BoxConstraints(
-                maxHeight: 350,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: const Color(0xFFE2E8F0),
-                ),
-              ),
-              child: _buildSearchResults(),
-            ),
-          ),
-        ),
-    ],
+    ),
   ),
 ),
+                
                 const Spacer(),
                 
                 // 🔔 Notification Icon with Red Badge Count
@@ -719,22 +411,9 @@ Widget _buildSearchResults() {
       ),
     );
   }
-  String _getBackendRole() {
-  switch (widget.role) {
-    case EmployeeRole.designer:
-      return 'designer';
-
-    case EmployeeRole.adsHandler:
-      return 'ads handler';
-
-    case EmployeeRole.videographer:
-      return 'videographer';
-
-    case EmployeeRole.pageHandler:
-      return 'page handler';
-  }
-}
-
+ 
+ 
+ 
   String _generateInitials(String name) {
     if (name.isEmpty) return '?';
     final parts = name.trim().split(' ');
