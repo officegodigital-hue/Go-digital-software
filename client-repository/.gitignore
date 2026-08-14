@@ -1,0 +1,10 @@
+node_modules/
+.dart_tool/
+build/
+.gradle/
+Pods/
+local.properties
+*.log
+.env
+.env.*
+hs_err_pid*.log
