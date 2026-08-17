@@ -1682,77 +1682,106 @@ Future<void> _deleteAdditionalTask(
 ),
       const SizedBox(width: 14),
 
-      /// DELIVERABLE
-     Expanded(
+/// DELIVERABLES (Dropdown + "Others" option)
+Expanded(
   flex: 3,
-  child: DropdownButtonFormField<String>(
-    isExpanded: true,
-    initialValue: selectedDeliverable,
-    style: const TextStyle(
-      fontSize: 10,
-      color: Colors.black,
-    ),
-    decoration: const InputDecoration(
-      labelText: "DELIVERABLES :",
-      labelStyle: TextStyle(fontSize: 10),
-      border: OutlineInputBorder(),
-      contentPadding: EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 12,
-      ),
-    ),
-
-    items: taskTimings
-        .map<DropdownMenuItem<String>>((task) {
-      return DropdownMenuItem<String>(
-        value: task["task_name"].toString(),
-        child: Text(
-          task["task_name"].toString(),
+  child: selectedDeliverable == 'Others'
+      ? TextField(
+          key: const ValueKey('custom_deliverable_textfield'),
+          controller: _addDeliverableController,
+          autofocus: true, // Automatically focus aagum
           style: const TextStyle(fontSize: 10),
-          overflow: TextOverflow.ellipsis,
+          decoration: InputDecoration(
+            labelText: "DELIVERABLES (Custom) :",
+            labelStyle: const TextStyle(fontSize: 10),
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              onPressed: () {
+                setState(() {
+                  selectedDeliverable = null;
+                  _addDeliverableController.clear();
+                  _addDurationController.clear();
+                });
+              },
+            ),
+          ),
+        )
+      : DropdownButtonFormField<String>(
+          key: ValueKey(selectedDeliverable),
+          isExpanded: true,
+          value: taskTimings.any((t) => t["task_name"].toString() == selectedDeliverable)
+              ? selectedDeliverable
+              : null,
+          style: const TextStyle(fontSize: 10, color: Colors.black),
+          decoration: const InputDecoration(
+            labelText: "DELIVERABLES :",
+            labelStyle: TextStyle(fontSize: 10),
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          ),
+          items: [
+            ...taskTimings.map<DropdownMenuItem<String>>((task) {
+              return DropdownMenuItem<String>(
+                value: task["task_name"].toString(),
+                child: Text(
+                  task["task_name"].toString(),
+                  style: const TextStyle(fontSize: 10),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }),
+            const DropdownMenuItem<String>(
+              value: 'Others',
+              child: Text(
+                'Others (Type Custom)',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue),
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == null) return;
+            if (value == 'Others') {
+              setState(() {
+                selectedDeliverable = 'Others';
+                _addDeliverableController.clear();
+                _addDurationController.text = '0 mins';
+              });
+            } else {
+              final task = taskTimings.firstWhere(
+                (e) => e["task_name"].toString() == value,
+              );
+              setState(() {
+                selectedDeliverable = value;
+                _addDeliverableController.text = value;
+                _addDurationController.text = task["timing"].toString();
+              });
+            }
+          },
         ),
-      );
-    }).toList(),
-
-    onChanged: (value) {
-      if (value == null) return;
-
-      final task = taskTimings.firstWhere(
-        (e) => e["task_name"].toString() == value,
-      );
-
-      setState(() {
-        selectedDeliverable = value;
-
-        _addDeliverableController.text = value;
-
-        _addDurationController.text =
-            task["timing"].toString();
-      });
-    },
-  ),
 ),
 
       const SizedBox(width: 14),
 
       /// DURATION
-      Expanded(
+/// DURATION
+Expanded(
   flex: 2,
   child: TextField(
     controller: _addDurationController,
-    readOnly: true,
+    readOnly: selectedDeliverable != 'Others', // 'Others' select pannina duration-um type pannalam
     style: const TextStyle(fontSize: 10),
     decoration: const InputDecoration(
       labelText: "DURATION :",
       labelStyle: TextStyle(fontSize: 10),
       border: OutlineInputBorder(),
-      contentPadding: EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 12,
-      ),
+      contentPadding: 
+      EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     ),
   ),
 ),
+
       const SizedBox(width: 14),
 
       /// SUBMISSION DATE
@@ -2041,7 +2070,7 @@ Widget _pageHeader() {
                   selectedTabIndex = visible.first;
                 }
               });
-            },
+            }, 
             fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
               _clientSearchFieldController = controller;
               controller.addListener(() {
