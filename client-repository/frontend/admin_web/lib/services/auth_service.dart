@@ -2,9 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_config.dart';
 
 class AuthService {
-  static const String baseUrl = 'http://localhost:5000/api';
+  String get baseUrl => ApiConfig.baseUrl;
 
   Future<Map<String, dynamic>> login({
     required String email,

@@ -1,10 +1,12 @@
+import '../../services/api_config.dart';
+
 class ApiConstants {
-  static const String baseUrl = 'http://localhost:5000/api';
+  static String get baseUrl => ApiConfig.baseUrl;
 
-  static const String login = '$baseUrl/auth/login';
-  static const String signup = '$baseUrl/auth/signup';
-  static const String me = '$baseUrl/auth/me';
+  static String get login => '$baseUrl/auth/login';
+  static String get signup => '$baseUrl/auth/signup';
+  static String get me => '$baseUrl/auth/me';
 
-  static const String assets = '$baseUrl/assets';
-  static const String repository = '$baseUrl/assets/repository';
+  static String get assets => '$baseUrl/assets';
+  static String get repository => '$baseUrl/assets/repository';
 }
