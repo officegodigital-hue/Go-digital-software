@@ -1112,14 +1112,28 @@ Future<void> _holdActiveTaskOnAppClose() async {
   }
   
   
-  Future<void> _addAdditionalTask() async {
-  if (selectedClient == null || selectedDeliverable == null) {
-    _showSnack(
-      "Please select Client and Deliverable",
-      success: false,
-    );
+Future<void> _addAdditionalTask() async {
+  final customDeliverable = _addDeliverableController.text.trim();
+
+  // Validate fields clearly and show specific alerts
+  if (selectedClient == null) {
+    _showSnack("Please select a Client", success: false);
     return;
   }
+  if (selectedDeliverable == null) {
+    _showSnack("Please select a Deliverable", success: false);
+    return;
+  }
+  if (selectedDeliverable == 'Others' && customDeliverable.isEmpty) {
+    _showSnack("Please enter custom Deliverable name", success: false);
+    return;
+  }
+  if (_addSubmissionDateController.text.isEmpty) {
+    _showSnack("Please select a Submission Date", success: false);
+    return;
+  }
+
+  final finalDeliverable = selectedDeliverable == 'Others' ? customDeliverable : selectedDeliverable!;
 
   _resolveLoggedInEmployee();
 
@@ -1133,7 +1147,7 @@ Future<void> _holdActiveTaskOnAppClose() async {
       },
       body: jsonEncode({
         "clientName": selectedClient,
-        "deliverables": selectedDeliverable,
+        "deliverables": finalDeliverable,
         "duration": _addDurationController.text,
         "submissionDate": DateFormat("yyyy-MM-dd").format(
           DateFormat("dd MMM yyyy").parse(
@@ -1146,8 +1160,9 @@ Future<void> _holdActiveTaskOnAppClose() async {
       }),
     );
 
+    final body = jsonDecode(response.body);
+
     if (response.statusCode == 200 || response.statusCode == 201) {
-      final body = jsonDecode(response.body);
       final task = body["data"];
 
       setState(() {
@@ -1165,8 +1180,8 @@ Future<void> _holdActiveTaskOnAppClose() async {
           });
         }
 
-        if (!taskTabNames.contains(selectedDeliverable)) {
-          taskTabNames.add(selectedDeliverable!);
+        if (!taskTabNames.contains(finalDeliverable)) {
+          taskTabNames.add(finalDeliverable);
         }
 
         selectedClient = null;
@@ -1184,20 +1199,14 @@ Future<void> _holdActiveTaskOnAppClose() async {
         success: true,
       );
     } else {
-      final body = jsonDecode(response.body);
-
-      _showSnack(
-        body["message"] ?? "Failed to add task",
-        success: false,
-      );
+      // Server send panra exact error message-ai kaattum (e.g., missing fields message)
+      final errorMessage = body["message"] ?? "Failed to add task (${response.statusCode})";
+      _showSnack(errorMessage, success: false);
     }
   } catch (e) {
     debugPrint(e.toString());
-
-    _showSnack(
-      "Server Error",
-      success: false,
-    );
+    // Exception/Network error-oda exact details-ai display pannum
+    _showSnack("Error: ${e.toString()}", success: false);
   }
 }
 
