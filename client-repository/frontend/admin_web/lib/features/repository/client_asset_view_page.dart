@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../services/repository_service.dart';
+import '../../services/api_config.dart';
 
 class ClientAssetViewPage extends StatefulWidget {
   final int clientId;
@@ -125,7 +126,7 @@ class _ClientAssetViewPageState extends State<ClientAssetViewPage> {
     if (fileUrl.isNotEmpty) return fileUrl;
 
     if (filePath.isNotEmpty) {
-      return 'http://localhost:5000/$filePath';
+      return '${ApiConfig.baseUrl.replaceFirst('/api', '')}/$filePath';
     }
 
     return link;
