@@ -1,0 +1,11 @@
+**/.dart_tool/
+**/build/
+**/.idea/
+**/*.iml
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+backend/node_modules/
+backend/.env
+backend/uploads/
+.DS_Store
+Thumbs.db

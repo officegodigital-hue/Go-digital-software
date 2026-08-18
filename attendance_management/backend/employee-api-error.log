@@ -1,0 +1,434 @@
+{
+  "timestamp": "2026-08-03T17:12:08.820Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785777126,
+    "exp": 1785780726
+  },
+  "error": {
+    "name": "Error",
+    "message": "The employee database structure is not updated. Ensure the role_name column exists.",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: The employee database structure is not updated. Ensure the role_name column exists.\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:11)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1002:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-03T17:12:16.201Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785777126,
+    "exp": 1785780726
+  },
+  "error": {
+    "name": "Error",
+    "message": "The employee database structure is not updated. Ensure the role_name column exists.",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: The employee database structure is not updated. Ensure the role_name column exists.\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:11)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1002:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-03T17:12:22.582Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785777126,
+    "exp": 1785780726
+  },
+  "error": {
+    "name": "Error",
+    "message": "The employee database structure is not updated. Ensure the role_name column exists.",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: The employee database structure is not updated. Ensure the role_name column exists.\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:11)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1002:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-03T17:17:43.817Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785777461,
+    "exp": 1785781061
+  },
+  "error": {
+    "name": "Error",
+    "message": "The employee database structure is not updated. Ensure the role_name column exists.",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: The employee database structure is not updated. Ensure the role_name column exists.\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:11)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1002:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-03T17:22:40.745Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785777756,
+    "exp": 1785781356
+  },
+  "error": {
+    "name": "Error",
+    "message": "The employee database structure is not updated. Ensure the role_name column exists.",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: The employee database structure is not updated. Ensure the role_name column exists.\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:11)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1002:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:07:20.151Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:07:27.213Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:07:29.876Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:07:30.183Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:07:31.643Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:10:36.598Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:10:54.827Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.deleted_at' in 'where clause'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.deleted_at' in 'where clause'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:14:52.703Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785830836,
+    "exp": 1785834436
+  },
+  "error": {
+    "name": "Error",
+    "message": "Unknown column 'e.email' in 'field list'",
+    "code": null,
+    "errno": null,
+    "sqlState": null,
+    "sqlMessage": null,
+    "sql": null,
+    "stack": "Error: Unknown column 'e.email' in 'field list'\n    at createHttpError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:77:17)\n    at handleDatabaseError (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:431:9)\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:1004:5)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
+{
+  "timestamp": "2026-08-04T08:34:40.862Z",
+  "method": "GET",
+  "originalUrl": "/api/v1/admin/employees?page=1&limit=20",
+  "params": {},
+  "query": {
+    "page": "1",
+    "limit": "20"
+  },
+  "auth": {
+    "userId": null,
+    "employeeId": null,
+    "companyId": 1,
+    "branchId": 1,
+    "role": "admin",
+    "isStaticAdmin": true,
+    "iat": 1785832475,
+    "exp": 1785836075
+  },
+  "error": {
+    "name": "Error",
+    "message": "Incorrect arguments to mysqld_stmt_execute",
+    "code": "ER_WRONG_ARGUMENTS",
+    "errno": 1210,
+    "sqlState": "HY000",
+    "sqlMessage": "Incorrect arguments to mysqld_stmt_execute",
+    "sql": "\n        \n      SELECT\n        e.id AS employee_id,\n        e.user_id AS user_id,\n        e.`employee_code` AS `employee_code`,\n        e.`full_name` AS `full_name`,\n        e.`role_name` AS `role_name`,\n        u.`email` AS `email`,\n        e.`phone` AS `phone`,\n        e.`profile_image_url` AS `profile_image_url`,\n        e.`date_of_joining` AS `date_of_joining`,\n        e.`company_id` AS `company_id`,\n        e.`branch_id` AS `branch_id`,\n        \n      CASE\n        WHEN LOWER(\n          COALESCE(\n            e.`employment_status`,\n            ''\n          )\n        ) = 'active'\n        THEN 1\n        ELSE 0\n      END\n     AS is_active,\n        e.`employment_status` AS status,\n        e.`created_at` AS `created_at`,\n        e.`updated_at` AS `updated_at`,\n        'GODIGITAL' AS `company_code`,\n        c.`name` AS `company_name`,\n        'GUDUVANCHERY' AS `branch_code`,\n        b.`name` AS `branch_name`,\n        NULL AS shift_id,\n        'GENERAL_9_TO_6' AS shift_code,\n        '9:00 AM - 6:00 PM' AS shift_name,\n        '09:00:00' AS shift_start_time,\n        '18:00:00' AS shift_end_time,\n        ec.`username` AS `username`,\n        ec.`role` AS `authentication_role`,\n        ec.`must_change_password` AS `must_change_password`,\n        ec.`is_login_enabled` AS `is_login_enabled`,\n        ec.`last_login_at` AS `last_login_at`,\n        ec.`password_changed_at` AS `password_changed_at`,\n        u.`status` AS `user_status`,\n        u.`role` AS `user_role`\n      FROM employees e\n      LEFT JOIN users u\n      ON u.id = e.user_id\n      LEFT JOIN companies c\n      ON c.id = e.company_id\n      LEFT JOIN branches b\n      ON b.id = e.branch_id\n      LEFT JOIN employee_credentials ec\n        ON ec.employee_id = e.id\n    \n        WHERE e.deleted_at IS NULL\n        ORDER BY\n          e.created_at DESC,\n          e.id DESC\n        LIMIT ?\n        OFFSET ?\n      ",
+    "stack": "Error: Incorrect arguments to mysqld_stmt_execute\n    at Object.getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\services\\employee.service.js:2761:31)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async getEmployees (C:\\Users\\Admin\\attendance_management\\backend\\src\\controllers\\employee.controller.js:470:5)"
+  }
+}
+
