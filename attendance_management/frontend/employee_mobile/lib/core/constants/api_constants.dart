@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'api_config.dart';
 
 class ApiConstants {
   const ApiConstants._();
@@ -7,30 +7,7 @@ class ApiConstants {
   // BASE URL
   // ==============================
 
-  static String get baseUrl {
-    // Flutter Web
-    if (kIsWeb) {
-      // Local Web
-      if (Uri.base.host == 'localhost' ||
-          Uri.base.host == '127.0.0.1') {
-        return 'http://localhost:5002/api/v1';
-      }
-
-      // Production Web
-      return 'https://attendance.godigitalindia.co/api/v1';
-    }
-
-    // Android Release APK
-    if (kReleaseMode) {
-      return 'https://attendance.godigitalindia.co/api/v1';
-    }
-
-    // Android Debug / Emulator
-    return 'http://10.0.2.2:5002/api/v1';
-
-    // Physical Android phone - local testing
-    // return 'http://192.168.1.25:5002/api/v1';
-  }
+  static String get baseUrl => ApiConfig.baseUrl;
 
   // ==============================
   // TIMEOUT
@@ -94,9 +71,7 @@ class ApiConstants {
   static const String leaveApply =
       '/leaves';
 
-  static String leaveCancel(
-    int leaveRequestId,
-  ) {
+  static String leaveCancel(int leaveRequestId) {
     return '/leaves/$leaveRequestId/cancel';
   }
 
