@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class ApiConstants {
   const ApiConstants._();
 
@@ -5,17 +7,30 @@ class ApiConstants {
   // BASE URL
   // ==============================
 
-  // Android Emulator
-static const String baseUrl =
-    'http://127.0.0.1:3000/api/v1';
+  static String get baseUrl {
+    // Flutter Web
+    if (kIsWeb) {
+      // Local Web
+      if (Uri.base.host == 'localhost' ||
+          Uri.base.host == '127.0.0.1') {
+        return 'http://localhost:5002/api/v1';
+      }
 
+      // Production Web
+      return 'https://attendance.godigitalindia.co/api/v1';
+    }
 
-  // For real mobile device use your PC IP:
-  // Example:
-  // static const String baseUrl =
-  //     'http://192.168.1.25:3000/api/v1';
+    // Android Release APK
+    if (kReleaseMode) {
+      return 'https://attendance.godigitalindia.co/api/v1';
+    }
 
+    // Android Debug / Emulator
+    return 'http://10.0.2.2:5002/api/v1';
 
+    // Physical Android phone - local testing
+    // return 'http://192.168.1.25:5002/api/v1';
+  }
 
   // ==============================
   // TIMEOUT
@@ -30,111 +45,54 @@ static const String baseUrl =
   static const Duration sendTimeout =
       Duration(seconds: 20);
 
-
-
   // ==============================
   // AUTHENTICATION
   // ==============================
 
-  // Login
-  // POST /api/v1/auth/login
-
   static const String login =
       '/auth/login';
 
-
-  // Current logged-in employee
-  // GET /api/v1/auth/me
-
   static const String currentUser =
       '/auth/me';
-
-
 
   // ==============================
   // ATTENDANCE
   // ==============================
 
-
-  // Today's attendance
-  // GET /attendance/today
-
   static const String attendanceToday =
       '/attendance/today';
-
-
-
-  // Check In
-  // POST /attendance/check-in
 
   static const String attendanceCheckIn =
       '/attendance/check-in';
 
-
-
-  // Check Out
-  // POST /attendance/check-out
-
   static const String attendanceCheckOut =
       '/attendance/check-out';
-
-
-
-  // Start Break
-  // POST /attendance/breaks/start
 
   static const String attendanceStartBreak =
       '/attendance/breaks/start';
 
-
-
-  // End Break
-  // POST /attendance/breaks/end
-
   static const String attendanceEndBreak =
       '/attendance/breaks/end';
-
-
 
   // ==============================
   // ATTENDANCE HISTORY
   // ==============================
 
-
-  // GET /attendance/history
-
   static const String attendanceHistory =
       '/attendance/history';
-
-
 
   // ==============================
   // LEAVE MANAGEMENT
   // ==============================
 
-
-  // Leave Dashboard
-
   static const String leaveDashboard =
       '/leaves/dashboard';
-
-
-
-  // Leave History
 
   static const String leaveHistory =
       '/leaves/history';
 
-
-
-  // Apply Leave
-
   static const String leaveApply =
       '/leaves';
-
-
-
-  // Cancel Leave
 
   static String leaveCancel(
     int leaveRequestId,
@@ -142,17 +100,11 @@ static const String baseUrl =
     return '/leaves/$leaveRequestId/cancel';
   }
 
-
-
   // ==============================
   // HELPER
   // ==============================
 
-
-  static String imageUrl(
-    String path,
-  ) {
+  static String imageUrl(String path) {
     return '$baseUrl/$path';
   }
-
 }
