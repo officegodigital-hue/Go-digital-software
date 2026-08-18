@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-
+import '../constants/api_config.dart';
 import 'admin_auth_session.dart';
 
 class AdminAuthRepository {
@@ -8,7 +8,7 @@ class AdminAuthRepository {
   }) : _dio = dio ??
             Dio(
               BaseOptions(
-                baseUrl: 'http://localhost:3000/api/v1',
+                baseUrl: '${ApiConfig.baseUrl}/v1',
                 connectTimeout: const Duration(seconds: 15),
                 sendTimeout: const Duration(seconds: 20),
                 receiveTimeout: const Duration(seconds: 20),

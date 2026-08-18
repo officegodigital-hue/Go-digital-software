@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
+import '../../../../core/constants/api_config.dart';
 
 class PayrollApiService {
 
 
-  static const String baseUrl =
-      "http://localhost:3000/api/v1/admin/payroll";
+  static  String baseUrl =
+      "${ApiConfig.baseUrl}/v1/admin/payroll";
 
 
 

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-
+import '../../../../core/constants/api_config.dart';
 import '../../../../core/auth/admin_auth_session.dart';
 import '../models/admin_permission_model.dart';
 
@@ -11,8 +11,8 @@ class AdminPermissionRepository {
 
   final http.Client _client;
 
-  static const String _baseUrl =
-      'http://localhost:3000/api/v1/admin/permissions';
+  static  String get _baseUrl =>
+      '${ApiConfig.baseUrl}/v1/admin/permissions';
 
   Future<Map<String, String>> _headers() async {
     final String? token = await AdminAuthSession.getAccessToken();

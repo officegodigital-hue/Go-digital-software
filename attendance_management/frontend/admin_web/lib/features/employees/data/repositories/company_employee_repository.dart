@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 import '../../../../core/auth/admin_auth_session.dart';
-
+import '../../../../core/constants/api_config.dart';
 import '../models/company_employee.dart';
 
 typedef AccessTokenProvider = FutureOr<String?> Function();
@@ -16,7 +16,7 @@ class CompanyEmployeeRepository {
   }) : _dio = dio ??
             Dio(
               BaseOptions(
-                baseUrl: 'http://localhost:3000/api/v1',
+                baseUrl: '${ApiConfig.baseUrl}/v1',
                 connectTimeout: const Duration(seconds: 15),
                 sendTimeout: const Duration(seconds: 30),
                 receiveTimeout: const Duration(seconds: 30),

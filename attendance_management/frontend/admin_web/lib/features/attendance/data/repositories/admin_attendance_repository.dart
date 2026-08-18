@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-
+import '../../../../core/constants/api_config.dart';
 import '../../../../core/auth/admin_auth_session.dart';
 import '../models/admin_attendance_models.dart';
 
@@ -13,7 +13,7 @@ class AdminAttendanceRepository {
           dio ??
           Dio(
             BaseOptions(
-              baseUrl: 'http://localhost:3000/api/v1',
+              baseUrl: '${ApiConfig.baseUrl}/v1',
               connectTimeout: const Duration(seconds: 15),
               sendTimeout: const Duration(seconds: 30),
               receiveTimeout: const Duration(seconds: 30),

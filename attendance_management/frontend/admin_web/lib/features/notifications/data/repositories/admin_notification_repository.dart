@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../../core/auth/admin_auth_session.dart';
 import '../models/admin_notification_model.dart';
+import'../../../../core/constants/api_config.dart';
 
 class AdminNotificationRepository {
   AdminNotificationRepository({http.Client? client})
@@ -11,8 +12,8 @@ class AdminNotificationRepository {
 
   final http.Client _client;
 
-  static const String _baseUrl =
-      'http://localhost:3000/api/v1/admin/notifications';
+  static  String get _baseUrl =>
+      '${ApiConfig.baseUrl}/v1/admin/notifications';
 
   Future<Map<String, String>> _headers() async {
     final String? token = await AdminAuthSession.getAccessToken();
