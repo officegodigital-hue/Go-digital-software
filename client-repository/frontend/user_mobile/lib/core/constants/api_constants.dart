@@ -25,7 +25,7 @@
 //   }) {
 //     return '$baseUrl/mobile/clients/$clientId/deliverables?category=$categorySlug';
 //   }
-// }
+// } 
 
 import 'package:flutter/foundation.dart';
 

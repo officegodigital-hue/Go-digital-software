@@ -7,7 +7,7 @@ class ApiConfig {
       if (Uri.base.host == 'localhost' ||
           Uri.base.host == '127.0.0.1') {
         return 'http://localhost:5001/api';
-      }
+      } 
 
       // Production
       // Nginx proxies /api to Node.js backend

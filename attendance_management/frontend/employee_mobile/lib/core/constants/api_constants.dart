@@ -1,5 +1,3 @@
-import 'api_config.dart';
-
 class ApiConstants {
   const ApiConstants._();
 
@@ -7,7 +5,9 @@ class ApiConstants {
   // BASE URL
   // ==============================
 
-  static String get baseUrl => ApiConfig.baseUrl;
+  static String get baseUrl {
+    return 'https://attendance.godigitalindia.co/api';
+  }
 
   // ==============================
   // TIMEOUT
