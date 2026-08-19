@@ -3,12 +3,10 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
-// ── Helper: mysql2 returns JSON columns already parsed as JS arrays/objects,
-// but in case it ever comes back as a string (older drivers), parse safely.
-function parseFeatures(features) {
-  if (Array.isArray(features)) return features;
+function parseJSONField(field) {
+  if (Array.isArray(field)) return field;
   try {
-    return JSON.parse(features);
+    return JSON.parse(field);
   } catch (_) {
     return [];
   }
@@ -18,14 +16,15 @@ function parseFeatures(features) {
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, sort_order
+      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order
        FROM packages ORDER BY sort_order ASC, id ASC`
     );
     const data = rows.map(r => ({
       ...r,
-      is_google:  !!r.is_google,
-      is_popular: !!r.is_popular,
-      features:   parseFeatures(r.features),
+      is_google:     !!r.is_google,
+      is_popular:    !!r.is_popular,
+      features:      parseJSONField(r.features),
+      package_tasks: parseJSONField(r.package_tasks),
     }));
     return res.json({ success: true, data });
   } catch (err) {
@@ -38,7 +37,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, sort_order
+      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order
        FROM packages WHERE id = ?`,
       [req.params.id]
     );
@@ -48,7 +47,13 @@ router.get('/:id', async (req, res) => {
     const r = rows[0];
     return res.json({
       success: true,
-      data: { ...r, is_google: !!r.is_google, is_popular: !!r.is_popular, features: parseFeatures(r.features) },
+      data: {
+        ...r,
+        is_google:     !!r.is_google,
+        is_popular:    !!r.is_popular,
+        features:      parseJSONField(r.features),
+        package_tasks: parseJSONField(r.package_tasks),
+      },
     });
   } catch (err) {
     console.error('GET /packages/:id ERROR:', err.message);
@@ -57,25 +62,28 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/packages — create new package
-// Body: { title, subtitle, price, period, isGoogle, isPopular, features: [...] }
 router.post('/', async (req, res) => {
-  const { title, subtitle, price, period, isGoogle, isPopular, features } = req.body;
+  const { title, subtitle, price, period, isGoogle, is_google, isPopular, is_popular, features, package_tasks } = req.body;
+
+  const googleFlag = isGoogle !== undefined ? isGoogle : is_google;
+  const popularFlag = isPopular !== undefined ? isPopular : is_popular;
 
   if (!title || !price || !Array.isArray(features) || features.length === 0)
     return res.status(400).json({ success: false, message: 'title, price and at least one feature are required' });
 
   try {
-    // New package goes to the end of the order
     const [maxRow] = await db.query(`SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM packages`);
     const nextOrder = maxRow[0].maxOrder + 1;
 
     const [result] = await db.query(
-      `INSERT INTO packages (title, subtitle, price, period, is_google, is_popular, features, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO packages (title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title, subtitle || '', price, period || '/Month',
-        isGoogle ? 1 : 0, isPopular ? 1 : 0,
-        JSON.stringify(features), nextOrder,
+        googleFlag ? 1 : 0, popularFlag ? 1 : 0,
+        JSON.stringify(features),
+        JSON.stringify(package_tasks || []),
+        nextOrder,
       ]
     );
 
@@ -84,7 +92,7 @@ router.post('/', async (req, res) => {
       message: 'Package created',
       data: {
         id: result.insertId, title, subtitle: subtitle || '', price, period: period || '/Month',
-        is_google: !!isGoogle, is_popular: !!isPopular, features, sort_order: nextOrder,
+        is_google: !!googleFlag, is_popular: !!popularFlag, features, package_tasks: package_tasks || [], sort_order: nextOrder,
       },
     });
   } catch (err) {
@@ -94,9 +102,11 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/packages/:id — update existing package
-// Body: { title, subtitle, price, period, isGoogle, isPopular, features: [...] }
 router.put('/:id', async (req, res) => {
-  const { title, subtitle, price, period, isGoogle, isPopular, features } = req.body;
+  const { title, subtitle, price, period, isGoogle, is_google, isPopular, is_popular, features, package_tasks } = req.body;
+
+  const googleFlag = isGoogle !== undefined ? isGoogle : is_google;
+  const popularFlag = isPopular !== undefined ? isPopular : is_popular;
 
   if (!title || !price || !Array.isArray(features) || features.length === 0)
     return res.status(400).json({ success: false, message: 'title, price and at least one feature are required' });
@@ -104,12 +114,14 @@ router.put('/:id', async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE packages
-       SET title = ?, subtitle = ?, price = ?, period = ?, is_google = ?, is_popular = ?, features = ?
+       SET title = ?, subtitle = ?, price = ?, period = ?, is_google = ?, is_popular = ?, features = ?, package_tasks = ?
        WHERE id = ?`,
       [
         title, subtitle || '', price, period || '/Month',
-        isGoogle ? 1 : 0, isPopular ? 1 : 0,
-        JSON.stringify(features), req.params.id,
+        googleFlag ? 1 : 0, popularFlag ? 1 : 0,
+        JSON.stringify(features),
+        JSON.stringify(package_tasks || []),
+        req.params.id,
       ]
     );
     if (result.affectedRows === 0)
@@ -135,4 +147,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-module.exports = router;  
+module.exports = router;

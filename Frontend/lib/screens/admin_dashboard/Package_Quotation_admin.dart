@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 
-
 class PackageQuotationAdmin extends StatefulWidget {
   const PackageQuotationAdmin({super.key});
 
@@ -14,7 +13,6 @@ class PackageQuotationAdmin extends StatefulWidget {
 }
 
 class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
-  // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
  
   bool _showAllPackages = true;
@@ -33,10 +31,10 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
   }
 
   @override
-void dispose() {
-  _quotationScrollController.dispose();
-  super.dispose();
-}
+  void dispose() {
+    _quotationScrollController.dispose();
+    super.dispose();
+  }
 
   Future<void> _fetchPackages() async {
     setState(() { _loadingPackages = true; _packagesError = null; });
@@ -154,22 +152,11 @@ void dispose() {
 
   Future<void> _updateQuotationStatus(int id, String status) async {
     try {
-print("Quotation ID: $id");
-print("Status: ACCEPTED");
-
-final response = await http.patch(
-  Uri.parse("$_baseUrl/quotations/$id/status"),
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: jsonEncode({
-    "status": "ACCEPTED",
-  }),
-);
-
-print("Status Code: ${response.statusCode}");
-print("Response Body: ${response.body}");
-
+      final response = await http.patch(
+        Uri.parse("$_baseUrl/quotations/$id/status"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"status": "ACCEPTED"}),
+      );
 
       if (response.statusCode == 200) {
         await _fetchQuotations();
@@ -207,7 +194,7 @@ print("Response Body: ${response.body}");
                           ? "Invoice $invoiceNo was already linked to this quotation."
                           : "Invoice $invoiceNo has been created automatically from this quotation.",
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
                       const SizedBox(height: 24),
                       Row(children: [
@@ -315,9 +302,7 @@ print("Response Body: ${response.body}");
 
       showDialog(
         context: context,
-        
         builder: (_) => Dialog(
-          
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 900, maxHeight: 1000),
@@ -340,7 +325,6 @@ print("Response Body: ${response.body}");
                     ],
                   ),
                 ),
-
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(30, 16, 30, 10),
@@ -350,13 +334,11 @@ print("Response Body: ${response.body}");
                         SizedBox(
                           width: 140,
                           height: 50,
-                          // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
                           child: Image.asset('assets/images/godigital_logo.png', fit: BoxFit.contain),
                         ),
                         const SizedBox(height: 14),
                         _buildHeaderTable(quotationData),
                         const SizedBox(height: 8),
-                       
                         _buildItemsTable(quotationData),
                         _buildSummaryTable(quotationData),
                         const SizedBox(height: 20),
@@ -370,7 +352,6 @@ print("Response Body: ${response.body}");
                             SizedBox(
                               width: 100,
                               height: 100,
-                              // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
                               child: Image.asset('assets/images/office_seal.png', fit: BoxFit.contain),
                             ),
                           ],
@@ -382,7 +363,6 @@ print("Response Body: ${response.body}");
                     ),
                   ),
                 ),
-
                 Container(
                   color: const Color(0xFF1F4E9E),
                   width: double.infinity,
@@ -399,7 +379,6 @@ print("Response Body: ${response.body}");
                     ],
                   ),
                 ),
-
                 Container(
                   padding: const EdgeInsets.all(12),
                   color: Colors.white,
@@ -433,122 +412,72 @@ print("Response Body: ${response.body}");
   }
 
   Widget _buildHeaderTable(Map<String, dynamic> data) {
-  return Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: Colors.black, width: 1),
-    ),
-    child: Column(
-      children: [
-        Container(
-          decoration: const BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: Colors.black, width: 1),
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
+      child: Column(
+        children: [
+          Container(
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black, width: 1))),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.all(10),
+                    decoration: const BoxDecoration(border: Border(right: BorderSide(color: Colors.black, width: 1))),
+                    child: const Text('GO DIGITAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(border: Border(right: BorderSide(color: Colors.black, width: 1))),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Quotation No.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        const SizedBox(height: 2),
+                        Text(data['quotation_no']?.toString() ?? '', style: const TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Quotation Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        const SizedBox(height: 2),
+                        Text(data['quotation_date']?.toString() ?? '', style: const TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: Container(
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.all(10),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      right: BorderSide(color: Colors.black, width: 1),
-                    ),
-                  ),
-                  child: const Text(
-                    'GO DIGITAL',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-              ),
-
-              Expanded(
-                flex: 2,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      right: BorderSide(color: Colors.black, width: 1),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Quotation No.',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 8,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        data['quotation_no']?.toString() ?? '',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              Expanded(
-                flex: 2,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Quotation Date',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 8,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        data['quotation_date']?.toString() ?? '',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            alignment: Alignment.centerLeft,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('TO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+                const SizedBox(height: 2),
+                Text(data['client_name']?.toString() ?? '', style: const TextStyle(fontSize: 10)),
+              ],
+            ),
           ),
-        ),
-
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(10),
-          alignment: Alignment.centerLeft,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'TO',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                data['client_name']?.toString() ?? '',
-                style: const TextStyle(fontSize: 10),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildItemsTable(Map<String, dynamic> data) {
     final itemsList = data['items'] as List<dynamic>? ?? [];
@@ -557,13 +486,13 @@ print("Response Body: ${response.body}");
     return Table(
       border: TableBorder.all(color: Colors.black, width: 1),
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-      columnWidths: const 
-      {
+      columnWidths: const {
         0: FixedColumnWidth(45), 
         1: FlexColumnWidth(2), 
         2: FixedColumnWidth(45), 
         3: FixedColumnWidth(65), 
-        4: FixedColumnWidth(70)},
+        4: FixedColumnWidth(70)
+      },
       children: [
         TableRow(
           decoration: const BoxDecoration(color: Color(0xFFF0F0F0)),
@@ -750,8 +679,8 @@ print("Response Body: ${response.body}");
       currentRoute: "/quotation",
       onSearch: (query) {
         setState(() {
-          _searchQuery = query; // 🔍 Topbar search input varum pothu call aagum
-          _currentPage = 1;     // First page-kku reset seiyum
+          _searchQuery = query;
+          _currentPage = 1;     
         });
       },
       child: Column(
@@ -765,7 +694,7 @@ print("Response Body: ${response.body}");
                 children: const [
                   Text("Package & Quotation", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
                   SizedBox(height: 4),
-                  Text("Manage service tiers and track pending client proposals.", style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                  Text("Manage service tiers and track pending client proposals.", style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                 ],
               ),
               Row(
@@ -773,7 +702,7 @@ print("Response Body: ${response.body}");
                   OutlinedButton.icon(
                     onPressed: () => _showPackageFormDialog(context),
                     icon: const Icon(Icons.add, size: 16, color: Color(0xFF0052CC)),
-                    label: const Text("Create New Package", style: TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 13)),
+                    label: const Text("Create New Package", style: TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 11)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFF0052CC)),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -790,7 +719,7 @@ print("Response Body: ${response.body}");
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                       elevation: 0,
                     ),
-                    label: const Text("Create New Quotation", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                    label: const Text("Create New Quotation", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 11)),
                   ),
                 ],
               ),
@@ -842,7 +771,6 @@ print("Response Body: ${response.body}");
 
   List<Map<String, dynamic>> _buildFilteredQuotations() {
     return quotationsData.where((Map<String, dynamic> row) {
-      // 🔍 Search filtering logic (Quotation No, Client Name, Package Type)
       if (_searchQuery.trim().isNotEmpty) {
         final query = _searchQuery.trim().toLowerCase();
         final quotNo = (row['quotation_no'] ?? '').toString().toLowerCase();
@@ -988,9 +916,9 @@ print("Response Body: ${response.body}");
               children: const [
                 Expanded(flex: 1, child: Text("S.NO", style: _tableHeaderStyle)),
                 Expanded(flex: 3, child: Text("QUOTATION ID", style: _tableHeaderStyle)),
-                Expanded(flex: 4, child: Text("CLIENT NAME", style: _tableHeaderStyle)),
+                Expanded(flex: 3, child: Text("CLIENT NAME", style: _tableHeaderStyle)),
                 Expanded(flex: 2, child: Text("PACKAGE TYPE", style: _tableHeaderStyle)),
-                Expanded(flex: 3, child: Text("AMOUNT", style: _tableHeaderStyle)),
+                Expanded(flex: 2, child: Text("AMOUNT", style: _tableHeaderStyle)),
                 Expanded(flex: 3, child: Text("STATUS", style: _tableHeaderStyle)),
                 Expanded(flex: 3, child: Text("DATE", style: _tableHeaderStyle)),
                 Expanded(flex: 2, child: Text("PDF", style: _tableHeaderStyle)),
@@ -1014,32 +942,32 @@ print("Response Body: ${response.body}");
           else if (pagedQuotations.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: Text("No proposals found in this group category.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13))),
+              child: Center(child: Text("No proposals found in this group category.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11))),
             )
           else
             SizedBox(
-  height: 420,
-  child: Scrollbar(
-    controller: _quotationScrollController,
-    thumbVisibility: true,
-    child: ListView.separated(
-      controller: _quotationScrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: pagedQuotations.length,
-      separatorBuilder: (_, _) => const Divider(
-        height: 1,
-        thickness: 1,
-        color: Color(0xFFE2E8F0),
-      ),
-      itemBuilder: (context, index) {
-        return _buildQuotationRow(
-          pagedQuotations[index],
-          startIndex + index + 1,
-        );
-      },
-    ),
-  ),
-),
+              height: 420,
+              child: Scrollbar(
+                controller: _quotationScrollController,
+                thumbVisibility: true,
+                child: ListView.separated(
+                  controller: _quotationScrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: pagedQuotations.length,
+                  separatorBuilder: (_, _) => const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0xFFE2E8F0),
+                  ),
+                  itemBuilder: (context, index) {
+                    return _buildQuotationRow(
+                      pagedQuotations[index],
+                      startIndex + index + 1,
+                    );
+                  },
+                ),
+              ),
+            ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             decoration: const BoxDecoration(color: Color(0xFFF8FAFC), borderRadius: BorderRadius.vertical(bottom: Radius.circular(8))),
@@ -1064,6 +992,168 @@ print("Response Body: ${response.body}");
     );
   }
 
+// ── EXTRA ADD TASK SUB-DIALOG PICKER ─────────────────────────────────────
+  void _showExtraAddTaskPopup(StateSetter setDialogState, List<TextEditingController> taskCtrls) async {
+    try {
+      final taskMasterResponse = await http.get(Uri.parse('$_baseUrl/task-master'));
+      if (taskMasterResponse.statusCode != 200) return;
+      final taskMasterList = List<Map<String, dynamic>>.from(jsonDecode(taskMasterResponse.body)['data'] ?? []);
+
+      if (!mounted) return;
+
+      final Map<String, String> roleMapping = {
+        'ads_handler_task': 'Ads Handler',
+        'page_handler_task': 'Page Handler',
+        'graphic_designer_task': 'Designer',
+        'videographer_task': 'Videographer',
+        'video_editor_task': 'Video Editor',
+        'ui_ux_designer_task': 'UI/UX Designer',
+        'developer_task': 'Developer',
+      };
+
+      List<String> availableRoleKeys = taskMasterList
+          .map((t) => t['role_key']?.toString() ?? '')
+          .where((k) => k.isNotEmpty)
+          .toSet()
+          .toList();
+
+      if (availableRoleKeys.isEmpty) return;
+
+      String? selectedRoleKey = availableRoleKeys.first;
+      Map<int, int> selectedTaskCounts = {}; // taskId -> count
+
+      await showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return StatefulBuilder(
+            builder: (context, setSubState) {
+              final filteredTasks = taskMasterList.where((t) => t['role_key'] == selectedRoleKey).toList();
+
+              return AlertDialog(
+                title: const Text('Select Tasks from Task Master', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                content: SizedBox(
+                  width: 400,
+                  height: 400,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Select Role:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        value: selectedRoleKey,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                        ),
+                        items: availableRoleKeys.map((rKey) {
+                          String displayName = roleMapping[rKey] ?? rKey.replaceAll('_', ' ').toUpperCase();
+                          return DropdownMenuItem<String>(
+                            value: rKey,
+                            child: Text(displayName, style: const TextStyle(fontSize: 12)),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setSubState(() {
+                            selectedRoleKey = val;
+                            selectedTaskCounts.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Select Task Names & Counts:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: filteredTasks.isEmpty
+                            ? const Center(child: Text('No tasks found for this role.', style: TextStyle(color: Colors.grey, fontSize: 12)))
+                            : ListView.builder(
+                                itemCount: filteredTasks.length,
+                                itemBuilder: (context, index) {
+                                  final task = filteredTasks[index];
+                                  final int taskId = task['id'];
+                                  final String taskName = task['task_name'] ?? '';
+                                  final bool isSelected = selectedTaskCounts.containsKey(taskId);
+
+                                  return CheckboxListTile(
+                                    title: Text(taskName, style: const TextStyle(fontSize: 12)),
+                                    value: isSelected,
+                                    dense: true,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    contentPadding: EdgeInsets.zero,
+                                    onChanged: (bool? checked) {
+                                      setSubState(() {
+                                        if (checked == true) {
+                                          selectedTaskCounts[taskId] = 1;
+                                        } else {
+                                          selectedTaskCounts.remove(taskId);
+                                        }
+                                      });
+                                    },
+                                    secondary: isSelected
+                                        ? SizedBox(
+                                            width: 70,
+                                            height: 32,
+                                            child: TextField(
+                                              keyboardType: TextInputType.number,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Count',
+                                                labelStyle: TextStyle(fontSize: 10),
+                                                contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: const TextStyle(fontSize: 12),
+                                              controller: TextEditingController(text: selectedTaskCounts[taskId].toString()),
+                                              onChanged: (val) {
+                                                int? parsed = int.tryParse(val);
+                                                if (parsed != null && parsed > 0) {
+                                                  selectedTaskCounts[taskId] = parsed;
+                                                }
+                                              },
+                                            ),
+                                          )
+                                        : null,
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC)),
+                    onPressed: () {
+                      setDialogState(() {
+                        for (var entry in selectedTaskCounts.entries) {
+                          final taskObj = taskMasterList.firstWhere((t) => t['id'] == entry.key);
+                          final name = taskObj['task_name'];
+                          final rKey = taskObj['role_key']; 
+                          final count = entry.value;
+                          
+                          // Format including role key: e.g. "GOOGLE ADS (1) [ads_handler_task]"
+                          taskCtrls.add(TextEditingController(text: '$name ($count) [$rKey]'));
+                        }
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Add Package Tasks', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('Error loading task master roles: $e');
+    }
+  }
+
+  
   void _showPackageFormDialog(BuildContext context, {int? editIndex}) {
     final bool isEdit = editIndex != null;
     final Map<String, dynamic>? existing = isEdit ? packagesData[editIndex] : null;
@@ -1073,12 +1163,23 @@ print("Response Body: ${response.body}");
     final TextEditingController priceCtrl = TextEditingController(text: existing?["price"] as String? ?? "");
     final TextEditingController periodCtrl = TextEditingController(text: existing?["period"] as String? ?? "/Month");
 
-    bool isGoogle = (existing?["is_google"] as bool?) ?? false;
     bool isPopular = (existing?["is_popular"] as bool?) ?? false;
 
+    // Regular features controllers list
     final List<TextEditingController> featureCtrls = existing != null
-        ? (List<String>.from((existing["features"] as List?) ?? [])).map((String f) => TextEditingController(text: f)).toList()
+        ? (List<String>.from((existing["features"] as List?) ?? []))
+            .map((String f) => TextEditingController(text: f)).toList()
         : [TextEditingController()];
+
+    // Package tasks controllers list mapping from package_tasks column
+    final List<TextEditingController> packageTaskCtrls = existing != null && existing["package_tasks"] != null
+        ? (List<dynamic>.from(existing["package_tasks"])).map((t) {
+            if (t is Map) {
+              return TextEditingController(text: "${t['task_name']} (${t['count']}) [${t['role_key']}]");
+            }
+            return TextEditingController(text: t.toString());
+          }).toList()
+        : [];
 
     String? dialogError;
     bool isSubmitting = false;
@@ -1087,52 +1188,102 @@ print("Response Body: ${response.body}");
       context: context,
       builder: (BuildContext context) => StatefulBuilder(
         builder: (BuildContext context, StateSetter setDialogState) {
-          void addFeatureRow() => setDialogState(() => featureCtrls.add(TextEditingController()));
-          void removeFeatureRow(int idx) => setDialogState(() => featureCtrls.removeAt(idx));
+          void addFeatureRow() {
+            setDialogState(() => featureCtrls.add(TextEditingController()));
+          }
+
+          void removeFeatureRow(int idx) {
+            setDialogState(() => featureCtrls.removeAt(idx));
+          }
+
+          void addPackageTaskRow() {
+            setDialogState(() => packageTaskCtrls.add(TextEditingController()));
+          }
+
+          void removePackageTaskRow(int idx) {
+            setDialogState(() => packageTaskCtrls.removeAt(idx));
+          }
 
           Future<void> handleSubmit() async {
             final String title = titleCtrl.text.trim();
             final String subtitle = subtitleCtrl.text.trim();
             final String price = priceCtrl.text.trim();
             final String period = periodCtrl.text.trim();
-            final List<String> features = featureCtrls.map((TextEditingController c) => c.text.trim()).where((String f) => f.isNotEmpty).toList();
 
-            if (title.isEmpty || price.isEmpty || features.isEmpty) {
-              setDialogState(() => dialogError = 'Please fill Package Title, Price, and at least one feature');
+            final List<String> features = featureCtrls
+                .map((c) => c.text.trim())
+                .where((f) => f.isNotEmpty)
+                .toList();
+
+            // Structure package_tasks into JSON objects to save in the package_tasks column
+            final List<Map<String, dynamic>> packageTasksPayload = [];
+            for (var ctrl in packageTaskCtrls) {
+              final text = ctrl.text.trim();
+              if (text.isNotEmpty) {
+                final match = RegExp(r'^(.*?)\s*\((\d+)\)\s*\[(.*?)\]$').firstMatch(text);
+                if (match != null) {
+                  packageTasksPayload.add({
+                    "task_name": match.group(1)?.trim(),
+                    "count": int.tryParse(match.group(2) ?? '1') ?? 1,
+                    "role_key": match.group(3)?.trim(),
+                  });
+                } else {
+                  packageTasksPayload.add({
+                    "task_name": text,
+                    "count": 1,
+                    "role_key": "general_task",
+                  });
+                }
+              }
+            }
+
+            if (title.isEmpty || price.isEmpty || (features.isEmpty && packageTasksPayload.isEmpty)) {
+              setDialogState(() => dialogError = 'Please fill Package Title, Price, and at least one feature or task');
               return;
             }
 
-            setDialogState(() { isSubmitting = true; dialogError = null; });
+            setDialogState(() {
+              isSubmitting = true;
+              dialogError = null;
+            });
 
             final Map<String, dynamic> payload = {
               "title": title,
               "subtitle": subtitle,
               "price": price,
               "period": period.isEmpty ? "/Month" : period,
-              "isGoogle": isGoogle,
               "isPopular": isPopular,
               "features": features,
+              "package_tasks": packageTasksPayload, // Sent to new package_tasks column
             };
 
-            final String? error = isEdit ? await _updatePackage(existing!["id"] as int, payload) : await _createPackage(payload);
+            final String? error = isEdit
+                ? await _updatePackage(existing!["id"] as int, payload)
+                : await _createPackage(payload);
 
             if (error == null) {
               if (context.mounted) Navigator.pop(context);
+
               if (mounted) {
-                ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(
-                content: Text(isEdit ? 'Package updated' : 'Package created'),
-                backgroundColor: const Color(0xFF16A34A),
-              ));
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(isEdit ? 'Package updated' : 'Package created'),
+                    backgroundColor: const Color(0xFF16A34A),
+                  ),
+                );
               }
             } else {
-              setDialogState(() { isSubmitting = false; dialogError = error; });
+              setDialogState(() {
+                isSubmitting = false;
+                dialogError = error;
+              });
             }
           }
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
               child: Column(
@@ -1142,8 +1293,16 @@ print("Response Body: ${response.body}");
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(isEdit ? "Edit Package" : "Create New Package", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
-                      IconButton(icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20), onPressed: () => Navigator.pop(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                      Text(
+                        isEdit ? "Edit Package" : "Create New Package",
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                        onPressed: () => Navigator.pop(context),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                     ],
                   ),
                   const Padding(padding: EdgeInsets.symmetric(vertical: 12.0), child: Divider(color: Color(0xFFE2E8F0), height: 1)),
@@ -1151,12 +1310,20 @@ print("Response Body: ${response.body}");
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFFFCA5A5))),
-                      child: Row(children: [
-                        const Icon(Icons.error_outline_rounded, size: 18, color: Color(0xFFDC2626)),
-                        const SizedBox(width: 10),
-                        Expanded(child: Text(dialogError!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFDC2626)))),
-                      ]),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEE2E2),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, size: 18, color: Color(0xFFDC2626)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(dialogError!, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFDC2626))),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -1169,35 +1336,27 @@ print("Response Body: ${response.body}");
                           const SizedBox(height: 14),
                           _dialogField(label: "Subtitle", hint: "e.g. SMART LAUNCH FOR GROWING BRANDS", controller: subtitleCtrl),
                           const SizedBox(height: 14),
-                          Row(children: [
-                            Expanded(child: _dialogField(label: "Price *", hint: "e.g. ₹8,000", controller: priceCtrl)),
-                            const SizedBox(width: 14),
-                            Expanded(child: _dialogField(label: "Period", hint: "e.g. /Month", controller: periodCtrl)),
-                          ]),
+                          Row(
+                            children: [
+                              Expanded(child: _dialogField(label: "Price *", hint: "e.g. ₹8,000", controller: priceCtrl)),
+                              const SizedBox(width: 14),
+                              Expanded(child: _dialogField(label: "Period", hint: "e.g. /Month", controller: periodCtrl)),
+                            ],
+                          ),
                           const SizedBox(height: 16),
-                          Row(children: [
-                            Expanded(child: CheckboxListTile(
-                              value: isGoogle,
-                              onChanged: (bool? v) => setDialogState(() => isGoogle = v ?? false),
-                              title: const Text("Google Ads Package", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                              subtitle: const Text("Shows '(Ad Wallet & Domain Excluded)'", style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              controlAffinity: ListTileControlAffinity.leading,
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                              activeColor: const Color(0xFF0052CC),
-                            )),
-                            Expanded(child: CheckboxListTile(
-                              value: isPopular,
-                              onChanged: (bool? v) => setDialogState(() => isPopular = v ?? false),
-                              title: const Text("Mark as 'Most Popular'", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                              subtitle: const Text("Highlights card in blue", style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              controlAffinity: ListTileControlAffinity.leading,
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                              activeColor: const Color(0xFF0052CC),
-                            )),
-                          ]),
-                          const SizedBox(height: 8),
+                          CheckboxListTile(
+                            value: isPopular,
+                            onChanged: (bool? v) => setDialogState(() => isPopular = v ?? false),
+                            title: const Text("Mark as 'Most Popular'", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                            subtitle: const Text("Highlights card in blue", style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            activeColor: const Color(0xFF0052CC),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // ── PACKAGE FEATURES SECTION ──────────────────────
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -1214,64 +1373,113 @@ print("Response Body: ${response.body}");
                           ...featureCtrls.asMap().entries.map((MapEntry<int, TextEditingController> entry) {
                             final int idx = entry.key;
                             final TextEditingController ctrl = entry.value;
+
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: Row(children: [
-                                const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF22C55E)),
-                                const SizedBox(width: 8),
-                              Expanded(
-  child: SizedBox(
-    height: 40,
-    child: TextField(
-      controller: ctrl,
-      decoration: InputDecoration(
-        hintText: "Feature description",
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF22C55E)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: TextField(
+                                        controller: ctrl,
+                                        decoration: InputDecoration(
+                                          hintText: "Feature description",
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  SizedBox(
+                                    width: 34,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                      splashRadius: 18,
+                                      padding: EdgeInsets.zero,
+                                      onPressed: featureCtrls.length > 1 ? () => removeFeatureRow(idx) : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                ],
+                              ),
+                            );
+                          }),
 
-        // ↓ Smaller horizontal padding
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 10,
-        ),
+                          const SizedBox(height: 16),
+                          const Divider(color: Color(0xFFE2E8F0)),
+                          const SizedBox(height: 12),
 
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
-          borderSide: const BorderSide(
-            color: Color(0xFFCBD5E1),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(4),
-          borderSide: const BorderSide(
-            color: Color(0xFF0052CC),
-          ),
-        ),
-      ),
-    ),
-  ),
-),
+                          // ── PACKAGE TASKS SECTION ─────────────────────────
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("Package Tasks *", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                              Row(
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: () => _showExtraAddTaskPopup(setDialogState, packageTaskCtrls),
+                                    icon: const Icon(Icons.playlist_add, size: 16, color: Color(0xFF16A34A)),
+                                    label: const Text("Extra Add Task", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF16A34A))),
+                                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  TextButton.icon(
+                                    onPressed: addPackageTaskRow,
+                                    icon: const Icon(Icons.add, size: 16, color: Color(0xFF1E293B)),
+                                    label: const Text("Add Task", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ...packageTaskCtrls.asMap().entries.map((MapEntry<int, TextEditingController> entry) {
+                            final int idx = entry.key;
+                            final TextEditingController ctrl = entry.value;
 
-const SizedBox(width: 14),
-
-SizedBox(
-  width: 34,
-  child: IconButton(
-    icon: const Icon(
-      Icons.delete_outline_rounded,
-      color: Color(0xFFDC2626),
-      size: 20,
-    ),
-    splashRadius: 18,
-    padding: EdgeInsets.zero,
-    onPressed: featureCtrls.length > 1
-        ? () => removeFeatureRow(idx)
-        : null,
-  ),
-),
-
-const SizedBox(width: 10),
-]),
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.task_alt_rounded, size: 16, color: Color(0xFF0052CC)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: TextField(
+                                        controller: ctrl,
+                                        decoration: InputDecoration(
+                                          hintText: "Task Name (Count) [role_key]",
+                                          filled: true,
+                                          fillColor: const Color(0xFFF0F6FF),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF93C5FD))),
+                                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  SizedBox(
+                                    width: 34,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                      splashRadius: 18,
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () => removePackageTaskRow(idx),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                ],
+                              ),
                             );
                           }),
                         ],
@@ -1285,25 +1493,28 @@ const SizedBox(width: 10),
                       if (isEdit) ...[
                         OutlinedButton.icon(
                           onPressed: isSubmitting ? null : () {
-                            showDialog(context: context, builder: (_) => AlertDialog(
-                              title: const Text('Delete Package'),
-                              content: Text('Remove "${existing!["title"]}"? This cannot be undone.'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(context);
-                                    Navigator.pop(context);
-                                    _deletePackage(existing["id"] as int);
-                                  },
-                                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
-                                  child: const Text('Delete', style: TextStyle(color: Colors.white)),
-                                ),
-                              ],
-                            ));
+                            showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Delete Package'),
+                                content: Text('Remove "${existing!["title"]}"? This cannot be undone.'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      Navigator.pop(context);
+                                      _deletePackage(existing["id"] as int);
+                                    },
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+                                    child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                                  ),
+                                ],
+                              ),
+                            );
                           },
                           icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
-                          label: const Text("Delete Package", style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 13)),
+                          label: const Text("Delete Package", style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 11)),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Color(0xFFFCA5A5)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
@@ -1319,7 +1530,7 @@ const SizedBox(width: 10),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                         ),
-                        child: const Text("Cancel", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 13)),
+                        child: const Text("Cancel", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 11)),
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton(
@@ -1332,7 +1543,7 @@ const SizedBox(width: 10),
                         ),
                         child: isSubmitting
                             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : Text(isEdit ? "Save Changes" : "Create Package", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            : Text(isEdit ? "Save Changes" : "Create Package", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
                       ),
                     ],
                   ),
@@ -1484,8 +1695,7 @@ const SizedBox(width: 10),
 
   static const TextStyle _tableHeaderStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
 
-  Widget _buildQuotationRow(Map<String, dynamic> row, 
-  int serialNo,) {
+  Widget _buildQuotationRow(Map<String, dynamic> row, int serialNo) {
     final int id = row["id"] as int? ?? 0;
     final String quotNo = row["quotation_no"] as String? ?? '';
     final String client = row["client_name"] as String? ?? '';
@@ -1505,32 +1715,28 @@ const SizedBox(width: 10),
 
     return Container(
       height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       color: Colors.white,
       child: Row(
         children: [
- Expanded(
-  flex: 1,
-  child: Text(
-    serialNo.toString(),
-    style: const TextStyle(
-      fontSize: 13,
-      fontWeight: FontWeight.bold,
-      color: Color(0xFF1E293B),
-    ),
-  ),
-),
-          Expanded(flex: 3, child: Text(quotNo, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
           Expanded(
-            flex: 4,
+            flex: 1,
+            child: Text(
+              serialNo.toString(),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            ),
+          ),
+          Expanded(flex: 3, child: Text(quotNo, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
+          Expanded(
+            flex: 3,
             child: Row(children: [
               CircleAvatar(radius: 12, backgroundColor: const Color(0xFFE2E8F0), child: Text(initials.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)))),
               const SizedBox(width: 10),
-              Expanded(child: Text(client, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Expanded(child: Text(client, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
             ]),
           ),
-          Expanded(flex: 2, child: Text(type, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          Expanded(flex: 3, child: Text(amount, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
+          Expanded(flex: 2, child: Text(type, style: const TextStyle(fontSize: 11, color: Color(0xFF475569)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          Expanded(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
           Expanded(
             flex: 3,
             child: Align(
@@ -1554,7 +1760,7 @@ const SizedBox(width: 10),
               ),
             ),
           ),
-          Expanded(flex: 3, child: Text(date, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
+          Expanded(flex: 3, child: Text(date, style: const TextStyle(fontSize: 11, color: Color(0xFF475569)))),
           Expanded(
             flex: 2,
             child: Row(

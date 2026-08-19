@@ -283,136 +283,367 @@ const [rows] = await db.query(
   }
 });
 
-// PUT /api/tasks/:id — update a task row
+// PUT /api/tasks/:id — update task safely
 router.put('/:id', async (req, res) => {
-  const {
-    clientName, deliverables = '', adsHandling = '', adsPlatform = '', adsSubmitDate =null,
-    pageHandling = '', pagesPlatform = '', pageSubmitDate = null,
-    designer = '', designerTasks = '', designerSubmitDate = null,
-    videographer = '', videographerTasks = '', videographerSubmitDate = null,
-    videoEditor = '',
-videoEditorTask = '',
-videoEditorSubmitDate = null,
-    uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = null,
-    developer = '', developerTasks = '', developerSubmitDate = null,
-    deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
-    assignedByName = 'Admin',
-  } = req.body;
-
   try {
-    const io = req.app.get("io");
-    // FIX: fetch the row BEFORE updating so we can tell which role
-    // assignments actually changed — editing the deadline shouldn't
-    // re-notify every employee on the task with a fresh "assigned" message.
-    const [existingRows] = await db.query(`SELECT * FROM task_assignments WHERE id = ?`, [req.params.id]);
-    if (existingRows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
-    }
-    const existing = existingRows[0];
-
-    const [result] = await db.query(
-      `UPDATE task_assignments SET client_name=?, deliverables=?, ads_handling=?, ads_platform=?, ads_submit_date=?,
-       page_handling=?, pages_platform=?, page_submit_date=?, designer=?, designer_tasks=?, designer_submit_date=?,
-       videographer=?, videographer_tasks=?, videographer_submit_date=?, video_editor=?, video_editor_task=?, video_editor_submit_date=?, 
-       ui_ux_designer=?, ui_ux_tasks=?, ui_ux_submit_date=?,
-       developer=?, developer_tasks=?, developer_submit_date=?, deadline=?, maintenance_date=?, comments=?, is_assigned=?
-       WHERE id=?`,
-    
-[
-  clientName,
-  deliverables,
-  adsHandling,
-  adsPlatform,
-  formatDate(adsSubmitDate),
-
-  pageHandling,
-  pagesPlatform,
-  formatDate(pageSubmitDate),
-
-  designer,
-  designerTasks,
-  formatDate(designerSubmitDate),
-
-  videographer,
-  videographerTasks,
-  formatDate(videographerSubmitDate),
-
-  videoEditor,
-  videoEditorTask,
-  formatDate(videoEditorSubmitDate),
-
-  uiUxDesigner,
-  uiUxTasks,
-  formatDate(uiUxSubmitDate),
-
-  developer,
-  developerTasks,
-  formatDate(developerSubmitDate),
-
-  deadline,
-  maintenanceDate,
-  comments,
-  isAssigned ? 1 : 0,
-
-  req.params.id
-]
-
-
+    // =========================================================
+    // 1. Get existing task
+    // =========================================================
+    const [existingRows] = await db.query(
+      `SELECT * FROM task_assignments WHERE id = ?`,
+      [req.params.id]
     );
 
-    if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Task not found' });
+    if (existingRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Task not found'
+      });
+    }
 
-    // FIX: notify only when a role's employee OR their task text actually
-    // changed from what was already there — not on every save.
-    const roleChanges = [
-      { employeeName: designer,     tasks: designerTasks,     oldEmployee: existing.designer,     oldTasks: existing.designer_tasks },
-      { employeeName: videographer, tasks: videographerTasks, oldEmployee: existing.videographer, oldTasks: existing.videographer_tasks },
-      { employeeName: videoEditor, tasks: videoEditorTask, oldEmployee: existing.video_editor, oldTasks: existing.video_editor_task },
-      { employeeName: uiUxDesigner, tasks: uiUxTasks,         oldEmployee: existing.ui_ux_designer, oldTasks: existing.ui_ux_tasks },
-      { employeeName: developer,    tasks: developerTasks,    oldEmployee: existing.developer,    oldTasks: existing.developer_tasks },
-      { employeeName: adsHandling,  tasks: adsPlatform,       oldEmployee: existing.ads_handling,  oldTasks: existing.ads_platform },
-      { employeeName: pageHandling, tasks: pagesPlatform,     oldEmployee: existing.page_handling, oldTasks: existing.pages_platform },
-    ];
+    const existing = existingRows[0];
 
-//     for (const { employeeName, tasks, oldEmployee, oldTasks } of roleChanges) {
-//       if (!employeeName || employeeName.trim() === '') continue;
-//       const changed = employeeName !== oldEmployee || tasks !== oldTasks;
-//       if (!changed) continue;
+    // =========================================================
+    // Helper functions
+    // =========================================================
 
-//       const isNewAssignment = employeeName !== oldEmployee;
-//       try {
-//         await createNotification({
-//           senderName: assignedByName,
-//           recipientName: employeeName,
-//           message: isNewAssignment
-//             ? `${assignedByName} assigned you a new task${tasks ? `: "${tasks}"` : ''} for ${clientName}.`
-//             : `${assignedByName} updated your task${tasks ? ` to: "${tasks}"` : ''} for ${clientName}.`,
-//         });
-//        const io = req.app.get("io");
+    // Normal field:
+    // - undefined => keep old value
+    // - null      => keep old value
+    // - ""        => keep old value
+    // - actual value => update
+    const keepExisting = (newValue, oldValue) => {
+      if (
+        newValue === undefined ||
+        newValue === null ||
+        (typeof newValue === 'string' && newValue.trim() === '')
+      ) {
+        return oldValue;
+      }
 
-// io.emit("taskAssigned", {
-//   refresh: true,
-// });
-//       } catch (notifyErr) {
-//         console.error('⚠️ task-update notification failed (non-fatal):', notifyErr.message);
-//       }
-//     }
+      return newValue;
+    };
+
+    // Date field:
+    // - undefined => keep old date
+    // - null      => keep old date
+    // - ""        => keep old date
+    // - valid date => update
+    const keepExistingDate = (newValue, oldValue) => {
+      if (
+        newValue === undefined ||
+        newValue === null ||
+        (typeof newValue === 'string' && newValue.trim() === '')
+      ) {
+        return oldValue;
+      }
+
+      const formatted = formatDate(newValue);
+
+      // If formatDate cannot convert it,
+      // do NOT destroy the existing date.
+      if (!formatted) {
+        return oldValue;
+      }
+
+      return formatted;
+    };
+
+    // =========================================================
+    // 2. Read values
+    // =========================================================
+
+    const clientName = keepExisting(
+      req.body.clientName,
+      existing.client_name
+    );
+
+    const deliverables = keepExisting(
+      req.body.deliverables,
+      existing.deliverables
+    );
+
+    // ---------------------------------------------------------
+    // ADS HANDLING
+    // ---------------------------------------------------------
+
+    const adsHandling = keepExisting(
+      req.body.adsHandling,
+      existing.ads_handling
+    );
+
+    const adsPlatform = keepExisting(
+      req.body.adsPlatform,
+      existing.ads_platform
+    );
+
+    const adsSubmitDate = keepExistingDate(
+      req.body.adsSubmitDate,
+      existing.ads_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // PAGE HANDLING
+    // ---------------------------------------------------------
+
+    const pageHandling = keepExisting(
+      req.body.pageHandling,
+      existing.page_handling
+    );
+
+    const pagesPlatform = keepExisting(
+      req.body.pagesPlatform,
+      existing.pages_platform
+    );
+
+    const pageSubmitDate = keepExistingDate(
+      req.body.pageSubmitDate,
+      existing.page_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // DESIGNER
+    // ---------------------------------------------------------
+
+    const designer = keepExisting(
+      req.body.designer,
+      existing.designer
+    );
+
+    const designerTasks = keepExisting(
+      req.body.designerTasks,
+      existing.designer_tasks
+    );
+
+    const designerSubmitDate = keepExistingDate(
+      req.body.designerSubmitDate,
+      existing.designer_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // VIDEOGRAPHER
+    // ---------------------------------------------------------
+
+    const videographer = keepExisting(
+      req.body.videographer,
+      existing.videographer
+    );
+
+    const videographerTasks = keepExisting(
+      req.body.videographerTasks,
+      existing.videographer_tasks
+    );
+
+    const videographerSubmitDate = keepExistingDate(
+      req.body.videographerSubmitDate,
+      existing.videographer_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // VIDEO EDITOR
+    // ---------------------------------------------------------
+
+    const videoEditor = keepExisting(
+      req.body.videoEditor,
+      existing.video_editor
+    );
+
+    const videoEditorTask = keepExisting(
+      req.body.videoEditorTask,
+      existing.video_editor_task
+    );
+
+    const videoEditorSubmitDate = keepExistingDate(
+      req.body.videoEditorSubmitDate,
+      existing.video_editor_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // UI / UX DESIGNER
+    // ---------------------------------------------------------
+
+    const uiUxDesigner = keepExisting(
+      req.body.uiUxDesigner,
+      existing.ui_ux_designer
+    );
+
+    const uiUxTasks = keepExisting(
+      req.body.uiUxTasks,
+      existing.ui_ux_tasks
+    );
+
+    const uiUxSubmitDate = keepExistingDate(
+      req.body.uiUxSubmitDate,
+      existing.ui_ux_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // DEVELOPER
+    // ---------------------------------------------------------
+
+    const developer = keepExisting(
+      req.body.developer,
+      existing.developer
+    );
+
+    const developerTasks = keepExisting(
+      req.body.developerTasks,
+      existing.developer_tasks
+    );
+
+    const developerSubmitDate = keepExistingDate(
+      req.body.developerSubmitDate,
+      existing.developer_submit_date
+    );
+
+    // ---------------------------------------------------------
+    // COMMON FIELDS
+    // ---------------------------------------------------------
+
+    const deadline = keepExisting(
+      req.body.deadline,
+      existing.deadline
+    );
+
+    const maintenanceDate = keepExisting(
+      req.body.maintenanceDate,
+      existing.maintenance_date
+    );
+
+    const comments = keepExisting(
+      req.body.comments,
+      existing.comments
+    );
+
+    const isAssigned =
+      req.body.isAssigned !== undefined
+        ? (req.body.isAssigned ? 1 : 0)
+        : existing.is_assigned;
+
+    // =========================================================
+    // 3. UPDATE DATABASE
+    // =========================================================
+
+    await db.query(
+      `UPDATE task_assignments
+       SET
+         client_name=?,
+         deliverables=?,
+
+         ads_handling=?,
+         ads_platform=?,
+         ads_submit_date=?,
+
+         page_handling=?,
+         pages_platform=?,
+         page_submit_date=?,
+
+         designer=?,
+         designer_tasks=?,
+         designer_submit_date=?,
+
+         videographer=?,
+         videographer_tasks=?,
+         videographer_submit_date=?,
+
+         video_editor=?,
+         video_editor_task=?,
+         video_editor_submit_date=?,
+
+         ui_ux_designer=?,
+         ui_ux_tasks=?,
+         ui_ux_submit_date=?,
+
+         developer=?,
+         developer_tasks=?,
+         developer_submit_date=?,
+
+         deadline=?,
+         maintenance_date=?,
+         comments=?,
+         is_assigned=?
+
+       WHERE id=?`,
+      [
+        clientName,
+        deliverables,
+
+        adsHandling,
+        adsPlatform,
+        adsSubmitDate,
+
+        pageHandling,
+        pagesPlatform,
+        pageSubmitDate,
+
+        designer,
+        designerTasks,
+        designerSubmitDate,
+
+        videographer,
+        videographerTasks,
+        videographerSubmitDate,
+
+        videoEditor,
+        videoEditorTask,
+        videoEditorSubmitDate,
+
+        uiUxDesigner,
+        uiUxTasks,
+        uiUxSubmitDate,
+
+        developer,
+        developerTasks,
+        developerSubmitDate,
+
+        deadline,
+        maintenanceDate,
+        comments,
+        isAssigned,
+
+        req.params.id
+      ]
+    );
+
+    // =========================================================
+    // 4. Socket update
+    // =========================================================
+
     try {
-  const io = req.app.get('io');
-  if (io) {
-    io.emit('task_updated', { 
-      type: 'TASK_ASSIGNED', 
-      message: 'New task assigned by admin' 
-    });
-  }
-} catch (socketErr) {
-  console.error('Socket emit error:', socketErr);
-}
+      const io = req.app.get('io');
 
-    return res.json({ success: true, message: 'Task updated' });
+      if (io) {
+        io.emit('task_updated', {
+          type: 'TASK_ASSIGNED',
+          message: 'Task updated'
+        });
+      }
+    } catch (socketErr) {
+      console.error(
+        'Socket emit error:',
+        socketErr
+      );
+    }
+
+    // =========================================================
+    // 5. Response
+    // =========================================================
+
+    return res.json({
+      success: true,
+      message: 'Task updated safely without wiping existing data'
+    });
+
   } catch (err) {
-    console.error('PUT /tasks/:id ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(
+      'PUT /tasks/:id ERROR:',
+      err.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
 
