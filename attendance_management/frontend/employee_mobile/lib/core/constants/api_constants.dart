@@ -5,9 +5,9 @@ class ApiConstants {
   // BASE URL
   // ==============================
 
-  static String get baseUrl {
-    return 'https://attendance.godigitalindia.co/api';
-  }
+static String get baseUrl {
+  return 'https://attendance.godigitalindia.co/api/v1';
+}
 
   // ==============================
   // TIMEOUT
