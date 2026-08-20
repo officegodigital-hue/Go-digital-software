@@ -279,15 +279,143 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     }
   }
 
+  // Future<void> _showTaskMasterDialog() async {
+  //   final roleController = TextEditingController();
+  //   final taskController = TextEditingController();
+  //   String newRoleName = '';
+  //   String selectedRole = taskRoles.entries.isNotEmpty ? taskRoles.entries.first.key : '';
+  //   String taskName = '';
+  //   bool isEditing = false;
+  //   int? editingTaskId;
+
+  //   await _fetchTaskRoles();
+
+  //   await showDialog(
+  //     context: context,
+  //     barrierColor: Colors.black12,
+  //     builder: (ctx) => StatefulBuilder(
+  //       builder: (ctx, setDialogState) => Dialog(
+  //         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  //         child: ConstrainedBox(
+  //           constraints: const BoxConstraints(maxWidth: 550, maxHeight: 750),
+  //           child: Column(
+  //             mainAxisSize: MainAxisSize.min,
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Container(
+  //                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  //                 decoration: const BoxDecoration(
+  //                   color: Color(0xFF0052CC),
+  //                   borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+  //                 ),
+  //                 child: Row(
+  //                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  //                   children: [
+  //                     const Text('Task Master Manager', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+  //                     GestureDetector(onTap: () => Navigator.pop(ctx), child: const Icon(Icons.close, size: 18, color: Colors.white)),
+  //                   ],
+  //                 ),
+  //               ),
+  //               Expanded(
+  //                 child: SingleChildScrollView(
+  //                   child: Padding(
+  //                     padding: const EdgeInsets.all(16),
+  //                     child: Column(
+  //                       crossAxisAlignment: CrossAxisAlignment.start,
+  //                       children: [
+  //                         Container(
+  //                           padding: const EdgeInsets.all(12),
+  //                           decoration: BoxDecoration(
+  //                             color: const Color(0xFFFFF3CD),
+  //                             border: Border.all(color: const Color(0xFFFFD700)),
+  //                             borderRadius: BorderRadius.circular(6),
+  //                           ),
+  //                           child: Column(
+  //                             crossAxisAlignment: CrossAxisAlignment.start,
+  //                             children: [
+  //                               const Text('📌 Create New Task Role', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF856404))),
+  //                               const SizedBox(height: 12),
+  //                               const Text('Role Name:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+  //                               const SizedBox(height: 8),
+  //                               TextField(
+  //                                 controller: roleController,
+  //                                 onChanged: (val) => setDialogState(() => newRoleName = val),
+  //                                 decoration: InputDecoration(
+  //                                   hintText: 'e.g., Content Creator Task',
+  //                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+  //                                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+  //                                   filled: true,
+  //                                   fillColor: Colors.white,
+  //                                 ),
+  //                                 style: const TextStyle(fontSize: 11),
+  //                               ),
+  //                               const SizedBox(height: 12),
+  //                               Row(
+  //                                 children: [
+  //                                   const Spacer(),
+  //                                   ElevatedButton.icon(
+  //                                     onPressed: newRoleName.trim().isEmpty ? null : () async {
+  //                                       final roleKey = _toSnakeCase(newRoleName);
+  //                                       final success = await _addNewRoleToBackend(newRoleName, roleKey);
+  //                                       if (success) {
+  //                                         setDialogState(() {
+  //                                           roleController.clear();
+  //                                           newRoleName = '';
+  //                                           selectedRole = roleKey;
+  //                                         });
+  //                                       }
+  //                                     },
+  //                                     icon: const Icon(Icons.add, size: 16),
+  //                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFA500)),
+  //                                     label: const Text('Add New Role', style: TextStyle(color: Colors.white, fontSize: 11)),
+  //                                   ),
+  //                                 ],
+  //                               ),
+  //                             ],
+  //                           ),
+  //                         ),
+  //                       ],
+  //                     ),
+  //                   ),
+  //                 ),
+  //               ),
+  //               Container(
+  //                 padding: const EdgeInsets.all(12),
+  //                 decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
+  //                 child: Row(
+  //                   mainAxisAlignment: MainAxisAlignment.end,
+  //                   children: [
+  //                     TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: Color(0xFF64748B)))),
+  //                   ],
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  //   roleController.dispose();
+  //   taskController.dispose();
+  // }
+
+
+    // ── SHOW TASK MASTER MANAGEMENT DIALOG ──────────────────────────────────
   Future<void> _showTaskMasterDialog() async {
+    // Create controllers ONCE for the entire dialog lifecycle
     final roleController = TextEditingController();
     final taskController = TextEditingController();
+ 
+
     String newRoleName = '';
-    String selectedRole = taskRoles.entries.isNotEmpty ? taskRoles.entries.first.key : '';
+    String selectedRole = taskRoles.entries.isNotEmpty
+        ? taskRoles.entries.first.key
+        : '';
     String taskName = '';
     bool isEditing = false;
     int? editingTaskId;
 
+    // Fetch fresh roles from backend when dialog opens
     await _fetchTaskRoles();
 
     await showDialog(
@@ -302,6 +430,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Header
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: const BoxDecoration(
@@ -311,11 +440,17 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Task Master Manager', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
-                      GestureDetector(onTap: () => Navigator.pop(ctx), child: const Icon(Icons.close, size: 18, color: Colors.white)),
+                      const Text('Task Master Manager',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(ctx),
+                        child: const Icon(Icons.close, size: 18, color: Colors.white),
+                      ),
                     ],
                   ),
                 ),
+
+                // Content
                 Expanded(
                   child: SingleChildScrollView(
                     child: Padding(
@@ -323,6 +458,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // ═══════════════════════════════════════════════════════
+                          // SECTION 1: ADD NEW TASK ROLE
+                          // ═══════════════════════════════════════════════════════
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -333,15 +471,29 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('📌 Create New Task Role', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF856404))),
+                                const Text(
+                                  '📌 Create New Task Role',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF856404),
+                                  ),
+                                ),
                                 const SizedBox(height: 12),
-                                const Text('Role Name:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                                const Text(
+                                  'Role Name:',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                ),
                                 const SizedBox(height: 8),
                                 TextField(
                                   controller: roleController,
-                                  onChanged: (val) => setDialogState(() => newRoleName = val),
+                                  onChanged: (val) {
+                                    setDialogState(() {
+                                      newRoleName = val;
+                                    });
+                                  },
                                   decoration: InputDecoration(
-                                    hintText: 'e.g., Content Creator Task',
+                                    hintText: 'e.g., Content Creator Task, SEO Specialist Task',
                                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     filled: true,
@@ -352,24 +504,199 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                 const SizedBox(height: 12),
                                 Row(
                                   children: [
+                                    Expanded(
+                                      child: Text(
+                                        newRoleName.isEmpty
+                                            ? '(Role key will auto-generate in snake_case)'
+                                            : '(Key: ${_toSnakeCase(newRoleName)})',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Color(0xFF64748B),
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
                                     const Spacer(),
                                     ElevatedButton.icon(
-                                      onPressed: newRoleName.trim().isEmpty ? null : () async {
-                                        final roleKey = _toSnakeCase(newRoleName);
-                                        final success = await _addNewRoleToBackend(newRoleName, roleKey);
-                                        if (success) {
+                                      onPressed: newRoleName.trim().isEmpty
+                                          ? null
+                                          : () async {
+                                              final roleKey = _toSnakeCase(newRoleName);
+                                              final roleName = newRoleName;
+
+                                              // Save to backend
+                                              final success = await _addNewRoleToBackend(roleName, roleKey);
+
+                                              if (success) {
+                                                // Clear input after successful save
+                                                setDialogState(() {
+                                                  roleController.clear();
+                                                  newRoleName = '';
+                                                  selectedRole = roleKey;
+                                                });
+
+                                                if (mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text('✅ Role "$roleName" created!'),
+                                                      backgroundColor: Colors.green,
+                                                      duration: const Duration(seconds: 2),
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                            },
+                                      icon: const Icon(Icons.add, size: 16),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: newRoleName.trim().isEmpty ? Colors.grey : const Color(0xFFFFA500),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      ),
+                                      label: const Text('Add New Role',
+                                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+                          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                          const SizedBox(height: 16),
+
+                          // ═══════════════════════════════════════════════════════
+                          // SECTION 2: ADD TASK TO ROLE
+                          // ═══════════════════════════════════════════════════════
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              border: Border.all(color: const Color(0xFFBFDBFE)),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '✏️ Manage Tasks for Role',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF1D4ED8),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                const Text('Select Task Role:',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                                const SizedBox(height: 6),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: taskRoles.containsKey(selectedRole) ? selectedRole : (taskRoles.isNotEmpty ? taskRoles.entries.first.key : null),
+                                      isExpanded: true,
+                                      icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B), size: 16),
+                                      items: taskRoles.entries
+                                          .map((e) => DropdownMenuItem(
+                                              value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 11))))
+                                          .toList(),
+                                      onChanged: (val) {
+                                        if (val != null) {
                                           setDialogState(() {
-                                            roleController.clear();
-                                            newRoleName = '';
-                                            selectedRole = roleKey;
+                                            selectedRole = val;
+                                            taskController.clear();
+                                            taskName = '';
+                                            isEditing = false;
+                                            editingTaskId = null;
                                           });
                                         }
                                       },
-                                      icon: const Icon(Icons.add, size: 16),
-                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFA500)),
-                                      label: const Text('Add New Role', style: TextStyle(color: Colors.white, fontSize: 11)),
                                     ),
-                                  ],
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text('Task Name:',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                                const SizedBox(height: 6),
+                                TextField(
+                                  controller: taskController,
+                                  onChanged: (val) {
+                                    setDialogState(() => taskName = val);
+                                  },
+                                  decoration: InputDecoration(
+                                    hintText: 'Enter task name (e.g., Poster, Video, Reels)',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                  ),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text('Existing Tasks:',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                                const SizedBox(height: 6),
+                                Container(
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    borderRadius: BorderRadius.circular(4),
+                                    color: Colors.white,
+                                  ),
+                                  child: getTasksForRole(selectedRole).isEmpty
+                                      ? Center(
+                                          child: Text(
+                                            'No tasks yet. Add one above! ⬆️',
+                                            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
+                                        )
+                                      : ListView(
+                                          children: getTasksForRole(selectedRole).map((task) {
+                                            return ListTile(
+                                              dense: true,
+                                              title: Text(task['task_name'] ?? '',
+                                                  style: const TextStyle(fontSize: 11)),
+                                              trailing: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(Icons.edit, size: 14, color: Color(0xFF0052CC)),
+                                                    onPressed: () {
+                                                      setDialogState(() {
+                                                        taskName = task['task_name'] ?? '';
+                                                        taskController.text = taskName;
+                                                        isEditing = true;
+                                                        editingTaskId = task['id'];
+                                                      });
+                                                    },
+                                                  ),
+                                                  IconButton(
+                                                    icon: const Icon(Icons.delete, size: 14, color: Color(0xFFDC2626)),
+                                                    onPressed: () async {
+                                                      await _deleteTask(task['id']);
+                                                      await _fetchTaskMaster();
+                                                      setDialogState(() {
+                                                        taskController.clear();
+                                                        taskName = '';
+                                                        isEditing = false;
+                                                        editingTaskId = null;
+                                                      });
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
                                 ),
                               ],
                             ),
@@ -379,13 +706,62 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                     ),
                   ),
                 ),
+
+                // Footer
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: Color(0xFF64748B)))),
+                      TextButton(
+                        onPressed: () {
+                          roleController.dispose();
+                          taskController.dispose();
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text('Close', style: TextStyle(color: Color(0xFF64748B))),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: taskName.trim().isEmpty
+                            ? null
+                            : () async {
+                                if (isEditing) {
+                                  await _updateTask(editingTaskId!, taskName, selectedRole);
+                                } else {
+                                  await _addNewTask(taskName, selectedRole);
+                                }
+
+                                // Refresh tasks immediately
+                                await _fetchTaskMaster();
+
+                                // Clear input and update dialog state
+                                setDialogState(() {
+                                  taskController.clear();
+                                  taskName = '';
+                                  isEditing = false;
+                                  editingTaskId = null;
+                                });
+
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(isEditing ? '✅ Task updated!' : '✅ Task added!'),
+                                      backgroundColor: Colors.green,
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: taskName.trim().isEmpty ? Colors.grey : const Color(0xFF0052CC),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        child: Text(isEditing ? 'Update' : 'Add Task',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
                     ],
                   ),
                 ),
@@ -395,9 +771,114 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         ),
       ),
     );
+
+    // Dispose controllers when dialog closes
     roleController.dispose();
     taskController.dispose();
   }
+  
+  
+  // ── ADD NEW TASK TO TASK MASTER ────────────────────────────────────────
+  Future<void> _addNewTask(String taskName, String roleKey) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/task-master'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'task_name': taskName,
+          'role_key': roleKey,
+        }),
+      );
+
+      if (response.statusCode != 201 && response.statusCode != 200) {
+        final body = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(body['message'] ?? 'Failed to add task'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error adding task: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── UPDATE EXISTING TASK ────────────────────────────────────────────────
+  Future<void> _updateTask(int taskId, String taskName, String roleKey) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$_baseUrl/task-master/$taskId'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'task_name': taskName,
+          'role_key': roleKey,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        final body = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(body['message'] ?? 'Failed to update task'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error updating task: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── DELETE TASK FROM TASK MASTER ───────────────────────────────────────
+  Future<void> _deleteTask(int taskId) async {
+    try {
+      final response = await http.delete(Uri.parse('$_baseUrl/task-master/$taskId'));
+
+      if (response.statusCode != 200) {
+        final body = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(body['message'] ?? 'Failed to delete task'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error deleting task: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
 
  // ── SHOW TASK SELECTION POPUP WITH ROLE & COUNT ────────────────────────
   Future<void> _showTaskSelectionPopup({
