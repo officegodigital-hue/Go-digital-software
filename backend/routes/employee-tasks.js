@@ -29,7 +29,8 @@ router.get('/by-employee/:name', async (req, res) => {
       ta.ads_submit_date,
       ta.page_submit_date,
       ta.ui_ux_submit_date,
-      ta.developer_submit_date
+      ta.developer_submit_date,
+      ta.website_designer_submit_date
    FROM task_assignments ta
    WHERE(
       UPPER(ta.designer)       LIKE ? OR
@@ -38,11 +39,13 @@ router.get('/by-employee/:name', async (req, res) => {
       UPPER(ta.ads_handling)   LIKE ? OR
       UPPER(ta.page_handling)  LIKE ? OR
       UPPER(ta.ui_ux_designer) LIKE ? OR
-      UPPER(ta.developer)      LIKE ?
+      UPPER(ta.developer)      LIKE ? OR
+      UPPER(ta.website_designer) LIKE ?
     )
       AND ta.is_assigned = 1
    ORDER BY ta.created_at DESC`,
 [
+  `%${name}%`,
   `%${name}%`,
   `%${name}%`,
   `%${name}%`,

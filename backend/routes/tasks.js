@@ -40,6 +40,7 @@ const ROLE_FIELDS = [
   { employeeField: 'developer',    tasksField: 'developerTasks',    label: 'developer_tasks_col' },
   { employeeField: 'adsHandling',  tasksField: 'adsPlatform',       label: 'ads_platform_col' },
   { employeeField: 'pageHandling', tasksField: 'pagesPlatform',     label: 'pages_platform_col' },
+  { employeeField: 'websiteDesigner', tasksField: 'websiteDesignerTasks',     label: 'website_designer_tasks_col' },
 ];
 
 // GET /api/tasks — all task rows
@@ -96,6 +97,14 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       taskColumn = 'pages_platform';
       break;
 
+      case 'website designer':
+case 'website designer task':
+case 'website_designer':
+case 'website_designer_task':
+  employeeColumn = 'website_designer';
+  taskColumn = 'website_designer_tasks';
+  break;
+
     default:
       return res.status(400).json({
         success: false,
@@ -150,6 +159,7 @@ router.post('/', async (req, res) => {
     videoEditor = '', videoEditorTask = '', videoEditorSubmitDate = null,
     uiUxDesigner = '', uiUxTasks = '', uiUxSubmitDate = null,
     developer = '', developerTasks = '', developerSubmitDate = null,
+    websiteDesigner = '', websiteDesignerTasks = '', websiteDesignerSubmitDate = null,
     deadline = '', maintenanceDate = '', comments = '', isAssigned = false,
     assignedByName = 'Admin',
   } = req.body;
@@ -163,8 +173,10 @@ router.post('/', async (req, res) => {
        page_handling, pages_platform, page_submit_date, designer, designer_tasks, designer_submit_date, 
        videographer, videographer_tasks, videographer_submit_date, 
        video_editor, video_editor_task, video_editor_submit_date, ui_ux_designer, ui_ux_tasks, ui_ux_submit_date, 
-       developer, developer_tasks, developer_submit_date, deadline, maintenance_date, comments, is_assigned) 
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       developer, developer_tasks, developer_submit_date,
+       website_designer, website_designer_tasks, website_designer_submit_date,
+       deadline, maintenance_date, comments, is_assigned) 
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       // [clientName, deliverables, adsHandling, adsPlatform, adsSubmitDate, 
       //  pageHandling, pagesPlatform, pageSubmitDate, designer, designerTasks, designerSubmitDate, 
       //  videographer, videographerTasks, videographerSubmitDate, videoEditor, videoEditorTask, videoEditorSubmitDate, 
@@ -197,9 +209,14 @@ router.post('/', async (req, res) => {
  uiUxTasks,
  formatDate(uiUxSubmitDate),
 
+
  developer,
  developerTasks,
  formatDate(developerSubmitDate),
+
+websiteDesigner,
+websiteDesignerTasks,
+formatDate(websiteDesignerSubmitDate),
 
  deadline,
  maintenanceDate,
@@ -218,6 +235,7 @@ router.post('/', async (req, res) => {
       developer:    { employeeName: developer,    tasks: developerTasks },
       adsHandling:  { employeeName: adsHandling,  tasks: adsPlatform },
       pageHandling: { employeeName: pageHandling, tasks: pagesPlatform },
+      websiteDesigner: {  employeeName: websiteDesigner, tasks: websiteDesignerTasks },
     };
 
     // ✅ Task assign seiyum pothu (isAssigned true-a irunthal) notification send agum
@@ -497,6 +515,25 @@ router.put('/:id', async (req, res) => {
     );
 
     // ---------------------------------------------------------
+// WEBSITE DESIGNER
+// ---------------------------------------------------------
+
+const websiteDesigner = keepExisting(
+  req.body.websiteDesigner,
+  existing.website_designer
+);
+
+const websiteDesignerTasks = keepExisting(
+  req.body.websiteDesignerTasks,
+  existing.website_designer_tasks
+);
+
+const websiteDesignerSubmitDate = keepExistingDate(
+  req.body.websiteDesignerSubmitDate,
+  existing.website_designer_submit_date
+);
+
+    // ---------------------------------------------------------
     // COMMON FIELDS
     // ---------------------------------------------------------
 
@@ -558,6 +595,10 @@ router.put('/:id', async (req, res) => {
          developer_tasks=?,
          developer_submit_date=?,
 
+         website_designer=?,
+website_designer_tasks=?,
+website_designer_submit_date=?,
+
          deadline=?,
          maintenance_date=?,
          comments=?,
@@ -591,10 +632,16 @@ router.put('/:id', async (req, res) => {
         uiUxDesigner,
         uiUxTasks,
         uiUxSubmitDate,
+        
+
 
         developer,
         developerTasks,
         developerSubmitDate,
+
+        websiteDesigner,
+websiteDesignerTasks,
+websiteDesignerSubmitDate,
 
         deadline,
         maintenanceDate,
@@ -680,6 +727,7 @@ router.patch('/:id/assign', async (req, res) => {
         { employeeName: task.developer,    tasks: task.developer_tasks },
         { employeeName: task.ads_handling,  tasks: task.ads_platform },
         { employeeName: task.page_handling, tasks: task.pages_platform },
+        {  employeeName: task.website_designer,  tasks: task.website_designer_tasks},
       ];
 
       for (const { employeeName, tasks } of assignments) {

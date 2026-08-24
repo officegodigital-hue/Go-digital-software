@@ -2,7 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
-
+ 
 // GET /api/invoices/next-number — generates the next INV-YYYY-#### number
 // router.get('/next-number', async (req, res) => {
 //   try {
