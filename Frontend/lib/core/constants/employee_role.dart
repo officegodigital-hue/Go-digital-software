@@ -61,7 +61,7 @@ extension EmployeeRoleExtension on EmployeeRole {
         return [
           'Dashboard',
           'Day Planner',
-          'Daily Reports',
+          // 'Daily Reports',
           'Assigned Task',
           'Live Tracking Tasks',
           'Task Planner',
@@ -74,7 +74,7 @@ extension EmployeeRoleExtension on EmployeeRole {
         return [
           'Dashboard',
           'Day Planner',
-          'Daily Reports',
+          // 'Daily Reports',
           'Assigned Task',
           'Live Tracking Tasks',
           'Task Planner',

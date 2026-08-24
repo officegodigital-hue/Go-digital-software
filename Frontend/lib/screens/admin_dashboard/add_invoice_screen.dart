@@ -1036,7 +1036,7 @@ void _selectClient(Map<String, dynamic> client) {
                           pw.SizedBox(height: 6),
                         ],
 
-                        if (agreedToTerms) ...[
+                        // if (agreedToTerms) ...[
                           pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 8)),
                           pw.SizedBox(height: 2),
                           ...termsController.text.split('\n').map((term) {
@@ -1049,7 +1049,7 @@ void _selectClient(Map<String, dynamic> client) {
                             );
                           }),
                           // pw.SizedBox(height: 12),
-                        ],
+                        // ],
 
                         // pw.Spacer(),
 
