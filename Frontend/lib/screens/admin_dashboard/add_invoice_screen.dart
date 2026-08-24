@@ -26,7 +26,7 @@ class _InvoiceItemRow {
     String description = '',
     String rate = '0.00',
     String qty = '1',
-    String tax = '18.00',
+    String tax = '0.00',
     String discount = '0.00',
     String paid = '0.00',
   })  : descriptionCtrl = TextEditingController(text: description),
@@ -881,7 +881,7 @@ void _selectClient(Map<String, dynamic> client) {
                           border: pw.TableBorder.all(color: black, width: 1),
                           columnWidths: {
                             0: const pw.FlexColumnWidth(3),
-                            1: const pw.FixedColumnWidth(135),
+                            1: const pw.FixedColumnWidth(125),
                           },
                           children: [
 
@@ -996,7 +996,7 @@ void _selectClient(Map<String, dynamic> client) {
     ],
   ),
 
-                            if (balance > 0)
+                            if (paid > 0 && balance > 0)
   pw.TableRow(children: [
     pw.Container(
       padding: const pw.EdgeInsets.all(4),
@@ -1445,13 +1445,19 @@ if (balanceAmount < 0) {
                                   : _buildDescriptionField(_items[i]),
                             ),
                           ),
-                          // Rate
+
                           SizedBox(
                             width: 80,
-                            child: _items[i].isPackageRow
-                                ? _buildReadOnlyRateField(_items[i].rateCtrl)
-                                : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
+                            child : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
                           ),
+
+                          // Rate
+                          // SizedBox(
+                          //   width: 80,
+                          //   child: _items[i].isPackageRow
+                          //       ? _buildReadOnlyRateField(_items[i].rateCtrl)
+                          //       : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
+                          // ),
                           const SizedBox(width: 6),
                           // QTY
                           SizedBox(
