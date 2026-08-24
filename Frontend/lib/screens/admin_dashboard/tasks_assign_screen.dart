@@ -133,6 +133,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       row['video_editor_task'] = '';
       row['ui_ux_tasks'] = '';
       row['developer_tasks'] = '';
+      row['website_designer_tasks'] = '';
 
       Map<String, List<String>> roleTaskMap = {};
 
@@ -155,6 +156,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       if (roleTaskMap.containsKey('video_editor_task')) row['video_editor_task'] = roleTaskMap['video_editor_task']!.join(', ');
       if (roleTaskMap.containsKey('ui_ux_designer_task')) row['ui_ux_tasks'] = roleTaskMap['ui_ux_designer_task']!.join(', ');
       if (roleTaskMap.containsKey('developer_task')) row['developer_tasks'] = roleTaskMap['developer_task']!.join(', ');
+      if (roleTaskMap.containsKey('website_designer_task')) row['website_designer_tasks'] = roleTaskMap['website_designer_task']!.join(', ');
     }
 
     await _saveRow(row);
@@ -225,11 +227,26 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/employees'));
       if (r.statusCode == 200) {
-        final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
-        setState(() {
-          employees = data.map((e) => (e['full_name'] ?? '').toString().toUpperCase()).toList();
-          _loadingEmployees = false;
-        });
+        // final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+        // setState(() {
+        //   employees = data.map((e) => (e['full_name'] ?? '').toString().toUpperCase()).toList();
+        //   _loadingEmployees = false;
+        // });
+        final data =
+    List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+
+setState(() {
+  employees = data
+      .where((e) =>
+          e['is_active'] == 1 ||
+          e['is_active'] == true)
+      .map((e) =>
+          (e['full_name'] ?? '').toString().toUpperCase())
+      .where((name) => name.isNotEmpty)
+      .toList();
+
+  _loadingEmployees = false;
+});
       } else {
         setState(() => _loadingEmployees = false);
       }
@@ -314,7 +331,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   //                     const Text('Task Master Manager', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
   //                     GestureDetector(onTap: () => Navigator.pop(ctx), child: const Icon(Icons.close, size: 18, color: Colors.white)),
   //                   ],
-  //                 ),
+  //                 ), 
   //               ),
   //               Expanded(
   //                 child: SingleChildScrollView(
@@ -1147,6 +1164,11 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
           'developerTasks': row['developer_tasks'] ?? '',
           'developerSubmitDate': row['developer_submit_date'] ?? '',
           
+          // Website Designer fields
+          'websiteDesigner':_cleanRoleValue(row['website_designer']),
+          'websiteDesignerTasks':row['website_designer_tasks'] ?? '',
+          'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
+          
           // Others
           'deadline': _cleanRoleValue(row['deadline']),
           'comments': row['comments'] ?? '',
@@ -1376,6 +1398,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                  _HeaderCell(width: 140, label: "DEVELOPER"),
                                  _HeaderCell(width: 160, label: "DEV TASKS"),
                                  _HeaderCell(width: 140, label: "DEV DATE"),
+                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER",),
+                                 _HeaderCell(width: 160,label: "WEBSITE DESIGNER TASKS",),
+                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER DATE",),
                                  _HeaderCell(width: 140, label: "DEADLINE"),
                                  _HeaderCell(width: 160, label: "COMMENTS"),
                                  _HeaderCell(width: 140, label: "ACTION"),
@@ -1588,6 +1613,38 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
         SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
+        SizedBox(
+  width: 140,
+  child: _empDropCell(
+    140,
+    empVal('website_designer'),
+    empItems,
+    onChanged: (v) {
+      setState(() {
+        row['website_designer'] = v;
+      });
+      _saveRow(row);
+    },
+  ),
+),
+
+SizedBox(
+  width: 160,
+  child: taskCell(
+    160,
+    'website_designer_task',
+    'website_designer_tasks',
+  ),
+),
+
+SizedBox(
+  width: 140,
+  child: _dateCell(
+    140,
+    'website_designer_submit_date',
+    row,
+  ),
+),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),

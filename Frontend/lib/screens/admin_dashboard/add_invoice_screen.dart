@@ -301,7 +301,8 @@ void _hideClientOverlay() {
           clientNameController.text = data['client_name'] ?? '';
           dateController.text = data['invoice_date'] ?? '';
           maintenanceDateController.text = data['maintenance_date'] ?? '';
-          discountController.text = double.tryParse(data['discount'].toString())?.toStringAsFixed(2) ?? '0.00';
+          // discountController.text = double.tryParse(data['discount'].toString())?.toStringAsFixed(2) ?? '0.00';
+          discountController.text = '0.00';
           notesController.text = data['notes'] ?? '';
           termsController.text = data['terms'] ?? termsController.text;
           includeGST = data['include_gst'] == 1 || data['include_gst'] == true;
@@ -370,30 +371,68 @@ void _hideClientOverlay() {
   //   return taxable + taxAmt;
   // }
 
-  double _rowAmount(_InvoiceItemRow row) {
+//   double _rowAmount(_InvoiceItemRow row) {
+//   final rate = _parseAmount(row.rateCtrl.text);
+//   final qty = int.tryParse(row.qtyCtrl.text) ?? 1;
+//   final taxPct = _parseAmount(row.taxCtrl.text);
+
+//   // Discount is Amount (₹), NOT %
+//   final discountAmt = _parseAmount(row.discountCtrl.text);
+
+//   final base = rate * qty;
+//   final taxAmt = base * (taxPct / 100);
+
+//   double amount = base + taxAmt - discountAmt;
+
+//   if (amount < 0) amount = 0;
+
+//   return amount;
+// }
+
+// double _rowAmount(_InvoiceItemRow row) {
+//   final rate = _parseAmount(row.rateCtrl.text);
+//   final qty = int.tryParse(row.qtyCtrl.text) ?? 1;
+//   final taxPct = _parseAmount(row.taxCtrl.text);
+//   //final discountAmt = _parseAmount(row.discountCtrl.text);
+
+//   final base = rate * qty;
+//   final taxAmt = includeGST ? (base * (taxPct / 100)) : 0.0;
+
+//   // double amount = base + taxAmt - discountAmt;
+//   // if (amount < 0) amount = 0;
+
+//   // return amount;
+
+//    return base + taxAmt;
+// }
+
+double _rowAmount(_InvoiceItemRow row) {
   final rate = _parseAmount(row.rateCtrl.text);
   final qty = int.tryParse(row.qtyCtrl.text) ?? 1;
   final taxPct = _parseAmount(row.taxCtrl.text);
 
-  // Discount is Amount (₹), NOT %
-  final discountAmt = _parseAmount(row.discountCtrl.text);
-
   final base = rate * qty;
-  final taxAmt = base * (taxPct / 100);
+  final taxAmt = includeGST ? (base * (taxPct / 100)) : 0.0;
 
-  double amount = base + taxAmt - discountAmt;
-
-  if (amount < 0) amount = 0;
-
-  return amount;
+  return base + taxAmt;
 }
 
-  double _rowPending(_InvoiceItemRow row) {
-    final amount = _rowAmount(row);
-    final paid = _parseAmount(row.paidCtrl.text);
-    final pending = amount - paid;
-    return pending < 0 ? 0 : pending;
-  }
+  // double _rowPending(_InvoiceItemRow row) {
+  //   final amount = _rowAmount(row);
+  //   final paid = _parseAmount(row.paidCtrl.text);
+  //   final pending = amount - paid;
+  //   return pending < 0 ? 0 : pending;
+  // }
+
+double _rowPending(_InvoiceItemRow row) {
+  final amount = _rowAmount(row);
+  final discount = _parseAmount(row.discountCtrl.text);
+  final paid = _parseAmount(row.paidCtrl.text);
+
+  final pending = amount - discount - paid;
+
+  return pending < 0 ? 0 : pending;
+}
 
   double _calculateTotalPending() {
     double totalPending = 0;
@@ -674,7 +713,7 @@ void _selectClient(Map<String, dynamic> client) {
 
                 pw.Expanded(
                   child: pw.Padding(
-                    padding: const pw.EdgeInsets.fromLTRB(30, 16, 30, 10),
+                    padding: const pw.EdgeInsets.fromLTRB(20, 10, 20, 10),
                     child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
@@ -684,7 +723,7 @@ void _selectClient(Map<String, dynamic> client) {
                           child: pw.Image(logoImage, fit: pw.BoxFit.contain),
                         ),
 
-                        pw.SizedBox(height: 14),
+                        pw.SizedBox(height: 3),
 
                         pw.Container(
                           decoration: pw.BoxDecoration(border: pw.Border.all(color: black, width: 1)),
@@ -766,7 +805,7 @@ void _selectClient(Map<String, dynamic> client) {
                           ),
                         ),
 
-                        pw.SizedBox(height: 8),
+                        // pw.SizedBox(height: 8),
                         
                         pw.Table(
                           border: pw.TableBorder.all(color: black, width: 1),
@@ -775,9 +814,9 @@ void _selectClient(Map<String, dynamic> client) {
                           columnWidths: {
                             0: const pw.FixedColumnWidth(30),
                             1: const pw.FlexColumnWidth(2),
-                            2: const pw.FixedColumnWidth(45),
-                            3: const pw.FixedColumnWidth(65),
-                            4: const pw.FixedColumnWidth(70),
+                            2: const pw.FixedColumnWidth(40),
+                            3: const pw.FixedColumnWidth(60),
+                            4: const pw.FixedColumnWidth(65),
                           },
                           children: [
                             pw.TableRow(
@@ -848,12 +887,12 @@ void _selectClient(Map<String, dynamic> client) {
 
                             pw.TableRow(children: [
                               pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
+                                padding: const pw.EdgeInsets.all(4),
                                 alignment: pw.Alignment.center,
                                 child: pw.Text('TOTAL AMOUNT', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                               ),
                               pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
+                                padding: const pw.EdgeInsets.all(4),
                                 alignment: pw.Alignment.center,
                                 child: pw.Text('₹ ${subtotal.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                               ),
@@ -862,12 +901,12 @@ void _selectClient(Map<String, dynamic> client) {
                             if (discount > 0)
                               pw.TableRow(children: [
                                 pw.Container(
-                                  padding: const pw.EdgeInsets.all(8),
+                                  padding: const pw.EdgeInsets.all(4),
                                   alignment: pw.Alignment.center,
                                   child: pw.Text('DISCOUNT', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                                 ),
                                 pw.Container(
-                                  padding: const pw.EdgeInsets.all(8),
+                                  padding: const pw.EdgeInsets.all(4),
                                   alignment: pw.Alignment.center,
                                   child: pw.Text('₹ ${discount.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                                 ),
@@ -876,47 +915,91 @@ void _selectClient(Map<String, dynamic> client) {
                             if (tax > 0)
                               pw.TableRow(children: [
                                 pw.Container(
-                                  padding: const pw.EdgeInsets.all(8),
+                                  padding: const pw.EdgeInsets.all(4),
                                   alignment: pw.Alignment.center,
                                   child: pw.Text('TAX (18% GST)', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                                 ),
                                 pw.Container(
-                                  padding: const pw.EdgeInsets.all(8),
+                                  padding: const pw.EdgeInsets.all(4),
                                   alignment: pw.Alignment.center,
                                   child: pw.Text('₹ ${tax.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
                                 ),
                               ]),
 
-                            pw.TableRow(children: [
-                              pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text('GRAND TOTAL', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-                              ),
-                              pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text('₹ ${total.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-                              ),
-                            ]),
+                            // pw.TableRow(children: [
+                            //   pw.Container(
+                            //     padding: const pw.EdgeInsets.all(4),
+                            //     alignment: pw.Alignment.center,
+                            //     child: pw.Text('GRAND TOTAL', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                            //   ),
+                            //   pw.Container(
+                            //     padding: const pw.EdgeInsets.all(4),
+                            //     alignment: pw.Alignment.center,
+                            //     child: pw.Text('₹ ${total.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                            //   ),
+                            // ]),
 
-                            pw.TableRow(children: [
-                              pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text('PAID AMOUNT', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-                              ),
-                              pw.Container(
-                                padding: const pw.EdgeInsets.all(8),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text('₹ ${paid.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
-                              ),
-                            ]),
+                            if (total != subtotal)
+  pw.TableRow(
+    children: [
+      pw.Container(
+        padding: const pw.EdgeInsets.all(4),
+        alignment: pw.Alignment.center,
+        child: pw.Text(
+          'GRAND TOTAL',
+          style: pw.TextStyle(font: fontBold, fontSize: 12),
+        ),
+      ),
+      pw.Container(
+        padding: const pw.EdgeInsets.all(4),
+        alignment: pw.Alignment.center,
+        child: pw.Text(
+          '₹ ${total.toStringAsFixed(0)} /-',
+          style: pw.TextStyle(font: fontBold, fontSize: 12),
+        ),
+      ),
+    ],
+  ),
+
+                            // pw.TableRow(children: [
+                            //   pw.Container(
+                            //     padding: const pw.EdgeInsets.all(4),
+                            //     alignment: pw.Alignment.center,
+                            //     child: pw.Text('PAID AMOUNT', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                            //   ),
+                            //   pw.Container(
+                            //     padding: const pw.EdgeInsets.all(4),
+                            //     alignment: pw.Alignment.center,
+                            //     child: pw.Text('₹ ${paid.toStringAsFixed(0)} /-', style: pw.TextStyle(font: fontBold, fontSize: 12)),
+                            //   ),
+                            // ]),
+
+                            if (paid > 0 && balance > 0)
+  pw.TableRow(
+    children: [
+      pw.Container(
+        padding: const pw.EdgeInsets.all(4),
+        alignment: pw.Alignment.center,
+        child: pw.Text(
+          'PAID AMOUNT',
+          style: pw.TextStyle(font: fontBold, fontSize: 12),
+        ),
+      ),
+      pw.Container(
+        padding: const pw.EdgeInsets.all(4),
+        alignment: pw.Alignment.center,
+        child: pw.Text(
+          '₹ ${paid.toStringAsFixed(0)} /-',
+          style: pw.TextStyle(font: fontBold, fontSize: 12),
+        ),
+      ),
+    ],
+  ),
 
                             if (balance > 0)
   pw.TableRow(children: [
     pw.Container(
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.all(4),
       alignment: pw.Alignment.center,
       child: pw.Text(
         'BALANCE TO BE PAID',
@@ -927,7 +1010,7 @@ void _selectClient(Map<String, dynamic> client) {
       ),
     ),
     pw.Container(
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.all(4),
       alignment: pw.Alignment.center,
       child: pw.Text(
         '₹ ${balance.toStringAsFixed(0)} /-',
@@ -941,20 +1024,20 @@ void _selectClient(Map<String, dynamic> client) {
                           ],
                         ),
                         
-                        pw.SizedBox(height: 12),
+                        pw.SizedBox(height: 10),
 
                         if (notesController.text.isNotEmpty) ...[
-                          pw.Text('Notes', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                          pw.Text('Notes', style: pw.TextStyle(font: fontBold, fontSize: 8)),
                           pw.SizedBox(height: 2),
                           pw.Text(
                             notesController.text,
                             style: pw.TextStyle(font: font, fontSize: 9),
                           ),
-                          pw.SizedBox(height: 12),
+                          pw.SizedBox(height: 6),
                         ],
 
                         if (agreedToTerms) ...[
-                          pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 10)),
+                          pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 8)),
                           pw.SizedBox(height: 2),
                           ...termsController.text.split('\n').map((term) {
                             return pw.Padding(
@@ -965,68 +1048,167 @@ void _selectClient(Map<String, dynamic> client) {
                               ),
                             );
                           }),
-                          pw.SizedBox(height: 12),
+                          // pw.SizedBox(height: 12),
                         ],
 
-                        pw.Spacer(),
+                        // pw.Spacer(),
 
-                        pw.Row(
-                          mainAxisAlignment: pw.MainAxisAlignment.end,
-                          children: [
-                            pw.SizedBox(width: 10),
-                            pw.Container(
-                              width: 80,
-                              height: 80,
-                              child: pw.Image(sealImage, fit: pw.BoxFit.contain),
-                            ),
-                          ],
-                        ),
+                        // pw.SizedBox(height: 15),
 
-                        pw.Row(
-                          crossAxisAlignment: pw.CrossAxisAlignment.end,
-                          children: [
-                            pw.Expanded(
-                              child: pw.Column(
-                                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                                children: [
-                                  pw.Text('BANK ACCOUNT DETAILS',
-                                      style: pw.TextStyle(
-                                        font: fontBold,
-                                        fontSize: 15,
-                                        decoration: pw.TextDecoration.underline,
-                                      )),
-                                  pw.SizedBox(height: 3),
-                                  pw.Text('NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
-                                      style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: blue)),
-                                  pw.SizedBox(height: 3),
-                                  pw.Text('Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigital.ind.in',
-                                      style: pw.TextStyle(font: font, fontSize: 12),
-                                      textAlign: pw.TextAlign.center),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                        // pw.Row(
+                        //   mainAxisAlignment: pw.MainAxisAlignment.end,
+                        //   children: [
+                        //     pw.SizedBox(width: 10),
+                        //     pw.Container(
+                        //       width: 80,
+                        //       height: 80,
+                        //       child: pw.Image(sealImage, fit: pw.BoxFit.contain),
+                        //     ),
+                        //   ],
+                        // ),
+
+                        // pw.Row(
+                        //   crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        //   children: [
+                        //     pw.Expanded(
+                        //       child: pw.Column(
+                        //         crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        //         children: [
+                        //           pw.Text('BANK ACCOUNT DETAILS',
+                        //               style: pw.TextStyle(
+                        //                 font: fontBold,
+                        //                 fontSize: 15,
+                        //                 decoration: pw.TextDecoration.underline,
+                        //               )),
+                        //           pw.SizedBox(height: 3),
+                        //           pw.Text('NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
+                        //               style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: blue)),
+                        //           pw.SizedBox(height: 3),
+                        //           pw.Text('Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigital.ind.in',
+                        //               style: pw.TextStyle(font: font, fontSize: 12),
+                        //               textAlign: pw.TextAlign.center),
+                        //         ],
+                        //       ),
+                        //     ),
+                        //   ],
+                        // ),
+                     
                       ],
                     ),
                   ),
                 ),
 
-                pw.Container(
-                  color: blue,
-                  width: double.infinity,
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: pw.Column(
-                    mainAxisSize: pw.MainAxisSize.min,
-                    children: [
-                      pw.Text('GO DIGITAL', style: pw.TextStyle(font: fontBold, fontSize: 14, color: white)),
-                      pw.SizedBox(height: 2),
-                      pw.Text('No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
-                          style: pw.TextStyle(font: font, fontSize: 10, color: white),
-                          textAlign: pw.TextAlign.center),
-                    ],
-                  ),
-                ),
+                // pw.Container(
+                //   color: blue,
+                //   width: double.infinity,
+                //   padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                //   child: pw.Column(
+                //     mainAxisSize: pw.MainAxisSize.min,
+                //     children: [
+                //       pw.Text('GO DIGITAL', style: pw.TextStyle(font: fontBold, fontSize: 14, color: white)),
+                //       pw.SizedBox(height: 2),
+                //       pw.Text('No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
+                //           style: pw.TextStyle(font: font, fontSize: 10, color: white),
+                //           textAlign: pw.TextAlign.center),
+                //     ],
+                //   ),
+                // ),
+              
+              pw.Column(
+  mainAxisSize: pw.MainAxisSize.min,
+  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+  children: [
+    // SEAL
+    pw.Padding(
+  padding: const pw.EdgeInsets.symmetric(horizontal: 20),
+  child: 
+    pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.end,
+      children: [
+        pw.Container(
+          width: 80,
+          height: 80,
+          child: pw.Image(
+            sealImage,
+            fit: pw.BoxFit.contain,
+          ),
+        ),
+      ],
+    ),
+    ),
+
+    // BANK DETAILS - immediately below seal
+    pw.Padding(
+  padding: const pw.EdgeInsets.symmetric(horizontal: 20),
+  child: 
+    pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'BANK ACCOUNT DETAILS',
+          style: pw.TextStyle(
+            font: fontBold,
+            fontSize: 15,
+            decoration: pw.TextDecoration.underline,
+          ),
+        ),
+        pw.SizedBox(height: 3),
+        pw.Text(
+          'NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
+          style: pw.TextStyle(
+            font: fontBold,
+            fontSize: 9.5,
+            color: blue,
+          ),
+        ),
+        pw.SizedBox(height: 3),
+        pw.Text(
+          'Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigitalind.in',
+          style: pw.TextStyle(
+            font: font,
+            fontSize: 12,
+          ),
+          textAlign: pw.TextAlign.left,
+        ),
+      ],
+    ),
+    ),
+
+    // FOOTER - immediately after bank details
+    pw.Container(
+      color: blue,
+      width: double.infinity,
+      padding: const pw.EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 8,
+      ),
+      child: pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Text(
+            'GO DIGITAL',
+            style: pw.TextStyle(
+              font: fontBold,
+              fontSize: 14,
+              color: white,
+            ),
+          ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            'No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
+            style: pw.TextStyle(
+              font: font,
+              fontSize: 10,
+              color: white,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  ],
+),
+              
               ],
             );
           },
@@ -1080,20 +1262,32 @@ for (final row in _items) {
   overallPaid += _parseAmount(row.paidCtrl.text);
 }
 // Overall Discount
-double globalDiscount = _parseAmount(discountController.text);
+// double globalDiscount = _parseAmount(discountController.text);
+
+// final double totalAmount = subtotal + calculatedItemTaxes;
+
+// if (globalDiscount > totalAmount) {
+//   globalDiscount = totalAmount;
+// }
+
+// final double totalDiscount =
+//     calculatedItemDiscounts + globalDiscount;
+
+// final double taxTotal = calculatedItemTaxes;
+
+// // Grand Total
+// double grandTotal = totalAmount - totalDiscount;
+
+// if (grandTotal < 0) {
+//   grandTotal = 0;
+// }
 
 final double totalAmount = subtotal + calculatedItemTaxes;
 
-if (globalDiscount > totalAmount) {
-  globalDiscount = totalAmount;
-}
-
-final double totalDiscount =
-    calculatedItemDiscounts + globalDiscount;
+final double totalDiscount = calculatedItemDiscounts;
 
 final double taxTotal = calculatedItemTaxes;
 
-// Grand Total
 double grandTotal = totalAmount - totalDiscount;
 
 if (grandTotal < 0) {
@@ -1153,7 +1347,17 @@ if (balanceAmount < 0) {
                       ElevatedButton(
                         onPressed: _isSaving ? null : () async {
                           setState(() => _isSaving = true);
-                          final ok = await _saveInvoice(subtotal, totalDiscount, taxTotal, grandTotal, overallPaid, balanceAmount);
+                          // final ok = await _saveInvoice(subtotal, totalDiscount, taxTotal, grandTotal, overallPaid, balanceAmount);
+
+                          final ok = await _saveInvoice(
+  subtotal,
+  0.0 ,
+  taxTotal,
+  grandTotal,
+  overallPaid,
+  balanceAmount,
+);
+
                           setState(() => _isSaving = false);
                           if (ok && mounted) _showSavedSuccessDialog();
                         },
@@ -1543,22 +1747,63 @@ if (balanceAmount < 0) {
                            onPressed: _isPrinting ? null : () async {
                               setState(() => _isPrinting = true);
          
+                              // if (_viewOnly) {
+                              //   await _printInvoice(subtotal, totalDiscount, totalAmount, taxTotal, overallPaid, balanceAmount);
+                              //   if (!mounted) return;
+                              //   setState(() => _isPrinting = false);
+                              //   return;
+                              // }
+         
+                              // final saved = await _saveInvoice(subtotal, totalDiscount, taxTotal, totalAmount, overallPaid, balanceAmount);
+                              // await _printInvoice(subtotal, totalDiscount, taxTotal, totalAmount, overallPaid, balanceAmount);
+         
+                              // if (!mounted) return;
+                              // setState(() => _isPrinting = false);
+         
+                              // if (saved) {
+                              //   _showSavedSuccessDialog();
+                              // }
+
                               if (_viewOnly) {
-                                await _printInvoice(subtotal, totalDiscount, totalAmount, taxTotal, overallPaid, balanceAmount);
-                                if (!mounted) return;
-                                setState(() => _isPrinting = false);
-                                return;
-                              }
-         
-                              final saved = await _saveInvoice(subtotal, totalDiscount, totalAmount, totalAmount, overallPaid, balanceAmount);
-                              await _printInvoice(subtotal, totalDiscount, totalAmount, totalAmount, overallPaid, balanceAmount);
-         
-                              if (!mounted) return;
-                              setState(() => _isPrinting = false);
-         
-                              if (saved) {
-                                _showSavedSuccessDialog();
-                              }
+  await _printInvoice(
+    subtotal,
+    totalDiscount,
+    taxTotal,
+    grandTotal,
+    overallPaid,
+    balanceAmount,
+  );
+
+  if (!mounted) return;
+  setState(() => _isPrinting = false);
+  return;
+}
+
+final saved = await _saveInvoice(
+  subtotal,
+  0.0 ,
+  taxTotal,
+  grandTotal,
+  overallPaid,
+  balanceAmount,
+);
+
+await _printInvoice(
+  subtotal,
+  totalDiscount ,
+  taxTotal,
+  grandTotal,
+  overallPaid,
+  balanceAmount,
+);
+
+if (!mounted) return;
+setState(() => _isPrinting = false);
+
+if (saved) {
+  _showSavedSuccessDialog();
+}
+
                             },
 
                             icon: const Icon(Icons.print, size: 16, color: Colors.white),

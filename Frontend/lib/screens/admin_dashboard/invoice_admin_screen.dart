@@ -271,9 +271,9 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
 
 // ✅ EXACT PDF PREVIEW - CORRECTED LAYOUT ORDER
 
+// ✅ EXACT PDF PREVIEW - MATCHING ADD INVOICE SCREEN UI PERFECTLY
 Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice) async {
   try {
-    
     final response = await http.get(Uri.parse('$_baseUrl/invoices/${invoice['id']}'));
     if (response.statusCode != 200) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to load invoice details'), backgroundColor: Colors.redAccent));
@@ -284,6 +284,13 @@ Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice)
     final invoiceData = body['data'];
     if (!mounted) return;
 
+    final double subtotal = _parseAmount(invoiceData['subtotal']);
+    final double discount = _parseAmount(invoiceData['discount']);
+    final double tax = _parseAmount(invoiceData['tax']);
+    final double total = _parseAmount(invoiceData['total_amount']);
+    final double paid = _parseAmount(invoiceData['paid_amount']);
+    final double balance = _parseAmount(invoiceData['balance_amount']);
+
     showDialog(
       context: context,
       builder: (_) => Dialog(
@@ -291,302 +298,423 @@ Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice)
         child: Container(
           constraints: const BoxConstraints(maxWidth: 850, maxHeight: 900),
           color: Colors.white,
-          
-            margin: EdgeInsets.zero,
           child: Column(
-            
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Top Blue Strip with white squares matching PDF layout
               Container(
-                  height: 28,
-                  color: const Color(0xFF1F4E9E),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                    ],
-                  ),
+                height: 28,
+                color: const Color(0xFF0052CC),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
+                    Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
+                    Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
+                    Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
+                  ],
                 ),
+              ),
 
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(30, 16, 30, 10),
-                    child: Column(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Logo + Title
+                      // Logo Image
                       SizedBox(
-                          width: 140,
-                          height: 50,
-                          // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
-                          child: Image.asset('assets/images/godigital_logo.png', fit: BoxFit.contain),
+                        width: 140,
+                        height: 50,
+                        child: Image.asset('assets/images/godigital_logo.png', fit: BoxFit.contain),
+                      ),
+                      const SizedBox(height: 3),
+
+                      // Header Details Box (GO DIGITAL, Invoice No, Invoice Date, TO Client)
+                      Container(
+                        decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
+                        child: Column(
+                          children: [
+                            Container(
+                              decoration: const BoxDecoration(
+                                border: Border(bottom: BorderSide(color: Colors.black, width: 1)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: const BoxDecoration(
+                                        border: Border(right: BorderSide(color: Colors.black, width: 1)),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: const Text('GO DIGITAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: const BoxDecoration(
+                                        border: Border(right: BorderSide(color: Colors.black, width: 1)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          const Text('Invoice No.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9)),
+                                          const SizedBox(height: 2),
+                                          Text(invoiceData['invoice_no'] ?? '', style: const TextStyle(fontSize: 10)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          const Text('Invoice Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9)),
+                                          const SizedBox(height: 2),
+                                          Text(invoiceData['invoice_date'] ?? '', style: const TextStyle(fontSize: 10)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              alignment: Alignment.centerLeft,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('TO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+                                  const SizedBox(height: 2),
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 10),
+                                    child: Text(invoiceData['client_name'] ?? '', style: const TextStyle(fontSize: 10)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      const SizedBox(height: 14),
+                      ),
+                      const SizedBox(height: 8),
 
-                     // ================= HEADER (Same as PDF) =================
+                      // Items Table
+                      Table(
+                        border: TableBorder.all(color: Colors.black, width: 1),
+                        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                        columnWidths: const {
+                          0: FixedColumnWidth(30),
+                          1: FlexColumnWidth(2),
+                          2: FixedColumnWidth(40),
+                          3: FixedColumnWidth(60),
+                          4: FixedColumnWidth(65),
+                        },
+                        children: [
+                          TableRow(
+                            decoration: const BoxDecoration(color: Color(0xFFF0F0F0)),
+                            children: [
+                              _tableCell('S.No', bold: true, align: TextAlign.center),
+                              _tableCell('DESCRIPTIONS', bold: true, align: TextAlign.center),
+                              _tableCell('QTY', bold: true, align: TextAlign.center),
+                              _tableCell('RATE', bold: true, align: TextAlign.center),
+                              _tableCell('AMOUNT', bold: true, align: TextAlign.center),
+                            ],
+                          ),
+                          ...((invoiceData['items'] as List?) ?? []).asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final item = entry.value;
+                            final desc = item['description'] ?? '';
+                            final qty = int.tryParse(item['qty'].toString()) ?? 1;
+                            final rate = _parseAmount(item['rate']);
+                            final amt = _parseAmount(item['amount']);
+
+                            return TableRow(children: [
+                              _tableCell((i + 1).toString(), align: TextAlign.center),
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                alignment: Alignment.centerLeft,
+                                child: desc.isEmpty
+                                    ? const Text('-', style: TextStyle(fontSize: 10))
+                                    : Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            desc.split('\n')[0],
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black),
+                                          ),
+                                          ...desc.split('\n').skip(1).map((line) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(line.trim(), style: const TextStyle(fontSize: 10, color: Colors.black)),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                              ),
+                              _tableCell(qty.toString(), align: TextAlign.center),
+                              _tableCell(rate.toStringAsFixed(0), align: TextAlign.center),
+                              _tableCell(amt.toStringAsFixed(0), align: TextAlign.center),
+                            ]);
+                          }),
+                        ],
+                      ),
+
+                      // Summary Ledger Table matching Add Invoice UI Conditions
+                      Table(
+                        border: TableBorder.all(color: Colors.black, width: 1),
+                        columnWidths: const {
+                          0: FlexColumnWidth(3),
+                          1: FixedColumnWidth(135),
+                        },
+                        children: [
+                          TableRow(children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              alignment: Alignment.center,
+                              child: Text(
+                                (subtotal == total && discount == 0 && tax == 0) ? 'GRAND TOTAL' : 'TOTAL AMOUNT',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              alignment: Alignment.center,
+                              child: Text('₹ ${subtotal.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                          ]),
+
+                          if (!(subtotal == total && discount == 0 && tax == 0)) ...[
+                            if (discount > 0)
+                              TableRow(children: [
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: const Text('DISCOUNT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: Text('₹ ${discount.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                              ]),
+
+                            if (tax > 0)
+                              TableRow(children: [
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: const Text('TAX (GST)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: Text('₹ ${tax.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                              ]),
+
+                            TableRow(children: [
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: const Text('GRAND TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: Text('₹ ${total.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                            ]),
+                          ],
+
+                          if (paid > 0)
+                            TableRow(children: [
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: const Text('PAID AMOUNT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: Text('₹ ${paid.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                            ]),
+
+                          if (balance > 0)
+                            TableRow(children: [
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: const Text('BALANCE TO BE PAID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                child: Text('₹ ${balance.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                            ]),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Notes Section
+                      if ((invoiceData['notes'] ?? '').toString().isNotEmpty) ...[
+                        const Text('Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        const SizedBox(height: 2),
+                        Text(invoiceData['notes'], style: const TextStyle(fontSize: 9)),
+                        const SizedBox(height: 6),
+                      ],
+
+                      // Terms & Conditions Section
+                      if ((invoiceData['terms'] ?? '').toString().isNotEmpty) ...[
+                        const Text('Terms & Conditions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        const SizedBox(height: 2),
+                        ...invoiceData['terms'].toString().split('\n').map((term) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Text(term.trim(), style: const TextStyle(fontSize: 9)),
+                          );
+                        }),
+                      ],
+                      const SizedBox(height: 10),
+
+                      // Seal Image alignment
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: Image.asset('assets/images/office_seal.png', fit: BoxFit.contain),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+
+                      // Bank Details Section
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'BANK ACCOUNT DETAILS',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            const Text(
+                              'NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9.5, color: Color(0xFF0052CC)),
+                            ),
+                            const SizedBox(height: 3),
+                            const Text(
+                              'Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigital.ind.in',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Bottom Blue Bar
+              Container(
+                color: const Color(0xFF0052CC),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text('GO DIGITAL', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
+                    SizedBox(height: 2),
+                    Text('No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
+                        style: TextStyle(fontSize: 10, color: Colors.white),
+                        textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+
+              // Dialog Action Buttons (Close & Open & Print)
+              // ✅ DIALOG BOTTOM ACTION BUTTONS (Close, Print, Open & Print)
 Container(
-  decoration: BoxDecoration(
-    border: Border.all(color: Colors.black, width: 1),
-  ),
-  child: Column(
+  padding: const EdgeInsets.all(12),
+  color: Colors.white,
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.end,
     children: [
-      Container(
-        decoration: const BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: Colors.black, width: 1),
-          ),
+      OutlinedButton(
+        onPressed: () => Navigator.pop(context),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Color(0xFFCBD5E1)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         ),
-        child: Row(
-          children: [
-            // GO DIGITAL
-            Expanded(
-              flex: 2,
-              child: Container(
-                alignment: Alignment.center,
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    right: BorderSide(color: Colors.black, width: 1),
-                  ),
-                ),
-                child: const Text(
-                  'GO DIGITAL',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-
-            // Invoice Number
-            Expanded(
-              flex: 2,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    right: BorderSide(color: Colors.black, width: 1),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Invoice No.',
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      invoiceData['invoice_no'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Invoice Date
-            Expanded(
-              flex: 2,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Invoice Date',
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      invoiceData['invoice_date'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+        child: const Text('Close', style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 12)),
       ),
-
-      // ================= TO SECTION =================
-      Container(
-        width: double.infinity,
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'TO',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 10,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              invoiceData['client_name'] ?? '',
-              style: const TextStyle(
-                fontSize: 10,
-              ),
-            ),
-          ],
+      const SizedBox(width: 10),
+      
+      // 🖨️ NEW PRINT BUTTON
+      ElevatedButton.icon(
+        onPressed: () async {
+          // Direct print actioning via routing to viewOnly print mode or triggering print
+          Navigator.pop(context);
+          await Navigator.pushNamed(
+            context, '/add-invoice',
+            arguments: {'invoiceId': invoice['id'], 'viewOnly': true},
+          );
+          // Note: If you want it to trigger print directly without opening form, 
+          // ensure it triggers the layout generation or navigates to the view screen where print can execute.
+        },
+        icon: const Icon(Icons.print_rounded, size: 14, color: Colors.white),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF16A34A), // Green accent for direct print
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          elevation: 0,
         ),
+        label: const Text('Print', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
+      ),
+      const SizedBox(width: 10),
+
+      // OPEN & PRINT BUTTON
+      ElevatedButton.icon(
+        onPressed: () async {
+          Navigator.pop(context);
+          await Navigator.pushNamed(
+            context, '/add-invoice',
+            arguments: {'invoiceId': invoice['id'], 'viewOnly': true},
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF0052CC),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          elevation: 0,
+        ),
+        label: const Text('Open & Print', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
       ),
     ],
   ),
 ),
-
-const SizedBox(height: 8),
-
-                      // Items Table (Matches PDF Widths)
-                      Table(
-                        border: TableBorder.all(color: Colors.black, width: 1),
-                              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-
-                        columnWidths: const {
-                          0: FixedColumnWidth(45),
-                          1: FlexColumnWidth(2),
-                          2: FixedColumnWidth(45),
-                          3: FixedColumnWidth(65),
-                          4: FixedColumnWidth(70),
-                        },
-                        children: [
-                          TableRow(decoration: const BoxDecoration(color: Color(0xFFF0F0F0)), children: [
-                            _tableCell('S.No', bold: true), _tableCell('DESCRIPTIONS', bold: true), _tableCell('QTY', bold: true), _tableCell('RATE', bold: true), _tableCell('AMOUNT', bold: true)
-                          ]),
-                          ...((invoiceData['items'] as List?) ?? []).asMap().entries.map((entry) {
-                            final i = entry.key;
-                            final item = entry.value;
-                            return TableRow(children: [
-                              _tableCell('${i + 1}'),
-                              _tableCell(item['description'] ?? ''),
-                              _tableCell(item['qty'].toString()),
-                              _tableCell(_parseAmount(item['rate']).toStringAsFixed(0)),
-                              _tableCell((int.parse(item['qty'].toString()) * _parseAmount(item['rate'])).toStringAsFixed(0)),
-                            ]);
-                          })
-                        ],
-                      ),
-
-                      // Summary Table (Matches PDF)
-                      Table(
-                        border: TableBorder.all(color: Colors.black, width: 1),
-                        children: [
-                          _summaryRow('TOTAL AMOUNT', invoiceData['total_amount']),
-                          _summaryRow('PAID AMOUNT', invoiceData['paid_amount']),
-                          _summaryRow('BALANCE TO BE PAID', invoiceData['balance_amount']),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Row(mainAxisAlignment: MainAxisAlignment.end, children: [SizedBox(width: 100, height: 100, child: Image.asset('assets/images/office_seal.png'))]),
-
-                      // Footer Details (Matches PDF)
-                     Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('BANK ACCOUNT DETAILS', 
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                                        fontSize: 18,
-                                        decoration: TextDecoration.none,
-                                      )),
-                          const SizedBox(height: 3),
-                          const Text(
-                            'NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0052CC)),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigital.ind.in',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-                      
-Container(
-                  color: const Color(0xFF0052CC),
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                  child:Column(
-                    mainAxisSize:MainAxisSize.min,
-                    children: [
-                     Text('GO DIGITAL',    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color.fromARGB(255, 255, 255, 255)),
-                         ),
-                     SizedBox(height: 2),
-                     Text('No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
-                           style: TextStyle(fontSize: 14, color: Color.fromARGB(255, 254, 255, 255)),
-                      textAlign:TextAlign.center),
-                    ],
-                  ),
-                ),
-
-
-
-              // ✅ FOOTER BUTTONS
-              Container(
-                padding: const EdgeInsets.all(12),
-                color: Colors.white,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                      ),
-                      child: const Text('Close', style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 12)),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        await Navigator.pushNamed(
-                          context, '/add-invoice',
-                          arguments: {'invoiceId': invoice['id'], 'viewOnly': true},
-                        );
-                      },
-                      // icon: const Icon(Icons.print, size: 16),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0052CC),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                        elevation: 0,
-                      ),
-                      label: const Text('Open & Print', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Bottom Blue Strip
-              // Container(padding: const EdgeInsets.all(8), color: const Color(0xFF0052CC), child: const Center(child: Text('GO DIGITAL', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
+           
             ],
           ),
         ),
@@ -597,14 +725,24 @@ Container(
   }
 }
 
-// Helpers
-  Widget _tableCell(String text, {bool bold = false, TextAlign align = TextAlign.left, double fontSize = 10}) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      alignment: Alignment.centerLeft,
-      child: Text(text, textAlign: align, style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal, fontSize: fontSize)),
-    );
-  }
+// Required Table Cell Helper for Preview Dialog
+Widget _tableCell(String text, {bool bold = false, TextAlign align = TextAlign.left, double fontSize = 10}) {
+  return Container(
+    padding: const EdgeInsets.all(8),
+    alignment: align == TextAlign.center ? Alignment.center : Alignment.centerLeft,
+    child: Text(text, textAlign: align, style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal, fontSize: fontSize)),
+  );
+}
+
+// Required Amount Parser Helper
+double _parseAmount(dynamic value) {
+  if (value == null) return 0;
+  if (value is double) return value;
+  if (value is int) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0;
+  return 0;
+}
+
 TableRow _summaryRow(String label, dynamic amount) => TableRow(children: [Container(padding: const EdgeInsets.all(8), child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold))), Container(padding: const EdgeInsets.all(8), child: Text('₹ ${_parseAmount(amount).toStringAsFixed(0)} /-', textAlign: TextAlign.right))]);
 // ✅ SUMMARY ROW BUILDER
 Widget _buildSummaryRowExact(String label, String amount, {bool isBold = false}) {
@@ -638,14 +776,14 @@ Widget _buildSummaryRowExact(String label, String amount, {bool isBold = false})
   );
 }
 
-// ✅ PARSE AMOUNT HELPER
-double _parseAmount(dynamic value) {
-  if (value == null) return 0;
-  if (value is double) return value;
-  if (value is int) return value.toDouble();
-  if (value is String) return double.tryParse(value) ?? 0;
-  return 0;
-}
+// // ✅ PARSE AMOUNT HELPER
+// double _parseAmount(dynamic value) {
+//   if (value == null) return 0;
+//   if (value is double) return value;
+//   if (value is int) return value.toDouble();
+//   if (value is String) return double.tryParse(value) ?? 0;
+//   return 0;
+// }
 
   
   Widget _buildTableCell(String text, {bool isHeader = false, TextAlign align = TextAlign.left}) {

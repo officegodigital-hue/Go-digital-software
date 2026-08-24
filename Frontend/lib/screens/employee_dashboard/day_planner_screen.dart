@@ -2440,18 +2440,18 @@ final dropdownValue = current.isEmpty ? null : current;
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
 
-        _smallActionButton(
-          label: "SAVE",
-          color: const Color(0xFF16A34A),
-          icon: Icons.save,
-          onTap: () => _saveRow(
-            row,
-            lockRow: false,
-            showMessage: true,
-          ),
-        ),
+        // _smallActionButton(
+        //   label: "SAVE",
+        //   color: const Color(0xFF16A34A),
+        //   icon: Icons.save,
+        //   onTap: () => _saveRow(
+        //     row,
+        //     lockRow: false,
+        //     showMessage: true,
+        //   ),
+        // ),
 
-        const SizedBox(width: 6),
+        // const SizedBox(width: 6),
 
         GestureDetector(
           onTap: () => _confirmDelete(row['id']),
