@@ -2144,153 +2144,808 @@ Widget _pageHeader() {
     );
   }
 
-  Widget _taskDetailsContainer() {
-    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
-      return const Center(child: Text('No task details available'));
-    }
+//   Widget _taskDetailsContainer() {
+//     if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
+//       return const Center(child: Text('No task details available'));
+//     }
 
-    final tabName = taskTabNames[selectedTabIndex!];
-    var tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
+//     final tabName = taskTabNames[selectedTabIndex!];
+//     var tasksForTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
 
-    if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
-      tasksForTab = tasksForTab
-          .where((t) => (t['client_name'] ?? '').toString() == _selectedClientFilter)
-          .toList();
-    }
+//     if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
+//       tasksForTab = tasksForTab
+//           .where((t) => (t['client_name'] ?? '').toString() == _selectedClientFilter)
+//           .toList();
+//     }
 
-    if (tasksForTab.isEmpty) return Center(child: Text('No tasks for $tabName'));
+//     if (tasksForTab.isEmpty) return Center(child: Text('No tasks for $tabName'));
 
-    return Column(children: tasksForTab.asMap().entries.map((entry) {
-      final idx      = entry.key;
-      final task     = entry.value;
-      final taskId   = '${task['client_name']}_${task['singleTask']}_$idx';
-      final isExpand = expandedTaskId == taskId;
-      final expMins  = expectedTimingMinutes[(task['singleTask'] as String).trim().toLowerCase()];
+//     return Column(children: tasksForTab.asMap().entries.map((entry) {
+//       final idx      = entry.key;
+//       final task     = entry.value;
+//       final taskId   = '${task['client_name']}_${task['singleTask']}_$idx';
+//       final isExpand = expandedTaskId == taskId;
+//       final expMins  = expectedTimingMinutes[(task['singleTask'] as String).trim().toLowerCase()];
 
-      return Column(children: [
-        Container(
-          margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.all(18),
-          decoration: const BoxDecoration(color: Colors.white,
-              border: Border(bottom: BorderSide(color: AppColors.border))),
-          child: Row(children: [
-            _detailItem('CLIENT :',       task['client_name'] ?? 'N/A', flex: 2),
-            _detailItem('DELIVERABLES :',    task['singleTask']  ?? '',    flex: 2),
-            _detailItem(
-              'DURATION :',
-              taskListDurations[taskId] ?? _formatExpectedDuration(expMins),
-              flex: 2,
-              color: (taskListDurations[taskId] != null || expMins != null)
-                  ? const Color(0xFF0052CC)
-                  : Colors.grey,
+//       return Column(children: [
+//         Container(
+//           margin: const EdgeInsets.only(bottom: 2),
+//           padding: const EdgeInsets.all(18),
+//           decoration: const BoxDecoration(color: Colors.white,
+//               border: Border(bottom: BorderSide(color: AppColors.border))),
+//           child: Row(children: [
+//             _detailItem('CLIENT :',       task['client_name'] ?? 'N/A', flex: 2),
+//             _detailItem('DELIVERABLES :',    task['singleTask']  ?? '',    flex: 2),
+//             _detailItem(
+//               'DURATION :',
+//               taskListDurations[taskId] ?? _formatExpectedDuration(expMins),
+//               flex: 2,
+//               color: (taskListDurations[taskId] != null || expMins != null)
+//                   ? const Color(0xFF0052CC)
+//                   : Colors.grey,
+//             ),
+//             Expanded(flex: 2, child: Row(children: [
+//               const Text('SUBMIT DATE :', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
+//               const SizedBox(width: 4),
+//               _dateWithDaysLeft(task['assignedDate']),
+//             ])),
+
+//             Expanded(flex: 1, child: Row(children: [
+//               const Text('ROWS :', style: TextStyle(
+//                   fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
+//               const SizedBox(width: 3),
+//               Expanded(child: SizedBox(height: 30,
+//                 child: TextFormField(
+//                   key: ValueKey('rowcount_${taskId}_${rowCounts[taskId] ?? 1}'),
+//                   initialValue: (rowCounts[taskId] ?? 1).toString(),
+//                   keyboardType: TextInputType.number,
+//                   decoration: const InputDecoration(isDense: true,
+//                       contentPadding: EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+//                       border: InputBorder.none),
+//                   onChanged: (v) {
+//                     final newCount = int.tryParse(v) ?? 1;
+//                     setState(() => rowCounts[taskId] = newCount);
+//                     final taskListId = taskListIds[taskId];
+//                     if (taskListId != null) {
+//                       http.patch(
+//                         Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
+//                         headers: {'Content-Type': 'application/json'},
+//                         body: jsonEncode({'noOfRows': newCount}),
+//                       ).catchError((e) => debugPrint('Row count save error: $e'));
+//                     }
+//                   },
+//                 ),
+//               )),
+//             ])),
+
+//             // ElevatedButton(
+//             //   onPressed: () async {
+//             //     if (!isExpand) {
+//             //       await _ensureTaskListEntry(task, taskId);
+//             //     }
+//             //     setState(() => expandedTaskId = isExpand ? null : taskId);
+//             //   },
+//             //   style: ElevatedButton.styleFrom(
+//             //     backgroundColor: isExpand ? AppColors.red : const Color(0xFFD9E8FF),
+//             //     foregroundColor: isExpand ? Colors.white : const Color(0xFF003A9B),
+//             //   ),
+//             //   child: Text(isExpand ? 'HIDE' : 'OPEN'),
+//             // ),
+//             ElevatedButton(
+//   onPressed: () async {
+
+//     if (!isExpand) {
+
+//       // Create task_list entry if not already created
+//       await _ensureTaskListEntry(task, taskId);
+
+//       // Debug
+//       print("Task ID      : $taskId");
+//       print("TaskList ID  : ${taskListIds[taskId]}");
+
+//       if (taskListIds[taskId] == null) {
+//         _showSnack(
+//           "Task List Entry not created",
+//           success: false,
+//         );
+//         return;
+//       }
+//     }
+
+//     setState(() {
+//       expandedTaskId = isExpand ? null : taskId;
+//     });
+
+//   },
+//   style: ElevatedButton.styleFrom(
+//     backgroundColor:
+//         isExpand ? AppColors.red : const Color(0xFFD9E8FF),
+//     foregroundColor:
+//         isExpand ? Colors.white : const Color(0xFF003A9B),
+//   ),
+//   child: Text(isExpand ? "HIDE" : "OPEN"),
+// ),
+
+//  const SizedBox(width: 6),
+
+//     // EDIT
+//     IconButton(
+//       icon: const Icon(Icons.edit, color: Colors.blue),
+//       tooltip: "Edit",
+//       onPressed: () {
+//         _showEditTaskDialog(task, taskId);
+//       },
+//     ),
+
+//     // DELETE
+//     IconButton(
+//       icon: const Icon(Icons.delete, color: Colors.red),
+//       tooltip: "Delete",
+//       onPressed: () {
+//         _deleteAdditionalTask(task, taskId);
+//       },
+//     ),
+//           ]),
+//         ),
+//         if (isExpand) _buildTaskTable(task, taskId),
+//       ]);
+//     }).toList());
+//   }
+
+Widget _taskDetailsContainer() {
+  if (selectedTabIndex == null ||
+      selectedTabIndex! >= taskTabNames.length) {
+    return const SizedBox.shrink();
+  }
+
+  final tabName = taskTabNames[selectedTabIndex!];
+
+  var tasksForTab = assignedTasks
+      .where(
+        (t) => t['singleTask'] == tabName,
+      )
+      .toList();
+
+  // ================================================================
+  // CLIENT FILTER
+  // ================================================================
+  if (_selectedClientFilter != null &&
+      _selectedClientFilter!.isNotEmpty) {
+    tasksForTab = tasksForTab
+        .where(
+          (t) =>
+              (t['client_name'] ?? '').toString() ==
+              _selectedClientFilter,
+        )
+        .toList();
+  }
+
+  // ================================================================
+  // EMPTY STATE
+  // ================================================================
+  if (tasksForTab.isEmpty) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(
+        horizontal: 28,
+        vertical: 16,
+      ),
+      padding: const EdgeInsets.symmetric(
+        vertical: 40,
+        horizontal: 20,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF1F5F9),
+              shape: BoxShape.circle,
             ),
-            Expanded(flex: 2, child: Row(children: [
-              const Text('SUBMIT DATE :', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-              const SizedBox(width: 4),
-              _dateWithDaysLeft(task['assignedDate']),
-            ])),
+            child: const Icon(
+              Icons.assignment_outlined,
+              size: 25,
+              color: Color(0xFF94A3B8),
+            ),
+          ),
 
-            Expanded(flex: 1, child: Row(children: [
-              const Text('ROWS :', style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-              const SizedBox(width: 3),
-              Expanded(child: SizedBox(height: 30,
-                child: TextFormField(
-                  key: ValueKey('rowcount_${taskId}_${rowCounts[taskId] ?? 1}'),
-                  initialValue: (rowCounts[taskId] ?? 1).toString(),
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 3, vertical: 8),
-                      border: InputBorder.none),
-                  onChanged: (v) {
-                    final newCount = int.tryParse(v) ?? 1;
-                    setState(() => rowCounts[taskId] = newCount);
-                    final taskListId = taskListIds[taskId];
-                    if (taskListId != null) {
-                      http.patch(
-                        Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
-                        headers: {'Content-Type': 'application/json'},
-                        body: jsonEncode({'noOfRows': newCount}),
-                      ).catchError((e) => debugPrint('Row count save error: $e'));
-                    }
-                  },
+          const SizedBox(height: 12),
+
+          const Text(
+            'No tasks found',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF334155),
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          Text(
+            'No tasks available for $tabName.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xFF94A3B8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ================================================================
+  // TASK CARDS
+  // ================================================================
+  return Column(
+    children: tasksForTab.asMap().entries.map((entry) {
+      final idx = entry.key;
+      final task = entry.value;
+
+      final taskId =
+          '${task['client_name']}_${task['singleTask']}_$idx';
+
+      final isExpand = expandedTaskId == taskId;
+
+      final taskName =
+          (task['singleTask'] ?? '').toString();
+
+      final clientName =
+          (task['client_name'] ?? 'N/A').toString();
+
+      final expMins =
+          expectedTimingMinutes[
+              taskName.trim().toLowerCase()];
+
+      final duration =
+          taskListDurations[taskId] ??
+              _formatExpectedDuration(expMins);
+
+      final hasDuration =
+          taskListDurations[taskId] != null ||
+              expMins != null;
+
+      return Column(
+        children: [
+          // ==========================================================
+          // TASK CARD
+          // ==========================================================
+          Container(
+            margin: const EdgeInsets.only(
+              bottom: 8,
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(
+                color: const Color(0xFFE2E8F0),
+              ),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: 0.025,
+                  ),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
                 ),
-              )),
-            ])),
+              ],
+            ),
 
-            // ElevatedButton(
-            //   onPressed: () async {
-            //     if (!isExpand) {
-            //       await _ensureTaskListEntry(task, taskId);
-            //     }
-            //     setState(() => expandedTaskId = isExpand ? null : taskId);
-            //   },
-            //   style: ElevatedButton.styleFrom(
-            //     backgroundColor: isExpand ? AppColors.red : const Color(0xFFD9E8FF),
-            //     foregroundColor: isExpand ? Colors.white : const Color(0xFF003A9B),
-            //   ),
-            //   child: Text(isExpand ? 'HIDE' : 'OPEN'),
-            // ),
-            ElevatedButton(
-  onPressed: () async {
+            child: Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.center,
+              children: [
+                // ====================================================
+                // CLIENT
+                // ====================================================
+                Expanded(
+  flex: 3,
+  child: Container(
+    height: 46,
+    padding: const EdgeInsets.symmetric(
+      horizontal: 12,
+    ),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: const Color(0xFFE2E8F0),
+      ),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Icon(
+            Icons.business_outlined,
+            size: 15,
+            color: Color(0xFF2563EB),
+          ),
+        ),
 
-    if (!isExpand) {
+        const SizedBox(width: 9),
 
-      // Create task_list entry if not already created
-      await _ensureTaskListEntry(task, taskId);
+        Expanded(
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'CLIENT',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF64748B),
+                  letterSpacing: 0.7,
+                ),
+              ),
 
-      // Debug
-      print("Task ID      : $taskId");
-      print("TaskList ID  : ${taskListIds[taskId]}");
+              const SizedBox(height: 2),
 
-      if (taskListIds[taskId] == null) {
-        _showSnack(
-          "Task List Entry not created",
-          success: false,
-        );
-        return;
-      }
-    }
+              Text(
+                clientName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF334155),
+                ),
+              ),
+            ],
+          ),
+        ),
 
-    setState(() {
-      expandedTaskId = isExpand ? null : taskId;
-    });
-
-  },
-  style: ElevatedButton.styleFrom(
-    backgroundColor:
-        isExpand ? AppColors.red : const Color(0xFFD9E8FF),
-    foregroundColor:
-        isExpand ? Colors.white : const Color(0xFF003A9B),
+         // Summary icon
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: Color(0xFF64748B),
+                      ),
+      ],
+    ),
   ),
-  child: Text(isExpand ? "HIDE" : "OPEN"),
 ),
 
- const SizedBox(width: 6),
+                const SizedBox(width: 18),
 
-    // EDIT
-    IconButton(
-      icon: const Icon(Icons.edit, color: Colors.blue),
-      tooltip: "Edit",
-      onPressed: () {
-        _showEditTaskDialog(task, taskId);
-      },
-    ),
+                // ====================================================
+                // DELIVERABLE
+                // ====================================================
+                Expanded(
+                  flex: 3,
+                  child: _taskInfoBlock(
+                    icon: Icons.layers_outlined,
+                    label: 'DELIVERABLES',
+                    value: taskName.isEmpty
+                        ? 'N/A'
+                        : taskName,
+                  ),
+                ),
 
-    // DELETE
-    IconButton(
-      icon: const Icon(Icons.delete, color: Colors.red),
-      tooltip: "Delete",
-      onPressed: () {
-        _deleteAdditionalTask(task, taskId);
-      },
-    ),
-          ]),
+                const SizedBox(width: 18),
+
+                // ====================================================
+                // DURATION
+                // ====================================================
+                Expanded(
+                  flex: 3,
+                  child: _taskInfoBlock(
+                    icon: Icons.schedule_outlined,
+                    label: 'DURATION',
+                    value: duration,
+                  ),
+                ),
+
+                const SizedBox(width: 18),
+
+                // ====================================================
+                // SUBMIT DATE
+                // ====================================================
+                Expanded(
+                  flex: 3,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color:
+                              const Color(0xFFF1F5F9),
+                          borderRadius:
+                              BorderRadius.circular(7),
+                        ),
+                        child: const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 15,
+                          color: Color(0xFF475569),
+                        ),
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          mainAxisAlignment:
+                              MainAxisAlignment.center,
+                          children: [
+                            const Text(
+                              'SUBMIT DATE',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight:
+                                    FontWeight.w800,
+                                color:
+                                    Color(0xFF64748B),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+
+                            const SizedBox(height: 3),
+
+                            _dateWithDaysLeft(
+                              task['assignedDate'],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 14),
+
+                // ====================================================
+                // ROWS
+                // ====================================================
+                Container(
+                  width: 72,
+                  height: 40,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius:
+                        BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFE2E8F0),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.table_rows_outlined,
+                        size: 14,
+                        color: Color(0xFF64748B),
+                      ),
+
+                      const SizedBox(width: 4),
+
+                      Expanded(
+                        child: TextFormField(
+                          key: ValueKey(
+                            'rowcount_${taskId}_${rowCounts[taskId] ?? 1}',
+                          ),
+                          initialValue:
+                              (rowCounts[taskId] ?? 1)
+                                  .toString(),
+                          keyboardType:
+                              TextInputType.number,
+                          textAlign: TextAlign.center,
+                          decoration:
+                              const InputDecoration(
+                            isDense: true,
+                            contentPadding:
+                                EdgeInsets.zero,
+                            border: InputBorder.none,
+                          ),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight:
+                                FontWeight.w700,
+                            color: Color(0xFF334155),
+                          ),
+                          onChanged: (v) {
+                            final newCount =
+                                int.tryParse(v) ?? 1;
+
+                            setState(() {
+                              rowCounts[taskId] =
+                                  newCount;
+                            });
+
+                            final taskListId =
+                                taskListIds[taskId];
+
+                            if (taskListId != null) {
+                              http.patch(
+                                Uri.parse(
+                                  '$_baseUrl/task-list/$taskListId/rows',
+                                ),
+                                headers: {
+                                  'Content-Type':
+                                      'application/json',
+                                },
+                                body: jsonEncode({
+                                  'noOfRows':
+                                      newCount,
+                                }),
+                              ).catchError(
+                                (e) => debugPrint(
+                                  'Row count save error: $e',
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                // ====================================================
+                // OPEN / HIDE
+                // ====================================================
+                SizedBox(
+                  height: 40,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      if (!isExpand) {
+                        await _ensureTaskListEntry(
+                          task,
+                          taskId,
+                        );
+
+                        print(
+                          "Task ID     : $taskId",
+                        );
+                        print(
+                          "TaskList ID : ${taskListIds[taskId]}",
+                        );
+
+                        if (taskListIds[taskId] ==
+                            null) {
+                          _showSnack(
+                            "Task List Entry not created",
+                            success: false,
+                          );
+                          return;
+                        }
+                      }
+
+                      setState(() {
+                        expandedTaskId =
+                            isExpand
+                                ? null
+                                : taskId;
+                      });
+                    },
+                    style:
+                        ElevatedButton.styleFrom(
+                      backgroundColor: isExpand
+                          ? const Color(0xFFFEF2F2)
+                          : const Color(0xFFE8F1FF),
+                      foregroundColor: isExpand
+                          ? const Color(0xFFDC2626)
+                          : const Color(0xFF004AAD),
+                      elevation: 0,
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: 17,
+                      ),
+                      shape:
+                          RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: isExpand
+                              ? const Color(
+                                  0xFFFECACA)
+                              : const Color(
+                                  0xFFBFDBFE),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize:
+                          MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isExpand
+                              ? Icons
+                                  .keyboard_arrow_up_rounded
+                              : Icons
+                                  .keyboard_arrow_down_rounded,
+                          size: 17,
+                        ),
+
+                        const SizedBox(width: 4),
+
+                        Text(
+                          isExpand
+                              ? 'HIDE'
+                              : 'OPEN',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight:
+                                FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                // ====================================================
+                // EDIT
+                // ====================================================
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius:
+                        BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFBFDBFE),
+                    ),
+                  ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Edit',
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      size: 17,
+                      color: Color(0xFF2563EB),
+                    ),
+                    onPressed: () {
+                      _showEditTaskDialog(
+                        task,
+                        taskId,
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(width: 6),
+
+                // ====================================================
+                // DELETE
+                // ====================================================
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius:
+                        BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFFECACA),
+                    ),
+                  ),
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Delete',
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 17,
+                      color: Color(0xFFDC2626),
+                    ),
+                    onPressed: () {
+                      _deleteAdditionalTask(
+                        task,
+                        taskId,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ==========================================================
+          // EXPANDED TASK TABLE
+          // ==========================================================
+          if (isExpand)
+            _buildTaskTable(
+              task,
+              taskId,
+            ),
+        ],
+      );
+    }).toList(),
+  );
+}
+
+Widget _taskInfoBlock({
+  required IconData icon,
+  required String label,
+  required String value,
+}) {
+  return Row(
+    children: [
+      Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(7),
         ),
-        if (isExpand) _buildTaskTable(task, taskId),
-      ]);
-    }).toList());
-  }
+        child: Icon(
+          icon,
+          size: 15,
+          color: const Color(0xFF475569),
+        ),
+      ),
+
+      const SizedBox(width: 8),
+
+      Expanded(
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF64748B),
+                letterSpacing: 0.5,
+              ),
+            ),
+
+            const SizedBox(height: 3),
+
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF334155),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
 
  Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
   final rowCount = rowCounts[taskId] ?? 1;

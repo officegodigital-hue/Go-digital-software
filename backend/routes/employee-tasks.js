@@ -23,14 +23,7 @@ router.get('/by-employee/:name', async (req, res) => {
     const [rows] = await db.query(
   `SELECT
       ta.*,
-      ta.designer_submit_date,
-      ta.videographer_submit_date,
-      ta.video_editor_submit_date,
-      ta.ads_submit_date,
-      ta.page_submit_date,
-      ta.ui_ux_submit_date,
-      ta.developer_submit_date,
-      ta.website_designer_submit_date
+      ta.deadline
    FROM task_assignments ta
    WHERE(
       UPPER(ta.designer)       LIKE ? OR
@@ -96,6 +89,7 @@ for (const task of rows) {
         task.deliverables,
         null,
         null,
+        task.deadline,
         1
       ]
     );

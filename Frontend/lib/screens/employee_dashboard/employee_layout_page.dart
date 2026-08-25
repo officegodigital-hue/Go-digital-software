@@ -27,6 +27,8 @@ import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_pag
 import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_page.dart';
+// 1. Import your newly created history page
+import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart'; // File path check pannikonga
 
 import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
@@ -133,8 +135,11 @@ void initState() {
       case 'Assigned Task':
         return AssignedTasksContent(role: loggedInRole);
 
-        case 'Additional Task':
-  return AdditionalTasksPage(role: loggedInRole);
+      case 'History':
+        return EmployeeHistoryPage(role: loggedInRole);
+
+      case 'Additional Task':
+        return AdditionalTasksPage(role: loggedInRole);
 
   
       case 'Live Tracking Tasks':

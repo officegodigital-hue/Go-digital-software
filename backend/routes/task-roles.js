@@ -19,6 +19,7 @@ const roleMapping = {
   'ui_ux_designer_task': 'UI/UX Designer Tasks',
   'videographer_task': 'Videographer Tasks',
   'developer_task': 'Developer Tasks',
+  'website_designer_task': 'Website Designer Task',
 };
 
 

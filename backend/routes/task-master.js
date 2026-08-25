@@ -225,7 +225,8 @@ router.put('/:id', async (req, res) => {
       'ui_ux_tasks',
       'developer_tasks',
       'ads_platform',
-      'pages_platform'
+      'pages_platform',
+      'website_designer_task'
     ];
 
     let assignmentUpdated = 0;

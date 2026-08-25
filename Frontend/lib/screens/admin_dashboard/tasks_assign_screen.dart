@@ -1132,42 +1132,42 @@ setState(() {
           // Ads Handler fields
           'adsHandling': _cleanRoleValue(row['ads_handling']),
           'adsPlatform': row['ads_platform'] ?? '',
-          'adsSubmitDate': row['ads_submit_date'] ?? '',
+          // 'adsSubmitDate': row['ads_submit_date'] ?? '',
           
           // Page Handler fields
           'pageHandling': _cleanRoleValue(row['page_handling']),
           'pagesPlatform': row['pages_platform'] ?? '',
-          'pageSubmitDate': row['page_submit_date'] ?? '',
+          // 'pageSubmitDate': row['page_submit_date'] ?? '',
           
           // Designer fields
           'designer': _cleanRoleValue(row['designer']),
           'designerTasks': row['designer_tasks'] ?? '',
-          'designerSubmitDate': row['designer_submit_date'] ?? '',
+          // 'designerSubmitDate': row['designer_submit_date'] ?? '',
           
           // Videographer fields
           'videographer': _cleanRoleValue(row['videographer']),
           'videographerTasks': row['videographer_tasks'] ?? '',
-          'videographerSubmitDate': row['videographer_submit_date'] ?? '',
+          // 'videographerSubmitDate': row['videographer_submit_date'] ?? '',
           
           // Video Editor fields
           'videoEditor': _cleanRoleValue(row['video_editor']),
           'videoEditorTask': row['video_editor_task'] ?? '',
-          'videoEditorSubmitDate': row['video_editor_submit_date'] ?? '',
+          // 'videoEditorSubmitDate': row['video_editor_submit_date'] ?? '',
           
           // UI/UX Designer fields
           'uiUxDesigner': _cleanRoleValue(row['ui_ux_designer']),
           'uiUxTasks': row['ui_ux_tasks'] ?? '',
-          'uiUxSubmitDate': row['ui_ux_submit_date'] ?? '',
+          // 'uiUxSubmitDate': row['ui_ux_submit_date'] ?? '',
           
           // Developer fields
           'developer': _cleanRoleValue(row['developer']),
           'developerTasks': row['developer_tasks'] ?? '',
-          'developerSubmitDate': row['developer_submit_date'] ?? '',
+          // 'developerSubmitDate': row['developer_submit_date'] ?? '',
           
           // Website Designer fields
           'websiteDesigner':_cleanRoleValue(row['website_designer']),
           'websiteDesignerTasks':row['website_designer_tasks'] ?? '',
-          'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
+          // 'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
           
           // Others
           'deadline': _cleanRoleValue(row['deadline']),
@@ -1262,13 +1262,43 @@ setState(() {
   Widget build(BuildContext context) {
     final bool loading = _loadingTasks || _loadingEmployees || _loadingClients || _loadingPackages || _loadingTaskMaster || _loadingRoles;
 
+    // final visibleRows = taskRows.where((r) {
+    //   final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
+    //   if (_showAssigned != assigned) return false;
+    //   if (_searchQuery.trim().isEmpty) return true;
+    //   final query = _searchQuery.trim().toLowerCase();
+    //   final clientName = (r['client_name'] ?? '').toString().toLowerCase();
+    //   return clientName.contains(query);
+    // }).toList();
     final visibleRows = taskRows.where((r) {
       final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
       if (_showAssigned != assigned) return false;
       if (_searchQuery.trim().isEmpty) return true;
+      
       final query = _searchQuery.trim().toLowerCase();
+      
+      // 🔍 Client Name check
       final clientName = (r['client_name'] ?? '').toString().toLowerCase();
-      return clientName.contains(query);
+      if (clientName.contains(query)) return true;
+
+      // 🔍 Employee Names check across all role columns
+      final roleFields = [
+        'ads_handling',
+        'page_handling',
+        'designer',
+        'videographer',
+        'video_editor',
+        'ui_ux_designer',
+        'developer',
+        'website_designer'
+      ];
+
+      for (final field in roleFields) {
+        final empValue = (r[field] ?? '').toString().toLowerCase();
+        if (empValue.contains(query)) return true;
+      }
+
+      return false;
     }).toList();
 
     return AdminLayout(
@@ -1333,90 +1363,123 @@ setState(() {
             ),
           ]),
           const SizedBox(height: 16),
-          if (loading && taskRows.isEmpty)
+        if (loading && taskRows.isEmpty)
             const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 60), child: CircularProgressIndicator(color: Color(0xFF0052CC))))
           else
             Container(
+              height: 400, // Fixed height for vertical scroll
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
-              child: Scrollbar(
-                controller: _horizontalController, 
-                thumbVisibility: true,
-                trackVisibility: true,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 200,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch, 
-                        children: [
-                          Container(
-                            height: 48,
-                            color: const Color(0xFF0052CC),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            alignment: Alignment.centerLeft,
-                            child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1️⃣ FIXED (STATIC) CLIENT NAME COLUMN ON THE LEFT
+                  SizedBox(
+                    width: 200,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          height: 48,
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF0052CC),
+                            border: Border(right: BorderSide(color: Color(0xFF0044B3))),
                           ),
-                          ...visibleRows.map((row) => _buildClientCell(row)),
-                          ...List.generate(4, (_) => _buildClientCell(null)),
-                        ]
-                      ),
+                          child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                        Expanded(
+                          child: ListView(
+                            physics: const NeverScrollableScrollPhysics(), // Scroll is synchronized with the right side list
+                            padding: EdgeInsets.zero,
+                            children: [
+                              ...visibleRows.map((row) => SizedBox(height: 54, child: _buildClientCell(row))),
+                              ...List.generate(4, (_) => SizedBox(height: 54, child: _buildClientCell(null))),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-                    Expanded(
+                  ),
+                  const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
+
+                  // 2️⃣ SCROLLABLE DATA COLUMNS ON THE RIGHT (Both Horizontal & Vertical)
+                  Expanded(
+                    child: Scrollbar(
+                      controller: _horizontalController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
                       child: SingleChildScrollView(
-                        controller: _horizontalController, 
+                        controller: _horizontalController,
                         scrollDirection: Axis.horizontal,
                         physics: const AlwaysScrollableScrollPhysics(),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 4400,
-                              height: 48,
-                              child: Row(children: const [
-                                 _HeaderCell(width: 200, label: "DELIVERABLES"),
-                                 _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
-                                 _HeaderCell(width: 140, label: "ADS HANDLER"),
-                                 _HeaderCell(width: 160, label: "ADS TASKS"),
-                                 _HeaderCell(width: 140, label: "ADS DATE"),
-                                 _HeaderCell(width: 140, label: "PAGE HANDLER"),
-                                 _HeaderCell(width: 160, label: "PAGE TASKS"),
-                                 _HeaderCell(width: 140, label: "PAGE DATE"),
-                                 _HeaderCell(width: 140, label: "DESIGNER"),
-                                 _HeaderCell(width: 160, label: "DESIGN TASKS"),
-                                 _HeaderCell(width: 140, label: "DESIGN DATE"),
-                                 _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
-                                 _HeaderCell(width: 160, label: "VIDEO TASKS"),
-                                 _HeaderCell(width: 140, label: "VIDEO DATE"),
-                                 _HeaderCell(width: 140, label: "VIDEO EDITOR"),
-                                 _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-                                 _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
-                                 _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
-                                 _HeaderCell(width: 160, label: "UI/UX TASKS"),
-                                 _HeaderCell(width: 140, label: "UI/UX DATE"),
-                                 _HeaderCell(width: 140, label: "DEVELOPER"),
-                                 _HeaderCell(width: 160, label: "DEV TASKS"),
-                                 _HeaderCell(width: 140, label: "DEV DATE"),
-                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER",),
-                                 _HeaderCell(width: 160,label: "WEBSITE DESIGNER TASKS",),
-                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER DATE",),
-                                 _HeaderCell(width: 140, label: "DEADLINE"),
-                                 _HeaderCell(width: 160, label: "COMMENTS"),
-                                 _HeaderCell(width: 140, label: "ACTION"),
-                              ]),
-                            ),
-                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                            ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
-                            ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
-                          ],
+                        child: SizedBox(
+                          width: 4400,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 🟦 BLUE TABLE HEADERS
+                              Container(
+                                height: 48,
+                                color: const Color(0xFF0052CC),
+                                child: Row(children: const [
+                                   _HeaderCell(width: 200, label: "DELIVERABLES"),
+                                   _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
+                                   _HeaderCell(width: 140, label: "ADS HANDLER"),
+                                   _HeaderCell(width: 160, label: "ADS TASKS"),
+                                  //  _HeaderCell(width: 140, label: "ADS DATE"),
+                                   _HeaderCell(width: 140, label: "PAGE HANDLER"),
+                                   _HeaderCell(width: 160, label: "PAGE TASKS"),
+                                  //  _HeaderCell(width: 140, label: "PAGE DATE"),
+                                   _HeaderCell(width: 140, label: "DESIGNER"),
+                                   _HeaderCell(width: 160, label: "DESIGN TASKS"),
+                                  //  _HeaderCell(width: 140, label: "DESIGN DATE"),
+                                   _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
+                                   _HeaderCell(width: 160, label: "VIDEO TASKS"),
+                                  //  _HeaderCell(width: 140, label: "VIDEO DATE"),
+                                   _HeaderCell(width: 140, label: "VIDEO EDITOR"),
+                                   _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
+                                  //  _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
+                                   _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
+                                   _HeaderCell(width: 160, label: "UI/UX TASKS"),
+                                  //  _HeaderCell(width: 140, label: "UI/UX DATE"),
+                                   _HeaderCell(width: 140, label: "DEVELOPER"),
+                                   _HeaderCell(width: 160, label: "DEV TASKS"),
+                                  //  _HeaderCell(width: 140, label: "DEV DATE"),
+                                   _HeaderCell(width: 140, label: "WEBSITE DESIGNER"),
+                                   _HeaderCell(width: 160, label: "WEBSITE DESIGNER TASKS"),
+                                  //  _HeaderCell(width: 140, label: "WEBSITE DESIGNER DATE"),
+                                   _HeaderCell(width: 140, label: "DEADLINE"),
+                                   _HeaderCell(width: 160, label: "COMMENTS"),
+                                   _HeaderCell(width: 140, label: "ACTION"),
+                                ]),
+                              ),
+                              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                              // VERTICALLY SCROLLABLE DATA ROWS BODY
+                              Expanded(
+                                child: Scrollbar(
+                                  thumbVisibility: true,
+                                  child: ListView(
+                                    padding: EdgeInsets.zero,
+                                    children: [
+                                      ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
+                                      ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
+
         ],
       ),
     );
@@ -1533,6 +1596,27 @@ setState(() {
       if (upper == noneMarker) return noneMarker;
       return employees.contains(upper) ? upper : '';
     }
+    // 🟢 Date string-la irunthu day number mattum (e.g., "24") extract panra function
+  String _formatOnlyDay(dynamic rawDate) {
+    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
+    final val = rawDate.toString().trim();
+    
+    // If format is DD/MM/YYYY
+    if (val.contains('/')) {
+      final parts = val.split('/');
+      if (parts.isNotEmpty) {
+        return parts[0]; // Day part mattum return aagum (e.g., "24")
+      }
+    }
+    
+    // If format is ISO or something else, try parsing
+    try {
+      final parsed = DateTime.parse(val);
+      return parsed.day.toString().padLeft(2, '0');
+    } catch (_) {
+      return val;
+    }
+  }
 
     Widget taskCell(double width, String roleKey, String dbFieldKey) {
       return GestureDetector(
@@ -1564,7 +1648,36 @@ setState(() {
     return Row(
       children: [
         _buildDeliverablesCell(200, row), // ✅ Interactive deliverables package dropdown
-        SizedBox(
+        // SizedBox(
+        //   width: 200,
+        //   height: 54,
+        //   child: GestureDetector(
+        //     onTap: () => _pickDate(row, 'maintenance_date'),
+        //     child: Container(
+        //       padding: const EdgeInsets.symmetric(horizontal: 10),
+        //       decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+        //       alignment: Alignment.centerLeft,
+        //       child: Row(
+        //         children: [
+        //           Expanded(
+        //             child: Text(
+        //               row['maintenance_date']?.toString().isEmpty ?? true ? '—' : row['maintenance_date'].toString(),
+        //               style: TextStyle(
+        //                 fontSize: 11,
+        //                 fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
+        //                 color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+        //               ),
+        //             ),
+        //           ),
+        //           const SizedBox(width: 8),
+        //           Icon(Icons.calendar_today, size: 14, color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
+        //         ],
+        //       ),
+        //     ),
+        //   ),
+        // ),
+       
+       SizedBox(
           width: 200,
           height: 54,
           child: GestureDetector(
@@ -1577,7 +1690,8 @@ setState(() {
                 children: [
                   Expanded(
                     child: Text(
-                      row['maintenance_date']?.toString().isEmpty ?? true ? '—' : row['maintenance_date'].toString(),
+                      // 🟢 Day (Date) mattum eduthu kaattum (e.g. "24")
+                      _formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
@@ -1592,27 +1706,28 @@ setState(() {
             ),
           ),
         ),
+       
         SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ads_handler_task', 'ads_platform')),
-        SizedBox(width: 140, child: _dateCell(140, 'ads_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'ads_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
-        SizedBox(width: 140, child: _dateCell(140, 'page_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'page_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'designer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'designer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'videographer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'videographer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        SizedBox(width: 140, child: _dateCell(140, 'video_editor_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'video_editor_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'ui_ux_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'ui_ux_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
         SizedBox(
   width: 140,
   child: _empDropCell(
@@ -1637,14 +1752,14 @@ SizedBox(
   ),
 ),
 
-SizedBox(
-  width: 140,
-  child: _dateCell(
-    140,
-    'website_designer_submit_date',
-    row,
-  ),
-),
+// SizedBox(
+//   width: 140,
+//   child: _dateCell(
+//     140,
+//     'website_designer_submit_date',
+//     row,
+//   ),
+// ),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),
@@ -1774,11 +1889,12 @@ class _HeaderCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFF0044B3)))),
       alignment: Alignment.centerLeft,
-      child: Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.3), maxLines: 2, overflow: TextOverflow.ellipsis),
+      child: Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3), maxLines: 2, overflow: TextOverflow.ellipsis),
     );
     if (width != null) return SizedBox(width: width, child: child);
     return Expanded(child: child);
   }
 }
+

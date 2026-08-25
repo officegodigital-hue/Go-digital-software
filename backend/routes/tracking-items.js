@@ -949,4 +949,33 @@ router.post('/recalculate-completed-durations', async (req, res) => {
   }
 });
 
+
+// GET /api/tracking-items/history/:employeeName
+router.get('/history/:employeeName', async (req, res) => {
+  const { employeeName } = req.params;
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        tti.*,
+        tl.client_name,
+        tl.deliverables,
+        tl.id AS task_list_id
+      FROM time_tracking_task_items tti
+      INNER JOIN task_list tl ON tl.id = tti.task_list_id
+      WHERE tl.employee_name = ?
+        AND UPPER(tti.status) IN ('COMPLETED', 'REJECTED')
+      ORDER BY tti.id DESC
+      `,
+      [employeeName]
+    );
+
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /tracking-items/history/:employeeName ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
