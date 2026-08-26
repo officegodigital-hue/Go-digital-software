@@ -77,17 +77,26 @@ class _AddInvoiceScreenState extends State<AddInvoiceScreen> {
   final maintenanceDateController = TextEditingController();
   final clientNameController = TextEditingController(text: "");
   final discountController = TextEditingController(text: "0.00");
-  final notesController = TextEditingController();
+  // final notesController = TextEditingController();
 
   final LayerLink _clientLayer = LayerLink();
   final LayerLink _clientLayerLink = LayerLink();
 OverlayEntry? _clientOverlay;
 
   
+// Checkboxes for Print inclusion
+  bool _includeNotes = false;
+  bool _includeTerms = false;
+
+  final notesController = TextEditingController(
+    text: "All the prices mentioned above are:\n"
+          "• Excluding GST\n"
+          "• Above the price are one month maintenance",
+  );
+  
   final termsController = TextEditingController(
     text: '• Project development only\n• 50% advance required\n• No refund after approval',
   );
-
   bool agreedToTerms = false;
   bool includeGST = true;
   bool _isSaving = false;
@@ -112,6 +121,7 @@ OverlayEntry? _clientOverlay;
   List<Map<String, dynamic>> _paymentHistory = [];
 
   late List<_InvoiceItemRow> _items;
+
 
 
   @override
@@ -1026,17 +1036,49 @@ void _selectClient(Map<String, dynamic> client) {
                         
                         pw.SizedBox(height: 10),
 
-                        if (notesController.text.isNotEmpty) ...[
+                        // if (notesController.text.isNotEmpty) ...[
+                        //   pw.Text('Notes', style: pw.TextStyle(font: fontBold, fontSize: 8)),
+                        //   pw.SizedBox(height: 2),
+                        //   pw.Text(
+                        //     notesController.text,
+                        //     style: pw.TextStyle(font: font, fontSize: 9),
+                        //   ),
+                        //   pw.SizedBox(height: 6),
+                        // ],
+
+                        // ✅ NOTES PRINT CONDITION
+                        if (_includeNotes && notesController.text.isNotEmpty) ...[
                           pw.Text('Notes', style: pw.TextStyle(font: fontBold, fontSize: 8)),
                           pw.SizedBox(height: 2),
-                          pw.Text(
-                            notesController.text,
-                            style: pw.TextStyle(font: font, fontSize: 9),
-                          ),
+                          ...notesController.text.split('\n').map((note) {
+                            return pw.Padding(
+                              padding: const pw.EdgeInsets.only(bottom: 2),
+                              child: pw.Text(
+                                note.trim().isEmpty ? '' : note.trim(),
+                                style: pw.TextStyle(font: font, fontSize: 9),
+                              ),
+                            );
+                          }),
                           pw.SizedBox(height: 6),
                         ],
 
                         // if (agreedToTerms) ...[
+                          // pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 8)),
+                          // pw.SizedBox(height: 2),
+                          // ...termsController.text.split('\n').map((term) {
+                          //   return pw.Padding(
+                          //     padding: const pw.EdgeInsets.only(bottom: 2),
+                          //     child: pw.Text(
+                          //       term.trim().isEmpty ? '' : term.trim(),
+                          //       style: pw.TextStyle(font: font, fontSize: 9),
+                          //     ),
+                          //   );
+                          // }),
+                          // pw.SizedBox(height: 12),
+                        // ],
+
+                        // ✅ TERMS & CONDITIONS PRINT CONDITION
+                        if (_includeTerms && termsController.text.isNotEmpty) ...[
                           pw.Text('Terms & Conditions', style: pw.TextStyle(font: fontBold, fontSize: 8)),
                           pw.SizedBox(height: 2),
                           ...termsController.text.split('\n').map((term) {
@@ -1048,8 +1090,7 @@ void _selectClient(Map<String, dynamic> client) {
                               ),
                             );
                           }),
-                          // pw.SizedBox(height: 12),
-                        // ],
+                        ],
 
                         // pw.Spacer(),
 
@@ -1606,10 +1647,20 @@ if (balanceAmount < 0) {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                                  Row(
+                                    children: [
+                                      Checkbox(
+                                        value: _includeNotes,
+                                        activeColor: const Color(0xFF0052CC),
+                                        onChanged: (val) => setState(() => _includeNotes = val ?? false),
+                                      ),
+                                      const Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                                    ],
+                                  ),
                                   const SizedBox(height: 8),
                                   TextField(
                                     controller: notesController,
+                                    
                                     maxLines: 3,
                                     readOnly: _viewOnly,
                                     decoration: InputDecoration(
@@ -1626,7 +1677,17 @@ if (balanceAmount < 0) {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                                  // const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                                  Row(
+                                    children: [
+                                      Checkbox(
+                                        value: _includeTerms,
+                                        activeColor: const Color(0xFF0052CC),
+                                        onChanged: (val) => setState(() => _includeTerms = val ?? false),
+                                      ),
+                                      const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                                    ],
+                                  ),
                                   const SizedBox(height: 8),
                                   TextField(
                                     controller: termsController,

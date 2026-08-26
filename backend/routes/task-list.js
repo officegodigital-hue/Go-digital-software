@@ -4,13 +4,32 @@ const router  = express.Router();
 const db      = require('../config/db');
  
 // GET /api/task-list — all entries
+// router.get('/', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(`
+//       SELECT tl.*, tm.task_name AS task_master_name, tt.timing AS timing_string
+//       FROM task_list tl
+//       LEFT JOIN task_master tm ON tm.id = tl.task_master_id
+//       LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
+//       ORDER BY tl.id DESC
+//     `);
+//     return res.json({ success: true, data: rows });
+//   } catch (err) {
+//     console.error('GET /task-list ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// GET /api/task-list — all entries (active clients only)
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT tl.*, tm.task_name AS task_master_name, tt.timing AS timing_string
       FROM task_list tl
+      INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
       LEFT JOIN task_master tm ON tm.id = tl.task_master_id
       LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
+      WHERE c.is_active = 1
       ORDER BY tl.id DESC
     `);
     return res.json({ success: true, data: rows });
@@ -493,6 +512,30 @@ router.delete('/:id', async (req, res) => {
 });
 
 // GET /api/task-list — all entries with completed count
+// router.get('/status', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(`
+//       SELECT tl.*, 
+//              tm.task_name AS task_master_name, 
+//              tt.timing AS timing_string,
+//              (
+//                SELECT COUNT(*) 
+//                FROM time_tracking_task_items ti 
+//                WHERE ti.task_list_id = tl.id AND ti.status = 'COMPLETED'
+//              ) AS completed_count
+//       FROM task_list tl
+//       LEFT JOIN task_master tm ON tm.id = tl.task_master_id
+//       LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
+//       ORDER BY tl.id DESC
+//     `);
+//     return res.json({ success: true, data: rows });
+//   } catch (err) {
+//     console.error('GET /task-list ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// GET /api/task-list/status — all entries with completed count (active clients only)
 router.get('/status', async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -505,13 +548,15 @@ router.get('/status', async (req, res) => {
                WHERE ti.task_list_id = tl.id AND ti.status = 'COMPLETED'
              ) AS completed_count
       FROM task_list tl
+      INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
       LEFT JOIN task_master tm ON tm.id = tl.task_master_id
       LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
+      WHERE c.is_active = 1
       ORDER BY tl.id DESC
     `);
     return res.json({ success: true, data: rows });
   } catch (err) {
-    console.error('GET /task-list ERROR:', err.message);
+    console.error('GET /task-list/status ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

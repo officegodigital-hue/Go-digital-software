@@ -21,6 +21,8 @@ function formatDuration(seconds) {
 //   taskPending          — count of tasks not yet COMPLETED (action required)
 //   upcomingDeadlines    — tasks due within the next 3 days that aren't COMPLETED
 //   tasks[]              — one row per task_list entry, for the "Task Status" table
+// GET /api/dashboard/summary/:employeeName
+// GET /api/dashboard/summary/:employeeName
 router.get('/summary/:employeeName', async (req, res) => {
   const { employeeName } = req.params;
   if (!employeeName) {
@@ -28,89 +30,95 @@ router.get('/summary/:employeeName', async (req, res) => {
   }
 
   try {
-    // s_no = 1 is treated as the row that represents this task's overall
-    // status for the dashboard card (the detailed per-row breakdown still
-    // lives in the Assigned Tasks screen).
-   const [summaryRows] = await db.query(
-`SELECT
-    tl.id AS task_list_id,
-    tl.client_name,
-    tl.deliverables AS task,
-    tl.duration AS estimated_duration,
-    tl.submission_date,
-    tl.no_of_rows,
+    const [summaryRows] = await db.query(
+      `SELECT
+          tl.id AS task_list_id,
+          tl.client_name,
+          tl.deliverables AS task,
+          tl.duration AS estimated_duration,
+          tl.submission_date,
+          tl.no_of_rows,
 
-    tti.id AS tracking_item_id,
-    tti.status,
+          tti.id AS tracking_item_id,
+          tti.status,
 
-    (
-    SELECT COALESCE(SUM(duration_secs), 0)
-    FROM time_tracking_task_items t
-    WHERE t.task_list_id = tl.id
-) AS total_duration_secs,
+          (
+              SELECT COALESCE(SUM(duration_secs), 0)
+              FROM time_tracking_task_items t
+              WHERE t.task_list_id = tl.id
+          ) AS total_duration_secs,
 
-    COALESCE(mr.manager_action,'ACTION') AS manager_action,
+          COALESCE(mr.manager_action,'ACTION') AS manager_action,
 
-    (
-        SELECT COUNT(*)
-        FROM time_tracking_task_items t
-        WHERE t.task_list_id = tl.id
-          AND t.status = 'COMPLETED'
-    ) AS completed_rows,
+          (
+              SELECT COUNT(*)
+              FROM time_tracking_task_items t
+              WHERE t.task_list_id = tl.id
+                AND t.status = 'COMPLETED'
+          ) AS completed_rows,
 
-    (
-    SELECT COUNT(*)
-    FROM time_tracking_task_items t
-    WHERE t.task_list_id = tl.id
-      AND t.status = 'REJECTED'
-) AS rejected_rows
+          (
+              SELECT COUNT(*)
+              FROM time_tracking_task_items t
+              WHERE t.task_list_id = tl.id
+                AND t.status = 'REJECTED'
+          ) AS rejected_rows,
 
-FROM task_list tl
+          c.is_active AS client_is_active
 
-LEFT JOIN time_tracking_task_items tti
-ON tti.id = (
-    SELECT id
-    FROM time_tracking_task_items t
-    WHERE t.task_list_id = tl.id
-    ORDER BY t.s_no DESC
-    LIMIT 1
-)
+      FROM task_list tl
 
-LEFT JOIN manager_review mr
-    ON mr.tracking_item_id = tti.id
+      INNER JOIN clients c 
+          ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
 
-WHERE tl.employee_name = ?`,
-[employeeName]
-);
+      LEFT JOIN time_tracking_task_items tti
+      ON tti.id = (
+          SELECT id
+          FROM time_tracking_task_items t
+          WHERE t.task_list_id = tl.id
+          ORDER BY t.s_no DESC
+          LIMIT 1
+      )
 
-const [todayRows] = await db.query(
-`SELECT
-    tl.id AS task_list_id,
-    tl.client_name,
-    tl.deliverables AS task,
-    tl.duration AS estimated_duration,
-    tl.submission_date,
-    tti.updated_at,
-    tti.id AS tracking_item_id,
-    tti.status,
-    COALESCE(mr.manager_action,'ACTION') AS manager_action
-FROM task_list tl
-LEFT JOIN time_tracking_task_items tti
-ON tti.id = (
-    SELECT id
-    FROM time_tracking_task_items t
-    WHERE t.task_list_id = tl.id
-    ORDER BY t.s_no DESC
-    LIMIT 1
-)
-LEFT JOIN manager_review mr
-ON mr.tracking_item_id=tti.id
-WHERE tl.employee_name=?
-AND DATE(tti.updated_at)=CURDATE()
-ORDER BY tti.updated_at DESC
-LIMIT 6`,
-[employeeName]
-);
+      LEFT JOIN manager_review mr
+          ON mr.tracking_item_id = tti.id
+
+      WHERE tl.employee_name = ?
+        AND c.is_active = 1`,
+      [employeeName]
+    );
+
+    const [todayRows] = await db.query(
+      `SELECT
+          tl.id AS task_list_id,
+          tl.client_name,
+          tl.deliverables AS task,
+          tl.duration AS estimated_duration,
+          tl.submission_date,
+          tti.updated_at,
+          tti.id AS tracking_item_id,
+          tti.status,
+          COALESCE(mr.manager_action,'ACTION') AS manager_action
+      FROM task_list tl
+      INNER JOIN clients c 
+          ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+      LEFT JOIN time_tracking_task_items tti
+      ON tti.id = (
+          SELECT id
+          FROM time_tracking_task_items t
+          WHERE t.task_list_id = tl.id
+          ORDER BY t.s_no DESC
+          LIMIT 1
+      )
+      LEFT JOIN manager_review mr
+      ON mr.tracking_item_id = tti.id
+      WHERE tl.employee_name = ?
+        AND c.is_active = 1
+        AND DATE(tti.updated_at) = CURDATE()
+      ORDER BY tti.updated_at DESC
+      LIMIT 6`,
+      [employeeName]
+    );
 
     const clientsSet = new Set();
     const activeClientsSet = new Set();
@@ -121,9 +129,9 @@ LIMIT 6`,
     let rejectedTasks = 0;
     let approved = 0;
     let review = 0;
-let rework = 0;
-let rejected = 0;
-let others = 0;
+    let rework = 0;
+    let rejected = 0;
+    let others = 0;
     let upcomingDeadlines = 0;
 
     const today = new Date();
@@ -133,155 +141,134 @@ let others = 0;
 
     const tasks = summaryRows.map((r) => {
       const status = r.status || 'IDLE';
-      clientsSet.add(r.client_name);
+      const isClientActive = r.client_is_active == 1 || r.client_is_active === true;
+
+      if (isClientActive) {
+        clientsSet.add(r.client_name);
+      }
 
       const isOpen = ![
-    'COMPLETED',
-    'REJECTED'
-].includes(status);
+        'COMPLETED',
+        'REJECTED'
+      ].includes(status);
 
-if (isOpen) {
-    activeClientsSet.add(r.client_name);
-    activeTasks++;
-}
-      // if (status === 'IN PROGRESS' || status === 'ON HOLD') {
-      //   taskPending++;
-      // }
+      if (isOpen && isClientActive) {
+        activeClientsSet.add(r.client_name);
+        activeTasks++;
+      }
+
       if (
-    status !== 'COMPLETED' &&
-    status !== 'REJECTED'
-) {
-    taskPending++;
-}
-      if (status === 'ON HOLD') {
+        status !== 'COMPLETED' &&
+        status !== 'REJECTED' &&
+        isClientActive
+      ) {
+        taskPending++;
+      }
+
+      if (status === 'ON HOLD' && isClientActive) {
         onHoldCount++;
       }
-      if ((r.rejected_rows ?? 0) > 0) {
-    rejectedTasks++;
-    rejectedClientsSet.add(r.client_name);
-}
-// Productivity Count
-if (status === 'COMPLETED') {
-  if (r.manager_action === 'APPROVED') {
-    approved++;
-  } else if (r.manager_action === 'REWORK') {
-    rework++;
-  } else if (r.manager_action === 'REJECTED') {
-    rejected++;
-  } else {
-    // COMPLETED + ACTION => Review Pending
-    review++;
-  }
-} else if (status !== 'REJECTED') {
-  others++;
-}
-// if (r.manager_action === 'APPROVED') {
-//     approved++;
-// } else if (r.manager_action === 'REWORK') {
-//     rework++;
-// } else if (r.manager_action === 'REJECTED') {
-//     rejected++;
-// } else {
-//     review++;
-// }
 
-    if (
-    r.submission_date &&
-    r.submission_date !== '0000-00-00'
-) {
+      if ((r.rejected_rows ?? 0) > 0 && isClientActive) {
+        rejectedTasks++;
+        rejectedClientsSet.add(r.client_name);
+      }
 
-    let due;
-
-    if (r.submission_date instanceof Date) {
-        due = new Date(r.submission_date);
-    } 
-    else {
-        const parts = r.submission_date.split('-');
-
-        if (parts.length === 3) {
-            due = new Date(
-                Number(parts[0]),
-                Number(parts[1]) - 1,
-                Number(parts[2])
-            );
+      if (isClientActive) {
+        if (status === 'COMPLETED') {
+          if (r.manager_action === 'APPROVED') {
+            approved++;
+          } else if (r.manager_action === 'REWORK') {
+            rework++;
+          } else if (r.manager_action === 'REJECTED') {
+            rejected++;
+          } else {
+            review++;
+          }
+        } else if (status !== 'REJECTED') {
+          others++;
         }
-    }
+      }
 
+      if (
+        r.submission_date &&
+        r.submission_date !== '0000-00-00' &&
+        isClientActive
+      ) {
+        let due;
+        if (r.submission_date instanceof Date) {
+            due = new Date(r.submission_date);
+        } else {
+            const parts = r.submission_date.split('-');
+            if (parts.length === 3) {
+                due = new Date(
+                    Number(parts[0]),
+                    Number(parts[1]) - 1,
+                    Number(parts[2])
+                );
+            }
+        }
 
-    if (
-        due &&
-        !isNaN(due) &&
-        due >= today &&
-        due <= threeDaysOut &&
-        status !== 'COMPLETED' &&
-        status !== 'REJECTED'
-    ) {
-        upcomingDeadlines++;
-    }
-}
+        if (
+            due &&
+            !isNaN(due) &&
+            due >= today &&
+            due <= threeDaysOut &&
+            status !== 'COMPLETED' &&
+            status !== 'REJECTED'
+        ) {
+            upcomingDeadlines++;
+        }
+      }
 
-      // return {
-      //   taskListId: r.task_list_id,
-      //   trackingItemId: r.tracking_item_id,
-      //   clientName: r.client_name,
-      //   task: r.task,
-      //   duration: r.duration || 'N/A',
-      //   submissionDate: r.submission_date,
-      //   action: status,
-      //   status: status === 'COMPLETED' ? 'REVIEW' : '-',
-
-      //   completedRows: r.completed_rows || 0,
-      //   totalRows: r.no_of_rows || 0,
-      // };
       let reviewStatus = '-';
       let duration = r.estimated_duration;
 
       if (
-    r.status === 'IN PROGRESS' ||
-    r.status === 'COMPLETED'
-) {
-    duration = formatDuration(r.total_duration_secs);
-}
+        r.status === 'IN PROGRESS' ||
+        r.status === 'COMPLETED'
+      ) {
+        duration = formatDuration(r.total_duration_secs);
+      }
 
-if (status === 'COMPLETED') {
-  switch (r.manager_action) {
-    case 'APPROVED':
-      reviewStatus = 'APPROVED';
-      break;
+      if (status === 'COMPLETED') {
+        switch (r.manager_action) {
+          case 'APPROVED':
+            reviewStatus = 'APPROVED';
+            break;
+          case 'REWORK':
+            reviewStatus = 'REWORK';
+            break;
+          case 'REJECTED':
+            reviewStatus = 'REJECTED';
+            break;
+          default:
+            reviewStatus = 'REVIEW';
+            break;
+        }
+      }
 
-    case 'REWORK':
-      reviewStatus = 'REWORK';
-      break;
-
-    case 'REJECTED':
-      reviewStatus = 'REJECTED';
-      break;
-
-    default:
-      reviewStatus = 'REVIEW';
-      break;
-  }
-}
-
-return {
-  taskListId: r.task_list_id,
-  trackingItemId: r.tracking_item_id,
-  clientName: r.client_name,
-  task: r.task,
-  // duration: r.duration || 'N/A',
-  duration: duration,
-  submissionDate:
-    !r.submission_date ||
-    r.submission_date === '0000-00-00'
-        ? null
-        : r.submission_date,
-  action: status,
-  status: reviewStatus,
-
-  completedRows: r.completed_rows || 0,
-  totalRows: r.no_of_rows || 0,
-};
+      return {
+        taskListId: r.task_list_id,
+        trackingItemId: r.tracking_item_id,
+        clientName: r.client_name,
+        task: r.task,
+        duration: duration,
+        submissionDate:
+          !r.submission_date ||
+          r.submission_date === '0000-00-00'
+              ? null
+              : r.submission_date,
+        action: status,
+        status: reviewStatus,
+        completedRows: r.completed_rows || 0,
+        totalRows: r.no_of_rows || 0,
+        isClientActive: isClientActive,
+      };
     });
+
+    // 🟢 Filter out any inactive client tasks entirely from the task array sent to the UI table
+    const activeTasksOnly = tasks.filter(t => t.isClientActive);
 
     return res.json({
       success: true,
@@ -294,14 +281,14 @@ return {
         rejectedTasks,
         rejectedClients: rejectedClientsSet.size,
         upcomingDeadlines,
-        tasks,
+        tasks: activeTasksOnly, // Only active client rows sent to Task Status table
         productivity:{
-    approved,
-    rework,
-    rejected,
-    review,
-    others,
-},
+          approved,
+          rework,
+          rejected,
+          review,
+          others,
+        },
       },
     });
   } catch (err) {
@@ -312,9 +299,6 @@ return {
 
 router.get('/employee-status', async (req, res) => {
   try {
-    // FIX: added a completed/total row count per task, pulled from
-    // time_tracking_task_items — "5/12" means 5 of the 12 rows on that
-    // task_list entry currently have status = COMPLETED.
     const [rows] = await db.query(`
       SELECT
         tl.id AS task_list_id,
@@ -333,6 +317,11 @@ router.get('/employee-status', async (req, res) => {
       FROM task_list tl
       LEFT JOIN time_tracking_task_items tti
         ON tti.task_list_id = tl.id AND tti.s_no = 1
+      WHERE LOWER(TRIM(tl.client_name)) IN (
+        SELECT LOWER(TRIM(company_name)) 
+        FROM clients 
+        WHERE is_active = 1
+      )
       ORDER BY tl.submission_date ASC
     `);
 
@@ -349,7 +338,6 @@ router.get('/employee-status', async (req, res) => {
         }
       }
 
-      // No priority column exists yet — derived from urgency of the deadline.
       let priority = 'LOW';
       if (daysLeft !== null) {
         if (daysLeft <= 0) priority = 'URGENT';

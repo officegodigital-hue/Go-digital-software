@@ -22,6 +22,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   final ScrollController _horizontalController = ScrollController();
+  final ScrollController _verticalController = ScrollController();
 
   List<Map<String, dynamic>> taskRows = [];
   List<String> employees = [];
@@ -30,6 +31,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   List<Map<String, dynamic>> packagesList = [];
   bool _loadingPackages = true;
 
+  List<Map<String, dynamic>> allClientsData = []; // Store full client objects
+  
   Map<String, String> taskRoles = {};
   bool _loadingRoles = true;
 
@@ -62,7 +65,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   Future<void> _fetchAll() async {
     await Future.wait([
       _fetchEmployees(),
-      _fetchActiveClients(), 
+      _fetchClients(), 
       _fetchPackagesData(),  
       _fetchTaskMaster(),
       _fetchTasks(),
@@ -70,30 +73,33 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   // ✅ FIXED: Fetch active clients from /api/clients and filter company_name where is_active == 1
-  Future<void> _fetchActiveClients() async {
-    setState(() => _loadingClients = true);
-    try {
-      final r = await http.get(Uri.parse('$_baseUrl/clients'));
-      if (r.statusCode == 200) {
-        final body = jsonDecode(r.body);
-        final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
-        setState(() {
-          clients = data
-              .where((c) => c['is_active'] == 1 || c['is_active'] == true)
-              .map((c) => (c['company_name'] ?? '').toString().trim())
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
-          _loadingClients = false;
-        });
-      } else {
-        setState(() => _loadingClients = false);
-      }
-    } catch (e) {
+  Future<void> _fetchClients() async {
+  setState(() => _loadingClients = true);
+  try {
+    final r = await http.get(Uri.parse('$_baseUrl/clients'));
+    if (r.statusCode == 200) {
+      final body = jsonDecode(r.body);
+      final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+      setState(() {
+        allClientsData = data; // Keep full client data to check status later
+        
+        // Active clients for dropdowns
+        clients = data
+            .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+            .map((c) => (c['company_name'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        _loadingClients = false;
+      });
+    } else {
       setState(() => _loadingClients = false);
     }
+  } catch (e) {
+    setState(() => _loadingClients = false);
   }
+}
 
   Future<void> _fetchPackagesData() async {
     setState(() => _loadingPackages = true);
@@ -1271,35 +1277,52 @@ setState(() {
     //   return clientName.contains(query);
     // }).toList();
     final visibleRows = taskRows.where((r) {
-      final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
-      if (_showAssigned != assigned) return false;
-      if (_searchQuery.trim().isEmpty) return true;
-      
-      final query = _searchQuery.trim().toLowerCase();
-      
-      // 🔍 Client Name check
-      final clientName = (r['client_name'] ?? '').toString().toLowerCase();
-      if (clientName.contains(query)) return true;
+  final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
+  if (_showAssigned != assigned) return false;
 
-      // 🔍 Employee Names check across all role columns
-      final roleFields = [
-        'ads_handling',
-        'page_handling',
-        'designer',
-        'videographer',
-        'video_editor',
-        'ui_ux_designer',
-        'developer',
-        'website_designer'
-      ];
+  // 🔍 Check Client Active Status
+  final clientName = (r['client_name'] ?? '').toString().trim();
+  if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
+    return true; // Keep pending selection rows visible
+  }
 
-      for (final field in roleFields) {
-        final empValue = (r[field] ?? '').toString().toLowerCase();
-        if (empValue.contains(query)) return true;
-      }
+  // Find the client in our fetched list
+  final clientMatch = allClientsData.firstWhere(
+    (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
+    orElse: () => {},
+  );
 
-      return false;
-    }).toList();
+  // If client exists and is INACTIVE (is_active == 0 or false), hide the row!
+  if (clientMatch.isNotEmpty) {
+    final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
+    if (!isActive) return false; 
+  }
+
+  // Search query filtering
+  if (_searchQuery.trim().isEmpty) return true;
+  final query = _searchQuery.trim().toLowerCase();
+  
+  if (clientName.toLowerCase().contains(query)) return true;
+
+  final roleFields = [
+    'ads_handling',
+    'page_handling',
+    'designer',
+    'videographer',
+    'video_editor',
+    'ui_ux_designer',
+    'developer',
+    'website_designer'
+  ];
+
+  for (final field in roleFields) {
+    final empValue = (r[field] ?? '').toString().toLowerCase();
+    if (empValue.contains(query)) return true;
+  }
+
+  return false;
+}).toList();
+
 
     return AdminLayout(
       pageTitle: "Tasks Assign",
@@ -1372,7 +1395,7 @@ setState(() {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 1️⃣ FIXED (STATIC) CLIENT NAME COLUMN ON THE LEFT
+                  // 1️⃣ FIXED HORIZONTALLY, BUT VERTICALLY SCROLLABLE CLIENT NAME COLUMN ON THE LEFT
                   SizedBox(
                     width: 200,
                     child: Column(
@@ -1391,7 +1414,8 @@ setState(() {
                         const Divider(height: 1, color: Color(0xFFE2E8F0)),
                         Expanded(
                           child: ListView(
-                            physics: const NeverScrollableScrollPhysics(), // Scroll is synchronized with the right side list
+                            controller: _verticalController, // 🟢 Synced vertical controller
+                            physics: const ClampingScrollPhysics(), // Scroll enabled synchronously
                             padding: EdgeInsets.zero,
                             children: [
                               ...visibleRows.map((row) => SizedBox(height: 54, child: _buildClientCell(row))),
@@ -1404,7 +1428,7 @@ setState(() {
                   ),
                   const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
 
-                  // 2️⃣ SCROLLABLE DATA COLUMNS ON THE RIGHT (Both Horizontal & Vertical)
+                  // 2️⃣ SCROLLABLE DATA COLUMNS ON THE RIGHT (Both Horizontal & Vertical Synchronized)
                   Expanded(
                     child: Scrollbar(
                       controller: _horizontalController,
@@ -1428,28 +1452,20 @@ setState(() {
                                    _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
                                    _HeaderCell(width: 140, label: "ADS HANDLER"),
                                    _HeaderCell(width: 160, label: "ADS TASKS"),
-                                  //  _HeaderCell(width: 140, label: "ADS DATE"),
                                    _HeaderCell(width: 140, label: "PAGE HANDLER"),
                                    _HeaderCell(width: 160, label: "PAGE TASKS"),
-                                  //  _HeaderCell(width: 140, label: "PAGE DATE"),
                                    _HeaderCell(width: 140, label: "DESIGNER"),
                                    _HeaderCell(width: 160, label: "DESIGN TASKS"),
-                                  //  _HeaderCell(width: 140, label: "DESIGN DATE"),
                                    _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
                                    _HeaderCell(width: 160, label: "VIDEO TASKS"),
-                                  //  _HeaderCell(width: 140, label: "VIDEO DATE"),
                                    _HeaderCell(width: 140, label: "VIDEO EDITOR"),
                                    _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-                                  //  _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
                                    _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
                                    _HeaderCell(width: 160, label: "UI/UX TASKS"),
-                                  //  _HeaderCell(width: 140, label: "UI/UX DATE"),
                                    _HeaderCell(width: 140, label: "DEVELOPER"),
                                    _HeaderCell(width: 160, label: "DEV TASKS"),
-                                  //  _HeaderCell(width: 140, label: "DEV DATE"),
                                    _HeaderCell(width: 140, label: "WEBSITE DESIGNER"),
                                    _HeaderCell(width: 160, label: "WEBSITE DESIGNER TASKS"),
-                                  //  _HeaderCell(width: 140, label: "WEBSITE DESIGNER DATE"),
                                    _HeaderCell(width: 140, label: "DEADLINE"),
                                    _HeaderCell(width: 160, label: "COMMENTS"),
                                    _HeaderCell(width: 140, label: "ACTION"),
@@ -1457,11 +1473,14 @@ setState(() {
                               ),
                               const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
-                              // VERTICALLY SCROLLABLE DATA ROWS BODY
+                              // VERTICALLY SCROLLABLE DATA ROWS BODY (Using same _verticalController)
                               Expanded(
                                 child: Scrollbar(
+                                  controller: _verticalController,
                                   thumbVisibility: true,
                                   child: ListView(
+                                    controller: _verticalController, // 🟢 Synced vertical controller
+                                    physics: const AlwaysScrollableScrollPhysics(),
                                     padding: EdgeInsets.zero,
                                     children: [
                                       ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
@@ -1479,7 +1498,7 @@ setState(() {
                 ],
               ),
             ),
-
+            
         ],
       ),
     );

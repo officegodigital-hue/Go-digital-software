@@ -77,6 +77,9 @@ router.get('/employee-status', async (req, res) => {
     ), 0) AS not_started_rows
 
 FROM task_list tl
+INNER JOIN clients c 
+    ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+WHERE c.is_active = 1
 ORDER BY tl.submission_date ASC;
     `);
 

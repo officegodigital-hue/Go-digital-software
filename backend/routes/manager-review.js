@@ -62,20 +62,23 @@ router.get('/', async (req, res) => {
     await db.query(`
       INSERT INTO manager_review
       (
-          tracking_item_id,
-          manager_action,
-          reviewed_at
+        tracking_item_id,
+        manager_action,
+        reviewed_at
       )
       SELECT
-          tti.id,
-          'ACTION',
-          NOW()
+        tti.id,
+        'ACTION',
+        NOW()
       FROM time_tracking_task_items tti
+      JOIN task_list tl ON tl.id = tti.task_list_id
+      INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
       LEFT JOIN manager_review mr
-          ON mr.tracking_item_id = tti.id
+        ON mr.tracking_item_id = tti.id
       WHERE
-          tti.status = 'COMPLETED'
-          AND mr.tracking_item_id IS NULL
+        tti.status = 'COMPLETED'
+        AND c.is_active = 1
+        AND mr.tracking_item_id IS NULL
     `);
 
     const [rows] = await db.query(`
@@ -92,9 +95,12 @@ router.get('/', async (req, res) => {
       FROM time_tracking_task_items tti
       JOIN task_list tl
         ON tl.id = tti.task_list_id
+      INNER JOIN clients c 
+        ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
       LEFT JOIN manager_review mr
         ON mr.tracking_item_id = tti.id
       WHERE tti.status = 'COMPLETED'
+        AND c.is_active = 1
       ORDER BY tti.updated_at DESC
     `);
 
@@ -142,12 +148,75 @@ router.get('/task-status/:employeeName', async (req, res) => {
       JOIN task_list tl
            ON tl.id = tti.task_list_id
 
+      INNER JOIN clients c 
+           ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+
       LEFT JOIN manager_review mr
            ON mr.tracking_item_id = tti.id
 
       WHERE
           tl.employee_name = ?
           AND tti.status = 'COMPLETED'
+          AND c.is_active = 1
+
+      ORDER BY tti.updated_at DESC
+      `,
+      [employeeName]
+    );
+
+    const data = rows.map(r => ({
+      ...r,
+      duration: formatDuration(r.duration_secs)
+    }));
+
+    res.json({
+      success: true,
+      data
+    });
+
+  } catch (err) {
+    console.error('GET /manager-review/task-status ERROR:', err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// Employee Task Status
+// Employee Task Status
+router.get('/task-status/:employeeName', async (req, res) => {
+  try {
+    const employeeName = req.params.employeeName;
+
+    const [rows] = await db.query(
+      `
+      SELECT
+          tti.id AS tracking_item_id,
+          tl.client_name,
+          tl.employee_name,
+          tl.deliverables AS task,
+          tti.task_description AS task_description,
+          tti.duration_secs,
+          tti.status,
+          COALESCE(mr.manager_action, 'ACTION') AS manager_action,
+          COALESCE(mr.manager_comment, '') AS manager_comment
+      FROM time_tracking_task_items tti
+
+      JOIN task_list tl
+           ON tl.id = tti.task_list_id
+
+      INNER JOIN clients c 
+           ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+
+      LEFT JOIN manager_review mr
+           ON mr.tracking_item_id = tti.id
+
+      WHERE
+          tl.employee_name = ?
+          AND tti.status = 'COMPLETED'
+          AND c.is_active = 1
 
       ORDER BY tti.updated_at DESC
       `,

@@ -15,87 +15,90 @@ const db      = require('../config/db');
 // Returns all task_assignments rows where this employee appears in any role column
 // Flutter uses this to build the tab list + task cards
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/employee-tasks/by-employee/:name
 router.get('/by-employee/:name', async (req, res) => {
   const name = req.params.name.toUpperCase();
 
   try {
-    // Find rows where employee appears in any role column (case-insensitive)
+    // Find rows where employee appears in any role column and the client is ACTIVE (is_active = 1)
     const [rows] = await db.query(
-  `SELECT
-      ta.*,
-      ta.deadline
-   FROM task_assignments ta
-   WHERE(
-      UPPER(ta.designer)       LIKE ? OR
-      UPPER(ta.videographer)   LIKE ? OR
-      UPPER(ta.video_editor)   LIKE ? OR
-      UPPER(ta.ads_handling)   LIKE ? OR
-      UPPER(ta.page_handling)  LIKE ? OR
-      UPPER(ta.ui_ux_designer) LIKE ? OR
-      UPPER(ta.developer)      LIKE ? OR
-      UPPER(ta.website_designer) LIKE ?
-    )
-      AND ta.is_assigned = 1
-   ORDER BY ta.created_at DESC`,
-[
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`,
-  `%${name}%`
-]);
-
-for (const task of rows) {
-
-   if (
-    task.deliverables &&
-    task.deliverables.toUpperCase().includes("PACKAGE")
-  ) {
-    continue;
-  }
-  
-  // Skip if task already exists
-  const [exists] = await db.query(
-    `SELECT id
-     FROM task_list
-     WHERE task_assignment_id = ?
-       AND deliverables = ?
-     LIMIT 1`,
-    [task.id, task.deliverables]
-  );
-
-  if (exists.length === 0) {
-    await db.query(
-      `INSERT INTO task_list
-      (
-        task_assignment_id,
-        employee_id,
-        employee_name,
-        client_name,
-        deliverables,
-        duration,
-        submission_date,
-        no_of_rows
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `SELECT
+          ta.*,
+          ta.deadline
+       FROM task_assignments ta
+       INNER JOIN clients c 
+          ON TRIM(LOWER(ta.client_name)) = TRIM(LOWER(c.company_name))
+       WHERE (
+          UPPER(ta.designer)       LIKE ? OR
+          UPPER(ta.videographer)   LIKE ? OR
+          UPPER(ta.video_editor)   LIKE ? OR
+          UPPER(ta.ads_handling)   LIKE ? OR
+          UPPER(ta.page_handling)  LIKE ? OR
+          UPPER(ta.ui_ux_designer) LIKE ? OR
+          UPPER(ta.developer)      LIKE ? OR
+          UPPER(ta.website_designer) LIKE ?
+        )
+          AND ta.is_assigned = 1
+          AND c.is_active = 1
+       ORDER BY ta.created_at DESC`,
       [
-        task.id,
-        null,                 // employee_id if available
-        name,                 // employee_name
-        task.client_name,
-        task.deliverables,
-        null,
-        null,
-        task.deadline,
-        1
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`,
+        `%${name}%`
       ]
     );
-  }
-}
 
+    for (const task of rows) {
+      if (
+        task.deliverables &&
+        task.deliverables.toUpperCase().includes("PACKAGE")
+      ) {
+        continue;
+      }
+      
+      // Skip if task already exists
+      const [exists] = await db.query(
+        `SELECT id
+         FROM task_list
+         WHERE task_assignment_id = ?
+           AND deliverables = ?
+         LIMIT 1`,
+        [task.id, task.deliverables]
+      );
+
+      if (exists.length === 0) {
+        await db.query(
+          `INSERT INTO task_list
+          (
+            task_assignment_id,
+            employee_id,
+            employee_name,
+            client_name,
+            deliverables,
+            duration,
+            submission_date,
+            no_of_rows
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            task.id,
+            null,
+            name,
+            task.client_name,
+            task.deliverables,
+            null,
+            null,
+            task.deadline,
+            1
+          ]
+        );
+      }
+    }
 
     return res.json({ success: true, data: rows });
   } catch (err) {

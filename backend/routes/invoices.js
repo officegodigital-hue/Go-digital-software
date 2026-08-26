@@ -70,15 +70,32 @@ router.get('/next-number', async (req, res) => {
 });
 
 // GET /api/invoices/metrics — totals for the summary cards
+// GET /api/invoices/metrics — totals for summary cards (with optional month/year filter)
 router.get('/metrics', async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT
+    const { month, year } = req.query;
+    
+    let query = `
+      SELECT
          COALESCE(SUM(total_amount), 0) AS total_invoiced,
          COALESCE(SUM(paid_amount), 0)  AS collected_amount,
          COALESCE(SUM(balance_amount), 0) AS outstanding_balance
-       FROM invoices`
-    );
+       FROM invoices i
+       INNER JOIN clients c ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name))
+       WHERE c.is_active = 1
+    `;
+    
+    const params = [];
+
+    // If month and year are provided, parse and filter by invoice_date (DD/MM/YYYY format)
+    if (month && year) {
+      query += ` AND STR_TO_DATE(i.invoice_date, '%d/%m/%Y') IS NOT NULL 
+                 AND MONTH(STR_TO_DATE(i.invoice_date, '%d/%m/%Y')) = ? 
+                 AND YEAR(STR_TO_DATE(i.invoice_date, '%d/%m/%Y')) = ?`;
+      params.push(parseInt(month), parseInt(year));
+    }
+
+    const [rows] = await db.query(query, params);
     return res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error('GET /invoices/metrics ERROR:', err.message);

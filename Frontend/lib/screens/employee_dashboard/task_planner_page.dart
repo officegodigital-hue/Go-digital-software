@@ -55,29 +55,39 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
   }
 
   // ── FETCH EMPLOYEES FROM BACKEND ────────────────────────────────────────
+ // ── FETCH EMPLOYEES FROM BACKEND (Active only, exclude admin) ────────────
   Future<void> _loadEmployeesFromBackend() async {
     setState(() => _employeesLoading = true);
     try {
       final r = await http.get(Uri.parse(_employeesUrl));
       if (r.statusCode == 200) {
-        final data = List<dynamic>.from(jsonDecode(r.body)['data'] ?? []);
+        final body = jsonDecode(r.body);
+        final data = List<dynamic>.from(body['data'] ?? []);
 
-        // Convert backend employee data to EmployeeShareModel
-        final loadedEmployees = data.map((emp) {
-          final role = (emp['role'] as String? ?? '').toLowerCase();
-          final roleKey = _getRoleKey(role);
-          final color = roleColors[roleKey] ?? const Color(0xFF6366F1);
+        // Filter: Only active employees (is_active == 1 or true) and exclude Admin role if needed
+        final loadedEmployees = data
+            .where((emp) {
+              final isActive = emp['is_active'] == 1 || emp['is_active'] == true;
+              final role = (emp['role'] as String? ?? '').toLowerCase();
+              // Exclude admin if admin shouldn't be shared to from planner
+              final isAdmin = role.contains('admin'); 
+              return isActive && !isAdmin;
+            })
+            .map((emp) {
+              final role = (emp['role'] as String? ?? '').toLowerCase();
+              final roleKey = _getRoleKey(role);
+              final color = roleColors[roleKey] ?? const Color(0xFF6366F1);
 
-          return EmployeeShareModel(
-            id: emp['id'] as int,
-            name: emp['role'] as String? ?? 'Unknown', // Role (Designer, Page Handler, etc)
-            shortName: _getInitials(emp['username'] as String? ?? ''), // Auto-generated initials
-            employeeName: emp['full_name'] as String? ?? 'Unknown', // Full name
-            image: '', // No images from backend (fallback to color + initials)
-            color: color,
-            role: role, // Store role for reference
-          );
-        }).toList();
+              return EmployeeShareModel(
+                id: emp['id'] as int,
+                name: emp['role'] as String? ?? 'Unknown', // Role (Designer, Page Handler, etc)
+                shortName: _getInitials(emp['username'] as String? ?? ''), // Auto-generated initials
+                employeeName: emp['full_name'] as String? ?? 'Unknown', // Full name
+                image: '', // No images from backend
+                color: color,
+                role: role, // Store role for reference
+              );
+            }).toList();
 
         setState(() {
           employees = loadedEmployees;
@@ -94,6 +104,7 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
     }
   }
 
+  
   // ── HELPER: Get role key for color mapping ──────────────────────────────
   String _getRoleKey(String role) {
     if (role.contains('designer')) return 'designer';

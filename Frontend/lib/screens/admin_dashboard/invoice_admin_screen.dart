@@ -91,7 +91,7 @@ void dispose() {
   Future<void> _fetchMetrics() async {
     setState(() => _loadingMetrics = true);
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/invoices/metrics'));
+      final response = await http.get(Uri.parse('$_baseUrl/invoices/metrics?month=$_selectedMonth&year=$_selectedYear'));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         final data = body['data'];
@@ -994,6 +994,7 @@ Widget _buildSummaryRowExact(String label, String amount, {bool isBold = false})
                                       _selectedMonth = month;
                                       _currentPage = 1;
                                     });
+                                    _fetchMetrics();
                                   }
                                 },
                               ),
