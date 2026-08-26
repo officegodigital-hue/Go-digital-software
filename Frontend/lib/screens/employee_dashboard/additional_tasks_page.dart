@@ -208,39 +208,28 @@ bool _loadingClients = false;
  
 
   Future<void> _fetchClientsFromInvoices() async {
-  setState(() => _loadingClients = true);
-
-  try {
-    final r = await http.get(Uri.parse('$_baseUrl/invoices'));
-
-    if (r.statusCode == 200) {
-      final data =
-          List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
-
-      final uniqueClients = <String>{};
-
-      for (final invoice in data) {
-        final clientName =
-            (invoice['client_name'] ?? '').toString().trim();
-
-        if (clientName.isNotEmpty) {
-          uniqueClients.add(clientName);
-        }
+   setState(() => _loadingClients = true);
+    try {
+      final r = await http.get(Uri.parse('$_baseUrl/clients'));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+        setState(() {
+          clients = data
+              .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+              .map((c) => (c['company_name'] ?? '').toString().trim())
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+          _loadingClients = false;
+        });
+      } else {
+        setState(() => _loadingClients = false);
       }
-
-      setState(() {
-        clients = uniqueClients.toList()..sort();
-        _loadingClients = false;
-      });
-
-      debugPrint('✅ Loaded ${clients.length} unique clients');
-    } else {
+    } catch (e) {
       setState(() => _loadingClients = false);
     }
-  } catch (e) {
-    debugPrint('❌ Error fetching clients: $e');
-    setState(() => _loadingClients = false);
-  }
 }
  
   @override
