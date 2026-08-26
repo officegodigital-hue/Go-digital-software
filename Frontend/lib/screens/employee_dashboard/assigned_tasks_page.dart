@@ -639,8 +639,6 @@ setState(() {
       final response = jsonDecode(r.body);
       final savedRows = List<dynamic>.from(response['data'] ?? []);
 
-      if (savedRows.isEmpty) return;
-
       setState(() {
         for (var saved in savedRows) {
           final clientName        = saved['client_name']  as String? ?? '';
@@ -721,6 +719,9 @@ setState(() {
         }
       });
 
+      // 🟢 CRITICAL SYNC: tracker data load aana piragum, database task_list no_of_rows-ai eppovum munnurimai thandu retain panrom
+      await _prefetchTaskListData();
+
       await _restoreLastExpandedTask();
 
     } catch (e) {
@@ -768,48 +769,64 @@ Future<void> _restoreLastExpandedTask() async {
   }
 
   // ── Prefetch task_list rows for ALL assigned tasks ─────────────────────
+ // ── Prefetch task_list rows and strictly respect database no_of_rows without any reduction ─────────────────────
+ // ── Prefetch task_list rows and strictly lock database no_of_rows ─────────────────────
   Future<void> _prefetchTaskListData() async {
+    final Map<String, int> fetchedTaskListIds = {};
+    final Map<String, String> fetchedTaskListDurations = {};
+    final Map<String, int> fetchedRowCounts = {};
+
     for (final tab in taskTabNames) {
       final tasksForTab = assignedTasks.where((t) => t['singleTask'] == tab).toList();
+      
       for (int i = 0; i < tasksForTab.length; i++) {
         final task = tasksForTab[i];
-        final taskId = '${task['client_name']}_${task['singleTask']}_$i';
         final taskAssignmentId = task['taskAssignmentId'];
         final deliverables = task['singleTask'] as String?;
 
-await http.post(
-  Uri.parse('$_baseUrl/task-list/find-or-create'),
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: jsonEncode({
-    'taskAssignmentId': taskAssignmentId,
-    'clientName': task['client_name'],
-    'deliverables': deliverables,
-    'submissionDate': task['assignedDate'],
-    'noOfRows': rowCounts[taskId] ?? 1,
-    'employeeName': _employeeName,
-  }),
-);
         if (taskAssignmentId == null || deliverables == null) continue;
 
+        final taskId = '${task['client_name']}_${task['singleTask']}_$i';
+
         try {
+          // 1. Ensure find-or-create runs
+          await http.post(
+            Uri.parse('$_baseUrl/task-list/find-or-create'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'taskAssignmentId': taskAssignmentId,
+              'clientName': task['client_name'],
+              'deliverables': deliverables,
+              'submissionDate': task['assignedDate'],
+              // 'noOfRows': rowCounts[taskId] ?? 1,
+              'employeeName': _employeeName,
+            }),
+          );
+
+          // 2. Fetch latest task list row from DB
           final r = await http.get(
             Uri.parse('$_baseUrl/task-list/by-assignment/$taskAssignmentId/${Uri.encodeComponent(deliverables)}'),
           );
+          
           if (r.statusCode == 200) {
             final body = jsonDecode(r.body);
             final data = body['data'];
             if (data != null) {
-              setState(() {
-                taskListIds[taskId] = data['id'] as int;
-                if (data['duration'] != null) {
-                  taskListDurations[taskId] = data['duration'] as String;
-                }
-                if (data['no_of_rows'] != null) {
-                  rowCounts[taskId] = data['no_of_rows'] as int;
-                }
-              });
+              if (data['id'] != null) {
+                fetchedTaskListIds[taskId] = data['id'] as int;
+              }
+              if (data['duration'] != null) {
+                fetchedTaskListDurations[taskId] = data['duration'] as String;
+              }
+              
+              // 🟢 CRITICAL FIX: Database-il irukkira exact 'no_of_rows'-ai direct-ah eduthu lock panrom. 
+              // Oru podhum antha count reduce aagakudathu, history-la plus pannalum inga exact-ah reflect aaganum.
+              if (data['no_of_rows'] != null) {
+                final dbRows = int.tryParse(data['no_of_rows'].toString()) ?? 1;
+                final currentLocal = rowCounts[taskId] ?? 1;
+                // Eppovum max value-ai mattum select panrom so it never drops back
+                fetchedRowCounts[taskId] = dbRows > currentLocal ? dbRows : currentLocal;
+              }
             }
           }
         } catch (e) {
@@ -817,9 +834,15 @@ await http.post(
         }
       }
     }
-  }
 
-  
+    if (mounted) {
+      setState(() {
+        taskListIds.addAll(fetchedTaskListIds);
+        taskListDurations.addAll(fetchedTaskListDurations);
+        rowCounts.addAll(fetchedRowCounts);
+      });
+    }
+  }
   Future<void> _autoSaveRow(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
     if (_employeeName == null) return;
 
@@ -876,7 +899,7 @@ debugPrint("SUBMIT DATE = ${payload['submitDate']}");
     }
   }
 
-  // ── MANUAL SAVE ALL (legacy — still supported alongside new tables) ────────
+// ── MANUAL SAVE ALL (Safely handles all active and newly added rows) ────────
   Future<void> _saveAll() async {
     if (_employeeName == null) return;
     setState(() => _isSaving = true);
@@ -895,6 +918,12 @@ debugPrint("SUBMIT DATE = ${payload['submitDate']}");
 
           for (int ri = 0; ri < rows; ri++) {
             final taskKey = '${taskId}_row_$ri';
+            
+            // 🟢 Ensure every row (even newly added ones from history) has a valid default payload if not initialized yet
+            if (!taskStatus.containsKey(taskKey)) {
+              taskStatus[taskKey] = TaskStatus.idle;
+            }
+            
             allRows.add(_buildPayload(taskKey, task, ri));
           }
         }
@@ -915,6 +944,7 @@ debugPrint("SUBMIT DATE = ${payload['submitDate']}");
       if (r.statusCode == 200) {
         _showSnack('✅ ${body['message']}', success: true);
         await _loadSavedTrackerData();
+        await _prefetchTaskListData(); // Refresh row counts and task list mappings
       } else {
         _showSnack('❌ Save failed: ${body['message']}', success: false);
       }
@@ -2671,7 +2701,7 @@ ElevatedButton(
 }
 
 // ── TASK DETAILS ──────────────────────────────────────────────────────────
-// ── TASK DETAILS (Completely removes task card if all its rows are completed/rejected) ──
+// ── TASK DETAILS (Hides only when ALL rows are actually completed or rejected) ──
   Widget _taskDetailsContainer() {
     if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
       return const Center(child: Text('No task details available'));
@@ -2679,28 +2709,27 @@ ElevatedButton(
 
     final tabName = taskTabNames[selectedTabIndex!];
     
-    // 🟢 Oru task-la irukkira YELLA rows-um completed (illa) rejected aayiruntha, 
-    // antha task card-e active list-la irunthu completely remove/hide aagum.
+    // 🟢 Yella rows-um 'COMPLETED' (illa) 'REJECTED' aana piragu mattum thaan intha task card hide aagum.
+    // Oru row pudhusa add aanaalum (athuvum innum complete aagavillai enral), intha card active list-lae thaan irukkum!
     var tasksForTab = assignedTasks.where((t) {
       if (t['singleTask'] != tabName) return false;
       
       final taskId = _taskIdFor(t);
       final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (t['rowCount'] ?? 1);
       
-      // Check if there is AT LEAST ONE row that is still active (not completed & not rejected)
+      // Check if there is AT LEAST ONE row whose status is NOT completed and NOT rejected
       bool hasActiveRows = false;
       for (int i = 0; i < rowCount; i++) {
         final taskKey = '${taskId}_row_$i';
         final status = taskStatus[taskKey] ?? TaskStatus.idle;
         
+        // Ithu pending-la, running-la, held-la (illa) idle-la irunthaalum active row-va treat pannum
         if (status != TaskStatus.completed && status != TaskStatus.rejected) {
           hasActiveRows = true;
           break;
         }
       }
       
-      // true iruntha mattum thaan antha task card inga render aagum. 
-      // Ellaa rows-um complete/reject aayiruntha false-nu vandhu antha card antha list-la irunthu remove aayirum!
       return hasActiveRows; 
     }).toList();
 
@@ -2765,8 +2794,6 @@ ElevatedButton(
                         Flexible(
                           child: Row(
                             children: [
-                              // const Icon(Icons.business_rounded, size: 14, color: Color(0xFF38BDF8)),
-                              // const SizedBox(width: 8),
                               Flexible(
                                 child: Text(
                                   task['client_name'] ?? 'N/A',
@@ -2782,22 +2809,6 @@ ElevatedButton(
                             ],
                           ),
                         ),
-                        // const SizedBox(width: 8),
-                        // Container(
-                        //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        //   decoration: BoxDecoration(
-                        //     color: const Color(0xFF0284C7),
-                        //     borderRadius: BorderRadius.circular(4),
-                        //   ),
-                        //   child: Text(
-                        //     '${_getCompletedRowsCount(taskId)}/$currentRowsCount',
-                        //     style: const TextStyle(
-                        //       fontSize: 10,
-                        //       fontWeight: FontWeight.bold,
-                        //       color: Colors.white,
-                        //     ),
-                        //   ),
-                        // ),
                       ],
                     ),
                   ),
@@ -2890,35 +2901,6 @@ ElevatedButton(
                   children: [
                     const Text('ROWS', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
                     const SizedBox(width: 7),
-                    
-                    // Minus Button
-                    // InkWell(
-                    //   borderRadius: BorderRadius.circular(5),
-                    //   onTap: () async {
-                    //     final currentCount = rowCounts[taskId] ?? (task['rowCount'] as int?) ?? 1;
-                    //     if (currentCount <= 1) return;
-                    //     final newCount = currentCount - 1;
-                    //     setState(() { rowCounts[taskId] = newCount; });
-
-                    //     final taskListId = taskListIds[taskId];
-                    //     if (taskListId != null) {
-                    //       http.patch(
-                    //         Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
-                    //         headers: {'Content-Type': 'application/json'},
-                    //         body: jsonEncode({'noOfRows': newCount}),
-                    //       ).catchError((e) => debugPrint('Row count save error: $e'));
-                    //     }
-                    //     await _saveAll();
-                    //   },
-                    //   child: Container(
-                    //     width: 24, height: 24,
-                    //     alignment: Alignment.center,
-                    //     decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(5)),
-                    //     child: const Icon(Icons.remove, size: 14, color: Color(0xFF475569)),
-                    //   ),
-                    // ),
-
-                    // const SizedBox(width: 5),
                     
                     Container(
                       width: 34, height: 28,
@@ -3016,6 +2998,7 @@ ElevatedButton(
       ]);
     }).toList());
   }
+  
   // ── SINGLE ROW (With permanent original S.NO index preservation) ───────────
  // ── SINGLE ROW (With completed/rejected hiding & permanent S.NO) ───────────
   Widget _buildRow(int index, Map<String, dynamic> task, String taskId) {

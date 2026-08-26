@@ -412,17 +412,67 @@ if (submissionDate) {
   }
 });
 
-// PATCH /api/task-list/:id/rows
+// // PATCH /api/task-list/:id/rows
+// router.patch('/:id/rows', async (req, res) => {
+//   const { noOfRows } = req.body;
+//   if (noOfRows === undefined)
+//     return res.status(400).json({ success: false, message: 'noOfRows is required' });
+
+//   try {
+//     const [result] = await db.query(`UPDATE task_list SET no_of_rows = ? WHERE id = ?`, [noOfRows, req.params.id]);
+//     if (result.affectedRows === 0)
+//       return res.status(404).json({ success: false, message: 'Task list entry not found' });
+//     return res.json({ success: true, message: 'Row count updated' });
+//   } catch (err) {
+//     console.error('PATCH /task-list/:id/rows ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// PATCH /api/task-list/:id/rows — update row count and ensure active IDLE tracking items exist for new rows
 router.patch('/:id/rows', async (req, res) => {
   const { noOfRows } = req.body;
   if (noOfRows === undefined)
     return res.status(400).json({ success: false, message: 'noOfRows is required' });
 
   try {
+    // 1. Get task_list details first
+    const [taskListRows] = await db.query(`SELECT * FROM task_list WHERE id = ?`, [req.params.id]);
+    if (taskListRows.length === 0)
+      return res.status(404).json({ success: false, message: 'Task list entry not found' });
+    
+    const taskList = taskListRows[0];
+
+    // 2. Update no_of_rows in task_list strictly
     const [result] = await db.query(`UPDATE task_list SET no_of_rows = ? WHERE id = ?`, [noOfRows, req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Task list entry not found' });
-    return res.json({ success: true, message: 'Row count updated' });
+
+    // 3. Ensure tracking items exist up to the new row count (e.g., when increasing from 12 to 13)
+    for (let sno = 1; sno <= noOfRows; sno++) {
+      const [existingItem] = await db.query(
+        `SELECT id, status FROM time_tracking_task_items WHERE task_list_id = ? AND s_no = ?`,
+        [req.params.id, sno]
+      );
+
+      if (existingItem.length === 0) {
+        // Insert brand new active row with IDLE status so it displays properly on Assigned Tasks page
+        await db.query(
+          `INSERT INTO time_tracking_task_items 
+           (task_list_id, task_timing_id, s_no, submit_date, task_description, duration_secs, comment, performance, status)
+           VALUES (?, ?, ?, ?, ?, 0, '', 'N/A', 'IDLE')`,
+          [
+            req.params.id,
+            taskList.task_timing_id,
+            sno,
+            taskList.submission_date,
+            taskList.deliverables
+          ]
+        );
+      }
+    }
+
+    return res.json({ success: true, message: 'Row count updated and tracking items synchronized' });
   } catch (err) {
     console.error('PATCH /task-list/:id/rows ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
