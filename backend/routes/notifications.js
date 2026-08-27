@@ -143,5 +143,34 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// POST /api/notifications/send
+router.post('/send', async (req, res) => {
+  const { senderName, recipientName, message } = req.body;
+
+  if (!recipientName || !message) {
+    return res.status(400).json({ success: false, message: 'Recipient name and message are required' });
+  }
+
+  try {
+    await createNotification({
+      senderName: senderName || 'Admin',
+      recipientName: recipientName,
+      message: message,
+    });
+
+    // Real-time socket broadcast (optional, unga project setup-ku etha maari)
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('task_updated', { type: 'NOTIFICATION_SENT', recipient: recipientName });
+    }
+
+    return res.status(201).json({ success: true, message: 'Notification sent successfully' });
+  } catch (err) {
+    console.error('POST /notifications/send ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 module.exports = router;
 module.exports.createNotification = createNotification;

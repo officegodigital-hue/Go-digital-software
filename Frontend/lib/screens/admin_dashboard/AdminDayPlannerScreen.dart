@@ -6,6 +6,8 @@ import 'dart:async';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:provider/provider.dart';
+import '../../services/auth_service.dart'; // Unga project directory path-ku thakkatha maari match pannikonga
 
 class AdminDayPlannerScreen extends StatefulWidget {
   const AdminDayPlannerScreen({super.key});
@@ -158,13 +160,26 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   Future<void> _sendNotificationToEmployee(String empName) async {
+    // 🟢 Logged-in admin/user name-ai get panrom
+    final authService = context.read<AuthService>();
+    final senderName = authService.user?['fullName'] as String? ?? 'Admin';
+
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/notifications/send'),
+        Uri.parse('$_baseUrl/notifications/send'), // Note: backend-la route /send-irukkutha nu check pannikonga
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'recipientName': empName,
-          'message': 'Reminder: Please submit your Day Planner for today.',
+          'senderName': senderName, // 🟢 Yaru click pandrangalo avuga name
+          'recipientName': empName, // 🟢 Yaru name-ku send pandrangalo avuga name
+          'message': jsonEncode({
+            'preview': '$senderName sent you a reminder to submit your Day Planner.',
+            'payload': {
+              'type': 'DAY_PLANNER_REMINDER',
+              'sender': senderName,
+              'recipient': empName,
+              'content': 'Please submit your Day Planner for today.'
+            }
+          }),
         }),
       );
 
@@ -186,6 +201,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       );
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {

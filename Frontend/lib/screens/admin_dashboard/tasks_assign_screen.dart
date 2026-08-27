@@ -1386,119 +1386,107 @@ setState(() {
             ),
           ]),
           const SizedBox(height: 16),
-        if (loading && taskRows.isEmpty)
+       if (loading && taskRows.isEmpty)
             const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 60), child: CircularProgressIndicator(color: Color(0xFF0052CC))))
           else
             Container(
-              height: 400, // Fixed height for vertical scroll
+              height: 400, // Fixed height container for uniform scrolling
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 1️⃣ FIXED HORIZONTALLY, BUT VERTICALLY SCROLLABLE CLIENT NAME COLUMN ON THE LEFT
-                  SizedBox(
-                    width: 200,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Container(
-                          height: 48,
-                          alignment: Alignment.centerLeft,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF0052CC),
-                            border: Border(right: BorderSide(color: Color(0xFF0044B3))),
-                          ),
-                          child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-                        ),
-                        const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                        Expanded(
-                          child: ListView(
-                            controller: _verticalController, // 🟢 Synced vertical controller
-                            physics: const ClampingScrollPhysics(), // Scroll enabled synchronously
-                            padding: EdgeInsets.zero,
-                            children: [
-                              ...visibleRows.map((row) => SizedBox(height: 54, child: _buildClientCell(row))),
-                              ...List.generate(4, (_) => SizedBox(height: 54, child: _buildClientCell(null))),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-
-                  // 2️⃣ SCROLLABLE DATA COLUMNS ON THE RIGHT (Both Horizontal & Vertical Synchronized)
-                  Expanded(
-                    child: Scrollbar(
-                      controller: _horizontalController,
-                      thumbVisibility: true,
-                      trackVisibility: true,
-                      child: SingleChildScrollView(
-                        controller: _horizontalController,
-                        scrollDirection: Axis.horizontal,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        child: SizedBox(
-                          width: 4400,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // 🟦 BLUE TABLE HEADERS
-                              Container(
-                                height: 48,
-                                color: const Color(0xFF0052CC),
-                                child: Row(children: const [
-                                   _HeaderCell(width: 200, label: "DELIVERABLES"),
-                                   _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
-                                   _HeaderCell(width: 140, label: "ADS HANDLER"),
-                                   _HeaderCell(width: 160, label: "ADS TASKS"),
-                                   _HeaderCell(width: 140, label: "PAGE HANDLER"),
-                                   _HeaderCell(width: 160, label: "PAGE TASKS"),
-                                   _HeaderCell(width: 140, label: "DESIGNER"),
-                                   _HeaderCell(width: 160, label: "DESIGN TASKS"),
-                                   _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
-                                   _HeaderCell(width: 160, label: "VIDEO TASKS"),
-                                   _HeaderCell(width: 140, label: "VIDEO EDITOR"),
-                                   _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-                                   _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
-                                   _HeaderCell(width: 160, label: "UI/UX TASKS"),
-                                   _HeaderCell(width: 140, label: "DEVELOPER"),
-                                   _HeaderCell(width: 160, label: "DEV TASKS"),
-                                   _HeaderCell(width: 140, label: "WEBSITE DESIGNER"),
-                                   _HeaderCell(width: 160, label: "WEBSITE DESIGNER TASKS"),
-                                   _HeaderCell(width: 140, label: "DEADLINE"),
-                                   _HeaderCell(width: 160, label: "COMMENTS"),
-                                   _HeaderCell(width: 140, label: "ACTION"),
-                                ]),
+              child: Scrollbar(
+                controller: _verticalController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _verticalController, // 🟢 Single Vertical Controller for the ENTIRE view (Both Client & Data rows)
+                  scrollDirection: Axis.vertical,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 1️⃣ FIXED WIDTH CLIENT NAME COLUMN (Scrolls naturally with vertical controller)
+                      SizedBox(
+                        width: 200,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              height: 48,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF0052CC),
+                                border: Border(right: BorderSide(color: Color(0xFF0044B3))),
                               ),
-                              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                              child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
+                            ),
+                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                            ...visibleRows.map((row) => SizedBox(height: 54, child: _buildClientCell(row))),
+                            ...List.generate(4, (_) => SizedBox(height: 54, child: _buildClientCell(null))),
+                          ],
+                        ),
+                      ),
+                      const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
 
-                              // VERTICALLY SCROLLABLE DATA ROWS BODY (Using same _verticalController)
-                              Expanded(
-                                child: Scrollbar(
-                                  controller: _verticalController,
-                                  thumbVisibility: true,
-                                  child: ListView(
-                                    controller: _verticalController, // 🟢 Synced vertical controller
-                                    physics: const AlwaysScrollableScrollPhysics(),
-                                    padding: EdgeInsets.zero,
-                                    children: [
-                                      ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
-                                      ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
-                                    ],
+                      // 2️⃣ RIGHT DATA COLUMNS (Horizontally scrollable, but shares the same vertical scroll flow)
+                      Expanded(
+                        child: Scrollbar(
+                          controller: _horizontalController,
+                          thumbVisibility: true,
+                          trackVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: _horizontalController,
+                            scrollDirection: Axis.horizontal,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: SizedBox(
+                              width: 4400,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 🟦 BLUE TABLE HEADERS
+                                  Container(
+                                    height: 48,
+                                    color: const Color(0xFF0052CC),
+                                    child: Row(children: const [
+                                       _HeaderCell(width: 200, label: "DELIVERABLES"),
+                                       _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
+                                       _HeaderCell(width: 140, label: "ADS HANDLER"),
+                                       _HeaderCell(width: 160, label: "ADS TASKS"),
+                                       _HeaderCell(width: 140, label: "PAGE HANDLER"),
+                                       _HeaderCell(width: 160, label: "PAGE TASKS"),
+                                       _HeaderCell(width: 140, label: "DESIGNER"),
+                                       _HeaderCell(width: 160, label: "DESIGN TASKS"),
+                                       _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
+                                       _HeaderCell(width: 160, label: "VIDEO TASKS"),
+                                       _HeaderCell(width: 140, label: "VIDEO EDITOR"),
+                                       _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
+                                       _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
+                                       _HeaderCell(width: 160, label: "UI/UX TASKS"),
+                                       _HeaderCell(width: 140, label: "DEVELOPER"),
+                                       _HeaderCell(width: 160, label: "DEV TASKS"),
+                                       _HeaderCell(width: 140, label: "WEBSITE DESIGNER"),
+                                       _HeaderCell(width: 160, label: "WEBSITE DESIGNER TASKS"),
+                                       _HeaderCell(width: 140, label: "DEADLINE"),
+                                       _HeaderCell(width: 160, label: "COMMENTS"),
+                                       _HeaderCell(width: 140, label: "ACTION"),
+                                    ]),
                                   ),
-                                ),
+                                  const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                                  // DATA ROWS BODY
+                                  ...visibleRows.map((row) => SizedBox(width: 4400, height: 54, child: _buildDataRow(row))),
+                                  ...List.generate(4, (_) => SizedBox(width: 4400, height: 54, child: _buildEmptyRow())),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-            
+
+
         ],
       ),
     );
