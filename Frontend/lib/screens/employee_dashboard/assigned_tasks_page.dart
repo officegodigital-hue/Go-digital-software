@@ -94,13 +94,51 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   // (not a separately-ordered list) so selectedTabIndex still correctly
   // points into taskTabNames everywhere else in this file.
   // 🟢 Hides tabs completely if all tasks/rows under that deliverable tab are completed or rejected
-  List<int> get _visibleTabIndices {
+  // List<int> get _visibleTabIndices {
+  //   final indices = <int>[];
+    
+  //   for (int i = 0; i < taskTabNames.length; i++) {
+  //     final tabName = taskTabNames[i];
+      
+  //     // Check if this tab has ANY task with at least one active (non-completed/non-rejected) row
+  //     bool hasActiveTaskForTab = false;
+      
+  //     final tasksForThisTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
+  //     for (var task in tasksForThisTab) {
+  //       if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
+  //         if ((task['client_name'] ?? '').toString() != _selectedClientFilter) continue;
+  //       }
+
+  //       final taskId = _taskIdFor(task);
+  //       final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (task['rowCount'] ?? 1);
+
+  //       for (int r = 0; r < rowCount; r++) {
+  //         final taskKey = '${taskId}_row_$r';
+  //         final status = taskStatus[taskKey] ?? TaskStatus.idle;
+
+  //         if (status != TaskStatus.completed && status != TaskStatus.rejected) {
+  //           hasActiveTaskForTab = true;
+  //           break;
+  //         }
+  //       }
+  //       if (hasActiveTaskForTab) break;
+  //     }
+
+  //     // If active tasks exist, include this tab index
+  //     if (hasActiveTaskForTab) {
+  //       indices.add(i);
+  //     }
+  //   }
+    
+  //   return indices;
+  // }
+
+
+List<int> get _visibleTabIndices {
     final indices = <int>[];
     
     for (int i = 0; i < taskTabNames.length; i++) {
       final tabName = taskTabNames[i];
-      
-      // Check if this tab has ANY task with at least one active (non-completed/non-rejected) row
       bool hasActiveTaskForTab = false;
       
       final tasksForThisTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
@@ -112,6 +150,27 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
         final taskId = _taskIdFor(task);
         final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (task['rowCount'] ?? 1);
 
+        // 🟢 Check if submit date is still valid (not yet passed)
+        final rawDeadline = task['deadline'] ?? '';
+        final parsedDate = _parseFlexibleDate(rawDeadline);
+        bool isDateValid = false;
+        
+        if (parsedDate != null) {
+          final now = DateTime.now();
+          final today = DateTime(now.year, now.month, now.day);
+          final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+          if (target.compareTo(today) >= 0) {
+            isDateValid = true; // Submit date innum mudiyala!
+          }
+        }
+
+        // Oru vela submit date innum mudiyala na, yella rows complete aayirunthalum tab hide aagathu
+        if (isDateValid) {
+          hasActiveTaskForTab = true;
+          break;
+        }
+
+        // Normal check: If any row is NOT completed/rejected
         for (int r = 0; r < rowCount; r++) {
           final taskKey = '${taskId}_row_$r';
           final status = taskStatus[taskKey] ?? TaskStatus.idle;
@@ -124,7 +183,6 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
         if (hasActiveTaskForTab) break;
       }
 
-      // If active tasks exist, include this tab index
       if (hasActiveTaskForTab) {
         indices.add(i);
       }
@@ -132,6 +190,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     
     return indices;
   }
+
 
   // ── All state maps keyed by taskKey = '{taskId}_row_{rowIndex}' ───────────
   Map<String, String>   taskComments            = {};
@@ -1402,12 +1461,13 @@ Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowInde
   }
 
  // 🟢 Helper to calculate completed count vs total rows for any specific task under a client
-  int _calculateTaskProgress(String clientName, String taskName) {
+int _calculateTaskProgress(String clientName, String taskName) {
     int completed = 0;
     for (var entry in rowCounts.entries) {
       final key = entry.key; // e.g. 'Jeyasri Hostal_GMB-_0_row_0'
       if (key.startsWith(clientName) && key.contains(taskName)) {
         final status = taskStatus[key] ?? TaskStatus.idle;
+        // Oru row completed illa rejected-na athu completed count-la count aagum
         if (status == TaskStatus.completed || status == TaskStatus.rejected) {
           completed++;
         }
@@ -1416,757 +1476,550 @@ Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowInde
     return completed;
   }
 
+
   // 🟢 Professional + User Friendly Client Task Summary Dialog
-void _showClientTaskSummaryDialog(
-    Map<String, dynamic> task, String taskId) async {
-  final clientName = task['client_name'] ?? 'N/A';
+// 🟢 Professional Client Task Summary Dialog (With Direct Database Progress Sync for All Roles)
+  void _showClientTaskSummaryDialog(
+      Map<String, dynamic> task, String taskId) async {
+    final clientName = task['client_name'] ?? 'N/A';
 
-  List<Map<String, dynamic>> clientAssignments = [];
+    List<Map<String, dynamic>> clientAssignments = [];
+    Map<String, int> dbTaskProgressCounts = {}; // deliverableName -> completedCount
 
-  try {
-    final r = await http.get(Uri.parse('$_baseUrl/tasks'));
+    try {
+      // 1. Fetch all client assignments for summary
+      final r = await http.get(Uri.parse('$_baseUrl/tasks'));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final allRows = List<Map<String, dynamic>>.from(body['data'] ?? []);
 
-    if (r.statusCode == 200) {
-      final body = jsonDecode(r.body);
-      final allRows =
-          List<Map<String, dynamic>>.from(body['data'] ?? []);
+        clientAssignments = allRows.where((row) {
+          return (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+              clientName.toString().trim().toLowerCase();
+        }).toList();
+      }
 
-      clientAssignments = allRows.where((row) {
-        return (row['client_name'] ?? '')
-                .toString()
-                .trim()
-                .toLowerCase() ==
-            clientName.toString().trim().toLowerCase();
-      }).toList();
+      // 2. Fetch real completed counts directly from database task-list & tracking-items for this client
+      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
+      if (trRes.statusCode == 200) {
+        final trBody = jsonDecode(trRes.body);
+        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
+
+        for (var tl in taskLists) {
+          final tListId = tl['id'];
+          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+
+          // Fetch tracking items for this task list entry
+          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
+          if (itemsRes.statusCode == 200) {
+            final itemsBody = jsonDecode(itemsRes.body);
+            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+
+            int completedRows = items.where((item) {
+              final st = (item['status'] ?? '').toString().toUpperCase();
+              return st == 'COMPLETED' || st == 'REJECTED';
+            }).length;
+
+            dbTaskProgressCounts[deliverables] = completedRows;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching client assignments or progress for summary: $e');
     }
-  } catch (e) {
-    debugPrint(
-        'Error fetching client assignments for summary: $e');
-  }
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  final roleMappings = [
-    {
-      'roleLabel': 'Ads Handler',
-      'icon': Icons.campaign_outlined,
-      'empField': 'ads_handling',
-      'taskField': 'ads_platform',
-    },
-    {
-      'roleLabel': 'Page Handler',
-      'icon': Icons.pages_outlined,
-      'empField': 'page_handling',
-      'taskField': 'pages_platform',
-    },
-    {
-      'roleLabel': 'Designer',
-      'icon': Icons.design_services_outlined,
-      'empField': 'designer',
-      'taskField': 'designer_tasks',
-    },
-    {
-      'roleLabel': 'Videographer',
-      'icon': Icons.videocam_outlined,
-      'empField': 'videographer',
-      'taskField': 'videographer_tasks',
-    },
-    {
-      'roleLabel': 'Video Editor',
-      'icon': Icons.video_settings_outlined,
-      'empField': 'video_editor',
-      'taskField': 'video_editor_task',
-    },
-    {
-      'roleLabel': 'UI/UX Designer',
-      'icon': Icons.web_outlined,
-      'empField': 'ui_ux_designer',
-      'taskField': 'ui_ux_tasks',
-    },
-    {
-      'roleLabel': 'Developer',
-      'icon': Icons.code_outlined,
-      'empField': 'developer',
-      'taskField': 'developer_tasks',
-    },
-    {
-      'roleLabel': 'Website Designer',
-      'icon': Icons.language_outlined,
-      'empField': 'website_designer',
-      'taskField': 'website_designer_tasks',
-    },
-  ];
+    final roleMappings = [
+      {
+        'roleLabel': 'Ads Handler',
+        'icon': Icons.campaign_outlined,
+        'empField': 'ads_handling',
+        'taskField': 'ads_platform',
+      },
+      {
+        'roleLabel': 'Page Handler',
+        'icon': Icons.pages_outlined,
+        'empField': 'page_handling',
+        'taskField': 'pages_platform',
+      },
+      {
+        'roleLabel': 'Designer',
+        'icon': Icons.design_services_outlined,
+        'empField': 'designer',
+        'taskField': 'designer_tasks',
+      },
+      {
+        'roleLabel': 'Videographer',
+        'icon': Icons.videocam_outlined,
+        'empField': 'videographer',
+        'taskField': 'videographer_tasks',
+      },
+      {
+        'roleLabel': 'Video Editor',
+        'icon': Icons.video_settings_outlined,
+        'empField': 'video_editor',
+        'taskField': 'video_editor_task',
+      },
+      {
+        'roleLabel': 'UI/UX Designer',
+        'icon': Icons.web_outlined,
+        'empField': 'ui_ux_designer',
+        'taskField': 'ui_ux_tasks',
+      },
+      {
+        'roleLabel': 'Developer',
+        'icon': Icons.code_outlined,
+        'empField': 'developer',
+        'taskField': 'developer_tasks',
+      },
+      {
+        'roleLabel': 'Website Designer',
+        'icon': Icons.language_outlined,
+        'empField': 'website_designer',
+        'taskField': 'website_designer_tasks',
+      },
+    ];
 
-  showDialog(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
-    builder: (ctx) {
-      return Dialog(
-        backgroundColor: const Color(0xFFF8FAFC),
-        elevation: 12,
-        insetPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 30,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 620,
-            maxHeight: 700,
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFFF8FAFC),
+          elevation: 12,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 30,
           ),
-          child: Column(
-            children: [
-
-              // =========================================================
-              // HEADER
-              // =========================================================
-              Container(
-                padding: const EdgeInsets.fromLTRB(
-                  20,
-                  18,
-                  14,
-                  18,
-                ),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(18),
-                    topRight: Radius.circular(18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 620,
+              maxHeight: 700,
+            ),
+            child: Column(
+              children: [
+                // =========================================================
+                // HEADER
+                // =========================================================
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      topRight: Radius.circular(18),
+                    ),
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Color(0xFFE5E7EB),
+                      ),
+                    ),
                   ),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Color(0xFFE5E7EB),
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-
-                    // Icon
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.analytics_outlined,
-                        color: Color(0xFF004AAD),
-                        size: 22,
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    // Title
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Task Summary',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            clientName.toString(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Close
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        size: 21,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // =========================================================
-              // BODY
-              // =========================================================
-              Expanded(
-                child: clientAssignments.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(30),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 64,
-                                height: 64,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.assignment_outlined,
-                                  size: 30,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              const Text(
-                                'No assignments found',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF334155),
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              const Text(
-                                'There are no tasks assigned to this client yet.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                              ),
-                            ],
-                          ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(18),
+                        child: const Icon(
+                          Icons.analytics_outlined,
+                          color: Color(0xFF004AAD),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-
-                            // Overview text
                             const Text(
-                              'Assigned Team',
+                              'Task Summary',
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w800,
                                 color: Color(0xFF0F172A),
                               ),
                             ),
-
-                            const SizedBox(height: 4),
-
-                            const Text(
-                              'View employees and their current task progress.',
-                              style: TextStyle(
-                                fontSize: 11.5,
+                            const SizedBox(height: 3),
+                            Text(
+                              clientName.toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
                                 color: Color(0xFF64748B),
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
-
-                            const SizedBox(height: 16),
-
-                            // =================================================
-                            // ROLES
-                            // =================================================
-                            ...roleMappings.map((roleInfo) {
-
-                              final roleLabel =
-                                  roleInfo['roleLabel'] as String;
-
-                              final icon =
-                                  roleInfo['icon'] as IconData;
-
-                              final empField =
-                                  roleInfo['empField'] as String;
-
-                              final taskField =
-                                  roleInfo['taskField'] as String;
-
-                              final Map<String, List<String>>
-                                  empTaskMap = {};
-
-                              for (var assignment
-                                  in clientAssignments) {
-
-                                final empName =
-                                    (assignment[empField] ?? '')
-                                        .toString()
-                                        .trim();
-
-                                final taskStr =
-                                    (assignment[taskField] ?? '')
-                                        .toString()
-                                        .trim();
-
-                                if (empName.isEmpty ||
-                                    empName.toUpperCase() == 'NONE' ||
-                                    taskStr.isEmpty) {
-                                  continue;
-                                }
-
-                                final tasksList = taskStr
-                                    .split(',')
-                                    .map((t) => t.trim())
-                                    .where((t) => t.isNotEmpty)
-                                    .toList();
-
-                                empTaskMap
-                                    .putIfAbsent(
-                                        empName, () => [])
-                                    .addAll(tasksList);
-                              }
-
-                              if (empTaskMap.isEmpty) {
-                                return const SizedBox.shrink();
-                              }
-
-                              return Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(
-                                  bottom: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Column(
-                                  children: [
-
-                                    // ==============================
-                                    // ROLE HEADER
-                                    // ==============================
-                                    Padding(
-                                      padding:
-                                          const EdgeInsets.fromLTRB(
-                                        14,
-                                        13,
-                                        14,
-                                        11,
-                                      ),
-                                      child: Row(
-                                        children: [
-
-                                          Container(
-                                            width: 34,
-                                            height: 34,
-                                            decoration: BoxDecoration(
-                                              color: const Color(
-                                                  0xFFEFF6FF),
-                                              borderRadius:
-                                                  BorderRadius
-                                                      .circular(9),
-                                            ),
-                                            child: Icon(
-                                              icon,
-                                              size: 18,
-                                              color: const Color(
-                                                  0xFF004AAD),
-                                            ),
-                                          ),
-
-                                          const SizedBox(width: 10),
-
-                                          Expanded(
-                                            child: Text(
-                                              roleLabel,
-                                              style:
-                                                  const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight:
-                                                    FontWeight.w800,
-                                                color: Color(
-                                                    0xFF0F172A),
-                                              ),
-                                            ),
-                                          ),
-
-                                          Container(
-                                            padding:
-                                                const EdgeInsets
-                                                    .symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: const Color(
-                                                  0xFFF1F5F9),
-                                              borderRadius:
-                                                  BorderRadius
-                                                      .circular(20),
-                                            ),
-                                            child: Text(
-                                              '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
-                                              style:
-                                                  const TextStyle(
-                                                fontSize: 9.5,
-                                                fontWeight:
-                                                    FontWeight.w700,
-                                                color: Color(
-                                                    0xFF64748B),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-
-                                    const Divider(
-                                      height: 1,
-                                      color: Color(0xFFF1F5F9),
-                                    ),
-
-                                    // ==============================
-                                    // EMPLOYEES
-                                    // ==============================
-                                    ...empTaskMap.entries
-                                        .map((entry) {
-
-                                      final employeeName =
-                                          entry.key;
-
-                                      final tasks =
-                                          entry.value;
-
-                                      return Padding(
-                                        padding:
-                                            const EdgeInsets
-                                                .fromLTRB(
-                                          14,
-                                          12,
-                                          14,
-                                          13,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment
-                                                  .start,
-                                          children: [
-
-                                            // Employee
-                                            Row(
-                                              children: [
-
-                                                Container(
-                                                  width: 28,
-                                                  height: 28,
-                                                  decoration:
-                                                      BoxDecoration(
-                                                    color:
-                                                        const Color(
-                                                            0xFFF8FAFC),
-                                                    shape:
-                                                        BoxShape
-                                                            .circle,
-                                                    border:
-                                                        Border.all(
-                                                      color: const Color(
-                                                          0xFFE2E8F0),
-                                                    ),
-                                                  ),
-                                                  child:
-                                                      const Icon(
-                                                    Icons
-                                                        .person_outline,
-                                                    size: 16,
-                                                    color: Color(
-                                                        0xFF475569),
-                                                  ),
-                                                ),
-
-                                                const SizedBox(
-                                                    width: 8),
-
-                                                Expanded(
-                                                  child: Text(
-                                                    employeeName,
-                                                    style:
-                                                        const TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight
-                                                              .w700,
-                                                      color: Color(
-                                                          0xFF1E293B),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-
-                                            const SizedBox(
-                                                height: 9),
-
-                                            // Tasks
-                                            Wrap(
-                                              spacing: 7,
-                                              runSpacing: 7,
-                                              children:
-                                                  tasks.map((tClean) {
-
-                                                final parsed =
-                                                    _parseTaskWithCount(
-                                                        tClean);
-
-                                                final tName =
-                                                    parsed['name']
-                                                        as String;
-
-                                                final totalR =
-                                                    parsed['count']
-                                                        as int;
-
-                                                final compR =
-                                                    _calculateTaskProgress(
-                                                  clientName,
-                                                  tName,
-                                                );
-
-                                                final isCompleted =
-                                                    totalR > 0 &&
-                                                        compR >=
-                                                            totalR;
-
-                                                final progressText =
-                                                    '$compR/$totalR';
-
-                                                return Container(
-                                                  padding:
-                                                      const EdgeInsets
-                                                          .symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 7,
-                                                  ),
-                                                  decoration:
-                                                      BoxDecoration(
-                                                    color: isCompleted
-                                                        ? const Color(
-                                                            0xFFF0FDF4)
-                                                        : const Color(
-                                                            0xFFF8FAFC),
-                                                    borderRadius:
-                                                        BorderRadius
-                                                            .circular(
-                                                                9),
-                                                    border:
-                                                        Border.all(
-                                                      color:
-                                                          isCompleted
-                                                              ? const Color(
-                                                                  0xFFBBF7D0)
-                                                              : const Color(
-                                                                  0xFFE2E8F0),
-                                                    ),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize
-                                                            .min,
-                                                    children: [
-
-                                                      Icon(
-                                                        isCompleted
-                                                            ? Icons
-                                                                .check_circle_outline
-                                                            : Icons
-                                                                .radio_button_unchecked,
-                                                        size: 14,
-                                                        color:
-                                                            isCompleted
-                                                                ? const Color(
-                                                                    0xFF16A34A)
-                                                                : const Color(
-                                                                    0xFF94A3B8),
-                                                      ),
-
-                                                      const SizedBox(
-                                                          width: 6),
-
-                                                      Flexible(
-                                                        child:
-                                                            Text(
-                                                          tName,
-                                                          style:
-                                                              TextStyle(
-                                                            fontSize:
-                                                                10.5,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w600,
-                                                            color:
-                                                                isCompleted
-                                                                    ? const Color(
-                                                                        0xFF166534)
-                                                                    : const Color(
-                                                                        0xFF475569),
-                                                          ),
-                                                        ),
-                                                      ),
-
-                                                      const SizedBox(
-                                                          width: 6),
-
-                                                      Container(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                          horizontal:
-                                                              6,
-                                                          vertical:
-                                                              2,
-                                                        ),
-                                                        decoration:
-                                                            BoxDecoration(
-                                                          color:
-                                                              isCompleted
-                                                                  ? const Color(
-                                                                      0xFFDCFCE7)
-                                                                  : const Color(
-                                                                      0xFFE2E8F0),
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(
-                                                                      6),
-                                                        ),
-                                                        child:
-                                                            Text(
-                                                          progressText,
-                                                          style:
-                                                              TextStyle(
-                                                            fontSize:
-                                                                9,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w800,
-                                                            color:
-                                                                isCompleted
-                                                                    ? const Color(
-                                                                        0xFF15803D)
-                                                                    : const Color(
-                                                                        0xFF64748B),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  ],
-                                ),
-                              );
-                            }),
                           ],
                         ),
                       ),
-              ),
-
-              // =========================================================
-              // FOOTER
-              // =========================================================
-              Container(
-                padding: const EdgeInsets.fromLTRB(
-                  18,
-                  12,
-                  18,
-                  14,
-                ),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(18),
-                    bottomRight: Radius.circular(18),
-                  ),
-                  border: Border(
-                    top: BorderSide(
-                      color: Color(0xFFE5E7EB),
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-
-                    const Icon(
-                      Icons.info_outline,
-                      size: 15,
-                      color: Color(0xFF94A3B8),
-                    ),
-
-                    const SizedBox(width: 6),
-
-                    const Expanded(
-                      child: Text(
-                        'Progress is updated from the assigned tasks.',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Color(0xFF94A3B8),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 21,
+                          color: Color(0xFF64748B),
                         ),
                       ),
-                    ),
+                    ],
+                  ),
+                ),
 
-                    const SizedBox(width: 10),
-
-                    SizedBox(
-                      height: 36,
-                      child: ElevatedButton(
-                        onPressed: () =>
-                            Navigator.pop(ctx),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              const Color(0xFF004AAD),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding:
-                              const EdgeInsets.symmetric(
-                            horizontal: 18,
+                // =========================================================
+                // BODY
+                // =========================================================
+                Expanded(
+                  child: clientAssignments.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(30),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 64,
+                                  height: 64,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFF1F5F9),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.assignment_outlined,
+                                    size: 30,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text(
+                                  'No assignments found',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF334155),
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                const Text(
+                                  'There are no tasks assigned to this client yet.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          shape:
-                              RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(9),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Assigned Team',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'View employees and their current task progress.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              ...roleMappings.map((roleInfo) {
+                                final roleLabel = roleInfo['roleLabel'] as String;
+                                final icon = roleInfo['icon'] as IconData;
+                                final empField = roleInfo['empField'] as String;
+                                final taskField = roleInfo['taskField'] as String;
+
+                                final Map<String, List<String>> empTaskMap = {};
+
+                                for (var assignment in clientAssignments) {
+                                  final empName = (assignment[empField] ?? '').toString().trim();
+                                  final taskStr = (assignment[taskField] ?? '').toString().trim();
+
+                                  if (empName.isEmpty ||
+                                      empName.toUpperCase() == 'NONE' ||
+                                      taskStr.isEmpty) {
+                                    continue;
+                                  }
+
+                                  final tasksList = taskStr
+                                      .split(',')
+                                      .map((t) => t.trim())
+                                      .where((t) => t.isNotEmpty)
+                                      .toList();
+
+                                  empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
+                                }
+
+                                if (empTaskMap.isEmpty) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                return Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 34,
+                                              height: 34,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFEFF6FF),
+                                                borderRadius: BorderRadius.circular(9),
+                                              ),
+                                              child: Icon(
+                                                icon,
+                                                size: 18,
+                                                color: const Color(0xFF004AAD),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                roleLabel,
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF0F172A),
+                                                ),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(20),
+                                              ),
+                                              child: Text(
+                                                '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
+                                                style: const TextStyle(
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Color(0xFF64748B),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                      ...empTaskMap.entries.map((entry) {
+                                        final employeeName = entry.key;
+                                        final tasks = entry.value;
+
+                                        return Padding(
+                                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    width: 28,
+                                                    height: 28,
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFF8FAFC),
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                        color: const Color(0xFFE2E8F0),
+                                                      ),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.person_outline,
+                                                      size: 16,
+                                                      color: Color(0xFF475569),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      employeeName,
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: Color(0xFF1E293B),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 9),
+                                              Wrap(
+                                                spacing: 7,
+                                                runSpacing: 7,
+                                                children: tasks.map((tClean) {
+                                                  final parsed = _parseTaskWithCount(tClean);
+                                                  final tName = parsed['name'] as String;
+                                                  final totalR = parsed['count'] as int;
+
+                                                  // 🟢 Get real completed count directly from database lookup or local fallback
+                                                  int compR = dbTaskProgressCounts[tName.trim().toLowerCase()] ?? 0;
+                                                  if (compR == 0) {
+                                                    compR = _calculateTaskProgress(clientName, tName);
+                                                  }
+
+                                                  final isCompleted = totalR > 0 && compR >= totalR;
+                                                  final progressText = '$compR/$totalR';
+
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                                    decoration: BoxDecoration(
+                                                      color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                                                      borderRadius: BorderRadius.circular(9),
+                                                      border: Border.all(
+                                                        color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0),
+                                                      ),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                                                          size: 14,
+                                                          color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Flexible(
+                                                          child: Text(
+                                                            tName,
+                                                            style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            progressText,
+                                                            style: TextStyle(
+                                                              fontSize: 9,
+                                                              fontWeight: FontWeight.w800,
+                                                              color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ],
                           ),
                         ),
-                        child: const Text(
-                          'Done',
+                ),
+
+                // =========================================================
+                // FOOTER
+                // =========================================================
+                Container(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(18),
+                    ),
+                    border: Border(
+                      top: BorderSide(
+                        color: Color(0xFFE5E7EB),
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 15,
+                        color: Color(0xFF94A3B8),
+                      ),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text(
+                          'Progress is updated from the assigned tasks.',
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 10,
+                            color: Color(0xFF94A3B8),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        height: 36,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF004AAD),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                          ),
+                          child: const Text(
+                            'Done',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
-
+        );
+      },
+    );
+  }
+  
   Widget _summaryRow(String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2717,13 +2570,30 @@ ElevatedButton(
       final taskId = _taskIdFor(t);
       final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (t['rowCount'] ?? 1);
       
-      // Check if there is AT LEAST ONE row whose status is NOT completed and NOT rejected
+      // 🟢 Check if submit date is still valid (not yet passed)
+      final rawDeadline = t['deadline'] ?? '';
+      final parsedDate = _parseFlexibleDate(rawDeadline);
+      bool isDateValid = false;
+      
+      if (parsedDate != null) {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+        if (target.compareTo(today) >= 0) {
+          isDateValid = true; // Submit date innum mudiyala, so card hide aagathu!
+        }
+      }
+
+      if (isDateValid) {
+        return true; // Keep card visible as long as the submit date is valid
+      }
+      
+      // Normal check: Check if there is AT LEAST ONE row whose status is NOT completed and NOT rejected
       bool hasActiveRows = false;
       for (int i = 0; i < rowCount; i++) {
         final taskKey = '${taskId}_row_$i';
         final status = taskStatus[taskKey] ?? TaskStatus.idle;
         
-        // Ithu pending-la, running-la, held-la (illa) idle-la irunthaalum active row-va treat pannum
         if (status != TaskStatus.completed && status != TaskStatus.rejected) {
           hasActiveRows = true;
           break;
@@ -2732,7 +2602,6 @@ ElevatedButton(
       
       return hasActiveRows; 
     }).toList();
-
     // FIX: narrows the list to just the searched/selected client, if any.
     if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
       tasksForTab = tasksForTab
@@ -2770,51 +2639,135 @@ ElevatedButton(
             children: [
               
               // 1. CLIENT NAME BUTTON
-              Expanded(
-                flex: 3,
-                child: InkWell(
-                  onTap: () => _showClientTaskSummaryDialog(task, taskId),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
-                      borderRadius: BorderRadius.circular(6),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  task['client_name'] ?? 'N/A',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                    letterSpacing: 0.3,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+              // Expanded(
+              //   flex: 3,
+              //   child: InkWell(
+              //     onTap: () => _showClientTaskSummaryDialog(task, taskId),
+              //     borderRadius: BorderRadius.circular(6),
+              //     child: Container(
+              //       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              //       decoration: BoxDecoration(
+              //         color: const Color(0xFF0F172A),
+              //         borderRadius: BorderRadius.circular(6),
+              //         boxShadow: [
+              //           BoxShadow(
+              //             color: Colors.black.withValues(alpha: 0.08),
+              //             blurRadius: 4,
+              //             offset: const Offset(0, 2),
+              //           ),
+              //         ],
+              //       ),
+              //       child: Row(
+              //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              //         children: [
+              //           Flexible(
+              //             child: Row(
+              //               children: [
+              //                 Flexible(
+              //                   child: Text(
+              //                     task['client_name'] ?? 'N/A',
+              //                     style: const TextStyle(
+              //                       fontSize: 12,
+              //                       fontWeight: FontWeight.w700,
+              //                       color: Colors.white,
+              //                       letterSpacing: 0.3,
+              //                     ),
+              //                     overflow: TextOverflow.ellipsis,
+              //                   ),
+              //                 ),
+              //               ],
+              //             ),
+              //           ),
+              //         ],
+              //       ),
+              //     ),
+              //   ),
+              // ),
+
+Expanded(
+  flex: 3,
+  child: InkWell(
+    onTap: () => _showClientTaskSummaryDialog(task, taskId),
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF004AAD), // Dark Theme Background
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: const Color(0xFF004AAD),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Icon Container
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(
+              Icons.business_outlined,
+              size: 15,
+              color: Colors.white,
+            ),
+          ),
+
+          const SizedBox(width: 9),
+
+          // Client Label & Name
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CLIENT',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF94A3B8),
+                    letterSpacing: 0.7,
                   ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                Text(
+                  task['client_name'] ?? 'N/A',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
+          const SizedBox(width: 8),
+
+          // Summary / Chevron Right Icon
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: Color(0xFF94A3B8),
+          ),
+        ],
+      ),
+    ),
+  ),
+),
               const SizedBox(width: 12),
               
               // 2. DELIVERABLES

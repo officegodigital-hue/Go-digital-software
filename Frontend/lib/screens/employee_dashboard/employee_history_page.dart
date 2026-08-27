@@ -754,149 +754,149 @@ Widget _taskDetailsContainer() {
                 const SizedBox(width: 14),
 
                 // 🟢 ROWS PLUS (+) BUTTON CONTROLLER IN HISTORY PAGE
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('ROWS', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
-                      const SizedBox(width: 7),
-                      Container(
-                        width: 34, height: 28,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: Text(
-                          '$currentRowsCount',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                     // PLUS BUTTON: Increases row count, updates database rows, and ensures the task moves back to Assigned Tasks with a fresh active row
-// PLUS BUTTON: Increases row count strictly by +1 and updates database
-                      InkWell(
-                        borderRadius: BorderRadius.circular(5),
-                        onTap: () async {
-                          try {
-                            final rowsDataList = List<dynamic>.from(task['rowsData'] ?? []);
-                            if (rowsDataList.isEmpty) return;
+//                 Container(
+//                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+//                   decoration: BoxDecoration(
+//                     color: const Color(0xFFF8FAFC),
+//                     border: Border.all(color: const Color(0xFFE2E8F0)),
+//                     borderRadius: BorderRadius.circular(8),
+//                   ),
+//                   child: Row(
+//                     mainAxisSize: MainAxisSize.min,
+//                     children: [
+//                       const Text('ROWS', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
+//                       const SizedBox(width: 7),
+//                       Container(
+//                         width: 34, height: 28,
+//                         alignment: Alignment.center,
+//                         decoration: BoxDecoration(
+//                           color: Colors.white,
+//                           borderRadius: BorderRadius.circular(5),
+//                           border: Border.all(color: const Color(0xFFCBD5E1)),
+//                         ),
+//                         child: Text(
+//                           '$currentRowsCount',
+//                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+//                         ),
+//                       ),
+//                       const SizedBox(width: 5),
+//                      // PLUS BUTTON: Increases row count, updates database rows, and ensures the task moves back to Assigned Tasks with a fresh active row
+// // PLUS BUTTON: Increases row count strictly by +1 and updates database
+//                       InkWell(
+//                         borderRadius: BorderRadius.circular(5),
+//                         onTap: () async {
+//                           try {
+//                             final rowsDataList = List<dynamic>.from(task['rowsData'] ?? []);
+//                             if (rowsDataList.isEmpty) return;
 
-                            final firstRow = Map<String, dynamic>.from(rowsDataList.first);
-                            final taskListId = int.tryParse((firstRow['task_list_id'] ?? firstRow['taskListId'] ?? '').toString());
+//                             final firstRow = Map<String, dynamic>.from(rowsDataList.first);
+//                             final taskListId = int.tryParse((firstRow['task_list_id'] ?? firstRow['taskListId'] ?? '').toString());
 
-                            if (taskListId == null) {
-                              debugPrint('task_list_id not found');
-                              return;
-                            }
+//                             if (taskListId == null) {
+//                               debugPrint('task_list_id not found');
+//                               return;
+//                             }
 
-                            // 🟢 FIXED: Database-il irukkira actual rows count-ai eduththu athanodu strict-ah +1 mattum add panrom
-                            // Ithanaala pazhaya count-ku reduce aagathu, eppovum increase mattum thaan aagum.
-                            final fetchRes = await http.get(Uri.parse('$_baseUrl/task-list'));
-                            int actualDbCount = currentRowsCount;
+//                             // 🟢 FIXED: Database-il irukkira actual rows count-ai eduththu athanodu strict-ah +1 mattum add panrom
+//                             // Ithanaala pazhaya count-ku reduce aagathu, eppovum increase mattum thaan aagum.
+//                             final fetchRes = await http.get(Uri.parse('$_baseUrl/task-list'));
+//                             int actualDbCount = currentRowsCount;
                             
-                            if (fetchRes.statusCode == 200) {
-                              final body = jsonDecode(fetchRes.body);
-                              final allLists = List<dynamic>.from(body['data'] ?? []);
-                              final matched = allLists.firstWhere(
-                                (item) => item['id'].toString() == taskListId.toString(),
-                                orElse: () => null,
-                              );
-                              if (matched != null && matched['no_of_rows'] != null) {
-                                actualDbCount = int.tryParse(matched['no_of_rows'].toString()) ?? currentRowsCount;
-                              }
-                            }
+//                             if (fetchRes.statusCode == 200) {
+//                               final body = jsonDecode(fetchRes.body);
+//                               final allLists = List<dynamic>.from(body['data'] ?? []);
+//                               final matched = allLists.firstWhere(
+//                                 (item) => item['id'].toString() == taskListId.toString(),
+//                                 orElse: () => null,
+//                               );
+//                               if (matched != null && matched['no_of_rows'] != null) {
+//                                 actualDbCount = int.tryParse(matched['no_of_rows'].toString()) ?? currentRowsCount;
+//                               }
+//                             }
 
-                            final newCount = actualDbCount + 1;
+//                             final newCount = actualDbCount + 1;
 
-                            // 1. Update backend no_of_rows strictly
-                            final response = await http.patch(
-                              Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
-                              headers: {'Content-Type': 'application/json'},
-                              body: jsonEncode({
-                                'noOfRows': newCount,
-                              }),
-                            );
+//                             // 1. Update backend no_of_rows strictly
+//                             final response = await http.patch(
+//                               Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
+//                               headers: {'Content-Type': 'application/json'},
+//                               body: jsonEncode({
+//                                 'noOfRows': newCount,
+//                               }),
+//                             );
 
-                            if (response.statusCode == 200) {
-                              // 2. Ensure a new IDLE tracking item row exists for this new incremented row index
-                              await http.post(
-                                Uri.parse('$_baseUrl/tracking-items'),
-                                headers: {'Content-Type': 'application/json'},
-                                body: jsonEncode({
-                                  'taskListId': taskListId,
-                                  'sNo': newCount,
-                                  'submitDate': task['assignedDate'] ?? '',
-                                  'taskDescription': deliverable,
-                                  'durationSecs': 0,
-                                  'comment': '',
-                                  'performance': 'N/A',
-                                  'status': 'IDLE',
-                                }),
-                              );
+//                             if (response.statusCode == 200) {
+//                               // 2. Ensure a new IDLE tracking item row exists for this new incremented row index
+//                               await http.post(
+//                                 Uri.parse('$_baseUrl/tracking-items'),
+//                                 headers: {'Content-Type': 'application/json'},
+//                                 body: jsonEncode({
+//                                   'taskListId': taskListId,
+//                                   'sNo': newCount,
+//                                   'submitDate': task['assignedDate'] ?? '',
+//                                   'taskDescription': deliverable,
+//                                   'durationSecs': 0,
+//                                   'comment': '',
+//                                   'performance': 'N/A',
+//                                   'status': 'IDLE',
+//                                 }),
+//                               );
 
-                              if (!mounted) return;
+//                               if (!mounted) return;
 
-                              setState(() {
-                                rowCounts[taskId] = newCount;
-                              });
+//                               setState(() {
+//                                 rowCounts[taskId] = newCount;
+//                               });
 
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('✅ Row added! Task moved back to Assigned Tasks.'),
-                                  backgroundColor: Colors.green,
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
+//                               ScaffoldMessenger.of(context).showSnackBar(
+//                                 const SnackBar(
+//                                   content: Text('✅ Row added! Task moved back to Assigned Tasks.'),
+//                                   backgroundColor: Colors.green,
+//                                   duration: Duration(seconds: 2),
+//                                 ),
+//                               );
 
-                              await _fetchCompletedHistory();
-                            } else {
-                              debugPrint('Row count update failed: ${response.statusCode} ${response.body}');
-                            }
-                          } catch (e) {
-                            debugPrint('Error updating row count from history: $e');
-                          }
-                        },
-                        child: Container(
-                          width: 24, height: 24,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(color: const Color(0xFF004AAD), borderRadius: BorderRadius.circular(5)),
-                          child: const Icon(Icons.add, size: 14, color: Colors.white),
-                        ),
-                      ),
+//                               await _fetchCompletedHistory();
+//                             } else {
+//                               debugPrint('Row count update failed: ${response.statusCode} ${response.body}');
+//                             }
+//                           } catch (e) {
+//                             debugPrint('Error updating row count from history: $e');
+//                           }
+//                         },
+//                         child: Container(
+//                           width: 24, height: 24,
+//                           alignment: Alignment.center,
+//                           decoration: BoxDecoration(color: const Color(0xFF004AAD), borderRadius: BorderRadius.circular(5)),
+//                           child: const Icon(Icons.add, size: 14, color: Colors.white),
+//                         ),
+//                       ),
                       
-                                       ],
-                  ),
-                ),
+//                                        ],
+//                   ),
+//                 ),
 
-                const SizedBox(width: 14),
+//                 const SizedBox(width: 14),
 
                 // COMPLETED BADGE
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(7),
-                    border: Border.all(color: const Color(0xFFBBF7D0)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.check_circle_outline, size: 14, color: Color(0xFF15803D)),
-                      SizedBox(width: 5),
-                      Text('COMPLETED', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Color(0xFF15803D))),
-                    ],
-                  ),
-                ),
+                // Container(
+                //   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                //   decoration: BoxDecoration(
+                //     color: const Color(0xFFF0FDF4),
+                //     borderRadius: BorderRadius.circular(7),
+                //     border: Border.all(color: const Color(0xFFBBF7D0)),
+                //   ),
+                //   child: const Row(
+                //     mainAxisSize: MainAxisSize.min,
+                //     children: [
+                //       Icon(Icons.check_circle_outline, size: 14, color: Color(0xFF15803D)),
+                //       SizedBox(width: 5),
+                //       Text('COMPLETED', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Color(0xFF15803D))),
+                //     ],
+                //   ),
+                // ),
 
-                const SizedBox(width: 12),
+                // const SizedBox(width: 12),
 
                 // OPEN / HIDE
                 SizedBox(
