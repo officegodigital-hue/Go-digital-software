@@ -7,26 +7,28 @@ class EmployeeSidebar extends StatelessWidget {
   final String selectedMenu;
   final List<String> menuItems;
   final Function(String) onMenuTap;
+  final bool isMobileDrawer;
 
   const EmployeeSidebar({
     super.key,
     required this.selectedMenu,
     required this.menuItems,
     required this.onMenuTap,
+    this.isMobileDrawer = false,
   });
 
   IconData _iconForMenu(String title) {
     switch (title) { 
-      case 'Dashboard': return Icons.dashboard;
-      case 'Day Planner': return Icons.task;
-      case 'Notifications': return Icons.notifications;
+      case 'Dashboard': return Icons.dashboard_rounded;
+      case 'Day Planner': return Icons.task_alt_rounded;
+      case 'Notifications': return Icons.notifications_rounded;
       case 'Daily Reports': return Icons.checklist_outlined;
-      case 'Assigned Task': return Icons.assignment;
-      case 'Live Tracking Tasks': return Icons.task_alt;
-      case 'Task Planner': return Icons.event_note_outlined;
-      case 'Task Review': return Icons.fact_check_outlined;
-      case 'Task Status': return Icons.fact_check_outlined;
-      case 'Video Task Planner': return Icons.event_note_outlined;
+      case 'Assigned Task': return Icons.assignment_rounded;
+      case 'Live Tracking Tasks': return Icons.timer_rounded;
+      case 'Task Planner': return Icons.event_note_rounded;
+      case 'Task Review': return Icons.fact_check_rounded;
+      case 'Task Status': return Icons.assessment_rounded;
+      case 'Video Task Planner': return Icons.video_collection_rounded;
       case 'Feedback': return Icons.feedback_outlined;
       default: return Icons.circle_outlined;
     }
@@ -34,33 +36,41 @@ class EmployeeSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 220,
+    final Widget sidebarWidget = Container(
+      width: 230,
       color: AppColors.sidebar,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Brand Header matching AdminLayout height
           Container(
             height: 64,
             width: double.infinity,
-            alignment: Alignment.centerLeft,
             padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: const Text(
-              'GoDigital Employee',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Text(
+                  'GoDigital Employee',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                if (isMobileDrawer)
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
             ),
           ),
-
-          // Thin divider below brand
           Container(height: 1, color: const Color(0xFF232D42)),
           const SizedBox(height: 10),
-
-          // Expanded scrollable menu items catalog (prevents overflow)
           Expanded(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -71,39 +81,29 @@ class EmployeeSidebar extends StatelessWidget {
                     icon: _iconForMenu(menu),
                     title: menu,
                     isActive: selectedMenu == menu,
-                    onTap: () => onMenuTap(menu),
+                    onTap: () {
+                      onMenuTap(menu);
+                      if (isMobileDrawer) {
+                        Navigator.of(context).pop();
+                      }
+                    },
                   ),
                 ).toList(),
               ),
             ),
           ),
-
-          // Anchored Logout Bottom Panel
           Container(height: 1, color: const Color(0xFF232D42)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                // onTap: () {
-                //   Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-                // },
                 onTap: () async {
-  final authService = Provider.of<AuthService>(
-    context,
-    listen: false,
-  );
-
-  await authService.logout();
-
-  if (!context.mounted) return;
-
-  Navigator.pushNamedAndRemoveUntil(
-    context,
-    '/',
-    (route) => false,
-  );
-},
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  await authService.logout();
+                  if (!context.mounted) return;
+                  Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                },
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -129,6 +129,15 @@ class EmployeeSidebar extends StatelessWidget {
         ],
       ),
     );
+
+    if (isMobileDrawer) {
+      return Drawer(
+        backgroundColor: AppColors.sidebar,
+        child: sidebarWidget,
+      );
+    }
+
+    return sidebarWidget;
   }
 }
 

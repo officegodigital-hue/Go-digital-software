@@ -1204,7 +1204,7 @@ void _selectClient(Map<String, dynamic> client) {
         ),
         pw.SizedBox(height: 3),
         pw.Text(
-          'Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigitalind.in',
+          'Office: +91 94449 43094 | Email: godigitalindaras@gmail.com | Website: www.godigital.ind.in',
           style: pw.TextStyle(
             font: font,
             fontSize: 12,
@@ -1668,6 +1668,8 @@ if (balanceAmount < 0) {
                                       enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
                                       focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
                                     ),
+                                    
+                                    style: const TextStyle(fontSize: 10),
                                   ),
                                 ],
                               ),
@@ -1697,7 +1699,7 @@ if (balanceAmount < 0) {
                                       enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
                                       focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
                                     ),
-                                    style: const TextStyle(fontSize: 12),
+                                    style: const TextStyle(fontSize: 10),
                                   ),
                                 ],
                               ),

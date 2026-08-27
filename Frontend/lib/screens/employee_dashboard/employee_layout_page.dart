@@ -19,7 +19,6 @@ import 'package:godigital_portal/screens/employee_dashboard/task_planner_page.da
 import 'package:godigital_portal/screens/employee_dashboard/TaskStatusScreen.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_review.dart';
 import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
-// ← ADD THIS IMPORT for the videographer task planner
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,9 +26,7 @@ import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_pag
 import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_page.dart';
-// 1. Import your newly created history page
-import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart'; // File path check pannikonga
-
+import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
 class EmployeeLayoutPage extends StatefulWidget {
@@ -42,29 +39,28 @@ class EmployeeLayoutPage extends StatefulWidget {
 class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   String selectedMenu = 'Dashboard';
   String searchQuery = '';
+
   Future<void> loadMenu() async {
-  final prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      selectedMenu = prefs.getString('employeeMenu') ?? 'Dashboard';
+    });
+  }
 
-  setState(() {
-    selectedMenu = prefs.getString('employeeMenu') ?? 'Dashboard';
-  });
-}
+  Future<void> saveMenu(String menu) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('employeeMenu', menu);
+    setState(() {
+      selectedMenu = menu;
+      searchQuery = "";
+    });
+  }
 
-Future<void> saveMenu(String menu) async {
-  final prefs = await SharedPreferences.getInstance();
-
-  await prefs.setString('employeeMenu', menu);
-
-  setState(() {
-    selectedMenu = menu;
-     searchQuery = "";
-  });
-}
-@override
-void initState() {
-  super.initState();
-  loadMenu();
-}
+  @override
+  void initState() {
+    super.initState();
+    loadMenu();
+  }
 
   EmployeeRole _getRoleFromString(String? roleString) {
     if (roleString == null) return EmployeeRole.designer;
@@ -90,37 +86,25 @@ void initState() {
   Widget getDashboardByRole(EmployeeRole loggedInRole) {
     switch (loggedInRole) {
       case EmployeeRole.designer:
-        // return DesignerDashboardPage(
-        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        // );
         return DesignerDashboardPage(
-  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
-);
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
       case EmployeeRole.pageHandler:
-        // return PageHandlerDashboardPage(
-        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        // );
         return PageHandlerDashboardPage(
-  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
-);
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
       case EmployeeRole.adsHandler:
-        // return AdsHandlerDashboardPage(
-        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        // );
         return AdsHandlerDashboardPage(
-  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
-);
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
       case EmployeeRole.videographer:
-        // return VideographerDashboardPage(
-        //   onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-        // );
         return VideographerDashboardPage(
-  onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
-  onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
-);
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
     }
   }
 
@@ -128,54 +112,36 @@ void initState() {
     switch (selectedMenu) {
       case 'Dashboard':
         return getDashboardByRole(loggedInRole);
-
       case 'Day Planner':
         return const DayPlannerScreen();
-
       case 'Assigned Task':
         return AssignedTasksContent(role: loggedInRole);
-
       case 'History':
         return EmployeeHistoryPage(role: loggedInRole);
-
       case 'Additional Task':
         return AdditionalTasksPage(role: loggedInRole);
-
-  
       case 'Live Tracking Tasks':
-        return LiveTrackingTasksPage(searchQuery: searchQuery,);
-
+        return LiveTrackingTasksPage(searchQuery: searchQuery);
       case 'Daily Reports':
         return const DailyReportsPage();
-
       case 'Task Planner':
         return const TaskPlannerPage();
-
       case 'Task Planner History':
         return const TaskPlannerHistoryWidget();
-      
       case 'Video Task Planner':
         return const VideographerTaskPlannerPage();
-        
       case 'Video Task Planner History':
         return const VideographerTaskPlannerHistoryPage();
-
       case 'Task Review':
-        return  ManagerReviewScreen(searchQuery: searchQuery,);
-
-      
+        return ManagerReviewScreen(searchQuery: searchQuery);
       case 'Task Status':
         return const TaskStatusScreen();
-
       case 'Notifications':
         return const NotificationsScreen();
-
       case 'Feedback':
         return const FeedbackPage();
-        
       case 'Feedback History':
         return const FeedbackHistoryWidget();
-
       default:
         return Center(
           child: Text(
@@ -190,122 +156,80 @@ void initState() {
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
-
         if (!authService.isInitialized) {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
-      
-      if (!authService.isAuthenticated) {
-        Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        
+        if (!authService.isAuthenticated) {
+          Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
 
-        // if (!authService.isAuthenticated || authService.user == null) {
-        //   Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-        //   return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        // }
-
-        final rawRole    = authService.userRole;
+        final rawRole = authService.userRole;
         final loggedInRole = _getRoleFromString(rawRole);
         debugPrint('🎯 Role: $loggedInRole');
 
-     
-//         return Scaffold(
-//           body: Row(children: [
-//             EmployeeSidebar(
-//               selectedMenu: selectedMenu,
-//               menuItems:    loggedInRole.menuItems,
-//               onMenuTap: saveMenu,
-//             ),
-//             Expanded(child: Column(children: [
-//               // EmployeeTopbar(role: loggedInRole),
-//   //             EmployeeTopbar(
-//   // role: loggedInRole,
-//   // onOpenNotifications: () {
-//   //   setState(() {
-//   //     selectedMenu = 'Notifications';
-//   //   });
-//   // },
-// // ),
-// EmployeeTopbar(
-//   role: loggedInRole,
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final bool isDesktop = constraints.maxWidth >= 900;
 
-//   onOpenNotifications: () {
-//     setState(() {
-//       selectedMenu = 'Notifications';
-//     });
-//   },
+            // Reusable Sidebar Widget
+            final sidebarWidget = EmployeeSidebar(
+              selectedMenu: selectedMenu,
+              menuItems: loggedInRole.menuItems,
+              onMenuTap: saveMenu,
+              isMobileDrawer: !isDesktop,
+            );
 
-//   onOpenAssignedTasks: () {
-//     setState(() {
-//       selectedMenu = 'Assigned Task';
-//     });
-//   },
-// ),
-//               Expanded(child: getSelectedPage(loggedInRole)),
-//             ])),
-//           ]),
-//         );
-     return Scaffold(
-  body: Row(
-    children: [
-      // ─────────────────────────────────────────────
-      // SIDEBAR
-      // ─────────────────────────────────────────────
-      EmployeeSidebar(
-        selectedMenu: selectedMenu,
-        menuItems: loggedInRole.menuItems,
-        onMenuTap: saveMenu,
-      ),
+            return Scaffold(
+              backgroundColor: const Color(0xFFF4F6FA),
+              drawer: isDesktop ? null : sidebarWidget,
+              body: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Desktop fixed sidebar
+                  if (isDesktop) sidebarWidget,
 
-      // ─────────────────────────────────────────────
-      // MAIN AREA
-      // ─────────────────────────────────────────────
-      Expanded(
-        child: Stack(
-          children: [
-
-            // PAGE CONTENT
-            Positioned.fill(
-              top: 54,
-              child: getSelectedPage(loggedInRole),
-            ),
-
-            // TOPBAR - ALWAYS ABOVE PAGE
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 54,
-              child: EmployeeTopbar(
-                role: loggedInRole,
-
-                onOpenNotifications: () {
-                  setState(() {
-                    selectedMenu = 'Notifications';
-                  });
-                },
-
-                onOpenAssignedTasks: () {
-                  setState(() {
-                    selectedMenu = 'Assigned Task';
-                  });
-                },
-
-                onSearch: (value) {
-    setState(() {
-      searchQuery = value;
-    });
-                },
+                  // Main Content & Topbar Area
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          top: 64,
+                          child: getSelectedPage(loggedInRole),
+                        ),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: 64,
+                          child: EmployeeTopbar(
+                            role: loggedInRole,
+                            onOpenNotifications: () {
+                              setState(() {
+                                selectedMenu = 'Notifications';
+                              });
+                            },
+                            onOpenAssignedTasks: () {
+                              setState(() {
+                                selectedMenu = 'Assigned Task';
+                              });
+                            },
+                            onSearch: (value) {
+                              setState(() {
+                                searchQuery = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
-      ),
-    ],
-  ),
-);
-     
+            );
+          },
+        );
       },
     );
   }

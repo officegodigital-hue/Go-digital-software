@@ -18,14 +18,15 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   final ScrollController _horizontalController = ScrollController();
-  Timer? _autoSaveTimer;
-  final TextEditingController _searchController = TextEditingController();
 
   DateTime selectedDate = DateTime.now();
   String dateFilterMode = 'Today'; // 'Today' or 'This Month'
-  String searchQuery = '';
-  String employeeDropdownFilter = 'All Employees';
   
+  String searchQuery = '';
+  String? selectedRoleFilter;
+  String? selectedStatusFilter;
+  bool isAscendingOrder = true;
+
   String? selectedEmployee;
   List<Map<String, dynamic>> employeesList = [];
   List<Map<String, dynamic>> submissionStatusList = [];
@@ -62,10 +63,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     socket.on('task_updated', (data) {
       print("🔥 Admin Real-time update received: $data");
       if (mounted) {
-        // 1. Refresh employee submissions list (overview table status/counts)
         _loadEmployeesAndSubmissions();
-        
-        // 2. If admin is currently viewing a specific employee's planner grid, auto-refresh it live!
         if (selectedEmployee != null) {
           _fetchEmployeeDayPlan(selectedEmployee!);
         }
@@ -73,18 +71,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     });
   }
 
-  Future<void> _fetchTotalWorkingHours() async {
-    if (selectedEmployee != null) {
-      await _fetchEmployeeDayPlan(selectedEmployee!);
-    }
-    await _loadEmployeesAndSubmissions();
-  }
-
   @override
   void dispose() {
     _horizontalController.dispose();
-    _autoSaveTimer?.cancel();
-    _searchController.dispose();
     socket.dispose();
     super.dispose();
   }
@@ -168,120 +157,177 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     }
   }
 
+  Future<void> _sendNotificationToEmployee(String empName) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/notifications/send'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'recipientName': empName,
+          'message': 'Reminder: Please submit your Day Planner for today.',
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Reminder notification sent to $empName successfully!'), backgroundColor: Colors.green),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Failed to send notification. Try again.'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AdminLayout(
       pageTitle: "Day Planner Monitoring",
       currentRoute: "/daily-planner",
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildTopHeader(),
-          const SizedBox(height: 20),
-          if (selectedEmployee == null) ...[
-            _buildSummaryCards(),
-            const SizedBox(height: 20),
-            _buildFiltersRow(),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 460,
-              child: isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildEmployeeStatusTable(),
-            ),
-          ] else ...[
-            _buildSelectedEmployeeHeader(),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 480,
-              child: isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildGroupedSheetGrids(dayPlanRows),
-            ),
-          ],
-        ],
+      onSearch: (query) {
+        setState(() {
+          searchQuery = query;
+        });
+      },
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTopHeader(),
+              const SizedBox(height: 24),
+              if (selectedEmployee == null) ...[
+                _buildSummaryCards(),
+                const SizedBox(height: 24),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    bool isMobile = constraints.maxWidth < 700;
+                    return SizedBox(
+                      height: 580,
+                      child: isLoading
+                          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
+                          : (isMobile ? _buildEmployeeMobileCardList() : _buildEmployeeStatusTable()),
+                    );
+                  },
+                ),
+              ] else ...[
+                _buildSelectedEmployeeHeader(),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 580,
+                  child: isLoading
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
+                      : _buildGroupedSheetGrids(dayPlanRows),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildTopHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Day Planner Monitoring', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-            SizedBox(height: 4),
-            Text('Monitor employee day planner submissions and review logs.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-          ],
-        ),
-        Row(
-          children: [
-            const SizedBox(width: 12),
-            Row(
-              children: [
-                GestureDetector(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: selectedDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (picked != null) {
-                      setState(() => selectedDate = picked);
-                      _loadEmployeesAndSubmissions();
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          bool isMobile = constraints.maxWidth < 650;
+          return Flex(
+            direction: isMobile ? Axis.vertical : Axis.horizontal,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: isMobile ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Day Planner Command Center', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                  SizedBox(height: 4),
+                  Text('Real-time tracking of team daily logs, status, and reporting.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                ],
+              ),
+              if (isMobile) const SizedBox(height: 14),
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (picked != null) {
+                        setState(() => selectedDate = picked);
+                        _loadEmployeesAndSubmissions();
+                        if (selectedEmployee != null) {
+                          _fetchEmployeeDayPlan(selectedEmployee!);
+                        }
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(10)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_month_rounded, size: 16, color: Color(0xFF0052CC)),
+                          const SizedBox(width: 8),
+                          Text(
+                            "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        dateFilterMode = dateFilterMode == 'Today' ? 'This Month' : 'Today';
+                      });
                       if (selectedEmployee != null) {
                         _fetchEmployeeDayPlan(selectedEmployee!);
                       }
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 16, color: Color(0xFF2A52BE)),
-                        const SizedBox(width: 8),
-                        Text(
-                          "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-                        ),
-                      ],
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(colors: [Color(0xFF0052CC), Color(0xFF2A52BE)]),
+                        borderRadius: BorderRadius.horizontal(right: Radius.circular(10)),
+                      ),
+                      child: Text(
+                        dateFilterMode,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
                     ),
                   ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      dateFilterMode = dateFilterMode == 'Today' ? 'This Month' : 'Today';
-                    });
-                    if (selectedEmployee != null) {
-                      _fetchEmployeeDayPlan(selectedEmployee!);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF2A52BE),
-                      borderRadius: BorderRadius.horizontal(right: Radius.circular(8)),
-                    ),
-                    child: Text(
-                      dateFilterMode,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ],
+                ],
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -293,39 +339,56 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     }).length;
     int pendingCount = totalCount - submittedCount;
 
-    return Row(
-      children: [
-        Expanded(child: _summaryCard('Total Employees', '$totalCount', Icons.people_outline, const Color(0xFF2A52BE))),
-        const SizedBox(width: 16),
-        Expanded(child: _summaryCard('Submitted', '$submittedCount', Icons.check_circle_outline, const Color(0xFF16A34A))),
-        const SizedBox(width: 16),
-        Expanded(child: _summaryCard('Pending / Not Submitted', '$pendingCount', Icons.hourglass_empty, const Color(0xFFDC2626))),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        bool isMobile = constraints.maxWidth < 750;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            SizedBox(
+              width: isMobile ? double.infinity : (constraints.maxWidth - 32) / 3,
+              child: _summaryCard('Total Workforce', '$totalCount', Icons.group_outlined, const Color(0xFF0052CC)),
+            ),
+            SizedBox(
+              width: isMobile ? double.infinity : (constraints.maxWidth - 32) / 3,
+              child: _summaryCard('Completed Submissions', '$submittedCount', Icons.verified_outlined, const Color(0xFF16A34A)),
+            ),
+            SizedBox(
+              width: isMobile ? double.infinity : (constraints.maxWidth - 32) / 3,
+              child: _summaryCard('Pending Submissions', '$pendingCount', Icons.pending_actions_rounded, const Color(0xFFDC2626)),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _summaryCard(String title, String count, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: Icon(icon, color: color, size: 22),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, color: color, size: 24),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              Text(count, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+              Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text(count, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: color)),
             ],
           ),
         ],
@@ -333,165 +396,392 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
-  Widget _buildFiltersRow() {
-    return Row(
-      children: [
-        SizedBox(
-          width: 300,
-          height: 40,
-          child: TextField(
-            onChanged: (value) => setState(() => searchQuery = value),
-            decoration: InputDecoration(
-              hintText: "Search employee...",
-              hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-              prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF2A52BE))),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: employeeDropdownFilter,
-              items: ['All Employees', 'Submitted', 'Pending'].map((val) {
-                return DropdownMenuItem(value: val, child: Text(val, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))));
-              }).toList(),
-              onChanged: (v) {
-                if (v != null) setState(() => employeeDropdownFilter = v);
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildEmployeeStatusTable() {
+    final List<String> availableRoles = employeesList
+        .map((emp) => (emp['role'] ?? 'Staff').toString())
+        .toSet()
+        .toList()
+      ..sort();
+
     final filteredEmployees = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
+      final role = (emp['role'] ?? 'Staff').toString();
+      
       final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
       
       final bool hasSubmitted = submissionStatusList.any(
         (s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true,
       );
 
-      bool matchesDropdown = true;
-      if (employeeDropdownFilter == 'Submitted') matchesDropdown = hasSubmitted;
-      if (employeeDropdownFilter == 'Pending') matchesDropdown = !hasSubmitted;
+      bool matchesRole = (selectedRoleFilter == null || selectedRoleFilter == 'All Roles' || role == selectedRoleFilter);
+      bool matchesStatus = true;
+      if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
+      if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
 
-      return matchesSearch && matchesDropdown;
+      return matchesSearch && matchesRole && matchesStatus;
     }).toList();
 
-    if (filteredEmployees.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
-        alignment: Alignment.center,
-        child: const Text("No employees found matching filter criteria.", style: TextStyle(color: Color(0xFF64748B))),
-      );
-    }
+    filteredEmployees.sort((a, b) {
+      final nameA = (a['fullName'] ?? '').toString().toLowerCase();
+      final nameB = (b['fullName'] ?? '').toString().toLowerCase();
+      return isAscendingOrder ? nameA.compareTo(nameB) : nameB.compareTo(nameA);
+    });
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 10)],
       ),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            color: const Color(0xFFF8FAFC),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+            ),
             child: Row(
-              children: const [
-                Expanded(flex: 3, child: Text("EMPLOYEE NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
-                Expanded(flex: 2, child: Text("ROLE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
-                Expanded(flex: 2, child: Text("STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569)))),
-                Expanded(flex: 1, child: Align(alignment: Alignment.centerRight, child: Text("ACTION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))))),
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: InkWell(
+                    onTap: () => setState(() => isAscendingOrder = !isAscendingOrder),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569))),
+                        const SizedBox(width: 4),
+                        Icon(isAscendingOrder ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: PopupMenuButton<String>(
+                    initialValue: selectedRoleFilter ?? 'All Roles',
+                    onSelected: (val) => setState(() => selectedRoleFilter = val == 'All Roles' ? null : val),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'All Roles', child: Text('All Roles', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                      ...availableRoles.map((r) => PopupMenuItem(value: r, child: Text(r, style: TextStyle(fontSize: 12)))),
+                    ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          selectedRoleFilter ?? "ROLE ▾",
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: selectedRoleFilter != null ? const Color(0xFF0052CC) : const Color(0xFF475569)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: PopupMenuButton<String>(
+                    initialValue: selectedStatusFilter ?? 'All Status',
+                    onSelected: (val) => setState(() => selectedStatusFilter = val == 'All Status' ? null : val),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'All Status', child: Text('All Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                      const PopupMenuItem(value: 'Submitted', child: Text('Submitted', style: TextStyle(fontSize: 12, color: Color(0xFF16A34A)))),
+                      const PopupMenuItem(value: 'Pending', child: Text('Pending', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                    ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          selectedStatusFilter ?? "STATUS ▾",
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: selectedStatusFilter != null ? const Color(0xFF0052CC) : const Color(0xFF475569)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Expanded(
+                  flex: 2,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text("ACTIONS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
+                ),
               ],
             ),
           ),
           const Divider(height: 1, color: Color(0xFFE2E8F0)),
           Expanded(
-            child: ListView.separated(
-              itemCount: filteredEmployees.length,
-              separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-              itemBuilder: (context, index) {
-                final emp = filteredEmployees[index];
-                final empName = emp['fullName'] ?? 'Employee';
-                final empRole = emp['role'] ?? 'Staff';
-                final bool hasSubmitted = submissionStatusList.any(
-                  (s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase() && s['submitted'] == true,
-                );
+            child: filteredEmployees.isEmpty
+                ? const Center(child: Text("No employees found matching filter criteria.", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500)))
+                : ListView.separated(
+                    itemCount: filteredEmployees.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                    itemBuilder: (context, index) {
+                      final emp = filteredEmployees[index];
+                      final empName = emp['fullName'] ?? 'Employee';
+                      final empRole = emp['role'] ?? 'Staff';
+                      final bool hasSubmitted = submissionStatusList.any(
+                        (s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase() && s['submitted'] == true,
+                      );
 
-                return InkWell(
-                  onTap: () => _fetchEmployeeDayPlan(empName),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: const Color(0xFF2A52BE).withValues(alpha: 0.1),
-                                child: Text(empName[0].toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2A52BE))),
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: const Color(0xFF0052CC).withValues(alpha: 0.1),
+                                    child: Text(empName[0].toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(empName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF1E293B))),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              Text(empName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF1E293B))),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Text(empRole, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626), shape: BoxShape.circle),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                hasSubmitted ? 'Submitted' : 'Pending',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          flex: 1,
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: () => _fetchEmployeeDayPlan(empName),
-                              child: const Text("View Planner", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2A52BE))),
                             ),
+                            Expanded(
+                              flex: 2,
+                              child: Text(empRole, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626), shape: BoxShape.circle),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    hasSubmitted ? 'Submitted' : 'Pending',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  if (!hasSubmitted) ...[
+                                    ElevatedButton.icon(
+                                      onPressed: () => _sendNotificationToEmployee(empName),
+                                      icon: const Icon(Icons.notifications_active_rounded, size: 12, color: Colors.white),
+                                      label: const Text("Notify", style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFD97706),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                        elevation: 0,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  OutlinedButton(
+                                    onPressed: () => _fetchEmployeeDayPlan(empName),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFF0052CC)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    child: const Text("View Planner", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmployeeMobileCardList() {
+    final List<String> availableRoles = employeesList
+        .map((emp) => (emp['role'] ?? 'Staff').toString())
+        .toSet()
+        .toList()
+      ..sort();
+
+    final filteredEmployees = employeesList.where((emp) {
+      final name = (emp['fullName'] ?? '').toString();
+      final role = (emp['role'] ?? 'Staff').toString();
+      final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
+      
+      final bool hasSubmitted = submissionStatusList.any(
+        (s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true,
+      );
+
+      bool matchesRole = (selectedRoleFilter == null || selectedRoleFilter == 'All Roles' || role == selectedRoleFilter);
+      bool matchesStatus = true;
+      if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
+      if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
+
+      return matchesSearch && matchesRole && matchesStatus;
+    }).toList();
+
+    filteredEmployees.sort((a, b) {
+      final nameA = (a['fullName'] ?? '').toString().toLowerCase();
+      final nameB = (b['fullName'] ?? '').toString().toLowerCase();
+      return isAscendingOrder ? nameA.compareTo(nameB) : nameB.compareTo(nameA);
+    });
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                PopupMenuButton<String>(
+                  initialValue: selectedRoleFilter ?? 'All Roles',
+                  onSelected: (val) => setState(() => selectedRoleFilter = val == 'All Roles' ? null : val),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'All Roles', child: Text('All Roles', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                    ...availableRoles.map((r) => PopupMenuItem(value: r, child: Text(r, style: TextStyle(fontSize: 12)))),
+                  ],
+                  child: Chip(
+                    label: Text(selectedRoleFilter ?? 'Role ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  initialValue: selectedStatusFilter ?? 'All Status',
+                  onSelected: (val) => setState(() => selectedStatusFilter = val == 'All Status' ? null : val),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'All Status', child: Text('All Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                    const PopupMenuItem(value: 'Submitted', child: Text('Submitted', style: TextStyle(fontSize: 12, color: Color(0xFF16A34A)))),
+                    const PopupMenuItem(value: 'Pending', child: Text('Pending', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                  ],
+                  child: Chip(
+                    label: Text(selectedStatusFilter ?? 'Status ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(isAscendingOrder ? Icons.arrow_upward : Icons.arrow_downward, size: 18),
+                  onPressed: () => setState(() => isAscendingOrder = !isAscendingOrder),
+                  tooltip: 'Sort A-Z / Z-A',
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          Expanded(
+            child: filteredEmployees.isEmpty
+                ? const Center(child: Text("No employees found.", style: TextStyle(color: Color(0xFF64748B))))
+                : ListView.builder(
+                    itemCount: filteredEmployees.length,
+                    padding: const EdgeInsets.all(10),
+                    itemBuilder: (context, index) {
+                      final emp = filteredEmployees[index];
+                      final empName = emp['fullName'] ?? 'Employee';
+                      final empRole = emp['role'] ?? 'Staff';
+                      final bool hasSubmitted = submissionStatusList.any(
+                        (s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase() && s['submitted'] == true,
+                      );
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: const Color(0xFF0052CC).withValues(alpha: 0.1),
+                                    child: Text(empName[0].toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(empName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B))),
+                                        const SizedBox(height: 2),
+                                        Text(empRole, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                      ],
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626), shape: BoxShape.circle),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        hasSubmitted ? 'Submitted' : 'Pending',
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: hasSubmitted ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  if (!hasSubmitted) ...[
+                                    ElevatedButton.icon(
+                                      onPressed: () => _sendNotificationToEmployee(empName),
+                                      icon: const Icon(Icons.notifications_active_rounded, size: 12, color: Colors.white),
+                                      label: const Text("Notify", style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFD97706),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                        elevation: 0,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  OutlinedButton(
+                                    onPressed: () => _fetchEmployeeDayPlan(empName),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFF0052CC)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    child: const Text("View Planner", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -499,20 +789,104 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   Widget _buildSelectedEmployeeHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          "Employee Planner: $selectedEmployee ($dateFilterMode Mode)",
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-        ),
-        ElevatedButton.icon(
-          onPressed: () => setState(() => selectedEmployee = null),
-          icon: const Icon(Icons.arrow_back, size: 16, color: Colors.white),
-          label: const Text('Back to Overview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2A52BE), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 6),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          bool isMobile = constraints.maxWidth < 650;
+          if (isMobile) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.person_outline_rounded, color: Color(0xFF0052CC), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "Planner: $selectedEmployee",
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(left: 28),
+                  child: Text(
+                    "Mode: $dateFilterMode",
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => setState(() => selectedEmployee = null),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 15, color: Colors.white),
+                    label: const Text('Back to Overview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0052CC),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: const Color(0xFF0052CC).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.person_outline_rounded, color: Color(0xFF0052CC), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Employee Planner: $selectedEmployee",
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "Viewing mode: $dateFilterMode",
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              ElevatedButton.icon(
+                onPressed: () => setState(() => selectedEmployee = null),
+                icon: const Icon(Icons.arrow_back_rounded, size: 16, color: Colors.white),
+                label: const Text('Back to Overview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0052CC),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  elevation: 0,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -543,9 +917,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
     if (rows.isEmpty) {
       return Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: const Color(0xFFE2E8F0))),
         alignment: Alignment.center,
-        child: Text('No day plan entries found for this employee ($dateFilterMode).', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+        child: Text('No day plan entries found for this employee ($dateFilterMode).', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13, fontWeight: FontWeight.w500)),
       );
     }
 
@@ -560,7 +934,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Scrollbar(
@@ -581,35 +955,53 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             return Container(
               margin: const EdgeInsets.only(bottom: 16),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    color: const Color(0xFF1E293B),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '📅 Date: $dateKey$dayName',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                        ),
-                        Row(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(colors: [Color(0xFF0F172A), Color(0xFF1E293B)]),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: 8,
                           children: [
-                            const Icon(Icons.timer_rounded, size: 14, color: Color(0xFF60A5FA)),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Working Time: ${_formatWorkingTime(dateRows.isNotEmpty ? dateRows.first['total_working_secs'] : 0)}',
-                              style: const TextStyle(color: Color(0xFF93C5FD), fontWeight: FontWeight.bold, fontSize: 12),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF60A5FA)),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Date: $dateKey$dayName',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.timer_outlined, size: 16, color: Color(0xFF38BDF8)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Working Time: ${_formatWorkingTime(dateRows.isNotEmpty ? dateRows.first['total_working_secs'] : 0)}',
+                                  style: const TextStyle(color: Color(0xFFE0F2FE), fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ],
                             ),
                           ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                   ClipRRect(
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisSize: MainAxisSize.max,
                       children: [
                         SizedBox(
                           width: 180,
@@ -618,18 +1010,18 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                height: 40,
+                                height: 44,
                                 color: const Color(0xFF0052CC),
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
                                 alignment: Alignment.centerLeft,
-                                child: const Text('CLIENT NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+                                child: const Text('CLIENT NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3)),
                               ),
                               ...dateRows.map((row) => _clientCell(row)),
                             ],
                           ),
                         ),
                         const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-                        Flexible(
+                        Expanded(
                           child: Listener(
                             onPointerSignal: (pointerSignal) {
                               if (pointerSignal is PointerScrollEvent) {
@@ -650,10 +1042,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                 controller: _horizontalController,
                                 scrollDirection: Axis.horizontal,
                                 child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     SizedBox(
                                       width: tableWidth,
-                                      height: 40,
+                                      height: 44,
                                       child: Row(
                                         children: [
                                           const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
@@ -697,8 +1090,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   Widget _clientCell(Map<String, dynamic> row) {
     final current = (row['client'] ?? '').toString();
     return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: const BoxDecoration(
         color: Color(0xFF0052CC),
         border: Border(bottom: BorderSide(color: Color(0xFF0044B3))),
@@ -706,7 +1099,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       alignment: Alignment.centerLeft,
       child: Text(
         current.isEmpty ? '—' : current,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.2),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -738,8 +1133,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     final value = (row[field] ?? '').toString();
     return Container(
       width: width,
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         border: Border(
           right: BorderSide(color: Color(0xFFE2E8F0)),
@@ -749,7 +1144,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       alignment: Alignment.centerLeft,
       child: Text(
         value.isEmpty ? '—' : value,
-        style: TextStyle(fontSize: 11, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
@@ -769,12 +1164,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         textColor = const Color(0xFFB45309);
         break;
       case 'HOLD':
-        bgColor = const Color(0xFFF0F4F8);
-        textColor = const Color(0xFF1E293B);
+        bgColor = const Color(0xFFF1F5F9);
+        textColor = const Color(0xFF475569);
         break;
       case 'PROCESSING':
         bgColor = const Color(0xFFEFF6FF);
-        textColor = const Color(0xFF0369A1);
+        textColor = const Color(0xFF0284C7);
         break;
       default:
         bgColor = const Color(0xFFF1F5F9);
@@ -783,7 +1178,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
     return Container(
       width: width,
-      height: 50,
+      height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         border: const Border(
@@ -792,13 +1187,16 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         ),
         color: bgColor,
       ),
-      alignment: Alignment.centerLeft,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(4)),
-          child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor)),
+      alignment: Alignment.center,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bgColor, 
+          borderRadius: BorderRadius.circular(6), 
+          border: Border.all(color: textColor.withValues(alpha: 0.25)),
+          boxShadow: [BoxShadow(color: textColor.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 2))],
         ),
+        child: Text(status.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor, letterSpacing: 0.3)),
       ),
     );
   }
@@ -814,15 +1212,15 @@ class _HeaderCell extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: const BoxDecoration(
-          color: Color(0xFFF1F5F9),
+          color: Color(0xFFF8FAFC),
           border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
         ),
         alignment: Alignment.centerLeft,
         child: Text(
           label,
-          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.2),
+          style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.4),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
