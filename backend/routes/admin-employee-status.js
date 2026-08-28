@@ -15,6 +15,51 @@ function formatDuration(seconds) {
     return `${mins} mins`;
 }
 
+// 🟢 Intha function-ai mattum unga file-oda mela add pannikonga (or replace pannikonga)
+async function fetchAssignedTaskAssignments() {
+    const [rows] = await db.query(`
+      SELECT
+        ta.id AS task_assignment_id,
+        ta.client_name,
+        ta.deliverables,
+        ta.maintenance_date,
+        ta.deadline AS submission_date,
+        ta.is_assigned
+      FROM task_assignments ta
+      INNER JOIN clients c 
+        ON TRIM(LOWER(ta.client_name)) = TRIM(LOWER(c.company_name))
+      WHERE c.is_active = 1 
+        AND ta.is_assigned = 1
+      ORDER BY ta.created_at DESC;
+    `);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return rows.map((r) => {
+      let subDate = r.submission_date ? new Date(r.submission_date) : null;
+      let calculatedStatus = 'In Progress';
+
+      if (subDate) {
+        subDate.setHours(0, 0, 0, 0);
+        if (subDate < today) {
+          calculatedStatus = 'Completed';
+        } else {
+          calculatedStatus = 'In Progress';
+        }
+      }
+
+      return {
+        taskListId: r.task_assignment_id,
+        clientName: r.client_name,
+        task: r.deliverables || '—',
+        maintenanceDate: r.maintenance_date || '—',
+        submissionDate: r.submission_date,
+        status: calculatedStatus,
+      };
+    });
+}
+
 // GET /api/admin/employee-status
 // GET /api/admin/employee-status
 router.get('/employee-status', async (req, res) => {
@@ -205,6 +250,353 @@ router.get('/employee-status/:taskListId/details', async (req, res) => {
   } catch (err) {
     console.error(
       'GET /admin/employee-status/:taskListId/details ERROR:',
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// router.get('/admin-employee-status', async (req, res) => {
+//   try {
+//     const [rows] = await db.query(`
+//       SELECT
+//         ta.id AS task_assignment_id,
+//         ta.client_name,
+//         ta.deliverables,
+//         ta.maintenance_date,
+//         ta.deadline AS submission_date,
+//         ta.is_assigned
+//       FROM task_assignments ta
+//       INNER JOIN clients c 
+//         ON TRIM(LOWER(ta.client_name)) = TRIM(LOWER(c.company_name))
+//       WHERE c.is_active = 1 
+//         AND ta.is_assigned = 1
+//       ORDER BY ta.created_at DESC;
+//     `);
+
+//     const today = new Date();
+//     today.setHours(0, 0, 0, 0);
+
+//     const data = rows.map((r) => {
+//       let subDate = r.submission_date ? new Date(r.submission_date) : null;
+//       let calculatedStatus = 'In Progress';
+
+//       if (subDate) {
+//         subDate.setHours(0, 0, 0, 0);
+//         if (subDate < today) {
+//           calculatedStatus = 'Completed';
+//         } else {
+//           calculatedStatus = 'In Progress';
+//         }
+//       }
+
+//       return {
+//         taskListId: r.task_assignment_id,
+//         clientName: r.client_name,
+//         task: r.deliverables || '—',
+//         maintenanceDate: r.maintenance_date || '—',
+//         submissionDate: r.submission_date,
+//         status: calculatedStatus,
+//       };
+//     });
+
+//     return res.json({ success: true, data });
+//   } catch (err) {
+//     console.error('GET /admin/admin-employee-status ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// Detailed view route for the selected task assignment
+
+// GET /api/admin-employee-status (Alternative route path matching)
+router.get('/admin-employee-status', async (req, res) => {
+  try {
+    const data = await fetchAssignedTaskAssignments();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /admin/admin-employee-status ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🟢 Handles GET /api/admin/employee-status/:id/details (Matched with Frontend URL)
+router.get('/employee-status/:id/details', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM task_assignments WHERE id = ?`,
+      [req.params.id]
+    );
+    return res.json({ success: true, data: rows[0] || {} });
+  } catch (err) {
+    console.error('GET /admin/employee-status/:id/details ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/admin/employee-status/client/:clientName/details
+router.get('/employee-status/client/:clientName/details', async (req, res) => {
+  try {
+    const clientName = decodeURIComponent(req.params.clientName);
+
+    // ============================================================
+    // 1. Get all assigned task assignment rows for this client
+    // ============================================================
+    const [assignments] = await db.query(
+      `
+      SELECT
+        id,
+        client_name,
+        deliverables,
+        deadline,
+        maintenance_date,
+
+        ads_handling,
+        ads_platform,
+
+        page_handling,
+        pages_platform,
+
+        designer,
+        designer_tasks,
+
+        videographer,
+        videographer_tasks,
+
+        video_editor,
+        video_editor_task,
+
+        ui_ux_designer,
+        ui_ux_tasks,
+
+        developer,
+        developer_tasks,
+
+        website_designer,
+        website_designer_tasks
+
+      FROM task_assignments
+      WHERE TRIM(LOWER(client_name)) = TRIM(LOWER(?))
+        AND is_assigned = 1
+      ORDER BY created_at DESC
+      `,
+      [clientName]
+    );
+
+    const roleMappings = [
+      {
+        role: 'Ads Handler',
+        employeeField: 'ads_handling',
+        taskField: 'ads_platform',
+      },
+      {
+        role: 'Page Handler',
+        employeeField: 'page_handling',
+        taskField: 'pages_platform',
+      },
+      {
+        role: 'Designer',
+        employeeField: 'designer',
+        taskField: 'designer_tasks',
+      },
+      {
+        role: 'Videographer',
+        employeeField: 'videographer',
+        taskField: 'videographer_tasks',
+      },
+      {
+        role: 'Video Editor',
+        employeeField: 'video_editor',
+        taskField: 'video_editor_task',
+      },
+      {
+        role: 'UI/UX Designer',
+        employeeField: 'ui_ux_designer',
+        taskField: 'ui_ux_tasks',
+      },
+      {
+        role: 'Developer',
+        employeeField: 'developer',
+        taskField: 'developer_tasks',
+      },
+      {
+        role: 'Website Designer',
+        employeeField: 'website_designer',
+        taskField: 'website_designer_tasks',
+      },
+    ];
+
+    const roleDetails = [];
+
+    // ============================================================
+    // 2. Each role + employee + assigned task
+    // ============================================================
+    for (const assignment of assignments) {
+      for (const mapping of roleMappings) {
+        const employeeName =
+            assignment[mapping.employeeField]?.toString().trim();
+
+        const assignedTask =
+            assignment[mapping.taskField]?.toString().trim();
+
+        // Skip empty / NONE employee
+        if (
+          !employeeName ||
+          employeeName.toUpperCase() === 'NONE'
+        ) {
+          continue;
+        }
+
+        // ========================================================
+        // 3. Find matching task_list row
+        // ========================================================
+        const [taskListRows] = await db.query(
+          `
+          SELECT
+            id,
+            no_of_rows
+          FROM task_list
+          WHERE task_assignment_id = ?
+            AND employee_name = ?
+            AND client_name = ?
+          ORDER BY id DESC
+          `,
+          [
+            assignment.id,
+            employeeName,
+            assignment.client_name,
+          ]
+        );
+
+        let totalTasks = 0;
+        let completedTasks = 0;
+        let processingTasks = 0;
+        let holdTasks = 0;
+        let rejectedTasks = 0;
+        let notStartedTasks = 0;
+
+        // ========================================================
+        // 4. Calculate tracking status
+        // ========================================================
+        for (const taskList of taskListRows) {
+          totalTasks += Number(taskList.no_of_rows || 0);
+
+          const [trackingRows] = await db.query(
+            `
+            SELECT
+              COUNT(*) AS total_count,
+
+              SUM(
+                CASE
+                  WHEN UPPER(status) = 'COMPLETED'
+                  THEN 1 ELSE 0
+                END
+              ) AS completed_count,
+
+              SUM(
+                CASE
+                  WHEN UPPER(status) IN (
+                    'PROCESSING',
+                    'IN PROGRESS',
+                    'RUNNING'
+                  )
+                  THEN 1 ELSE 0
+                END
+              ) AS processing_count,
+
+              SUM(
+                CASE
+                  WHEN UPPER(status) IN (
+                    'HOLD',
+                    'ON HOLD'
+                  )
+                  THEN 1 ELSE 0
+                END
+              ) AS hold_count,
+
+              SUM(
+                CASE
+                  WHEN UPPER(status) = 'REJECTED'
+                  THEN 1 ELSE 0
+                END
+              ) AS rejected_count
+
+            FROM time_tracking_task_items
+            WHERE task_list_id = ?
+            `,
+            [taskList.id]
+          );
+
+          finalStats = trackingRows[0];
+
+          const trackedTotal =
+            Number(finalStats.total_count || 0);
+
+          completedTasks +=
+            Number(finalStats.completed_count || 0);
+
+          processingTasks +=
+            Number(finalStats.processing_count || 0);
+
+          holdTasks +=
+            Number(finalStats.hold_count || 0);
+
+          rejectedTasks +=
+            Number(finalStats.rejected_count || 0);
+
+          // If no tracking rows created yet
+          if (trackedTotal === 0) {
+            notStartedTasks += Number(taskList.no_of_rows || 0);
+          } else {
+            notStartedTasks += Math.max(
+              0,
+              Number(taskList.no_of_rows || 0) - trackedTotal
+            );
+          }
+        }
+
+        // If task_list is not yet created
+        if (totalTasks === 0) {
+          totalTasks = 1;
+          notStartedTasks = 1;
+        }
+
+        roleDetails.push({
+          taskAssignmentId: assignment.id,
+
+          clientName: assignment.client_name,
+          deliverables: assignment.deliverables,
+
+          role: mapping.role,
+          employeeName: employeeName,
+          task: assignedTask || assignment.deliverables || '—',
+
+          totalTasks,
+          completedTasks,
+          processingTasks,
+          holdTasks,
+          rejectedTasks,
+          notStartedTasks,
+
+          deadline: assignment.deadline,
+          maintenanceDate: assignment.maintenance_date,
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      clientName,
+      data: roleDetails,
+    });
+
+  } catch (err) {
+    console.error(
+      'GET /admin/employee-status/client/:clientName/details ERROR:',
       err
     );
 

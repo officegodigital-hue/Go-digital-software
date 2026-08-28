@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io_client;
 
 class EmployeeStatusScreen extends StatefulWidget {
   const EmployeeStatusScreen({super.key});
@@ -13,24 +13,21 @@ class EmployeeStatusScreen extends StatefulWidget {
 }
 
 class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
-  // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  // Active selected filter category tracker variable
-  String activeFilter = "All";
-  String searchText = "";
-
-  // ── FILTER VISIBILITY TOGGLE TRACKER FLAG ──
-  bool _isFilterMenuOpen = false;
-
-  // FIX: no longer hardcoded — populated from the backend in _fetchEmployeeStatus().
-  // Same map shape as before, plus a new "completedLabel" field (e.g. "5/12")
-  // for the new COMPLETED column.
   List<Map<String, dynamic>> masterEmployeeData = [];
+
+  // Sorting and Filters State
+  bool isSNoAscending = true;
+  bool isClientAscending = true;
+  String? selectedMaintenanceSort; // '1 to 31' or '31 to 1'
+  String selectedMonthFilter = "All"; 
+  String selectedStatusFilter = "All"; // 'All', 'Completed', 'Pending'
+  String clientNameSearch = ""; // Client Name search query
 
   bool _loading = true;
   String? _error;
-  late IO.Socket socket;
+  late io_client.Socket socket;
 
   @override
   void initState() {
@@ -41,364 +38,72 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
 
   @override
   void dispose() {
-    socket.dispose(); 
+    socket.dispose();
     super.dispose();
   }
 
   void _initSocketListener() {
-    socket = IO.io(
+    socket = io_client.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder()
+      io_client.OptionBuilder()
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
           .build(),
     );
-
     socket.connect();
-
     socket.on('task_updated', (data) {
-      print("🔥 Admin live status update received: $data");
-      if (mounted) {
-        _fetchEmployeeStatus(); // Employee task change aanal admin screen automatic-ah refresh aagum!
-      }
+      if (mounted) _fetchEmployeeStatus();
     });
   }
 
   Future<void> _fetchEmployeeStatus() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final r = await http.get(Uri.parse('$_baseUrl/admin/employee-status'));
+      final url = Uri.parse('$_baseUrl/admin/admin-employee-status');
+      final r = await http.get(url);
+
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final rows = List<dynamic>.from(body['data'] ?? []);
         setState(() {
-          // masterEmployeeData = rows.map((row) => _mapRow(row)).toList();
-          masterEmployeeData =
-    rows.reversed.map((row) => _mapRow(row)).toList();
-    masterEmployeeData.sort((a, b) {
-  return b["date"].compareTo(a["date"]);
-});
+          masterEmployeeData = rows.map((row) => _mapRow(row)).toList();
           _loading = false;
         });
       } else {
-        setState(() { _error = 'Failed to load employee status (${r.statusCode})'; _loading = false; });
+        setState(() { _error = 'Failed to load (${r.statusCode})'; _loading = false; });
       }
     } catch (e) {
       setState(() { _error = 'Connection error: $e'; _loading = false; });
     }
   }
 
-Future<void> _showTaskDetails(int taskListId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/admin/employee-status/$taskListId/details'),
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception('Failed to load task details');
-      }
-
-      final body = jsonDecode(response.body);
-      final List details = List.from(body['data'] ?? []);
-
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (context) {
-          return Dialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            backgroundColor: Colors.white,
-            elevation: 8,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 650,
-                maxHeight: 600,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // ── Professional Header ──
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0F4CC9),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: const [
-                            Icon(Icons.assignment_outlined, color: Colors.white, size: 20),
-                            SizedBox(width: 10),
-                            Text(
-                              'Task Details Breakdown',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white, size: 18),
-                          onPressed: () => Navigator.pop(context),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ── Scrollable Content Body ──
-                  Expanded(
-                    child: details.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(30),
-                              child: Text(
-                                'No task details found.',
-                                style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                          )
-                        : Scrollbar(
-                            thumbVisibility: true,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.all(20),
-                              itemCount: details.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final item = details[index];
-                                final status = (item['status']?.toString() ?? 'IDLE').toUpperCase();
-                                
-                                // Status badge color logic
-                                Color statusBg = const Color(0xFFF1F5F9);
-                                Color statusText = const Color(0xFF64748B);
-                                if (status == 'COMPLETED') {
-                                  statusBg = const Color(0xFFDCFCE7);
-                                  statusText = const Color(0xFF16A34A);
-                                } else if (status == 'ON HOLD') {
-                                  statusBg = const Color(0xFFFEF3C7);
-                                  statusText = const Color(0xFFD97706);
-                                } else if (status == 'REJECTED') {
-                                  statusBg = const Color(0xFFFEE2E2);
-                                  statusText = const Color(0xFFDC2626);
-                                } else if (status == 'IN PROGRESS') {
-                                  statusBg = const Color(0xFFE0F2FE);
-                                  statusText = const Color(0xFF0369A1);
-                                }
-
-                                return Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.01),
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            'Task Item #${item['s_no'] ?? index + 1}',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0F4CC9),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: statusBg,
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              status,
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                color: statusText,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                        'COMMAND / DESCRIPTION',
-                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8)),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        item['task_description']?.toString().isNotEmpty == true
-                                            ? item['task_description'].toString()
-                                            : '--',
-                                        style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontWeight: FontWeight.w500),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _detailItem('Performance', item['performance']?.toString() ?? '--'),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      const Text(
-                                        'COMMENTS',
-                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8)),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        item['comment']?.toString().trim().isNotEmpty == true
-                                            ? item['comment'].toString()
-                                            : '--',
-                                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                  ),
-
-                  // ── Professional Footer ──
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F4CC9),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          ),
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load task details: $e')),
-      );
-    }
-  }
-
-
-Widget _detailItem(String title, String value) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF64748B),
-        ),
-      ),
-      const SizedBox(height: 4),
-      Text(
-        value,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF334155),
-        ),
-      ),
-    ],
-  );
-}
-
-  // Turns one backend row into the exact map shape the existing table
-  // widgets expect — this is the only place that knows about colors/labels.
   Map<String, dynamic> _mapRow(dynamic row) {
-    final employeeName = row['employeeName'] as String? ?? 'Unassigned';
-    final priority = (row['priority'] as String? ?? 'LOW').toUpperCase();
-    final rawStatus = (row['status'] as String? ?? 'IDLE').toUpperCase();
-    final daysLeft = row['daysLeft'] as int?;
-
-    final priorityColors = _priorityColors(priority);
-    final timeInfo = _timeLeftDisplay(daysLeft);
-
-    final completedRows = row['completedRows'] as int? ?? 0;
-    final totalRows = row['totalRows'] as int? ?? 0;
-
-    final holdRows = row['holdRows'] as int? ?? 0;
-    final rejectedRows = row['rejectedRows'] as int? ?? 0;
-    final processingRows = row['processingRows'] as int? ?? 0;
-    final notStartedRows = row['notStartedRows'] as int? ?? 0;
-
-    final completedLabel = '$completedRows/$totalRows';
-    final holdLabel = '$holdRows/$totalRows';
-    final rejectedLabel = '$rejectedRows/$totalRows';
-    final processingLabel = '$processingRows/$totalRows';
-    final notStartedLabel = '$notStartedRows/$totalRows';
-
-    final allDone = totalRows > 0 && completedRows >= totalRows;
-
     return {
-      "taskListId": row['taskListId'], // 👈 Intha line thaan missing-ah irunthathu
+      "taskListId": row['taskListId'],
       "client": row['clientName'] ?? '',
-      "initials": _initialsFor(employeeName),
-      "name": employeeName,
+      "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
       "task": row['task'] ?? '',
-      "duration": row['duration'] ?? 'N/A',
-      "priority": priority,
-      "priorityBg": priorityColors.$1,
-      "priorityText": priorityColors.$2,
-      "date": _formatDate(row['submissionDate'] as String?),
-      "timeLeft": timeInfo.$1,
-      "timeColor": timeInfo.$2,
-      "completedLabel": completedLabel,
-      "completedAllDone": allDone,
-      "holdTask": holdLabel,
-      "rejectedTask": rejectedLabel,
-      "processingTask": processingLabel,
-      "notStartedTask": notStartedLabel,
+      "date": row['submissionDate'] ?? '',
+      "formattedDate": _formatDate(row['submissionDate'] as String?),
+      "month": _extractMonth(row['submissionDate'] as String?),
+      "status": row['status'] ?? 'In Progress',
     };
   }
 
-
-
- String _initialsFor(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '--';
-    if (parts.length == 1) return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+  String _formatOnlyDay(dynamic rawDate) {
+    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
+    final val = rawDate.toString().trim();
+    if (val.contains('/')) {
+      final parts = val.split('/');
+      if (parts.isNotEmpty) return parts[0];
+    }
+    try {
+      final parsed = DateTime.parse(val);
+      return parsed.day.toString().padLeft(2, '0');
+    } catch (_) {
+      return val;
+    }
   }
 
   String _formatDate(String? raw) {
@@ -412,508 +117,321 @@ Widget _detailItem(String title, String value) {
     }
   }
 
-  (Color, Color) _priorityColors(String priority) {
-    switch (priority) {
-      case 'URGENT': return (const Color(0xFFFEE2E2), const Color(0xFFDC2626));
-      case 'HIGH':   return (const Color(0xFFFFE4E6), const Color(0xFFEF4444));
-      case 'MEDIUM': return (const Color(0xFFFEF3C7), const Color(0xFFD97706));
-      default:       return (const Color(0xFFDCFCE7), const Color(0xFF16A34A)); // LOW
+  String _extractMonth(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    try {
+      final d = DateTime.parse(raw);
+      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[d.month];
+    } catch (_) {
+      return '';
     }
   }
 
-  // FIX: this is the "IDLE -> Not Started" rename the person asked for,
-  // plus a color for every real DB status value.
-  (String, Color, Color) _statusDisplay(String rawStatus) {
-    switch (rawStatus) {
-      case 'IDLE':
-        return ('NOT STARTED', const Color(0xFFF1F5F9), const Color(0xFF64748B));
-      case 'IN PROGRESS':
-        return ('IN PROGRESS', const Color(0xFFE0F2FE), const Color(0xFF0369A1));
-      case 'ON HOLD':
-        return ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFFD97706));
-      case 'COMPLETED':
-        return ('COMPLETED', const Color(0xFFDCFCE7), const Color(0xFF16A34A));
-      case 'REJECTED':
-        return ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFDC2626));
-      default:
-        return (rawStatus, const Color(0xFFF1F5F9), const Color(0xFF64748B));
+  void _navigateToTaskDetailView(String clientName) async {
+    List<Map<String, dynamic>> clientAssignments = [];
+    Map<String, int> dbTaskProgressCounts = {};
+
+    try {
+      final r = await http.get(Uri.parse('$_baseUrl/tasks'));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final allRows = List<Map<String, dynamic>>.from(body['data'] ?? []);
+        clientAssignments = allRows.where((row) {
+          return (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+              clientName.toString().trim().toLowerCase();
+        }).toList();
+      }
+
+      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
+      if (trRes.statusCode == 200) {
+        final trBody = jsonDecode(trRes.body);
+        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
+
+        for (var tl in taskLists) {
+          final tListId = tl['id'];
+          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+
+          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
+          if (itemsRes.statusCode == 200) {
+            final itemsBody = jsonDecode(itemsRes.body);
+            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+
+            int completedRows = items.where((item) {
+              final st = (item['status'] ?? '').toString().toUpperCase();
+              return st == 'COMPLETED' || st == 'REJECTED';
+            }).length;
+
+            dbTaskProgressCounts[deliverables] = completedRows;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching client details for summary dialog: $e');
     }
-  }
 
-  (String, Color) _timeLeftDisplay(int? daysLeft) {
-    if (daysLeft == null) return ('--', const Color(0xFF64748B));
-    if (daysLeft > 0) return ('$daysLeft Day${daysLeft == 1 ? '' : 's'} Left', const Color(0xFF22C55E));
-    if (daysLeft == 0) return ('Due Today', const Color(0xFFD97706));
-    final overdue = daysLeft.abs();
-    return ('$overdue Day${overdue == 1 ? '' : 's'} Overdue', const Color(0xFFDC2626));
-  }
+    if (!mounted) return;
 
-  @override
-  Widget build(BuildContext context) {
-    // ── FUNCTIONAL REACTIVE DATA FILTERING ENGINE ──
-    // List<Map<String, dynamic>> filteredRows = masterEmployeeData.where((row) {
-    List<Map<String, dynamic>> filteredRows =
-    masterEmployeeData.where((row) {
+    final roleMappings = [
+      {'roleLabel': 'Ads Handler', 'icon': Icons.campaign_outlined, 'empField': 'ads_handling', 'taskField': 'ads_platform'},
+      {'roleLabel': 'Page Handler', 'icon': Icons.pages_outlined, 'empField': 'page_handling', 'taskField': 'pages_platform'},
+      {'roleLabel': 'Designer', 'icon': Icons.design_services_outlined, 'empField': 'designer', 'taskField': 'designer_tasks'},
+      {'roleLabel': 'Videographer', 'icon': Icons.videocam_outlined, 'empField': 'videographer', 'taskField': 'videographer_tasks'},
+      {'roleLabel': 'Video Editor', 'icon': Icons.video_settings_outlined, 'empField': 'video_editor', 'taskField': 'video_editor_task'},
+      {'roleLabel': 'UI/UX Designer', 'icon': Icons.web_outlined, 'empField': 'ui_ux_designer', 'taskField': 'ui_ux_tasks'},
+      {'roleLabel': 'Developer', 'icon': Icons.code_outlined, 'empField': 'developer', 'taskField': 'developer_tasks'},
+      {'roleLabel': 'Website Designer', 'icon': Icons.language_outlined, 'empField': 'website_designer', 'taskField': 'website_designer_tasks'},
+    ];
 
-  bool statusMatch =
-      !_isFilterMenuOpen ||
-      activeFilter == "All" ||
-      row["priority"]
-          .toString()
-          .toUpperCase() ==
-          activeFilter.toUpperCase();
-
-  bool searchMatch =
-      searchText.isEmpty ||
-
-      row["client"]
-          .toString()
-          .toLowerCase()
-          .contains(searchText.toLowerCase()) ||
-
-      row["name"]
-          .toString()
-          .toLowerCase()
-          .contains(searchText.toLowerCase()) ||
-
-      row["task"]
-          .toString()
-          .toLowerCase()
-          .contains(searchText.toLowerCase());
-
-  return statusMatch && searchMatch;
-}).toList();
-    //   if (!_isFilterMenuOpen || activeFilter == "All") return true;
-    //   return row["status"].toString().toUpperCase() == activeFilter.toUpperCase();
-    // }).toList();
-
-    return AdminLayout(
-      pageTitle: "Employee Status",
-      currentRoute: "/employee-status",
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Title & Global Creation Toolbar Row ──
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    "Employee Status",
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    "Assign, monitor, and manage employee tasks based on departments, projects, and client deliverables.",
-                    style: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 28),
-
-          // ── MAIN CONTENT LEDGER DATA CONTAINER TABLE ──
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFFF8FAFC),
+          elevation: 12,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. Dynamic Interactive Ribbon Filter Tabs Panel
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+                    border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                    //   const Text(
-                    //     "Employee Status",
-                    //     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
-                    //   ),
-                    //   const SizedBox(height: 20),
-
-// SizedBox(
-//   width: 350,
-//   child: TextField(
-//     onChanged: (value) {
-//       setState(() {
-//         searchText = value;
-//       });
-//     },
-//     decoration: InputDecoration(
-//       hintText: "Search Client / Employee / Task",
-//       prefixIcon: const Icon(Icons.search),
-//       border: OutlineInputBorder(
-//         borderRadius: BorderRadius.circular(8),
-//       ),
-//       contentPadding: const EdgeInsets.symmetric(vertical: 12),
-//     ),
-//   ),
-// ),
-
-Container(
-  width: 350,
-  height: 42,
-  decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.05),
-        blurRadius: 10,
-        offset: const Offset(0, 3),
-      ),
-    ],
-  ),
-  child: TextField(
-    onChanged: (value) {
-      setState(() {
-        searchText = value;
-      });
-    },
-    decoration: InputDecoration(
-      hintText: "Search Client / Employee / Task",
-      hintStyle: TextStyle(
-        color: Colors.grey.shade500,
-        fontSize: 10,
-      ),
-      prefixIcon: const Icon(
-        Icons.search_rounded,
-        color: Color.fromARGB(255, 158, 158, 158),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(
-          color: Colors.grey.shade300,
-          width: 1,
-        ),
-      ),
-      border: InputBorder.none,
-      contentPadding: const EdgeInsets.symmetric(
-        vertical: 11,
-        horizontal: 10,
-      ),
-    ),
-  ),
-),
-
-const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          // ── ANIMATED FILTER CHIPS MENU BLOCK ──
-                          AnimatedVisibility(
-                            visible: _isFilterMenuOpen,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildFilterTab("All"),
-                                _buildFilterTab("Urgent"),
-                                _buildFilterTab("High"),
-                                _buildFilterTab("Medium"),
-                                _buildFilterTab("Low"),
-                                const SizedBox(width: 8),
-                              ],
-                            ),
-                          ),
-
-                          // ── MASTER FILTERS SHUTTER TOGGLE BUTTON ──
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                _isFilterMenuOpen = !_isFilterMenuOpen;
-                                if (!_isFilterMenuOpen) {
-                                  activeFilter = "All"; // Resets filter configuration when drawer rolls up
-                                }
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _isFilterMenuOpen ? const Color(0xFFF1F5F9) : Colors.transparent,
-                                border: Border.all(color: const Color(0xFFCBD5E1)),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _isFilterMenuOpen ? Icons.filter_list_off_rounded : Icons.filter_list_rounded,
-                                    size: 14,
-                                    color: const Color(0xFF475569)
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _isFilterMenuOpen ? "Hide Filters" : "Filters",
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
+                        child: const Icon(Icons.analytics_outlined, color: Color(0xFF0052CC), size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            const SizedBox(height: 3),
+                            Text(clientName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded, size: 21, color: Color(0xFF64748B)),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+                Expanded(
+                  child: clientAssignments.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(30),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 64, height: 64,
+                                  decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
+                                  child: const Icon(Icons.assignment_outlined, size: 30, color: Color(0xFF94A3B8)),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text('No assignments found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                              ],
+                            ),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Assigned Team', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                              const SizedBox(height: 4),
+                              const Text('View employees and their current task progress.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                              const SizedBox(height: 16),
+                              ...roleMappings.map((roleInfo) {
+                                final roleLabel = roleInfo['roleLabel'] as String;
+                                final icon = roleInfo['icon'] as IconData;
+                                final empField = roleInfo['empField'] as String;
+                                final taskField = roleInfo['taskField'] as String;
 
-                // 2. Fixed Data Table Heading Headers Ribbon
-                Container(
-                  color: Colors.white,
-                  height: 52,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      Expanded(flex: 3, child: Text("CLIENT", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("EMPLOYEE NAME", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("TASKS", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("DURATION", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("PRIORITY", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("DUE DATE", style: _headerStyle)),
-                      // Expanded(flex: 2, child: Text("STATUS", style: _headerStyle)),
-                      // Expanded(flex: 2, child: Text("COMPLETED TASK", style: _headerStyle)),
-                      Expanded(flex: 2, child: Text("COMPLETED", style: _headerStyle)),
-Expanded(flex: 2, child: Text("HOLD", style: _headerStyle)),
-Expanded(flex: 2, child: Text("REJECTED", style: _headerStyle)),
-Expanded(flex: 2, child: Text("PROCESSING", style: _headerStyle)),
-Expanded(flex: 2, child: Text("PENDING", style: _headerStyle)),
-Expanded(
-  flex: 1,
-  child: Text("VIEW", style: _headerStyle),
-),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
+                                final Map<String, List<String>> empTaskMap = {};
 
-                // 3. Vertically Scrollable Filtered Grid Rows Area
-                SizedBox(
-                  height: 480,
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _error != null
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(_error!, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
-                                  const SizedBox(height: 10),
-                                  TextButton(onPressed: _fetchEmployeeStatus, child: const Text('Retry')),
-                                ],
-                              ),
-                            )
-                          : filteredRows.isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    "No employee task matches this status group.",
-                                    style: TextStyle(color: Color(0xFF64748B), fontSize: 10),
+                                for (var assignment in clientAssignments) {
+                                  final empName = (assignment[empField] ?? '').toString().trim();
+                                  final taskStr = (assignment[taskField] ?? '').toString().trim();
+
+                                  if (empName.isEmpty || empName.toUpperCase() == 'NONE' || taskStr.isEmpty) continue;
+
+                                  final tasksList = taskStr.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+                                  empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
+                                }
+
+                                if (empTaskMap.isEmpty) return const SizedBox.shrink();
+
+                                return Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
                                   ),
-                                )
-                              : ListView.separated(
-                          itemCount: filteredRows.length,
-                          physics: const BouncingScrollPhysics(),
-                          separatorBuilder: (context, index) => const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-                          itemBuilder: (context, index) {
-                            final row = filteredRows[index];
-                            return Container(
-                              height: 64,
-                              padding: const EdgeInsets.symmetric(horizontal: 24),
-                              color: Colors.white,
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    flex: 3,
-                                    child: Text(
-                                      row["client"],
-                                      style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontWeight: FontWeight.w500),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 26,
-                                          height: 26,
-                                          decoration: const BoxDecoration(color: Color(0xFFDCE4F7), shape: BoxShape.circle),
-                                          alignment: Alignment.center,
-                                          child: Text(
-                                            row["initials"],
-                                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Color(0xFF4A69B3)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Text(
-                                          row["name"],
-                                          style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(row["task"], style: const TextStyle(fontSize: 10, color: Color(0xFF475569))),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(row["duration"], style: const TextStyle(fontSize: 10, color: Color(0xFF475569))),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                        decoration: BoxDecoration(color: row["priorityBg"], borderRadius: BorderRadius.circular(4)),
-                                        child: Text(
-                                          row["priority"],
-                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: row["priorityText"], letterSpacing: 0.3),
+                                  child: Column(
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 34, height: 34,
+                                              decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(9)),
+                                              child: Icon(icon, size: 18, color: const Color(0xFF004AAD)),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
+                                              child: Text(
+                                                '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
+                                                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                    ),
+                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                      ...empTaskMap.entries.map((entry) {
+                                        final employeeName = entry.key;
+                                        final tasks = entry.value;
+
+                                        return Padding(
+                                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    width: 28, height: 28,
+                                                    decoration: BoxDecoration(color: const Color(0xFFF8FAFC), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2E8F0))),
+                                                    child: const Icon(Icons.person_outline, size: 16, color: Color(0xFF475569)),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 9),
+                                              Wrap(
+                                                spacing: 7,
+                                                runSpacing: 7,
+                                                children: tasks.map((tClean) {
+                                                  final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(tClean.trim());
+                                                  final tName = match != null ? match.group(1)!.trim() : tClean;
+                                                  final totalR = match != null ? int.parse(match.group(2)!) : 1;
+
+                                                  int compR = dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
+                                                  final isCompleted = totalR > 0 && compR >= totalR;
+                                                  final progressText = '$compR/$totalR';
+
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                                    decoration: BoxDecoration(
+                                                      color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                                                      borderRadius: BorderRadius.circular(9),
+                                                      border: Border.all(color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                                                          size: 14,
+                                                          color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Flexible(
+                                                          child: Text(
+                                                            tName,
+                                                            style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            progressText,
+                                                            style: TextStyle(
+                                                              fontSize: 9,
+                                                              fontWeight: FontWeight.w800,
+                                                              color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
                                   ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(row["date"], style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                                        const SizedBox(height: 3),
-                                        Text(row["timeLeft"], style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: row["timeColor"])),
-                                      ],
-                                    ),
-                                  ),
-                                  // Expanded(
-                                  //   flex: 2,
-                                  //   child: Align(
-                                  //     alignment: Alignment.centerLeft,
-                                  //     child: Container(
-                                  //       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  //       decoration: BoxDecoration(color: row["statusBg"], borderRadius: BorderRadius.circular(4)),
-                                  //       child: Text(
-                                  //         row["status"],
-                                  //         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: row["statusText"], letterSpacing: 0.2),
-                                  //       ),
-                                  //     ),
-                                  //   ),
-                                  // ),
-                                  // ── NEW: COMPLETED TASK COLUMN — e.g. "5/12" ──
-Expanded(
-  flex: 2,
-  child: Text(
-    row["completedLabel"],
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      color: row["completedAllDone"]
-          ? const Color(0xFF16A34A)
-          : const Color(0xFF334155),
-    ),
-  ),
-),
-
-Expanded(
-  flex: 2,
-  child: Text(
-    row["holdTask"],
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      color: row["holdTask"].toString().startsWith("0/")
-          ? const Color(0xFF64748B)
-          : const Color(0xFFD97706),
-    ),
-  ),
-),
-Expanded(
-  flex: 2,
-  child: Text(
-    row["rejectedTask"],
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      color: row["rejectedTask"].toString().startsWith("0/")
-          ? const Color(0xFF64748B)
-          : const Color(0xFFDC2626),
-    ),
-  ),
-),
-
-Expanded(
-  flex: 2,
-  child: Text(
-    row["processingTask"],
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      color: row["processingTask"].toString().startsWith("0/")
-          ? const Color(0xFF64748B)
-          : const Color(0xFF2563EB),
-    ),
-  ),
-),
-
-Expanded(
-  flex: 2,
-  child: Text(
-    row["notStartedTask"],
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      color: row["notStartedTask"].toString().startsWith("0/")
-          ? const Color(0xFF64748B)
-          : const Color(0xFFDC2626),
-    ),
-  ),
-),
-
-Expanded(
-  flex: 1,
-  child: IconButton(
-    icon: const Icon(
-      Icons.visibility_outlined,
-      size: 20,
-      color: Color(0xFF2563EB),
-    ),
-    onPressed: () {
-      _showTaskDetails(row["taskListId"]);
-    },
-  ),
-),
-                                ],
-                              ),
-                            );
-                          },
+                                );
+                              }),
+                            ],
+                          ),
                         ),
                 ),
-
-                // 4. Data Ledger Pagination Footer Component
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
                   decoration: const BoxDecoration(
-                    color: Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Showing 1 to ${filteredRows.length} of ${filteredRows.length} items", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                      Row(
-                        children: [
-                          _buildPageButton("<", false),
-                          _buildPageButton("1", true),
-                          _buildPageButton("2", false),
-                          _buildPageButton("3", false),
-                          _buildPageButton(">", false),
-                        ],
+                      const Icon(Icons.info_outline, size: 15, color: Color(0xFF94A3B8)),
+                      const SizedBox(width: 6),
+                      const Expanded(child: Text('Progress is updated from the assigned tasks.', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                      SizedBox(
+                        height: 36,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF004AAD),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          ),
+                          child: const Text('Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                        ),
                       ),
                     ],
                   ),
@@ -921,74 +439,302 @@ Expanded(
               ],
             ),
           ),
-          const SizedBox(height: 40),
-        ],
-      ),
+        );
+      },
     );
   }
-
-  // ── CORE UTILITY DESIGN BUTTON GENERATORS ──
-  Widget _buildFilterTab(String label) {
-    bool isActive = activeFilter.toUpperCase() == label.toUpperCase();
-    return Container(
-      margin: const EdgeInsets.only(right: 4),
-      child: OutlinedButton(
-        onPressed: () {
-          setState(() {
-            activeFilter = label;
-          });
-        },
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isActive ? const Color(0xFF0052CC) : Colors.transparent,
-          side: BorderSide(color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-            color: isActive ? Colors.white : const Color(0xFF64748B),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPageButton(String text, bool isActive) {
-    return Container(
-      margin: const EdgeInsets.only(left: 4),
-      width: 26, height: 26,
-      decoration: BoxDecoration(
-        color: isActive ? const Color(0xFF0052CC) : Colors.transparent,
-        borderRadius: BorderRadius.circular(4),
-        border: isActive ? null : Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isActive ? Colors.white : const Color(0xFF475569)),
-      ),
-    );
-  }
-
-  static const TextStyle _headerStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569), letterSpacing: 0.8);
-}
-
-// ── CUSTOM LIGHTWEIGHT ANIMATED VISIBILITY HELPER WIDGET ──
-class AnimatedVisibility extends StatelessWidget {
-  final bool visible;
-  final Widget child;
-
-  const AnimatedVisibility({super.key, required this.visible, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      child: visible ? child : const SizedBox.shrink(),
+    List<Map<String, dynamic>> filteredRows = masterEmployeeData.where((row) {
+      bool clientMatch = clientNameSearch.isEmpty ||
+          row["client"].toString().toLowerCase().contains(clientNameSearch.toLowerCase());
+
+      bool monthMatch = selectedMonthFilter == "All" ||
+          row["month"] == selectedMonthFilter;
+
+      bool statusMatch = selectedStatusFilter == "All" ||
+          row["status"] == selectedStatusFilter;
+
+      return clientMatch && monthMatch && statusMatch;
+    }).toList();
+
+    filteredRows.sort((a, b) {
+      int cmp = a["client"].toString().compareTo(b["client"].toString());
+      return isClientAscending ? cmp : -cmp;
+    });
+
+    if (selectedMaintenanceSort != null) {
+      filteredRows.sort((a, b) {
+        int dayA = int.tryParse(a["maintenanceDate"].toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        int dayB = int.tryParse(b["maintenanceDate"].toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return selectedMaintenanceSort == "1 to 31" ? dayA.compareTo(dayB) : dayB.compareTo(dayA);
+      });
+    }
+
+    if (!isSNoAscending) {
+      filteredRows = filteredRows.reversed.toList();
+    }
+
+    return AdminLayout(
+      pageTitle: "Employee Status",
+      currentRoute: "/employee-status",
+      onSearch: (query) => setState(() => clientNameSearch = query),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          bool isMobile = constraints.maxWidth < 750;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text("Employee Status", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                      SizedBox(height: 4),
+                      Text("Monitor task assignments, deliverables, and schedules.", style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    height: 40,
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                    child: DropdownButton<String>(
+                      hint: const Text("Maintenance Date ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      value: selectedMaintenanceSort,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(value: "1 to 31", child: Text("1 to 31 (Asc)", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "31 to 1", child: Text("31 to 1 (Desc)", style: TextStyle(fontSize: 11))),
+                      ],
+                      onChanged: (val) => setState(() => selectedMaintenanceSort = val),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    height: 40,
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                    child: DropdownButton<String>(
+                      value: selectedMonthFilter,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(value: "All", child: Text("All Months ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                        DropdownMenuItem(value: "Jan", child: Text("January", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Feb", child: Text("February", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Mar", child: Text("March", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Apr", child: Text("April", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "May", child: Text("May", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Jun", child: Text("June", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Jul", child: Text("July", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Aug", child: Text("August", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Sep", child: Text("September", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Oct", child: Text("October", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Nov", child: Text("November", style: TextStyle(fontSize: 11))),
+                        DropdownMenuItem(value: "Dec", child: Text("December", style: TextStyle(fontSize: 11))),
+                      ],
+                      onChanged: (val) => setState(() => selectedMonthFilter = val ?? "All"),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    height: 40,
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                    child: DropdownButton<String>(
+                      value: selectedStatusFilter,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(value: "All", child: Text("All Status ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                        DropdownMenuItem(value: "Completed", child: Text("Completed", style: TextStyle(fontSize: 11, color: Color(0xFF16A34A)))),
+                        DropdownMenuItem(value: "Pending", child: Text("Pending", style: TextStyle(fontSize: 11, color: Color(0xFFDC2626)))),
+                      ],
+                      onChanged: (val) => setState(() => selectedStatusFilter = val ?? "All"),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!isMobile)
+                      Container(
+                        color: const Color(0xFFF8FAFC),
+                        height: 52,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          children: [
+                            InkWell(
+                              onTap: () => setState(() => isSNoAscending = !isSNoAscending),
+                              child: SizedBox(
+                                width: 60,
+                                child: Row(
+                                  children: const [
+                                    Text("S.NO", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5)),
+                                    Icon(Icons.swap_vert, size: 14, color: Color(0xFF0052CC)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 3,
+                              child: InkWell(
+                                onTap: () => setState(() => isClientAscending = !isClientAscending),
+                                child: Row(
+                                  children: const [
+                                    Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5)),
+                                    Icon(Icons.swap_vert, size: 14, color: Color(0xFF0052CC)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const Expanded(flex: 2, child: Text("MAINTENANCE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
+                            const Expanded(flex: 2, child: Text("DELIVERABLES", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
+                            const Expanded(flex: 2, child: Text("SUBMIT DATE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
+                            const Expanded(flex: 2, child: Text("STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
+                            const Expanded(flex: 1, child: Text("VIEW", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5), textAlign: TextAlign.center)),
+                          ],
+                        ),
+                      ),
+                    if (!isMobile) const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                    SizedBox(
+                      height: 480,
+                      child: _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _error != null
+                              ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 11)))
+                              : filteredRows.isEmpty
+                                  ? const Center(child: Text("No tasks found", style: TextStyle(color: Colors.grey, fontSize: 11)))
+                                  : isMobile
+                                      ? ListView.builder(
+                                          itemCount: filteredRows.length,
+                                          padding: const EdgeInsets.all(12),
+                                          itemBuilder: (context, index) {
+                                            final row = filteredRows[index];
+                                            final status = row["status"];
+                                            Color statusColor = status == 'Completed' ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+
+                                            return Card(
+                                              margin: const EdgeInsets.only(bottom: 12),
+                                              elevation: 0,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(10),
+                                                side: const BorderSide(color: Color(0xFFE2E8F0)),
+                                              ),
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(14),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                        Text('${index + 1}. ${row["client"]}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                          decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
+                                                          child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor)),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    Text("Deliverable: ${row["task"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w600)),
+                                                    const SizedBox(height: 4),
+                                                    Text("Maintenance Date: ${row["maintenanceDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                                                    Text("Submit Date: ${row["formattedDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                                                    const SizedBox(height: 10),
+                                                    Align(
+                                                      alignment: Alignment.centerRight,
+                                                      child: OutlinedButton(
+                                                        onPressed: () => _navigateToTaskDetailView(row["client"]),
+                                                        style: OutlinedButton.styleFrom(
+                                                          side: const BorderSide(color: Color(0xFF0052CC)),
+                                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                        ),
+                                                        child: const Text("View Details", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : ListView.separated(
+                                          itemCount: filteredRows.length,
+                                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                          itemBuilder: (context, index) {
+                                            final row = filteredRows[index];
+                                            final status = row["status"];
+                                            
+                                            Color statusColor = Colors.blue;
+                                            if (status == 'Completed') statusColor = const Color(0xFF16A34A);
+                                            if (status == 'Pending') statusColor = const Color(0xFFDC2626);
+
+                                            return Container(
+                                              height: 60,
+                                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                                              child: Row(
+                                                children: [
+                                                  SizedBox(width: 60, child: Text('${index + 1}.', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600))),
+                                                  Expanded(flex: 3, child: Text(row["client"], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
+                                                  Expanded(flex: 2, child: Text(row["maintenanceDate"], style: const TextStyle(fontSize: 11, color: Color(0xFF475569)))),
+                                                  Expanded(flex: 2, child: Text(row["task"], style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w600))),
+                                                  Expanded(flex: 2, child: Text(row["formattedDate"], style: const TextStyle(fontSize: 11, color: Color(0xFF334155)))),
+                                                  Expanded(
+                                                    flex: 2,
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                      decoration: BoxDecoration(
+                                                        color: statusColor.withValues(alpha: 0.1),
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        status,
+                                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 1,
+                                                    child: Center(
+                                                      child: IconButton(
+                                                        icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Color(0xFF0052CC)),
+                                                        onPressed: () => _navigateToTaskDetailView(row["client"]),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
