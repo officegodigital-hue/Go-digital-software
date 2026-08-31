@@ -2,24 +2,21 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
+
+// ✅ FIX: Import authenticateToken from auth.js
+const { authenticateToken } = require('./auth');
  
 // ── Completion percentage rules ────────────────────────────────────────────────
-// 30% -> company details saved (Save Draft)
-// +20% -> bank details fully filled (all 4 fields)
-// +30% -> credentials, 5% each, capped at 6 credentials (30%)
-// Max before completion = 80%
-// 100% -> status = 'complete' (Complete Registration), forced
 const FORM_PERCENT       = 30;
 const BANK_PERCENT       = 20;
 const PER_CREDENTIAL     = 5;
-const MAX_CREDENTIALS    = 6; // 6 x 5% = 30%
+const MAX_CREDENTIALS    = 6;
 
 function computePercent(client, credentialCount) {
   if (client.status === 'complete') return 100;
 
-  let percent = FORM_PERCENT; // company details saved -> 30%
+  let percent = FORM_PERCENT;
 
-  // Bank details -> +20% only if ALL 4 fields are filled
   const bankFilled =
     !!(client.bank_account_name && client.bank_account_name.trim()) &&
     !!(client.bank_name && client.bank_name.trim()) &&
@@ -28,29 +25,46 @@ function computePercent(client, credentialCount) {
 
   if (bankFilled) percent += BANK_PERCENT;
 
-  // Credentials -> 5% each, capped at 6 (30%)
   const credPercent = Math.min(credentialCount, MAX_CREDENTIALS) * PER_CREDENTIAL;
   percent += credPercent;
 
   return Math.min(80, Math.round(percent));
 }
 
-// GET /api/clients — list all clients WITH completion % and credential count
-router.get('/', async (req, res) => {
+// 1. GET /api/clients — Role-based filtering for main admin and regular admins
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    // const [clients] = await db.query(`SELECT * FROM clients ORDER BY display_order ASC`);
+    const userId = req.user.id;
 
-    const [clients] = await db.query(`
-  SELECT *
-  FROM clients
-  ORDER BY
-    CASE
-      WHEN is_active = 1 THEN 0
-      ELSE 1
-    END ASC,
-    display_order ASC,
-    id ASC
-`);
+    // ✅ Kandupudippu: Database-la check panni Main Admin-ah nu paarkurom
+    const [userRows] = await db.query('SELECT is_main_admin FROM employee_users WHERE id = ?', [userId]);
+    const isMainAdmin = userRows.length > 0 && (userRows[0].is_main_admin === 1 || userRows[0].is_main_admin === true);
+
+    let query = `
+      SELECT c.*, 
+             COALESCE(eu.full_name, 'Main Admin') AS created_by_name
+      FROM clients c
+      LEFT JOIN employee_users eu ON c.created_by = eu.id
+    `;
+    let queryParams = [];
+
+    // ✅ Main Admin illena (Normal Admin), avanga add pannathu mattum show aaganum
+    if (!isMainAdmin) {
+      query += ` WHERE c.created_by = ? `;
+      queryParams.push(userId);
+    }
+
+    query += `
+      ORDER BY
+        CASE
+          WHEN c.is_active = 1 THEN 0
+          ELSE 1
+        END ASC,
+        c.display_order ASC,
+        c.id ASC
+    `;
+
+    const [clients] = await db.query(query, queryParams);
 
     const [credCounts] = await db.query(
       `SELECT client_id, COUNT(*) as cnt FROM client_credentials
@@ -72,40 +86,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ NEW: GET /api/clients/search/query — search clients by company name
-// router.get('/search/query', async (req, res) => {
-//   try {
-//     const query = req.query.query || '';
-    
-//     if (query.trim().length === 0) {
-//       // ✅ ADDED: industry field
-//       const [clients] = await db.query(
-//         `SELECT id, company_name, industry 
-//          FROM clients 
-//         WHERE active = 1
-//          ORDER BY company_name ASC`
-//       );
-      
-//       return res.json({ success: true, data: clients, });
-//     }
-    
-//     // ✅ ADDED: industry field
-//     const [clients] = await db.query(
-//       `SELECT id, company_name, industry 
-//        FROM clients 
-//         WHERE active = 1
-//        AND company_name LIKE ? 
-//        ORDER BY company_name ASC`,
-//       [`%${query}%`]
-//     );
- 
-//     return res.json({ success: true, data: clients });
-//   } catch (err) {
-//     console.error('GET /clients/search ERROR:', err.message);
-//     return res.status(500).json({ success: false, message: err.message });
-//   }
-// });
-
+// GET /api/clients/search/query
 router.get('/search/query', async (req, res) => {
   try {
     const query = req.query.query || '';
@@ -146,8 +127,7 @@ router.get('/search/query', async (req, res) => {
   }
 });
 
-
-// GET /api/clients/:id — single client with completion %
+// GET /api/clients/:id
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(`SELECT * FROM clients WHERE id = ?`, [req.params.id]);
@@ -171,26 +151,29 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+// 2. POST /api/clients — Create Client (With created_by Tracker)
+router.post('/', authenticateToken, async (req, res) => {
   const {
     companyName, industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
-    clientPhone, gstNumber // Add these
+    clientPhone, gstNumber
   } = req.body;
 
   if (!companyName)
     return res.status(400).json({ success: false, message: 'companyName is required' });
 
+  const adminId = req.user.id; // ✅ Yaru create pandrangalo avanga ID
+
   try {
     const [result] = await db.query(
       `INSERT INTO clients
-        (company_name,  industry, contact_person, email, address,
-         bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (company_name, industry, contact_person, email, address,
+         bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        companyName,  industry || '', contactPerson || '', email || '', address || '',
+        companyName, industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft', clientPhone || '', gstNumber || ''
+        status || 'draft', clientPhone || '', gstNumber || '', adminId
       ]
     );
 
@@ -211,14 +194,12 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Updated PUT /api/clients/:id
+// PUT /api/clients/:id
 router.put('/:id', async (req, res) => {
-  console.log("BODY:", req.body);
-  console.log("Industry:", req.body.industry);
   const {
     companyName,  industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
-    clientPhone, gstNumber // Add these
+    clientPhone, gstNumber 
   } = req.body;
 
   if (!companyName)
@@ -258,35 +239,6 @@ router.put('/:id', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-
-// PATCH /api/clients/:id/status — quickly update only the status (Verify / Pending button)
-// router.patch('/:id/status', async (req, res) => {
-//   const { status } = req.body;
-//   if (!['draft', 'pending', 'verified', 'complete'].includes(status))
-//     return res.status(400).json({ success: false, message: 'Invalid status value' });
-
-//   try {
-//     const [result] = await db.query(
-//       `UPDATE clients SET status = ? WHERE id = ?`,
-//       [status, req.params.id]
-//     );
-//     if (result.affectedRows === 0)
-//       return res.status(404).json({ success: false, message: 'Client not found' });
-
-//     const [rows] = await db.query(`SELECT * FROM clients WHERE id = ?`, [req.params.id]);
-//     const [credCount] = await db.query(
-//       `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
-//       [req.params.id]
-//     );
-//     const completionPercent = computePercent(rows[0], credCount[0].cnt);
-
-//     return res.json({ success: true, message: `Status updated to ${status}`, completion_percent: completionPercent });
-//   } catch (err) {
-//     console.error('PATCH /clients/:id/status ERROR:', err.message);
-//     return res.status(500).json({ success: false, message: err.message });
-//   }
-// });
 
 // PATCH /api/clients/:id
 router.patch('/:id', async (req, res) => {
@@ -333,7 +285,6 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-
 router.get('/list', async (req, res) => {
   try {
     const [clients] = await db.query(
@@ -355,10 +306,9 @@ router.get('/list', async (req, res) => {
 
 router.get('/search', async (req, res) => {
   try {
-    const { q } = req.query; // search query parameter
+    const { q } = req.query; 
  
     if (!q || q.trim() === '') {
-      // If no search, return all
       const [clients] = await db.query(
         `SELECT id, company_name FROM clients WHERE status = 'verified'  AND is_active = 1 ORDER BY company_name ASC LIMIT 20`
       );
@@ -368,7 +318,6 @@ router.get('/search', async (req, res) => {
       });
     }
  
-    // Search by company name
     const searchTerm = `%${q}%`;
     const [clients] = await db.query(
       `SELECT id, company_name FROM clients 
@@ -390,49 +339,6 @@ router.get('/search', async (req, res) => {
   }
 });
  
-// ✅ GET single client details
-// router.get('/:id', async (req, res) => {
-//   try {
-//     const { id } = req.params;
- 
-//     const [clients] = await db.query(
-//       `SELECT * FROM clients WHERE id = ?`,
-//       [id]
-//     );
- 
-//     if (clients.length === 0) {
-//       return res.status(404).json({
-//         success: false,
-//         error: 'Client not found',
-//       });
-//     }
- 
-//     res.json({
-//       success: true,
-//       data: clients[0],
-//     });
-//   } catch (error) {
-//     console.error('Error fetching client:', error);
-//     res.status(500).json({
-//       success: false,
-//       error: error.message,
-//     });
-//   }
-// });
-
-router.patch('/clients/:id', async (req, res) => {
-  const { isActive } = req.body;
-
-  await db.query(
-    'UPDATE clients SET is_active=? WHERE id=?',
-    [isActive ? 1 : 0, req.params.id]
-  );
-
-  res.json({
-    success: true,
-  });
-});
-
 // PATCH /api/clients/:id/order
 router.patch('/:id/order', async (req, res) => {
   const conn = await db.getConnection();
@@ -451,10 +357,6 @@ router.patch('/:id/order', async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Get all clients in the correct base order
-    // Active first, Inactive last
-    // ---------------------------------------------------------
     const [clients] = await conn.query(
       `
       SELECT id, display_order, is_active
@@ -472,149 +374,43 @@ router.patch('/:id/order', async (req, res) => {
 
     if (!clients.length) {
       await conn.rollback();
-
-      return res.status(404).json({
-        success: false,
-        message: 'No clients found',
-      });
+      return res.status(404).json({ success: false, message: 'No clients found' });
     }
 
-    const clientIndex = clients.findIndex(
-      c => Number(c.id) === clientId
-    );
+    const clientIndex = clients.findIndex(c => Number(c.id) === clientId);
 
     if (clientIndex === -1) {
       await conn.rollback();
-
-      return res.status(404).json({
-        success: false,
-        message: 'Client not found',
-      });
+      return res.status(404).json({ success: false, message: 'Client not found' });
     }
 
     const selectedClient = clients[clientIndex];
 
-    // ---------------------------------------------------------
-    // Separate Active / Inactive
-    // ---------------------------------------------------------
-    let activeClients = clients.filter(
-      c => Number(c.is_active) === 1
-    );
+    let activeClients = clients.filter(c => Number(c.is_active) === 1);
+    let inactiveClients = clients.filter(c => Number(c.is_active) !== 1);
 
-    let inactiveClients = clients.filter(
-      c => Number(c.is_active) !== 1
-    );
-
-    // ---------------------------------------------------------
-    // Reorder ONLY inside the client's group
-    //
-    // Active client:
-    //   position 1 = first active
-    //
-    // Inactive client:
-    //   position 1 = first inactive
-    // ---------------------------------------------------------
     if (Number(selectedClient.is_active) === 1) {
-      const currentIndex = activeClients.findIndex(
-        c => Number(c.id) === clientId
-      );
-
+      const currentIndex = activeClients.findIndex(c => Number(c.id) === clientId);
       let targetIndex = requestedPos - 1;
-
-      // Keep within active list
-      targetIndex = Math.max(
-        0,
-        Math.min(targetIndex, activeClients.length - 1)
-      );
-
-      const [movedClient] = activeClients.splice(
-        currentIndex,
-        1
-      );
-
-      activeClients.splice(
-        targetIndex,
-        0,
-        movedClient
-      );
+      targetIndex = Math.max(0, Math.min(targetIndex, activeClients.length - 1));
+      const [movedClient] = activeClients.splice(currentIndex, 1);
+      activeClients.splice(targetIndex, 0, movedClient);
     } else {
-      const currentIndex = inactiveClients.findIndex(
-        c => Number(c.id) === clientId
-      );
-
+      const currentIndex = inactiveClients.findIndex(c => Number(c.id) === clientId);
       let targetIndex = requestedPos - 1;
-
-      // Keep within inactive list
-      targetIndex = Math.max(
-        0,
-        Math.min(targetIndex, inactiveClients.length - 1)
-      );
-
-      const [movedClient] = inactiveClients.splice(
-        currentIndex,
-        1
-      );
-
-      inactiveClients.splice(
-        targetIndex,
-        0,
-        movedClient
-      );
+      targetIndex = Math.max(0, Math.min(targetIndex, inactiveClients.length - 1));
+      const [movedClient] = inactiveClients.splice(currentIndex, 1);
+      inactiveClients.splice(targetIndex, 0, movedClient);
     }
 
-    // ---------------------------------------------------------
-    // Final order:
-    //
-    // Active
-    // 1
-    // 2
-    // 3
-    //
-    // Inactive
-    // 4
-    // 5
-    // 6
-    // ---------------------------------------------------------
-    const finalClients = [
-      ...activeClients,
-      ...inactiveClients,
-    ];
+    const finalClients = [...activeClients, ...inactiveClients];
 
-    // ---------------------------------------------------------
-    // First give temporary negative values.
-    //
-    // This avoids duplicate display_order conflicts if
-    // display_order has UNIQUE constraint.
-    // ---------------------------------------------------------
     for (let i = 0; i < finalClients.length; i++) {
-      await conn.query(
-        `
-        UPDATE clients
-        SET display_order = ?
-        WHERE id = ?
-        `,
-        [
-          -(i + 1),
-          finalClients[i].id,
-        ]
-      );
+      await conn.query(`UPDATE clients SET display_order = ? WHERE id = ?`, [-(i + 1), finalClients[i].id]);
     }
 
-    // ---------------------------------------------------------
-    // Now save clean 1..N sequence
-    // ---------------------------------------------------------
     for (let i = 0; i < finalClients.length; i++) {
-      await conn.query(
-        `
-        UPDATE clients
-        SET display_order = ?
-        WHERE id = ?
-        `,
-        [
-          i + 1,
-          finalClients[i].id,
-        ]
-      );
+      await conn.query(`UPDATE clients SET display_order = ? WHERE id = ?`, [i + 1, finalClients[i].id]);
     }
 
     await conn.commit();
@@ -626,14 +422,8 @@ router.patch('/:id/order', async (req, res) => {
 
   } catch (e) {
     await conn.rollback();
-
     console.error('Client reorder error:', e);
-
-    return res.status(500).json({
-      success: false,
-      message: e.message,
-    });
-
+    return res.status(500).json({ success: false, message: e.message });
   } finally {
     conn.release();
   }

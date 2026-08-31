@@ -164,6 +164,48 @@ class _AdminLayoutState extends State<AdminLayout> {
     final String userType = user?['user_type']?.toString() ?? 'Administrator';
     final String userRole = user?['role']?.toString() ?? 'Administrator';
 
+    final bool isMainAdmin = user?['is_main_admin'] == true || 
+                             user?['is_main_admin'] == 1 || 
+                             user?['is_main_admin'].toString() == '1';
+
+    List<String> allowedPages = [];
+    if (user?['allowed_pages'] != null) {
+      if (user?['allowed_pages'] is List) {
+        allowedPages = (user?['allowed_pages'] as List).map((e) => e.toString()).toList();
+      } else if (user?['allowed_pages'] is String) {
+        try {
+          final decoded = jsonDecode(user?['allowed_pages']);
+          if (decoded is List) {
+            allowedPages = decoded.map((e) => e.toString()).toList();
+          }
+        } catch (_) {}
+      }
+    }
+
+    final List<Map<String, dynamic>> allNavItems = [
+      {'icon': Icons.dashboard_rounded, 'title': 'Dashboard', 'route': '/admin'},
+      {'icon': Icons.person_add_alt_1_rounded, 'title': 'Client Onboarding', 'route': '/client-history'},
+      {'icon': Icons.vpn_key_rounded, 'title': 'Client Credentials', 'route': '/client-credentials'},
+      {'icon': Icons.inventory_2_outlined, 'title': 'Packages', 'route': '/packages'},
+      {'icon': Icons.request_quote_outlined, 'title': 'Quotations', 'route': '/quotations'},
+      {'icon': Icons.inventory_2_outlined, 'title': 'Package & Quotation', 'route': '/quotation'},
+      {'icon': Icons.receipt_long_outlined, 'title': 'Invoice', 'route': '/invoice'},
+      {'icon': Icons.assignment_outlined, 'title': 'Tasks Assign', 'route': '/tasks'},
+      {'icon': Icons.assignment_outlined, 'title': 'Daily Planner', 'route': '/daily-planner'},
+      {'icon': Icons.people_outline_rounded, 'title': 'Employee Status', 'route': '/employee-status'},
+      {'icon': Icons.rate_review_outlined, 'title': 'Manager Review', 'route': '/manager-review'},
+      {'icon': Icons.notifications_none_rounded, 'title': 'Notifications', 'route': '/notifications'},
+      {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
+      {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
+      {'icon': Icons.access_time_rounded, 'title': 'Time Manager', 'route': '/time-manager'},
+    ];
+
+    final filteredNavItems = allNavItems.where((item) {
+      if (isMainAdmin || userType.toLowerCase() == 'admin' && user?['is_main_admin'] == 1) return true;
+      // If regular admin/employee, check if the route exists in allowedPages
+      return allowedPages.contains(item['route']);
+    }).toList();
+
     final String initials = userName
         .split(' ')
         .where((e) => e.isNotEmpty)
@@ -218,20 +260,14 @@ class _AdminLayoutState extends State<AdminLayout> {
                   physics: const BouncingScrollPhysics(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _navItem(Icons.dashboard_rounded, 'Dashboard', '/admin', context),
-                      _navItem(Icons.person_add_alt_1_rounded, 'Client Onboarding', '/client-history', context),
-                      _navItem(Icons.inventory_2_outlined, 'Package & Quotation', '/quotation', context),
-                      _navItem(Icons.receipt_long_outlined, 'Invoice', '/invoice', context),
-                      _navItem(Icons.assignment_outlined, 'Tasks Assign', '/tasks', context),
-                      _navItem(Icons.assignment_outlined, 'Daily Planner', '/daily-planner', context),
-                      _navItem(Icons.people_outline_rounded, 'Employee Status', '/employee-status', context),
-                      _navItem(Icons.rate_review_outlined, 'Manager Review', '/manager-review', context),
-                      _navItem(Icons.notifications_none_rounded, 'Notifications', '/notifications', context),
-                      _navItem(Icons.show_chart_rounded, 'Performance', '/performance', context),
-                      _navItem(Icons.admin_panel_settings_outlined, 'Employee Management', '/admin-panel', context),
-                      _navItem(Icons.access_time_rounded, 'Time Manager', '/time-manager', context),
-                    ],
+                    children: filteredNavItems.map((item) {
+                      return _navItem(
+                        item['icon'] as IconData,
+                        item['title'] as String,
+                        item['route'] as String,
+                        context,
+                      );
+                    }).toList(),
                   ),
                 ),
               ),

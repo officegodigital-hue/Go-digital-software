@@ -2,7 +2,9 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
- 
+ const { authenticateToken } = require('./auth');
+
+
 // GET /api/invoices/next-number — generates the next INV-YYYY-#### number
 // router.get('/next-number', async (req, res) => {
 //   try {
@@ -69,17 +71,20 @@ router.get('/next-number', async (req, res) => {
   }
 });
 
-// GET /api/invoices/metrics — totals for the summary cards
-// GET /api/invoices/metrics — totals for summary cards (with optional month/year filter)
-router.get('/metrics', async (req, res) => {
+// GET /api/invoices/metrics — totals for summary cards with role-based filtering
+router.get('/metrics', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.id;
+    const [userRows] = await db.query('SELECT is_main_admin FROM employee_users WHERE id = ?', [userId]);
+    const isMainAdmin = userRows.length > 0 && (userRows[0].is_main_admin === 1 || userRows[0].is_main_admin === true);
+
     const { month, year } = req.query;
     
     let query = `
       SELECT
-         COALESCE(SUM(total_amount), 0) AS total_invoiced,
-         COALESCE(SUM(paid_amount), 0)  AS collected_amount,
-         COALESCE(SUM(balance_amount), 0) AS outstanding_balance
+         COALESCE(SUM(i.total_amount), 0) AS total_invoiced,
+         COALESCE(SUM(i.paid_amount), 0)  AS collected_amount,
+         COALESCE(SUM(i.balance_amount), 0) AS outstanding_balance
        FROM invoices i
        INNER JOIN clients c ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name))
        WHERE c.is_active = 1
@@ -87,7 +92,11 @@ router.get('/metrics', async (req, res) => {
     
     const params = [];
 
-    // If month and year are provided, parse and filter by invoice_date (DD/MM/YYYY format)
+    if (!isMainAdmin) {
+      query += ` AND i.created_by = ? `;
+      params.push(userId);
+    }
+
     if (month && year) {
       query += ` AND STR_TO_DATE(i.invoice_date, '%d/%m/%Y') IS NOT NULL 
                  AND MONTH(STR_TO_DATE(i.invoice_date, '%d/%m/%Y')) = ? 
@@ -103,26 +112,42 @@ router.get('/metrics', async (req, res) => {
   }
 });
 
-// GET /api/invoices — list all invoices (without items, for table view)
-router.get('/', async (req, res) => {
+// GET /api/invoices — list all invoices with role-based filtering and creator details
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT i.id, i.invoice_no, i.client_name, i.invoice_date, i.maintenance_date, i.include_gst,
+    const userId = req.user.id;
+    const [userRows] = await db.query('SELECT is_main_admin FROM employee_users WHERE id = ?', [userId]);
+    const isMainAdmin = userRows.length > 0 && (userRows[0].is_main_admin === 1 || userRows[0].is_main_admin === true);
+
+    let query = `
+      SELECT i.id, i.invoice_no, i.client_name, i.invoice_date, i.maintenance_date, i.include_gst,
               i.discount, i.subtotal, i.tax, i.total_amount, i.paid_amount, i.balance_amount,
-              i.status, i.created_at, i.linked_quotation_id, i.linked_quotation_no,
+              i.status, i.created_at, i.linked_quotation_id, i.invoice_no AS linked_invoice_no,
+              COALESCE(eu.full_name, 'Main Admin') AS created_by_name,
               (SELECT ii.description FROM invoice_items ii
                 WHERE ii.invoice_id = i.id ORDER BY ii.sort_order ASC, ii.id ASC LIMIT 1) AS package_type
-       FROM invoices i INNER JOIN clients c
-        ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name))
+       FROM invoices i 
+       INNER JOIN clients c ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name))
+       LEFT JOIN employee_users eu ON i.created_by = eu.id
       WHERE c.is_active = 1
-      ORDER BY i.id DESC`
-    );
+    `;
+    let queryParams = [];
+
+    if (!isMainAdmin) {
+      query += ` AND i.created_by = ? `;
+      queryParams.push(userId);
+    }
+
+    query += ` ORDER BY i.id DESC `;
+
+    const [rows] = await db.query(query, queryParams);
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('GET /invoices ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 
 // GET /api/invoices/:id — single invoice with its items
 router.get('/:id', async (req, res) => {
@@ -174,27 +199,11 @@ ORDER BY sort_order ASC, id ASC`,
   }
 });
 
-// POST /api/invoices — create invoice + line items
-// Body: {
-//   invoiceNo, clientName, invoiceDate, maintenanceDate, includeGST, discount, notes,
-//   subtotal, tax, totalAmount, paidAmount, balanceAmount,
-//   items: [{ packageId, description, qty, rate, amount, paidAmount, pendingAmount }]
-// }
-router.post('/', async (req, res) => {
+// POST /api/invoices — save created_by
+router.post('/', authenticateToken, async (req, res) => {
   const {
-    invoiceNo,
-    clientName,
-    invoiceDate,
-    maintenanceDate,
-    includeGST,
-    discount,
-    notes,
-    subtotal,
-    tax,
-    totalAmount,
-    paidAmount,
-    balanceAmount,
-    items,
+    invoiceNo, clientName, invoiceDate, maintenanceDate, includeGST, discount, notes,
+    subtotal, tax, totalAmount, paidAmount, balanceAmount, items,
   } = req.body;
 
   if (!invoiceNo || !clientName || !Array.isArray(items) || items.length === 0) {
@@ -204,7 +213,7 @@ router.post('/', async (req, res) => {
     });
   }
 
-  // Auto Status
+  const adminId = req.user.id; // ✅ Logged-in admin ID
   const total = Number(totalAmount || 0);
   const paid = Number(paidAmount || 0);
 
@@ -218,137 +227,51 @@ router.post('/', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // ===========================
-    // INSERT INVOICE
-    // ===========================
     const [result] = await connection.query(
       `INSERT INTO invoices
-      (
-        invoice_no,
-        client_name,
-        invoice_date,
-        maintenance_date,
-        include_gst,
-        discount,
-        subtotal,
-        tax,
-        total_amount,
-        paid_amount,
-        balance_amount,
-        status,
-        notes
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (invoice_no, client_name, invoice_date, maintenance_date, include_gst, discount,
+       subtotal, tax, total_amount, paid_amount, balance_amount, status, notes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        invoiceNo,
-        clientName,
-        invoiceDate || '',
-        maintenanceDate || '',
-        includeGST ? 1 : 0,
-        discount || 0,
-        subtotal || 0,
-        tax || 0,
-        total,
-        paid,
-        balanceAmount || 0,
-        status,
-        notes || '',
+        invoiceNo, clientName, invoiceDate || '', maintenanceDate || '', includeGST ? 1 : 0,
+        discount || 0, subtotal || 0, tax || 0, total, paid, balanceAmount || 0, status, notes || '', adminId
       ]
     );
 
     const invoiceId = result.insertId;
 
-    // ===========================
-    // INSERT ITEMS
-    // ===========================
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-
       await connection.query(
         `INSERT INTO invoice_items
-        (
-            invoice_id,
-            package_id,
-            description,
-            qty,
-            rate,
-            tax_percent,
-            discount_amount,
-            amount,
-            paid_amount,
-            pending_amount,
-            sort_order
-        )
+        (invoice_id, package_id, description, qty, rate, tax_percent, discount_amount, amount, paid_amount, pending_amount, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-  invoiceId,
-  it.packageId || null,
-  it.description || '',
-  it.qty || 1,
-  it.rate || 0,
-  it.tax || 0,
-  it.discount || 0,
-  it.amount || 0,
-  it.paidAmount || 0,
-  it.pendingAmount || 0,
-  i,
-]
+          invoiceId, it.packageId || null, it.description || '', it.qty || 1, it.rate || 0,
+          it.tax || 0, it.discount || 0, it.amount || 0, it.paidAmount || 0, it.pendingAmount || 0, i,
+        ]
       );
     }
 
-    // ===========================
-    // INSERT PAYMENT HISTORY
-    // ===========================
     await connection.query(
-      `INSERT INTO invoice_payments
-      (
-          invoice_id,
-          paid_date,
-          total_amount,
-          paid_total_amount,
-          paid_amount,
-          balanced_amount
-      )
+      `INSERT INTO invoice_payments (invoice_id, paid_date, total_amount, paid_total_amount, paid_amount, balanced_amount)
       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        invoiceId,
-        invoiceDate || new Date(),
-        total,
-        paid,
-        paid,
-        balanceAmount || 0,
-      ]
+      [invoiceId, invoiceDate || new Date(), total, paid, paid, balanceAmount || 0]
     );
 
     await connection.commit();
-
     return res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
-      data: {
-        id: invoiceId,
-        invoiceNo,
-        status,
-      },
+      data: { id: invoiceId, invoiceNo, status },
     });
-
   } catch (err) {
     await connection.rollback();
-
     console.error('POST /invoices ERROR:', err.message);
-
     if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({
-        success: false,
-        message: `Invoice "${invoiceNo}" already exists`,
-      });
+      return res.status(409).json({ success: false, message: `Invoice "${invoiceNo}" already exists` });
     }
-
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-
+    return res.status(500).json({ success: false, message: err.message });
   } finally {
     connection.release();
   }

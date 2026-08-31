@@ -11,7 +11,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/client_dropdown.dart';
 import '../../services/api_config.dart';
- 
+ import 'package:provider/provider.dart';
+import '../../services/auth_service.dart';
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:async';
@@ -486,7 +488,11 @@ void _setDefaultQuotationNumber() {
     return pending < 0 ? 0 : pending;
   }
 
-  Future<bool> _saveQuotation(double subtotal, double discount, double tax, double total, double paid, double balance) async {
+ Future<bool> _saveQuotation(double subtotal, double discount, double tax, double total, double paid, double balance) async {
+    // ✅ AuthService-il irundhu token-ah edukavum
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final token = authService.token;
+
     final items = _items.map((row) => {
       "packageId": row.packageId,
       "description": row.descriptionCtrl.text.trim(),
@@ -519,12 +525,18 @@ void _setDefaultQuotationNumber() {
       final response = isEdit
           ? await http.put(
               Uri.parse('$_baseUrl/quotations/$_quotationId'),
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token', // ✅ Add token here
+              },
               body: jsonEncode(payload),
             )
           : await http.post(
               Uri.parse('$_baseUrl/quotations'),
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token', // ✅ Add token here
+              },
               body: jsonEncode(payload),
             );
 
@@ -1187,419 +1199,983 @@ void _setDefaultQuotationNumber() {
     return AdminLayout(
       pageTitle: pageTitle,
       currentRoute: "/quotation",
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 720;
+          final isTablet = constraints.maxWidth < 1050;
+          final pagePadding = isMobile ? 0.0 : 4.0;
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: isMobile ? 18 : 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildQuotationHero(
+                  pageTitle: pageTitle,
+                  isMobile: isMobile,
+                  subtotal: subtotal,
+                  discount: discount,
+                  tax: tax,
+                  total: totalAmount,
+                  paid: overallPaid,
+                  balance: balanceAmount,
+                ),
+                SizedBox(height: isMobile ? 14 : 20),
+
+                _buildInfoSection(isMobile: isMobile, isTablet: isTablet),
+                SizedBox(height: isMobile ? 14 : 20),
+
+                _buildItemsSection(
+                  isMobile: isMobile,
+                  subtotal: subtotal,
+                ),
+                SizedBox(height: isMobile ? 14 : 20),
+
+                _buildBottomWorkspace(
+                  isMobile: isMobile,
+                  isTablet: isTablet,
+                  subtotal: subtotal,
+                  discount: discount,
+                  tax: tax,
+                  total: totalAmount,
+                  paid: overallPaid,
+                  balance: balanceAmount,
+                ),
+                SizedBox(height: pagePadding),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildQuotationHero({
+    required String pageTitle,
+    required bool isMobile,
+    required double subtotal,
+    required double discount,
+    required double tax,
+    required double total,
+    required double paid,
+    required double balance,
+  }) {
+    final actionButtons = [
+      OutlinedButton.icon(
+        onPressed: () => Navigator.pop(context),
+        icon: const Icon(Icons.arrow_back_rounded, size: 17),
+        label: Text(isMobile ? 'Back' : 'Discard'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF475569),
+          side: const BorderSide(color: Color(0xFFD7DFEA)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        ),
+      ),
+      if (!_viewOnly)
+        ElevatedButton.icon(
+          onPressed: _isSaving
+              ? null
+              : () async {
+                  setState(() => _isSaving = true);
+                  final ok = await _saveQuotation(
+                    subtotal,
+                    discount,
+                    tax,
+                    total,
+                    paid,
+                    balance,
+                  );
+                  if (!mounted) return;
+                  setState(() => _isSaving = false);
+                  if (ok) _showSavedSuccessDialog();
+                },
+          icon: _isSaving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.save_rounded, size: 17),
+          label: Text(_isSaving ? 'Saving...' : 'Save'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0052CC),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          ),
+        ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(isMobile ? 16 : 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeroTitle(pageTitle),
+                const SizedBox(height: 14),
+                Wrap(spacing: 10, runSpacing: 10, children: actionButtons),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: _buildHeroTitle(pageTitle)),
+                Wrap(spacing: 10, runSpacing: 10, children: actionButtons),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildHeroTitle(String pageTitle) {
+    final subtitle = _viewOnly
+        ? 'Review quotation details and print or share the final PDF.'
+        : 'Create a professional quotation with packages, pricing and tax details.';
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: const Icon(
+            Icons.request_quote_rounded,
+            color: Color(0xFF0052CC),
+            size: 25,
+          ),
+        ),
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 pageTitle,
-                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-              ),
-              Row(
-                children: [
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                    child: const Text("Discard", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 13)),
-                  ),
-                  const SizedBox(width: 12),
-                  if (!_viewOnly)
-                    ElevatedButton(
-                      onPressed: _isSaving ? null : () async {
-                        setState(() => _isSaving = true);
-                        final ok = await _saveQuotation(subtotal, discount, tax, totalAmount, overallPaid, balanceAmount);
-                        setState(() => _isSaving = false);
-                        if (ok && mounted) {
-                          _showSavedSuccessDialog();
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0052CC),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                        elevation: 0,
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text("Save Quotation", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                    ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Row(
-              children: [
-                Expanded(child: _buildInlineFormInput("Quotation No", quotationNoController, readOnly: true, fillColor: const Color(0xFFEFF6FF))),
-                const SizedBox(width: 16),
-                // ✅ NEW: Client name dropdown with search
-                Expanded(
-                  child: _buildClientNameDropdown(),
-                ),
-                const SizedBox(width: 16),
-                Expanded(child: _buildDatePickerFormInput("Quotation Date", dateController)),
-                const SizedBox(width: 16),
-                Expanded(child: _buildDatePickerFormInput("Expire Date", expiryController)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  color: const Color(0xFFEAEFF8),
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      SizedBox(width: 40, child: Text("S.No", style: _tableLabelStyle)),
-                      Expanded(flex: 5, child: Text("Description", style: _tableLabelStyle)),
-                      SizedBox(width: 70, child: Text("QTY", textAlign: TextAlign.center, style: _tableLabelStyle)),
-                      SizedBox(width: 100, child: Text("Rate", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
-                      SizedBox(width: 110, child: Text("Amount", textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
-                      SizedBox(width: 30, child: Text("", style: _tableLabelStyle)),
-                    ],
-                  ),
-                ),
-
-                for (int i = 0; i < _items.length; i++) ...[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    child: Row(
-                      children: [
-                        SizedBox(width: 40, child: Text((i + 1).toString().padLeft(2, '0'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF334155)))),
-                        Expanded(
-                          flex: 5,
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: _items[i].isPackageRow
-                                ? _buildBeautifulPackageDropdown(_items[i])
-                                : _buildDescriptionField(_items[i]),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 70,
-                          child: _buildInnerNumInput(
-                            _items[i].qtyCtrl,
-                            textAlign: TextAlign.center,
-                            readOnly: _viewOnly,
-                            onChanged: () => setState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 100,
-                          child: _items[i].isPackageRow
-                              ? _buildReadOnlyRateField(_items[i].rateCtrl)
-                              : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.right, readOnly: _viewOnly, onChanged: () => setState(() {})),
-                        ),
-                        SizedBox(
-                          width: 110,
-                          child: Text(
-                            "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 30,
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: _viewOnly
-                                ? const SizedBox.shrink()
-                                : GestureDetector(
-                                    onTap: () => _removeRow(i),
-                                    child: Icon(
-                                      Icons.delete_outline_rounded,
-                                      size: 18,
-                                      color: _items.length > 1 ? const Color(0xFFDC2626) : Colors.grey.shade300,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (i < _items.length - 1)
-                    const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          if (!_viewOnly)
-            GestureDetector(
-              onTap: _addSection,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF0052CC)),
-                  SizedBox(width: 6),
-                  Text("Add Section", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
-                ],
-              ),
-            ),
-          const SizedBox(height: 24),
-
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 5,
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                            const SizedBox(height: 8),
-                            
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF0F5FF),
-                                border: Border.all(color: const Color(0xFFCBD5E1)),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'Valid until: ${expiryController.text}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF0052CC),
-                                ),
-                              ),
-                            ),
-                            
-                            const SizedBox(height: 8),
-                            
-                            TextField(
-                              controller: notesController,
-                              maxLines: 3,
-                              readOnly: _viewOnly,
-                              decoration: InputDecoration(
-                                hintText: "Add extra notes or comments...",
-                                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
-                                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: termsController,
-                              maxLines: 4,
-                              readOnly: _viewOnly,
-                              decoration: InputDecoration(
-                                hintText: "Edit terms & conditions...",
-                                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
-                                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
-                              ),
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: Checkbox(
-                                    value: agreedToTerms,
-                                    onChanged: _viewOnly ? null : (val) => setState(() => agreedToTerms = val!),
-                                    activeColor: const Color(0xFF0052CC),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text("Agree to defined terms", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF172033),
                 ),
               ),
-              const SizedBox(width: 24),
-
-              Expanded(
-                flex: 3,
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildSummaryLineItem("Subtotal", "₹${subtotal.toStringAsFixed(2)}"),
-                      const SizedBox(height: 14),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Discount", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
-                          SizedBox(
-                            width: 100,
-                            height: 36,
-                            child: TextField(
-                              controller: discountController,
-                              textAlign: TextAlign.right,
-                              readOnly: _viewOnly,
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                              onChanged: (value) => setState(() {}),
-                              decoration: const InputDecoration(
-                                prefixText: "₹ ",
-                                prefixStyle: TextStyle(color: Color(0xFF475569), fontSize: 15),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 10),
-                                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFFCBD5E1))),
-                                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Include 18% GST", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
-                          Switch(
-                            value: includeGST,
-                            activeTrackColor: const Color(0xFF0052CC),
-                            onChanged: _viewOnly ? null : (bool value) {
-                              setState(() {
-                                includeGST = value;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      _buildSummaryLineItem(
-                        "Tax (18% GST)",
-                        "₹${tax.toStringAsFixed(2)}",
-                        textColor: includeGST ? const Color(0xFF0F172A) : Colors.grey,
-                      ),
-                      const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Divider(color: Color(0xFFF1F5F9), height: 1)),
-                      
-                      _buildSummaryLineItem("Total Amount", "₹${totalAmount.toStringAsFixed(2)}", isBold: true, textColor: const Color(0xFF0052CC)),
-                      const SizedBox(height: 24),
-
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : () async {
-                            setState(() => _isPrinting = true);
-
-                            if (_viewOnly) {
-                              await _printQuotation(subtotal, discount, totalAmount, tax, overallPaid, balanceAmount);
-                              if (!mounted) return;
-                              setState(() => _isPrinting = false);
-                              return;
-                            }
-
-                            final saved = await _saveQuotation(subtotal, discount, tax, totalAmount, overallPaid, balanceAmount);
-                            await _printQuotation(subtotal, discount, totalAmount, tax, overallPaid, balanceAmount);
-
-                            if (!mounted) return;
-                            setState(() => _isPrinting = false);
-
-                            if (saved) {
-                              _showSavedSuccessDialog();
-                            }
-                          },
-                          icon: _isPrinting
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.print, size: 16, color: Colors.white),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0052CC),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            elevation: 0,
-                          ),
-                          label: Text(_viewOnly ? "Print Quotation" : "Save & Print Quotation",
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _isPrinting ? null : () => _shareQuotationPDF(subtotal, discount, totalAmount, tax, overallPaid, balanceAmount),
-                          icon: const Icon(Icons.share, size: 16, color: Color(0xFF0052CC)),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF0052CC), width: 2),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          label: const Text("Share as PDF",
-                              style: TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-                      const Text(
-                        "A PDF copy will be generated and sent\nto the client.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 11, color: Color(0xFF64748B), height: 1.4, fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12,
+                  height: 1.35,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 40),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoSection({
+    required bool isMobile,
+    required bool isTablet,
+  }) {
+    final width = isMobile ? double.infinity : (isTablet ? 280.0 : 230.0);
+
+    return _premiumSection(
+      icon: Icons.info_outline_rounded,
+      title: 'Quotation Details',
+      subtitle: 'Basic information and validity period',
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: [
+          SizedBox(
+            width: width,
+            child: _buildInlineFormInput(
+              "Quotation No",
+              quotationNoController,
+              readOnly: true,
+              fillColor: const Color(0xFFF2F6FF),
+            ),
+          ),
+          SizedBox(
+            width: width,
+            child: _buildClientNameDropdown(),
+          ),
+          SizedBox(
+            width: width,
+            child: _buildDatePickerFormInput("Quotation Date", dateController),
+          ),
+          SizedBox(
+            width: width,
+            child: _buildDatePickerFormInput("Expire Date", expiryController),
+          ),
         ],
       ),
     );
   }
+
+  Widget _buildItemsSection({
+    required bool isMobile,
+    required double subtotal,
+  }) {
+    return _premiumSection(
+      icon: Icons.format_list_bulleted_rounded,
+      title: 'Quotation Items',
+      subtitle: '${_items.length} item${_items.length == 1 ? '' : 's'} added • Subtotal ₹${subtotal.toStringAsFixed(2)}',
+      trailing: _viewOnly
+          ? null
+          : OutlinedButton.icon(
+              onPressed: _addSection,
+              icon: const Icon(Icons.add_rounded, size: 17),
+              label: const Text('Add Item'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0052CC),
+                side: const BorderSide(color: Color(0xFFB9D0FF)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              ),
+            ),
+      child: isMobile ? _buildMobileItems() : _buildDesktopItems(),
+    );
+  }
+
+  Widget _buildDesktopItems() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          children: [
+            Container(
+              color: const Color(0xFFF7F9FC),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              child: const Row(
+                children: [
+                  SizedBox(width: 48, child: Text('S.NO', style: _tableLabelStyle)),
+                  Expanded(flex: 5, child: Text('DESCRIPTION / PACKAGE', style: _tableLabelStyle)),
+                  SizedBox(width: 78, child: Text('QTY', textAlign: TextAlign.center, style: _tableLabelStyle)),
+                  SizedBox(width: 112, child: Text('RATE', textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
+                  SizedBox(width: 122, child: Text('AMOUNT', textAlign: TextAlign.right, style: _tableHeaderStyleRight)),
+                  SizedBox(width: 42),
+                ],
+              ),
+            ),
+            for (int i = 0; i < _items.length; i++) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 11),
+                        child: Text(
+                          '${i + 1}'.padLeft(2, '0'),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 5,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _items[i].isPackageRow
+                            ? _buildBeautifulPackageDropdown(_items[i])
+                            : _buildDescriptionField(_items[i]),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 78,
+                      child: _buildInnerNumInput(
+                        _items[i].qtyCtrl,
+                        textAlign: TextAlign.center,
+                        readOnly: _viewOnly,
+                        onChanged: () => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 112,
+                      child: _items[i].isPackageRow
+                          ? _buildReadOnlyRateField(_items[i].rateCtrl)
+                          : _buildInnerNumInput(
+                              _items[i].rateCtrl,
+                              textAlign: TextAlign.right,
+                              readOnly: _viewOnly,
+                              onChanged: () => setState(() {}),
+                            ),
+                    ),
+                    SizedBox(
+                      width: 122,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          '₹${_rowAmount(_items[i]).toStringAsFixed(2)}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF172033),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 42,
+                      child: IconButton(
+                        onPressed: _viewOnly || _items.length <= 1
+                            ? null
+                            : () => _removeRow(i),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 19),
+                        color: const Color(0xFFDC2626),
+                        tooltip: 'Remove item',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (i < _items.length - 1)
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileItems() {
+    return Column(
+      children: [
+        for (int i = 0; i < _items.length; i++) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFCFDFF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEAF2FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(
+                          color: Color(0xFF0052CC),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Text(
+                        'Quotation Item',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF172033),
+                        ),
+                      ),
+                    ),
+                    if (!_viewOnly && _items.length > 1)
+                      IconButton(
+                        onPressed: () => _removeRow(i),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        color: const Color(0xFFDC2626),
+                        tooltip: 'Remove item',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _items[i].isPackageRow
+                    ? _buildBeautifulPackageDropdown(_items[i])
+                    : _buildDescriptionField(_items[i]),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMobileLabeledField(
+                        'Quantity',
+                        _buildInnerNumInput(
+                          _items[i].qtyCtrl,
+                          textAlign: TextAlign.center,
+                          readOnly: _viewOnly,
+                          onChanged: () => setState(() {}),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildMobileLabeledField(
+                        'Rate',
+                        _items[i].isPackageRow
+                            ? _buildReadOnlyRateField(_items[i].rateCtrl)
+                            : _buildInnerNumInput(
+                                _items[i].rateCtrl,
+                                textAlign: TextAlign.right,
+                                readOnly: _viewOnly,
+                                onChanged: () => setState(() {}),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7FC),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Item Total',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '₹${_rowAmount(_items[i]).toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0052CC),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (i < _items.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMobileLabeledField(String label, Widget field) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 5),
+        field,
+      ],
+    );
+  }
+
+  Widget _buildBottomWorkspace({
+    required bool isMobile,
+    required bool isTablet,
+    required double subtotal,
+    required double discount,
+    required double tax,
+    required double total,
+    required double paid,
+    required double balance,
+  }) {
+    final details = _buildNotesAndTerms(isMobile: isMobile);
+    final summary = _buildSummaryPanel(
+      subtotal: subtotal,
+      discount: discount,
+      tax: tax,
+      total: total,
+      paid: paid,
+      balance: balance,
+    );
+
+    if (isMobile || isTablet) {
+      return Column(
+        children: [
+          details,
+          const SizedBox(height: 14),
+          summary,
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 6, child: details),
+        const SizedBox(width: 20),
+        Expanded(flex: 4, child: summary),
+      ],
+    );
+  }
+
+  Widget _buildNotesAndTerms({required bool isMobile}) {
+    return _premiumSection(
+      icon: Icons.edit_note_rounded,
+      title: 'Notes & Terms',
+      subtitle: 'Information shown in the generated quotation PDF',
+      child: isMobile
+          ? Column(
+              children: [
+                _buildNotesColumn(),
+                const SizedBox(height: 16),
+                _buildTermsColumn(),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildNotesColumn()),
+                const SizedBox(width: 18),
+                Expanded(child: _buildTermsColumn()),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildNotesColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Notes', style: _fieldTitleStyle),
+        const SizedBox(height: 7),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F5FF),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFD9E6FF)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.event_available_rounded,
+                  size: 17, color: Color(0xFF0052CC)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Valid until: ${expiryController.text}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+        TextField(
+          controller: notesController,
+          maxLines: 4,
+          readOnly: _viewOnly,
+          decoration: _modernInputDecoration(
+            hint: 'Add extra notes or comments...',
+          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTermsColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Terms & Conditions', style: _fieldTitleStyle),
+        const SizedBox(height: 7),
+        TextField(
+          controller: termsController,
+          maxLines: 5,
+          readOnly: _viewOnly,
+          decoration: _modernInputDecoration(
+            hint: 'Edit terms & conditions...',
+          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Checkbox(
+              value: agreedToTerms,
+              onChanged: _viewOnly
+                  ? null
+                  : (val) => setState(() => agreedToTerms = val ?? false),
+              activeColor: const Color(0xFF0052CC),
+              visualDensity: VisualDensity.compact,
+            ),
+            const SizedBox(width: 4),
+            const Expanded(
+              child: Text(
+                'Agree to the defined terms',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF475569),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryPanel({
+    required double subtotal,
+    required double discount,
+    required double tax,
+    required double total,
+    required double paid,
+    required double balance,
+  }) {
+    return _premiumSection(
+      icon: Icons.account_balance_wallet_rounded,
+      title: 'Payment Summary',
+      subtitle: 'Live calculation of quotation totals',
+      child: Column(
+        children: [
+          _buildSummaryLineItem('Subtotal', '₹${subtotal.toStringAsFixed(2)}'),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Discount',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 125,
+                height: 42,
+                child: TextField(
+                  controller: discountController,
+                  textAlign: TextAlign.right,
+                  readOnly: _viewOnly,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF172033),
+                  ),
+                  decoration: _modernInputDecoration(
+                    hint: '0.00',
+                    prefixText: '₹ ',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Include 18% GST',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ),
+              Switch(
+                value: includeGST,
+                activeColor: const Color(0xFF0052CC),
+                onChanged: _viewOnly
+                    ? null
+                    : (value) => setState(() => includeGST = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildSummaryLineItem(
+            'Tax (18% GST)',
+            '₹${tax.toStringAsFixed(2)}',
+            textColor: includeGST ? const Color(0xFF172033) : const Color(0xFF94A3B8),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 15),
+            child: Divider(height: 1, color: Color(0xFFE2E8F0)),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: _buildSummaryLineItem(
+              'Total Amount',
+              '₹${total.toStringAsFixed(2)}',
+              isBold: true,
+              textColor: const Color(0xFF0052CC),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isPrinting
+                  ? null
+                  : () async {
+                      setState(() => _isPrinting = true);
+
+                      if (_viewOnly) {
+                        await _printQuotation(
+                          subtotal,
+                          discount,
+                          total,
+                          tax,
+                          paid,
+                          balance,
+                        );
+                        if (!mounted) return;
+                        setState(() => _isPrinting = false);
+                        return;
+                      }
+
+                      final saved = await _saveQuotation(
+                        subtotal,
+                        discount,
+                        tax,
+                        total,
+                        paid,
+                        balance,
+                      );
+                      await _printQuotation(
+                        subtotal,
+                        discount,
+                        total,
+                        tax,
+                        paid,
+                        balance,
+                      );
+
+                      if (!mounted) return;
+                      setState(() => _isPrinting = false);
+
+                      if (saved) _showSavedSuccessDialog();
+                    },
+              icon: _isPrinting
+                  ? const SizedBox(
+                      width: 17,
+                      height: 17,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.print_rounded, size: 18),
+              label: Text(
+                _isPrinting
+                    ? 'Preparing...'
+                    : (_viewOnly ? 'Print Quotation' : 'Save & Print'),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0052CC),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isPrinting
+                  ? null
+                  : () => _shareQuotationPDF(
+                        subtotal,
+                        discount,
+                        total,
+                        tax,
+                        paid,
+                        balance,
+                      ),
+              icon: const Icon(Icons.share_outlined, size: 18),
+              label: const Text('Share as PDF'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0052CC),
+                side: const BorderSide(color: Color(0xFFB9D0FF)),
+                minimumSize: const Size.fromHeight(46),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _premiumSection({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget child,
+    Widget? trailing,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.018),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20, color: const Color(0xFF0052CC)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF172033),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing,
+              ],
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
+
+  InputDecoration _modernInputDecoration({
+    required String hint,
+    String? prefixText,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      prefixText: prefixText,
+      hintStyle: const TextStyle(
+        color: Color(0xFF94A3B8),
+        fontSize: 12,
+      ),
+      filled: true,
+      fillColor: const Color(0xFFFBFCFE),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFDCE4EE)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFDCE4EE)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF0052CC), width: 1.5),
+      ),
+    );
+  }
+
+  static const TextStyle _fieldTitleStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+    color: Color(0xFF334155),
+  );
 
   // ✅ NEW: Client name dropdown widget with search
 Widget _buildClientNameDropdown() {

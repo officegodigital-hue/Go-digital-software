@@ -2,6 +2,8 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
+const { authenticateToken } = require('./auth');
+
 
 // GET /api/quotations/next-number — generates the next QT-YYYY-### number
 router.get('/next-number', async (req, res) => {
@@ -45,21 +47,100 @@ router.get('/next-number', async (req, res) => {
   }
 });
 
-// GET /api/quotations — list all quotations (without items, for table view)
-router.get('/', async (req, res) => {
+// GET /api/quotations — list all quotations with role-based filtering and creator details
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT q.id, q.quotation_no, q.client_name, q.quotation_date, q.expiry_date, q.include_gst,
+    const userId = req.user.id;
+    const [userRows] = await db.query('SELECT is_main_admin FROM employee_users WHERE id = ?', [userId]);
+    const isMainAdmin = userRows.length > 0 && (userRows[0].is_main_admin === 1 || userRows[0].is_main_admin === true);
+
+    let query = `
+      SELECT q.id, q.quotation_no, q.client_name, q.quotation_date, q.expiry_date, q.include_gst,
               q.subtotal, q.tax, q.total_amount, q.paid_amount, q.balance_amount, q.status, q.created_at,
               q.linked_invoice_id, q.invoice_no AS linked_invoice_no, q.notes, q.terms,
+              COALESCE(eu.full_name, 'Main Admin') AS created_by_name,
               (SELECT qi.description FROM quotation_items qi
                 WHERE qi.quotation_id = q.id ORDER BY qi.sort_order ASC, qi.id ASC LIMIT 1) AS package_type
-       FROM quotations q ORDER BY q.id DESC`
-    );
+       FROM quotations q 
+       LEFT JOIN employee_users eu ON q.created_by = eu.id
+    `;
+    let queryParams = [];
+
+    if (!isMainAdmin) {
+      query += ` WHERE q.created_by = ? `;
+      queryParams.push(userId);
+    }
+
+    query += ` ORDER BY q.id DESC `;
+
+    const [rows] = await db.query(query, queryParams);
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('GET /quotations ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/quotations — save created_by
+router.post('/', authenticateToken, async (req, res) => {
+  const {
+    quotationNo, clientName, clientId, quotationDate, expiryDate, includeGST,
+    subtotal, tax, totalAmount, paidAmount, balanceAmount, items,
+    notes, terms,
+  } = req.body;
+
+  if (!quotationNo || !clientName || !Array.isArray(items) || items.length === 0)
+    return res.status(400).json({ success: false, message: 'quotationNo, clientName and at least one item are required' });
+
+  const adminId = req.user.id; // ✅ Logged-in admin ID
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [result] = await connection.query(
+      `INSERT INTO quotations
+        (quotation_no, client_name, client_id, quotation_date, expiry_date, include_gst,
+         subtotal, tax, total_amount, paid_amount, balance_amount, status,
+         notes, terms, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?)`,
+      [
+        quotationNo, clientName, clientId, quotationDate || '', expiryDate || '',
+        includeGST ? 1 : 0, subtotal || 0, tax || 0, totalAmount || 0,
+        paidAmount || 0, balanceAmount || 0, notes || '', terms || '', adminId
+      ]
+    );
+
+    const quotationId = result.insertId;
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      await connection.query(
+        `INSERT INTO quotation_items
+          (quotation_id, package_id, description, qty, rate, amount, paid_amount, pending_amount, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          quotationId, it.packageId || null, it.description || '',
+          it.qty || 1, it.rate || 0, it.amount || 0,
+          it.paidAmount || 0, it.pendingAmount || 0, i,
+        ]
+      );
+    }
+
+    await connection.commit();
+    return res.status(201).json({
+      success: true,
+      message: 'Quotation created successfully',
+      data: { id: quotationId, quotationNo },
+    });
+  } catch (err) {
+    await connection.rollback();
+    console.error('POST /quotations ERROR:', err.message);
+    if (err.code === 'ER_DUP_ENTRY')
+      return res.status(409).json({ success: false, message: `Quotation "${quotationNo}" already exists` });
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
   }
 });
 

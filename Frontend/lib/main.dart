@@ -7,7 +7,17 @@ import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
+
+// Replace client_onboarding_screen.dart import with:
+import 'package:godigital_portal/screens/admin_dashboard/client_details_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_credentials_screen.dart';
+
 import 'package:godigital_portal/screens/admin_dashboard/Package_Quotation_admin.dart';
+
+// Split panna 2 new screens import statements:
+import 'package:godigital_portal/screens/admin_dashboard/packages.dart';
+import 'package:godigital_portal/screens/admin_dashboard/quotations.dart';
+
 import 'package:godigital_portal/screens/admin_dashboard/create_quotation_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/invoice_admin_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/add_invoice_screen.dart';
@@ -18,7 +28,7 @@ import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
-// import 'package:godigital_portal/screens/home_screen.dart';
+import 'package:godigital_portal/screens/home_screen.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
@@ -68,7 +78,7 @@ class MyApp extends StatelessWidget {
           '/': (context) => const AuthGate(),
 
           // Home Screen (After Login)
-          // '/home': (context) => const HomeScreen(),
+          '/home': (context) => const HomeScreen(),
 
 
           // Admin Dashboard
@@ -89,12 +99,29 @@ class MyApp extends StatelessWidget {
           '/videographer': (context) => const EmployeeLayoutPage(),
 
           // Admin Management Routes
-          '/client': (context) => const AdminGuard(
+          '/client-details': (context) => const AdminGuard(
   child: ClientOnboardingScreen(),),
+
+  '/client': (context) => const AdminGuard(
+                child: ClientDetailsScreen(),
+              ),
+          '/client-credentials': (context) {
+            final clientId = ModalRoute.of(context)!.settings.arguments as int?;
+            return AdminGuard(
+              child: ClientCredentialsScreen(clientId: clientId ?? 0),
+            );
+          },
           '/client-history': (context) => const AdminGuard(
   child: ClientHistoryScreen(),),
           '/quotation': (context) => const AdminGuard(
   child: PackageQuotationAdmin(),),
+  // Split routes for Packages and Quotations:
+          '/packages': (context) => const AdminGuard(
+                child: PackagesAdminScreen(),
+              ),
+          '/quotations': (context) => const AdminGuard(
+                child: QuotationsScreen(),
+              ),
           '/create-quotation': (context) => const AdminGuard(
   child: CreateQuotationScreen(),),
           '/invoice': (context) => const AdminGuard(

@@ -1,19 +1,42 @@
-// routes/employees.js — Updated CRUD API with password hashing
-
+// routes/employees.js — Updated CRUD API with Role-Based Page Access & User Types
 const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcrypt');
 const db      = require('../config/db');
-const { authenticateToken } = require('./auth');
 
-const SALT_ROUNDS = 10;
+
+// routes/employees.js — Place /user-roles routes at the TOP before /:id routes
+
+// ═══════════════════════════════════════════════════════════════
+// 1. USER ROLE MASTER ROUTES (MUST BE AT THE VERY TOP)
+// ═══════════════════════════════════════════════════════════════
+// GET /api/employees/user-roles
+
+
+router.get('/user-roles', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT id, role_name, role_key, user_type
+      FROM user_roles
+      ORDER BY user_type ASC, role_name ASC
+    `);
+
+    return res.json({
+      success: true,
+      data: rows
+    });
+  } catch (err) {
+    console.error('GET /user-roles ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 // GET /api/employees
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, full_name, initials, staff_id, email, username,
-              role, user_type, is_active, created_at
+              role, user_type, is_main_admin, is_active, created_at
        FROM employee_users ORDER BY created_at DESC`
     );
     return res.json({ success: true, data: rows });
@@ -28,187 +51,286 @@ router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, first_name, middle_name, last_name, full_name, initials,
-              staff_id, email, username, role, user_type, is_active, created_at
+              staff_id, email, username, role, user_type, is_main_admin, is_active, created_at
        FROM employee_users WHERE id = ?`,
       [req.params.id]
     );
     if (rows.length === 0)
       return res.status(404).json({ success: false, message: 'Employee not found' });
-    return res.json({ success: true, data: rows[0] });
+
+    let employeeData = rows[0];
+
+    const [accessRows] = await db.query(
+      `SELECT allowed_pages FROM role_page_access WHERE employee_id = ?`,
+      [req.params.id]
+    );
+
+    employeeData.allowed_pages = accessRows.length > 0 ? JSON.parse(accessRows[0].allowed_pages || '[]') : [];
+
+    return res.json({ success: true, data: employeeData });
   } catch (err) {
     console.error('GET /employees/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// POST /api/employees — Create
-router.post('/', async (req, res) => {
-  const { firstName, middleName = '', lastName, staffId, email, username, password, role, userType = 'employee' } = req.body;
 
-  if (!firstName || !lastName || !staffId || !email || !username || !password || !role)
-    return res.status(400).json({ success: false, message: 'All fields are required' });
-
-  const fullName = `${firstName} ${middleName}`.trim();
-  const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
-
+// POST /api/employees/user-roles
+router.post('/user-roles', async (req, res) => {
   try {
-    // const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    const roleName = req.body.roleName || req.body.role_name;
+    const userType = req.body.userType || req.body.user_type;
 
-    await db.query(
-      `INSERT INTO employee_users
-         (first_name, middle_name, last_name, full_name, initials,
-          staff_id, email, username, password, role, user_type, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [firstName, middleName, lastName, fullName, initials,
-       staffId, email, username, password, role, userType]
+    if (!roleName || !userType) {
+      return res.status(400).json({ success: false, message: 'Role name and user type are required' });
+    }
+
+    const trimmedRoleName = roleName.trim();
+    const normalizedUserType = userType.toString().trim().toLowerCase();
+    
+    const roleKey = trimmedRoleName
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+
+    // Check duplicate
+    const [existing] = await db.query(
+      `SELECT id FROM user_roles WHERE role_key = ? AND user_type = ?`,
+      [roleKey, normalizedUserType]
     );
-    return res.status(201).json({ success: true, message: 'Employee created' });
+
+    if (existing.length > 0) {
+      return res.status(409).json({ success: false, message: 'Role already exists' });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO user_roles (role_name, role_key, user_type) VALUES (?, ?, ?)`,
+      [trimmedRoleName, roleKey, normalizedUserType]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Role created successfully',
+      data: { id: result.insertId, role_name: trimmedRoleName, role_key: roleKey, user_type: normalizedUserType }
+    });
   } catch (err) {
+    console.error('POST /employees/user-roles ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// PUT /api/employees/:id — Full Update (Edit)
-router.put('/:id', async (req, res) => {
-  const { firstName, middleName = '', lastName, staffId, email, username, role, userType = 'employee', password } = req.body;
+// PUT /api/employees/user-roles/:id
+router.put('/user-roles/:id', async (req, res) => {
+  try {
+    const roleId = req.params.id;
+    const roleName = req.body.roleName || req.body.role_name;
+    const userType = req.body.userType || req.body.user_type;
 
-  if (!firstName || !lastName || !staffId || !email || !username || !role)
-    return res.status(400).json({ success: false, message: 'All fields except password are required' });
+    if (!roleName || !userType) {
+      return res.status(400).json({ success: false, message: 'Role name and user type are required' });
+    }
 
-  const fullName = `${firstName} ${middleName}`.trim();
+    const trimmedRoleName = roleName.trim();
+    const normalizedUserType = userType.toString().trim().toLowerCase();
+    
+    const roleKey = trimmedRoleName
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+
+    await db.query(
+      `UPDATE user_roles SET role_name = ?, role_key = ?, user_type = ? WHERE id = ?`,
+      [trimmedRoleName, roleKey, normalizedUserType, roleId]
+    );
+
+    return res.status(200).json({ success: true, message: 'Role updated successfully' });
+  } catch (err) {
+    console.error('PUT /employees/user-roles/:id ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/employees/user-roles/:id
+router.delete('/user-roles/:id', async (req, res) => {
+  try {
+    const roleId = req.params.id;
+    await db.query(`DELETE FROM user_roles WHERE id = ?`, [roleId]);
+    return res.status(200).json({ success: true, message: 'Role deleted successfully' });
+  } catch (err) {
+    console.error('DELETE /employees/user-roles/:id ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/employees
+// POST /api/employees — Create with Role and Permissions
+router.post('/', async (req, res) => {
+  const { 
+    firstName, middleName = '', lastName, staffId, 
+    email, username, password, role, // 🟢 Role variable here
+    userType = 'employee', isMainAdmin = 0, allowedPages = [] 
+  } = req.body;
+
+  if (!firstName || !lastName || !staffId || !email || !username || !password || !role)
+    return res.status(400).json({ success: false, message: 'All fields are required' });
+
+  // const fullName = `${firstName} ${middleName}`.trim();
+
+  const fullName = [
+  firstName,
+  middleName,
+  lastName
+]
+.filter(name => name && name.trim() !== '')
+// .where(name => name && name.trim() !== '')
+.join(' ');
+
   const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
   try {
-    const [existing] = await db.query(
-      `SELECT id FROM employee_users
-       WHERE (staff_id = ? OR email = ? OR username = ?) AND id != ?`,
-      [staffId, email, username, req.params.id]
+    const [result] = await db.query(
+      `INSERT INTO employee_users
+         (first_name, middle_name, last_name, full_name, initials,
+          staff_id, email, username, password, role, user_type, is_main_admin, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [firstName, middleName, lastName, fullName, initials,
+       staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0] // 🟢 Role inserted here
     );
-    if (existing.length > 0)
-      return res.status(409).json({
-        success: false,
-        message: 'Staff ID, email or username already used by another employee',
-      });
 
+    const newEmpId = result.insertId;
+
+    if (allowedPages && allowedPages.length > 0) {
+      await db.query(
+        `INSERT INTO role_page_access (employee_id, allowed_pages) VALUES (?, ?)`,
+        [newEmpId, JSON.stringify(allowedPages)]
+      );
+    }
+
+    return res.status(201).json({ success: true, message: 'User created successfully' });
+  } catch (err) {
+    console.error('POST /employees ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/employees/:id — Update Employee
+router.put('/:id', async (req, res) => {
+  const { 
+    firstName, middleName = '', lastName, staffId, 
+    email, username, role, userType = 'employee', 
+    isMainAdmin = 0, allowedPages = [], password 
+  } = req.body;
+
+  const empId = req.params.id;
+
+  const fullName = [firstName, middleName, lastName]
+    .filter(name => name && name.trim() !== '')
+    .join(' ');
+
+  const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+
+  try {
+    // 1. Employee table-a mattum update panrom (Clients table-a touch seyyakoodathu!)
     if (password && password.trim() !== '') {
-      // const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
       await db.query(
         `UPDATE employee_users SET
            first_name=?, middle_name=?, last_name=?, full_name=?, initials=?,
-           staff_id=?, email=?, username=?, password=?, role=?, user_type=?
+           staff_id=?, email=?, username=?, password=?, role=?, user_type=?, is_main_admin=?
          WHERE id=?`,
-        [firstName, middleName, lastName, fullName, initials,
-         staffId, email, username, password, role, userType, req.params.id]
+        [firstName, middleName, lastName, fullName, initials, staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0, empId]
       );
     } else {
       await db.query(
         `UPDATE employee_users SET
            first_name=?, middle_name=?, last_name=?, full_name=?, initials=?,
-           staff_id=?, email=?, username=?, role=?, user_type=?
+           staff_id=?, email=?, username=?, role=?, user_type=?, is_main_admin=?
          WHERE id=?`,
-        [firstName, middleName, lastName, fullName, initials,
-         staffId, email, username, role, userType, req.params.id]
+        [firstName, middleName, lastName, fullName, initials, staffId, email, username, role, userType, isMainAdmin ? 1 : 0, empId]
       );
     }
 
-    return res.json({
-      success: true,
-      message: 'Employee updated successfully',
-      data: { id: parseInt(req.params.id), full_name: fullName, initials, staff_id: staffId, email, username, role, user_type: userType },
-    });
+    // 2. Update Page Access (Role page access table mattum update aagum)
+    const [existingAccess] = await db.query(`SELECT id FROM role_page_access WHERE employee_id = ?`, [empId]);
+    const pagesJson = JSON.stringify(allowedPages || []);
+
+    if (existingAccess.length > 0) {
+      await db.query(`UPDATE role_page_access SET allowed_pages = ? WHERE employee_id = ?`, [pagesJson, empId]);
+    } else if (allowedPages && allowedPages.length > 0) {
+      await db.query(`INSERT INTO role_page_access (employee_id, allowed_pages) VALUES (?, ?)`, [empId, pagesJson]);
+    }
+
+    return res.json({ success: true, message: 'User updated successfully' });
   } catch (err) {
     console.error('PUT /employees/:id ERROR:', err.message);
-    if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({ success: false, message: 'Staff ID, email or username already exists' });
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// PATCH /api/employees/:id — Toggle status / update role only
-router.patch('/:id', async (req, res) => {
-  const { role, userType, isActive } = req.body;
-  const updates = [];
-  const values  = [];
-  if (role      !== undefined) { updates.push('role = ?');       values.push(role); }
-  if (userType  !== undefined) { updates.push('user_type = ?');  values.push(userType); }
-  if (isActive  !== undefined) { updates.push('is_active = ?');  values.push(isActive ? 1 : 0); }
-  if (updates.length === 0)
-    return res.status(400).json({ success: false, message: 'Nothing to update' });
-  values.push(req.params.id);
-  try {
-    const [result] = await db.query(
-      `UPDATE employee_users SET ${updates.join(', ')} WHERE id = ?`, values
-    );
-    if (result.affectedRows === 0)
-      return res.status(404).json({ success: false, message: 'Employee not found' });
-    return res.json({ success: true, message: 'Employee updated' });
-  } catch (err) {
-    console.error('PATCH /employees/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // DELETE /api/employees/:id
 router.delete('/:id', async (req, res) => {
+  const empId = req.params.id;
   try {
-    const [result] = await db.query(
-      'DELETE FROM employee_users WHERE id = ?', [req.params.id]
-    );
+    // Delete associated permissions first to prevent foreign key constraint restriction
+    await db.query('DELETE FROM role_page_access WHERE employee_id = ?', [empId]);
+    
+    // Then delete the employee user
+    const [result] = await db.query('DELETE FROM employee_users WHERE id = ?', [empId]);
+    
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Employee not found' });
-    return res.json({ success: true, message: 'Employee deleted' });
+    
+    return res.json({ success: true, message: 'Employee deleted successfully' });
   } catch (err) {
     console.error('DELETE /employees/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// Protected route example
-router.get('/', authenticateToken, async (req, res) => {
-  // Only authenticated users can access this
+// PATCH /api/employees/:id
+router.patch('/:id', async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT id, full_name, initials, staff_id, email, username,
-              role, user_type, is_active, created_at
-       FROM employee_users ORDER BY created_at DESC`
-    );
-    return res.json({ success: true, data: rows });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+    const empId = req.params.id;
+    const { isActive } = req.body;
 
-router.get('/:id', async (req, res) => {
-  const { id } = req.params;
- 
-  try {
-    const [rows] = await db.query(
-      `SELECT 
-        id, name, email, role, phone, status, department
-       FROM employees
-       WHERE id = ? AND status = 'active'`,
-      [id]
+    const [result] = await db.query(
+      `
+      UPDATE employee_users
+      SET is_active = ?
+      WHERE id = ?
+      `,
+      [
+        isActive ? 1 : 0,
+        empId,
+      ]
     );
- 
-    if (rows.length === 0) {
+
+    if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
         message: 'Employee not found',
       });
     }
- 
+
     return res.json({
       success: true,
-      data: rows[0],
+      message: 'Employee status updated successfully',
     });
-  } catch (error) {
-    console.error('GET /employees/:id ERROR:', error.message);
+
+  } catch (err) {
+    console.error('PATCH /employees/:id ERROR:', err.message);
+
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: err.message,
     });
   }
 });
+
+
+
+
 
 
 

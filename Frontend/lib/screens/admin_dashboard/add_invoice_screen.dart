@@ -9,6 +9,8 @@ import 'package:printing/printing.dart';
 import 'package:flutter/services.dart';
 import '../../services/api_config.dart';
 import 'dart:async';
+import 'package:provider/provider.dart';
+import '../../services/auth_service.dart';
 
 class _InvoiceItemRow {
   int? packageId;
@@ -453,6 +455,10 @@ double _rowPending(_InvoiceItemRow row) {
   }
 
   Future<bool> _saveInvoice(double subtotal, double discount, double tax, double total, double paid, double balance) async {
+    // ✅ AuthService-il irundhu token-ah edukavum
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final token = authService.token;
+
     final items = _items.map((row) => {
       "packageId": row.packageId,
       "description": row.descriptionCtrl.text.trim(),
@@ -487,12 +493,18 @@ double _rowPending(_InvoiceItemRow row) {
       final response = isEdit
           ? await http.put(
               Uri.parse('$_baseUrl/invoices/$_invoiceId'),
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token', // ✅ Add token here
+              },
               body: jsonEncode(payload),
             )
           : await http.post(
               Uri.parse('$_baseUrl/invoices'),
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token', // ✅ Add token here
+              },
               body: jsonEncode(payload),
             );
 

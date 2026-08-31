@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
 
 import 'package:godigital_portal/core/constants/employee_role.dart';
 import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
@@ -152,7 +153,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     }
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
@@ -167,16 +168,38 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
 
         final rawRole = authService.userRole;
         final loggedInRole = _getRoleFromString(rawRole);
-        debugPrint('🎯 Role: $loggedInRole');
+        
+        // 🟢 1. Database-la irunthu antha employee-kku save aana allowed_pages-a edukrom
+        final user = authService.user;
+        List<String> employeeMenuPages = [];
+        
+        if (user?['allowed_pages'] != null) {
+          if (user?['allowed_pages'] is List) {
+            employeeMenuPages = (user?['allowed_pages'] as List).map((e) => e.toString()).toList();
+          } else if (user?['allowed_pages'] is String) {
+            try {
+              final decoded = jsonDecode(user?['allowed_pages']);
+              if (decoded is List) {
+                employeeMenuPages = decoded.map((e) => e.toString()).toList();
+              }
+            } catch (_) {}
+          }
+        }
+
+        // 🟢 2. Oru vela allowed_pages empty-ah iruntha fallback-ah default menu-vum, 
+        // illaina neenga Admin Panel-la select panniya items mattum varum.
+        if (employeeMenuPages.isEmpty) {
+          employeeMenuPages = loggedInRole.menuItems; 
+        }
 
         return LayoutBuilder(
           builder: (context, constraints) {
             final bool isDesktop = constraints.maxWidth >= 900;
 
-            // Reusable Sidebar Widget
+            // 🟢 3. Hardcoded role menuItems-kku pathila database allowed_pages-a pass panrom!
             final sidebarWidget = EmployeeSidebar(
               selectedMenu: selectedMenu,
-              menuItems: loggedInRole.menuItems,
+              menuItems: employeeMenuPages, // Inga unga selected permission items pogum
               onMenuTap: saveMenu,
               isMobileDrawer: !isDesktop,
             );
@@ -233,4 +256,5 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       },
     );
   }
+
 }

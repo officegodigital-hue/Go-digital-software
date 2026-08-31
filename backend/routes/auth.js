@@ -34,7 +34,7 @@ router.post('/login', async (req, res) => {
 `
 SELECT id, first_name, last_name, full_name,
 email, username, password,
-role, user_type, is_active,
+role, user_type, is_active, is_main_admin,
 staff_id, initials
 FROM employee_users
 WHERE (
@@ -95,6 +95,16 @@ LIMIT 1
   });
 }
 
+// Password check pannuthuku apram intha query-a podunga:
+const [accessRows] = await db.query(
+  `SELECT allowed_pages FROM role_page_access WHERE employee_id = ?`,
+  [user.id]
+);
+
+const allowedPages = accessRows.length > 0 
+  ? JSON.parse(accessRows[0].allowed_pages || '[]') 
+  : [];
+
     // Generate JWT token
     const token = jwt.sign(
       {
@@ -126,6 +136,9 @@ LIMIT 1
         userType: user.user_type,
         staffId: user.staff_id,
         initials: user.initials,
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true, // 🟢 itha add pannunga
+  allowed_pages: allowedPages, // 🟢 itha add pannunga
+
       },
     });
   } catch (err) {

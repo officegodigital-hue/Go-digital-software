@@ -45,54 +45,75 @@ extension EmployeeRoleExtension on EmployeeRole {
     }
   }
 
+  // List<String> get menuItems {
+  //   switch (this) {
+  //     case EmployeeRole.designer:
+  //       return [
+  //         'Dashboard',
+  //         'Day Planner',
+  //         'Assigned Task',
+  //         'Live Tracking Tasks',
+  //         'Task Status',
+  //         'Notifications',
+  //       ];
+
+  //     case EmployeeRole.pageHandler:
+  //       return [
+  //         'Dashboard',
+  //         'Day Planner',
+  //         // 'Daily Reports',
+  //         'Assigned Task',
+  //         'Live Tracking Tasks',
+  //         'Task Planner',
+  //         'Task Review',
+  //         'Notifications',
+  //         'Feedback',
+  //       ];
+
+  //     case EmployeeRole.adsHandler:
+  //       return [
+  //         'Dashboard',
+  //         'Day Planner',
+  //         // 'Daily Reports',
+  //         'Assigned Task',
+  //         'Live Tracking Tasks',
+  //         'Task Planner',
+  //         'Task Review',
+  //         'Notifications',
+  //         'Feedback',
+  //       ];
+
+  //     case EmployeeRole.videographer:
+  //       return [
+  //         'Dashboard',
+  //         'Day Planner',
+  //         'Assigned Task',
+  //         'Live Tracking Tasks',
+  //         'Task Status',
+  //         'Video Task Planner',
+  //         'Notifications',
+  //       ];
+  //   }
+  // }
+
+  // employee_role.dart file-la menuItems extension-ai ipadi update pannikonga:
   List<String> get menuItems {
-    switch (this) {
-      case EmployeeRole.designer:
-        return [
-          'Dashboard',
-          'Day Planner',
-          'Assigned Task',
-          'Live Tracking Tasks',
-          'Task Status',
-          'Notifications',
-        ];
-
-      case EmployeeRole.pageHandler:
-        return [
-          'Dashboard',
-          'Day Planner',
-          // 'Daily Reports',
-          'Assigned Task',
-          'Live Tracking Tasks',
-          'Task Planner',
-          'Task Review',
-          'Notifications',
-          'Feedback',
-        ];
-
-      case EmployeeRole.adsHandler:
-        return [
-          'Dashboard',
-          'Day Planner',
-          // 'Daily Reports',
-          'Assigned Task',
-          'Live Tracking Tasks',
-          'Task Planner',
-          'Task Review',
-          'Notifications',
-          'Feedback',
-        ];
-
-      case EmployeeRole.videographer:
-        return [
-          'Dashboard',
-          'Day Planner',
-          'Assigned Task',
-          'Live Tracking Tasks',
-          'Task Status',
-          'Video Task Planner',
-          'Notifications',
-        ];
-    }
+    return [
+      'Dashboard',
+      'Day Planner',
+      'Assigned Task',
+      'Live Tracking Tasks',
+      'Daily Reports',
+      'Task Planner',
+      'Task Planner History',
+      'Video Task Planner',
+      'Video Task Planner History',
+      'Task Review',
+      'Task Status',
+      'Notifications',
+      'Feedback',
+      'Feedback History',
+    ];
   }
+
 }
