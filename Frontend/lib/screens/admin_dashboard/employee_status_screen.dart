@@ -1,3 +1,4 @@
+// name=employee_status_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -487,96 +488,220 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text("Employee Status", style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                      SizedBox(height: 4),
-                      Text("Monitor task assignments, deliverables, and schedules.", style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+              // HEADER HERO SECTION
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(isMobile ? 20 : 28),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF003B95),
+                      Color(0xFF0052CC),
+                      Color(0xFF1267E8),
                     ],
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(isMobile ? 22 : 28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0052CC).withValues(alpha: 0.25),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  runSpacing: 18,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: isMobile ? 52 : 62,
+                          height: isMobile ? 52 : 62,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+                          ),
+                          child: Icon(
+                            Icons.people_outline_rounded,
+                            size: isMobile ? 27 : 32,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Flexible(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Employee Status',
+                                style: TextStyle(
+                                  fontSize: isMobile ? 20 : 28,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                'Monitor task assignments, deliverables, and schedules.',
+                                style: TextStyle(
+                                  fontSize: isMobile ? 12 : 13,
+                                  height: 1.5,
+                                  color: Colors.white.withValues(alpha: 0.82),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+                      ),
+                      child: Text(
+                        '${filteredRows.length} TASKS FOUND',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 20),
 
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    height: 40,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                    child: DropdownButton<String>(
-                      hint: const Text("Maintenance Date ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      value: selectedMaintenanceSort,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: "1 to 31", child: Text("1 to 31 (Asc)", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "31 to 1", child: Text("31 to 1 (Desc)", style: TextStyle(fontSize: 11))),
-                      ],
-                      onChanged: (val) => setState(() => selectedMaintenanceSort = val),
-                    ),
+              // FILTER BAR (Shown ONLY on mobile view as requested)
+              if (isMobile) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.025),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    height: 40,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                    child: DropdownButton<String>(
-                      value: selectedMonthFilter,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: "All", child: Text("All Months ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-                        DropdownMenuItem(value: "Jan", child: Text("January", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Feb", child: Text("February", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Mar", child: Text("March", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Apr", child: Text("April", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "May", child: Text("May", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Jun", child: Text("June", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Jul", child: Text("July", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Aug", child: Text("August", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Sep", child: Text("September", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Oct", child: Text("October", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Nov", child: Text("November", style: TextStyle(fontSize: 11))),
-                        DropdownMenuItem(value: "Dec", child: Text("December", style: TextStyle(fontSize: 11))),
-                      ],
-                      onChanged: (val) => setState(() => selectedMonthFilter = val ?? "All"),
-                    ),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F9FC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: DropdownButton<String>(
+                          hint: const Text("Maintenance Date ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                          value: selectedMaintenanceSort,
+                          underline: const SizedBox(),
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                          items: const [
+                            DropdownMenuItem(value: "1 to 31", child: Text("1 to 31 (Asc)", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "31 to 1", child: Text("31 to 1 (Desc)", style: TextStyle(fontSize: 11))),
+                          ],
+                          onChanged: (val) => setState(() => selectedMaintenanceSort = val),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F9FC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: DropdownButton<String>(
+                          value: selectedMonthFilter,
+                          underline: const SizedBox(),
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                          items: const [
+                            DropdownMenuItem(value: "All", child: Text("All Months ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC)))),
+                            DropdownMenuItem(value: "Jan", child: Text("January", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Feb", child: Text("February", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Mar", child: Text("March", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Apr", child: Text("April", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "May", child: Text("May", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Jun", child: Text("June", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Jul", child: Text("July", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Aug", child: Text("August", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Sep", child: Text("September", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Oct", child: Text("October", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Nov", child: Text("November", style: TextStyle(fontSize: 11))),
+                            DropdownMenuItem(value: "Dec", child: Text("December", style: TextStyle(fontSize: 11))),
+                          ],
+                          onChanged: (val) => setState(() => selectedMonthFilter = val ?? "All"),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F9FC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: DropdownButton<String>(
+                          value: selectedStatusFilter,
+                          underline: const SizedBox(),
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                          items: const [
+                            DropdownMenuItem(value: "All", child: Text("All Status ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC)))),
+                            DropdownMenuItem(value: "Completed", child: Text("Completed", style: TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w700))),
+                            DropdownMenuItem(value: "Pending", child: Text("Pending", style: TextStyle(fontSize: 11, color: Color(0xFFDC2626), fontWeight: FontWeight.w700))),
+                          ],
+                          onChanged: (val) => setState(() => selectedStatusFilter = val ?? "All"),
+                        ),
+                      ),
+                    ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    height: 40,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                    child: DropdownButton<String>(
-                      value: selectedStatusFilter,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: "All", child: Text("All Status ▾", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-                        DropdownMenuItem(value: "Completed", child: Text("Completed", style: TextStyle(fontSize: 11, color: Color(0xFF16A34A)))),
-                        DropdownMenuItem(value: "Pending", child: Text("Pending", style: TextStyle(fontSize: 11, color: Color(0xFFDC2626)))),
-                      ],
-                      onChanged: (val) => setState(() => selectedStatusFilter = val ?? "All"),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
+                ),
+                const SizedBox(height: 20),
+              ],
 
+              // DATA TABLE / CARD CONTAINER
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.025),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (!isMobile)
                       Container(
-                        color: const Color(0xFFF8FAFC),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF7F9FC),
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        ),
                         height: 52,
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Row(
@@ -586,9 +711,10 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                               child: SizedBox(
                                 width: 60,
                                 child: Row(
-                                  children: const [
-                                    Text("S.NO", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5)),
-                                    Icon(Icons.swap_vert, size: 14, color: Color(0xFF0052CC)),
+                                  children: [
+                                    const Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7)),
+                                    const SizedBox(width: 2),
+                                    Icon(isSNoAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
                                   ],
                                 ),
                               ),
@@ -598,18 +724,78 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                               child: InkWell(
                                 onTap: () => setState(() => isClientAscending = !isClientAscending),
                                 child: Row(
-                                  children: const [
-                                    Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5)),
-                                    Icon(Icons.swap_vert, size: 14, color: Color(0xFF0052CC)),
+                                  children: [
+                                    const Text("CLIENT NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7)),
+                                    const SizedBox(width: 2),
+                                    Icon(isClientAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
                                   ],
                                 ),
                               ),
                             ),
-                            const Expanded(flex: 2, child: Text("MAINTENANCE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
-                            const Expanded(flex: 2, child: Text("DELIVERABLES", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
-                            const Expanded(flex: 2, child: Text("SUBMIT DATE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
-                            const Expanded(flex: 2, child: Text("STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5))),
-                            const Expanded(flex: 1, child: Text("VIEW", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC), letterSpacing: 0.5), textAlign: TextAlign.center)),
+                            // DESKTOP HEADER 1: MAINTENANCE FILTER
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedMaintenanceSort,
+                                  isDense: true,
+                                  hint: const Text("MAINTENANCE ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7)),
+                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                                  items: const [
+                                    DropdownMenuItem(value: null, child: Text("MAINTENANCE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF64748B)))),
+                                    DropdownMenuItem(value: "1 to 31", child: Text("1 to 31 (Asc)", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "31 to 1", child: Text("31 to 1 (Desc)", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                  ],
+                                  onChanged: (val) => setState(() => selectedMaintenanceSort = val),
+                                ),
+                              ),
+                            ),
+                            // DESKTOP HEADER 2: MONTH FILTER
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedMonthFilter,
+                                  isDense: true,
+                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                                  items: const [
+                                    DropdownMenuItem(value: "All", child: Text("MONTH: ALL ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.5))),
+                                    DropdownMenuItem(value: "Jan", child: Text("January", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Feb", child: Text("February", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Mar", child: Text("March", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Apr", child: Text("April", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "May", child: Text("May", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Jun", child: Text("June", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Jul", child: Text("July", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Aug", child: Text("August", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Sep", child: Text("September", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Oct", child: Text("October", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Nov", child: Text("November", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                    DropdownMenuItem(value: "Dec", child: Text("December", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)))),
+                                  ],
+                                  onChanged: (val) => setState(() => selectedMonthFilter = val ?? "All"),
+                                ),
+                              ),
+                            ),
+                            const Expanded(flex: 2, child: Text("SUBMIT DATE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7))),
+                            // DESKTOP HEADER 3: STATUS FILTER (Default selection status included)
+                            Expanded(
+                              flex: 2,
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedStatusFilter,
+                                  isDense: true,
+                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF0052CC)),
+                                  items: const [
+                                    DropdownMenuItem(value: "All", child: Text("STATUS: ALL ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.5))),
+                                    DropdownMenuItem(value: "Completed", child: Text("COMPLETED", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF16A34A)))),
+                                    DropdownMenuItem(value: "Pending", child: Text("PENDING", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFDC2626)))),
+                                  ],
+                                  onChanged: (val) => setState(() => selectedStatusFilter = val ?? "All"),
+                                ),
+                              ),
+                            ),
+                            const Expanded(flex: 1, child: Text("VIEW", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7), textAlign: TextAlign.center)),
                           ],
                         ),
                       ),
@@ -618,58 +804,111 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                     SizedBox(
                       height: 480,
                       child: _loading
-                          ? const Center(child: CircularProgressIndicator())
+                          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
                           : _error != null
                               ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 11)))
                               : filteredRows.isEmpty
-                                  ? const Center(child: Text("No tasks found", style: TextStyle(color: Colors.grey, fontSize: 11)))
+                                  ? const Center(child: Text("No tasks found", style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600)))
                                   : isMobile
                                       ? ListView.builder(
                                           itemCount: filteredRows.length,
-                                          padding: const EdgeInsets.all(12),
+                                          padding: const EdgeInsets.all(14),
                                           itemBuilder: (context, index) {
                                             final row = filteredRows[index];
                                             final status = row["status"];
                                             Color statusColor = status == 'Completed' ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
 
-                                            return Card(
+                                            return Container(
                                               margin: const EdgeInsets.only(bottom: 12),
-                                              elevation: 0,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(10),
-                                                side: const BorderSide(color: Color(0xFFE2E8F0)),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.circular(16),
+                                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withValues(alpha: 0.02),
+                                                    blurRadius: 10,
+                                                    offset: const Offset(0, 4),
+                                                  ),
+                                                ],
                                               ),
                                               child: Padding(
-                                                padding: const EdgeInsets.all(14),
+                                                padding: const EdgeInsets.all(16),
                                                 child: Column(
                                                   crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
                                                     Row(
                                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                       children: [
-                                                        Text('${index + 1}. ${row["client"]}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                                                         Container(
-                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                          decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                                                          child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor)),
+                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(0xFFEAF2FF),
+                                                            borderRadius: BorderRadius.circular(8),
+                                                          ),
+                                                          child: Text(
+                                                            '#${index + 1}',
+                                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0052CC)),
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                          decoration: BoxDecoration(
+                                                            color: statusColor.withValues(alpha: 0.09),
+                                                            borderRadius: BorderRadius.circular(10),
+                                                            border: Border.all(color: statusColor.withValues(alpha: 0.2)),
+                                                          ),
+                                                          child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: statusColor)),
                                                         ),
                                                       ],
                                                     ),
+                                                    const SizedBox(height: 12),
+                                                    Text(
+                                                      row["client"],
+                                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                                    ),
                                                     const SizedBox(height: 8),
-                                                    Text("Deliverable: ${row["task"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w600)),
-                                                    const SizedBox(height: 4),
-                                                    Text("Maintenance Date: ${row["maintenanceDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
-                                                    Text("Submit Date: ${row["formattedDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                                                    const SizedBox(height: 10),
-                                                    Align(
-                                                      alignment: Alignment.centerRight,
-                                                      child: OutlinedButton(
-                                                        onPressed: () => _navigateToTaskDetailView(row["client"]),
-                                                        style: OutlinedButton.styleFrom(
-                                                          side: const BorderSide(color: Color(0xFF0052CC)),
-                                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.work_outline_rounded, size: 14, color: Color(0xFF0052CC)),
+                                                        const SizedBox(width: 6),
+                                                        Expanded(
+                                                          child: Text(
+                                                            "Deliverable: ${row["task"]}",
+                                                            style: const TextStyle(fontSize: 12, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                          ),
                                                         ),
-                                                        child: const Text("View Details", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 6),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF64748B)),
+                                                        const SizedBox(width: 6),
+                                                        Text("Maintenance: ${row["maintenanceDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF64748B)),
+                                                        const SizedBox(width: 6),
+                                                        Text("Submit Date: ${row["formattedDate"]}", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 14),
+                                                    SizedBox(
+                                                      width: double.infinity,
+                                                      child: ElevatedButton(
+                                                        onPressed: () => _navigateToTaskDetailView(row["client"]),
+                                                        style: ElevatedButton.styleFrom(
+                                                          backgroundColor: const Color(0xFF0052CC),
+                                                          foregroundColor: Colors.white,
+                                                          elevation: 0,
+                                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                                        ),
+                                                        child: const Text("View Details", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
                                                       ),
                                                     ),
                                                   ],
@@ -680,45 +919,101 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                                         )
                                       : ListView.separated(
                                           itemCount: filteredRows.length,
-                                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                           itemBuilder: (context, index) {
                                             final row = filteredRows[index];
                                             final status = row["status"];
                                             
-                                            Color statusColor = Colors.blue;
+                                            Color statusColor = const Color(0xFF0052CC);
                                             if (status == 'Completed') statusColor = const Color(0xFF16A34A);
                                             if (status == 'Pending') statusColor = const Color(0xFFDC2626);
 
                                             return Container(
-                                              height: 60,
+                                              height: 64,
                                               padding: const EdgeInsets.symmetric(horizontal: 20),
+                                              color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
                                               child: Row(
                                                 children: [
-                                                  SizedBox(width: 60, child: Text('${index + 1}.', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600))),
-                                                  Expanded(flex: 3, child: Text(row["client"], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)))),
-                                                  Expanded(flex: 2, child: Text(row["maintenanceDate"], style: const TextStyle(fontSize: 11, color: Color(0xFF475569)))),
-                                                  Expanded(flex: 2, child: Text(row["task"], style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w600))),
-                                                  Expanded(flex: 2, child: Text(row["formattedDate"], style: const TextStyle(fontSize: 11, color: Color(0xFF334155)))),
-                                                  Expanded(
-                                                    flex: 2,
-                                                    child: Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                      decoration: BoxDecoration(
-                                                        color: statusColor.withValues(alpha: 0.1),
-                                                        borderRadius: BorderRadius.circular(4),
-                                                      ),
-                                                      child: Text(
-                                                        status,
-                                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
-                                                      ),
+                                                  SizedBox(
+                                                    width: 60,
+                                                    child: Text(
+                                                      '${index + 1}',
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
                                                     ),
                                                   ),
                                                   Expanded(
+                                                    flex: 3,
+                                                    child: Text(
+                                                      row["client"],
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 2,
+                                                    child: Text(
+                                                      row["maintenanceDate"],
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 2,
+                                                    child: Text(
+                                                      row["task"],
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 2,
+                                                    child: Text(
+                                                      row["formattedDate"],
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 2,
+                                                    child: Align(
+                                                      alignment: Alignment.centerLeft,
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                        decoration: BoxDecoration(
+                                                          color: statusColor.withValues(alpha: 0.09),
+                                                          borderRadius: BorderRadius.circular(10),
+                                                          border: Border.all(color: statusColor.withValues(alpha: 0.16)),
+                                                        ),
+                                                        child: Text(
+                                                          status.toUpperCase(),
+                                                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: statusColor, letterSpacing: 0.5),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  // HIGHLIGHTED BLUE BUTTON WITH PLAY/YOUTUBE STYLE ICON
+                                                  Expanded(
                                                     flex: 1,
                                                     child: Center(
-                                                      child: IconButton(
-                                                        icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Color(0xFF0052CC)),
-                                                        onPressed: () => _navigateToTaskDetailView(row["client"]),
+                                                      child: InkWell(
+                                                        onTap: () => _navigateToTaskDetailView(row["client"]),
+                                                        borderRadius: BorderRadius.circular(10),
+                                                        child: Container(
+                                                          width: 36,
+                                                          height: 34,
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(0xFF0052CC),
+                                                            borderRadius: BorderRadius.circular(10),
+                                                            boxShadow: [
+                                                              BoxShadow(
+                                                                color: const Color(0xFF0052CC).withValues(alpha: 0.25),
+                                                                blurRadius: 8,
+                                                                offset: const Offset(0, 3),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          child: const Icon(
+                                                            Icons.play_arrow_rounded,
+                                                            color: Colors.white,
+                                                            size: 20,
+                                                          ),
+                                                        ),
                                                       ),
                                                     ),
                                                   ),

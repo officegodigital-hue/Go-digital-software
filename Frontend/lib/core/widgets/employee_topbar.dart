@@ -13,6 +13,7 @@ class EmployeeTopbar extends StatefulWidget {
   final EmployeeRole role;
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenAssignedTasks;
+  final VoidCallback? onTapWorkingHours;
   final Function(String)? onSearch;
 
   const EmployeeTopbar({
@@ -20,6 +21,7 @@ class EmployeeTopbar extends StatefulWidget {
     required this.role,
     this.onOpenNotifications,
     this.onOpenAssignedTasks,
+    this.onTapWorkingHours,
     this.onSearch,
   });
 
@@ -27,7 +29,7 @@ class EmployeeTopbar extends StatefulWidget {
   State<EmployeeTopbar> createState() => _EmployeeTopbarState();
 }
 
-class _EmployeeTopbarState extends State<EmployeeTopbar> {
+class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStateMixin {
   Timer? _pollingTimer;
   int _unreadCount = 0;
   String? _latestMessage;
@@ -37,10 +39,36 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
 
+  String formattedTotalWorkingTime = "00h 00m";
+
+  // 🟢 Controllers for 3D rotation, High-intensity neon glow, and Color Shifting
+  late AnimationController _rotateController;
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
+
+  // State to track hover or pause state for rotation
+  bool _isPaused = false;
+
   @override
   void initState() {
     super.initState();
+
+    _rotateController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 5),
+    )..repeat();
+
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+
+    _glowAnimation = Tween<double>(begin: 4.0, end: 16.0).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
+
     _startPolling();
+    _fetchTodayWorkingHours();
   }
 
   @override
@@ -49,13 +77,70 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
     _popupTimer?.cancel();
     _searchController.dispose();
     _audioPlayer.dispose();
+    _rotateController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
   void _startPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       await _checkNewNotifications();
+      await _fetchTodayWorkingHours();
     });
+  }
+
+  Future<void> _fetchTodayWorkingHours() async {
+    if (!mounted) return;
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final employeeName = authService.user?['fullName'] ?? authService.user?['name'] ?? authService.user?['username'];
+    
+    if (employeeName == null || employeeName.isEmpty) return;
+
+    try {
+      final now = DateTime.now();
+      final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      
+      final url = Uri.parse('${ApiConfig.baseUrl}/dashboard/live-tracking-tasks/$employeeName?date=$formattedDate');
+      final r = await http.get(url);
+
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final rows = List<dynamic>.from(body['data'] ?? []);
+
+        int totalSumSeconds = 0;
+        for (var row in rows) {
+          String durStr = (row["duration"] ?? "").toString().toLowerCase();
+          
+          int hrs = 0;
+          int mins = 0;
+
+          if (durStr.contains('hrs') || durStr.contains('hr')) {
+            final parts = durStr.split('hr');
+            hrs = int.tryParse(parts[0].trim()) ?? 0;
+            if (parts.length > 1 && parts[1].contains('min')) {
+              final minPart = parts[1].replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
+              mins = int.tryParse(minPart) ?? 0;
+            }
+          } else if (durStr.contains('min')) {
+            final minPart = durStr.replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
+            mins = int.tryParse(minPart) ?? 0;
+          }
+
+          totalSumSeconds += (hrs * 3600) + (mins * 60);
+        }
+
+        int totalHours = totalSumSeconds ~/ 3600;
+        int totalMinutes = (totalSumSeconds % 3600) ~/ 60;
+
+        if (mounted) {
+          setState(() {
+            formattedTotalWorkingTime = '${totalHours.toString().padLeft(2, '0')}h ${totalMinutes.toString().padLeft(2, '0')}m';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Working hours fetch error: $e");
+    }
   }
 
   Future<void> _checkNewNotifications() async {
@@ -165,7 +250,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 📱 Hamburger Menu Icon for Mobile
                 if (!isDesktop) ...[
                   Builder(
                     builder: (ctx) => IconButton(
@@ -178,7 +262,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
                   SizedBox(width: isSmallMobile ? 4 : 12),
                 ],
 
-                // 🔍 Responsive Search Bar
                 Expanded(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 440),
@@ -229,8 +312,130 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
                 ),
                 
                 const SizedBox(width: 8),
+
+                // 🟢 3D Rotating Container with Mouse Hover and Tap Pause Functionality
+                MouseRegion(
+                  onEnter: (_) {
+                    setState(() {
+                      _isPaused = true;
+                      _rotateController.stop();
+                    });
+                  },
+                  onExit: (_) {
+                    setState(() {
+                      _isPaused = false;
+                      _rotateController.repeat();
+                    });
+                  },
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _isPaused = !_isPaused;
+                        if (_isPaused) {
+                          _rotateController.stop();
+                        } else {
+                          _rotateController.repeat();
+                        }
+                      });
+                      widget.onTapWorkingHours?.call();
+                    },
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_rotateController, _glowAnimation]),
+                      builder: (context, child) {
+                        final double angle = _isPaused 
+                            ? 0.0 
+                            : _rotateController.value * 2 * 3.141592653589793;
+                        final bool isBackSide = angle > (3.141592653589793 / 2) && angle < (3 * 3.141592653589793 / 2);
+                        final double currentGlow = _glowAnimation.value;
+
+                        return Transform(
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.001)
+                            ..rotateY(angle),
+                          alignment: Alignment.center,
+                          child: Transform(
+                            transform: Matrix4.identity()
+                              ..rotateY(isBackSide ? 3.141592653589793 : 0.0),
+                            alignment: Alignment.center,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.cyanAccent.withValues(alpha: 0.6),
+                                    blurRadius: currentGlow * 1.5,
+                                    spreadRadius: currentGlow * 0.4,
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.purpleAccent.withValues(alpha: 0.5),
+                                    blurRadius: currentGlow * 2,
+                                    spreadRadius: currentGlow * 0.2,
+                                  ),
+                                ],
+                              ),
+                              child: child,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Material(
+                        color: const Color.fromARGB(255, 245, 249, 255),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () {}, // Handled by outer GestureDetector
+                          child: CustomPaint(
+                            painter: MovingNeonBorderPainter(
+                              animationValue: _isPaused ? 0.0 : _rotateController.value,
+                              borderRadius: BorderRadius.circular(8),
+                              strokeWidth: 2.5,
+                            ),
+                            child: Container(
+                              height: 38,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: const Color.fromARGB(0, 14, 65, 141),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.bolt_rounded, size: 16, color: Colors.cyanAccent),
+                                  const SizedBox(width: 4),
+                                  ShaderMask(
+                                    shaderCallback: (bounds) {
+                                      return LinearGradient(
+                                        colors: const [
+                                          Colors.cyanAccent,
+                                          Colors.blueAccent,
+                                          Colors.purpleAccent,
+                                          Colors.pinkAccent,
+                                          Colors.cyanAccent,
+                                        ],
+                                        stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+                                        transform: GradientRotation(_isPaused ? 0.0 : _rotateController.value * 2 * 3.141592653589793),
+                                      ).createShader(bounds);
+                                    },
+                                    child: Text(
+                                      isSmallMobile ? "Today: $formattedTotalWorkingTime" : "Today Working Hours: $formattedTotalWorkingTime",
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.white,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 
-                // 🔔 Notification Icon with Badge
                 Stack(
                   children: [
                     IconButton(
@@ -268,7 +473,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
                   const SizedBox(width: 14),
                 ],
 
-                // 👤 User Profile Section
                 Consumer<AuthService>(
                   builder: (context, authService, _) {
                     final employeeName = authService.user?['fullName'] ?? 'Employee';
@@ -332,7 +536,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
             ),
           ),
 
-          // 🌟 Top-Right Notification Popup
           if (_showPopup)
             Positioned(
               top: 68,
@@ -389,5 +592,51 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> {
     } else {
       return parts.first[0].toUpperCase();
     }
+  }
+}
+
+// 🟢 High-Intensity Neon Moving Border Custom Painter
+class MovingNeonBorderPainter extends CustomPainter {
+  final double animationValue;
+  final BorderRadius borderRadius;
+  final double strokeWidth;
+
+  MovingNeonBorderPainter({
+    required this.animationValue,
+    required this.borderRadius,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final rRect = borderRadius.toRRect(rect);
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..shader = SweepGradient(
+        center: Alignment.center,
+        startAngle: 0.0,
+        endAngle: 2 * 3.141592653589793,
+        colors: const [
+          Colors.cyanAccent,
+          Colors.blueAccent,
+          Colors.purpleAccent,
+          Colors.pinkAccent,
+          Colors.amberAccent,
+          Colors.cyanAccent,
+        ],
+        transform: GradientRotation(animationValue * 2 * 3.141592653589793),
+      ).createShader(rect);
+
+    canvas.drawRRect(rRect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant MovingNeonBorderPainter oldDelegate) {
+    return oldDelegate.animationValue != animationValue ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
