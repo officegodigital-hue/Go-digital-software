@@ -207,29 +207,59 @@ bool _loadingClients = false;
 // }
  
 
-  Future<void> _fetchClientsFromInvoices() async {
-   setState(() => _loadingClients = true);
-    try {
-      final r = await http.get(Uri.parse('$_baseUrl/clients'));
-      if (r.statusCode == 200) {
-        final body = jsonDecode(r.body);
-        final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
-        setState(() {
-          clients = data
-              .where((c) => c['is_active'] == 1 || c['is_active'] == true)
-              .map((c) => (c['company_name'] ?? '').toString().trim())
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
-          _loadingClients = false;
-        });
-      } else {
-        setState(() => _loadingClients = false);
-      }
-    } catch (e) {
+//   Future<void> _fetchClientsFromInvoices() async {
+//    setState(() => _loadingClients = true);
+//     try {
+//       final r = await http.get(Uri.parse('$_baseUrl/clients'));
+//       if (r.statusCode == 200) {
+//         final body = jsonDecode(r.body);
+//         final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+//         setState(() {
+//           clients = data
+//               .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+//               .map((c) => (c['company_name'] ?? '').toString().trim())
+//               .where((name) => name.isNotEmpty)
+//               .toSet()
+//               .toList()
+//             ..sort();
+//           _loadingClients = false;
+//         });
+//       } else {
+//         setState(() => _loadingClients = false);
+//       }
+//     } catch (e) {
+//       setState(() => _loadingClients = false);
+//     }
+// }
+
+Future<void> _fetchClientsFromInvoices() async {
+  setState(() => _loadingClients = true);
+  try {
+    final r = await http.get(Uri.parse('$_baseUrl/clients/active-list'));
+    debugPrint("📥 Clients API Response Code: ${r.statusCode}");
+    
+    if (r.statusCode == 200) {
+      final body = jsonDecode(r.body);
+      final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+      debugPrint("📥 Total Clients Fetched: ${data.length}");
+
+      setState(() {
+        clients = data
+            .map((c) => (c['company_name'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        _loadingClients = false;
+      });
+      debugPrint("📥 Filtered Clients List for Dropdown: $clients");
+    } else {
       setState(() => _loadingClients = false);
     }
+  } catch (e) {
+    debugPrint('❌ Error fetching clients: $e');
+    setState(() => _loadingClients = false);
+  }
 }
  
   @override

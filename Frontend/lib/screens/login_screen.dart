@@ -14,6 +14,7 @@ class _LoginScreenState extends State<LoginScreen> {
   int _selectedTab = 0; // 0 = Employee, 1 = Admin
   bool _rememberDevice = false;
   bool _obscurePassword = true;
+  final bool _isLoading = false;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -23,6 +24,8 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _loadRememberedUser();
   }
+
+
 
   Future<void> _loadRememberedUser() async {
     final prefs = await SharedPreferences.getInstance();
@@ -513,6 +516,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       _navigateBasedOnRole(authService.userRole, isAdmin);
+      // _navigateToHome();
     }
   }
 
@@ -541,6 +545,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     Navigator.pushReplacementNamed(context, route);
   }
+
+  // void _navigateToHome() {
+  //   debugPrint('➡️ Navigating to: /home');
+  //   Navigator.pushReplacementNamed(context, '/home');
+  // }
 
   void _handleCreateAccount() {
     debugPrint('Create Admin Account tapped');

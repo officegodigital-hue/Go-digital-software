@@ -31,6 +31,45 @@ function computePercent(client, credentialCount) {
   return Math.min(80, Math.round(percent));
 }
 
+
+// 🟢 1. PUT /active-list ON TOP OF /:id to prevent route hijacking
+router.get('/active-list', async (req, res) => {
+  try {
+    const [clients] = await db.query(
+      `SELECT id, company_name, industry, is_active 
+       FROM clients 
+       WHERE is_active = 1 OR is_active IS NULL 
+       ORDER BY company_name ASC`
+    );
+
+    return res.json({
+      success: true,
+      data: clients,
+    });
+  } catch (err) {
+    console.error('GET /clients/active-list ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});// 🟢 1. PUT /active-list ON TOP OF /:id to prevent route hijacking
+router.get('/active-list', async (req, res) => {
+  try {
+    const [clients] = await db.query(
+      `SELECT id, company_name, industry, is_active 
+       FROM clients 
+       WHERE is_active = 1 OR is_active IS NULL 
+       ORDER BY company_name ASC`
+    );
+
+    return res.json({
+      success: true,
+      data: clients,
+    });
+  } catch (err) {
+    console.error('GET /clients/active-list ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // 1. GET /api/clients — Role-based filtering for main admin and regular admins
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -428,5 +467,8 @@ router.patch('/:id/order', async (req, res) => {
     conn.release();
   }
 });
+
+
+
 
 module.exports = router;

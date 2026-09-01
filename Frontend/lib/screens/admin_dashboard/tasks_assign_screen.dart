@@ -73,19 +73,44 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   // ✅ FIXED: Fetch active clients from /api/clients and filter company_name where is_active == 1
-  Future<void> _fetchClients() async {
+//   Future<void> _fetchClients() async {
+//   setState(() => _loadingClients = true);
+//   try {
+//     final r = await http.get(Uri.parse('$_baseUrl/clients'));
+//     if (r.statusCode == 200) {
+//       final body = jsonDecode(r.body);
+//       final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+//       setState(() {
+//         allClientsData = data; // Keep full client data to check status later
+        
+//         // Active clients for dropdowns
+//         clients = data
+//             .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+//             .map((c) => (c['company_name'] ?? '').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
+//         _loadingClients = false;
+//       });
+//     } else {
+//       setState(() => _loadingClients = false);
+//     }
+//   } catch (e) {
+//     setState(() => _loadingClients = false);
+//   }
+// }
+
+Future<void> _fetchClients() async {
   setState(() => _loadingClients = true);
   try {
-    final r = await http.get(Uri.parse('$_baseUrl/clients'));
+    final r = await http.get(Uri.parse('$_baseUrl/clients/active-list')); // 🟢 Updated route
     if (r.statusCode == 200) {
       final body = jsonDecode(r.body);
       final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
       setState(() {
-        allClientsData = data; // Keep full client data to check status later
-        
-        // Active clients for dropdowns
+        allClientsData = data; 
         clients = data
-            .where((c) => c['is_active'] == 1 || c['is_active'] == true)
             .map((c) => (c['company_name'] ?? '').toString().trim())
             .where((name) => name.isNotEmpty)
             .toSet()
