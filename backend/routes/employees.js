@@ -215,7 +215,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/employees/:id — Update Employee
+// PUT /api/employees/:id — Update Employee & Cascade Name Changes to Task Assignments, Task List, Day Planner & Notifications
 router.put('/:id', async (req, res) => {
   const { 
     firstName, middleName = '', lastName, staffId, 
@@ -232,7 +232,11 @@ router.put('/:id', async (req, res) => {
   const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
   try {
-    // 1. Employee table-a mattum update panrom (Clients table-a touch seyyakoodathu!)
+    // 1. Fetch old employee details to get their previous name
+    const [oldEmpRows] = await db.query('SELECT full_name FROM employee_users WHERE id = ?', [empId]);
+    const oldFullName = oldEmpRows.length > 0 ? oldEmpRows[0].full_name : null;
+
+    // 2. Update employee_users table
     if (password && password.trim() !== '') {
       await db.query(
         `UPDATE employee_users SET
@@ -251,7 +255,77 @@ router.put('/:id', async (req, res) => {
       );
     }
 
-    // 2. Update Page Access (Role page access table mattum update aagum)
+    // 3. 🟢 CASCADE NAME CHANGE: If employee name changed, update task_assignments, task_list, day_plan_rows, and notifications tables instantly
+    if (oldFullName && oldFullName.trim().toUpperCase() !== fullName.trim().toUpperCase()) {
+      const targetOldName = oldFullName.trim();
+      const targetNewName = fullName.trim();
+
+      // Update task_list records
+      await db.query(
+        `UPDATE task_list SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // Update day_plan_rows records
+      await db.query(
+        `UPDATE day_plan_rows SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // 🟢 Update notifications table (sender_name & recipient_name)
+      await db.query(
+        `UPDATE notifications SET sender_name = ? WHERE UPPER(TRIM(sender_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE notifications SET recipient_name = ? WHERE UPPER(TRIM(recipient_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // 🟢 Update task_planner tables (employee_name, sender/receiver names)
+      await db.query(
+        `UPDATE task_planner SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE task_planner_shares SET sender_employee_name = ? WHERE UPPER(TRIM(sender_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE task_planner_shares SET receiver_employee_name = ? WHERE UPPER(TRIM(receiver_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // 🟢 Update videographer_planner tables
+      await db.query(
+        `UPDATE videographer_planner SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE videographer_planner_shares SET sender_employee_name = ? WHERE UPPER(TRIM(sender_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE videographer_planner_shares SET receiver_employee_name = ? WHERE UPPER(TRIM(receiver_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // Update role columns in task_assignments table
+      const roleColumns = [
+        'designer', 'videographer', 'video_editor', 
+        'ui_ux_designer', 'developer', 'ads_handling', 
+        'page_handling', 'website_designer'
+      ];
+
+      for (const col of roleColumns) {
+        await db.query(
+          `UPDATE task_assignments SET ${col} = ? WHERE UPPER(TRIM(${col})) = UPPER(TRIM(?))`,
+          [targetNewName, targetOldName]
+        );
+      }
+    }
+
+    // 4. Update Page Access
     const [existingAccess] = await db.query(`SELECT id FROM role_page_access WHERE employee_id = ?`, [empId]);
     const pagesJson = JSON.stringify(allowedPages || []);
 

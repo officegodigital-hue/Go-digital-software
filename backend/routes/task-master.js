@@ -108,8 +108,9 @@ router.post('/', async (req, res) => {
 
 // PUT /api/task-master/:id — Update existing task
 // Body: { task_name, role_key }
+// PUT /api/task-master/:id — Update existing task and cascade changes to timings, assignments, task_list, and tracking items
 router.put('/:id', async (req, res) => {
-  const { task_name, role_key } = req.body;
+  const { task_name, role_key, timing, qty } = req.body;
   const taskMasterId = req.params.id;
 
   if (!task_name || !role_key) {
@@ -123,7 +124,6 @@ router.put('/:id', async (req, res) => {
 
   try {
     connection = await db.getConnection();
-
     await connection.beginTransaction();
 
     // =========================================================
@@ -138,7 +138,6 @@ router.put('/:id', async (req, res) => {
 
     if (oldTaskRows.length === 0) {
       await connection.rollback();
-
       return res.status(404).json({
         success: false,
         message: 'Task not found'
@@ -148,75 +147,66 @@ router.put('/:id', async (req, res) => {
     const oldTaskName = oldTaskRows[0].task_name;
     const newTaskName = task_name.trim();
 
-    // If nothing actually changed
-    if (
-      oldTaskName === newTaskName &&
-      oldTaskRows[0].role_key === role_key
-    ) {
-      await connection.rollback();
-
-      return res.json({
-        success: true,
-        message: 'No changes found',
-        data: {
-          id: taskMasterId,
-          task_name: newTaskName,
-          role_key
-        }
-      });
-    }
-
     // =========================================================
-    // 2. Update Task Master
+    // 2. Update Task Master Table
     // =========================================================
-    const [result] = await connection.query(
+    await connection.query(
       `UPDATE task_master
        SET task_name = ?, role_key = ?
        WHERE id = ?`,
-      [
-        newTaskName,
-        role_key,
-        taskMasterId
-      ]
+      [newTaskName, role_key, taskMasterId]
     );
 
-    if (result.affectedRows === 0) {
-      await connection.rollback();
-
-      return res.status(404).json({
-        success: false,
-        message: 'Task not found'
-      });
+    // =========================================================
+    // 3. 🟢 Update task_timings Table (Task Timing)
+    // =========================================================
+    let timingUpdated = 0;
+    if (timing !== undefined) {
+      const finalQty = qty && qty.toString().trim() !== '' ? qty : '1';
+      const [timingResult] = await connection.query(
+        `UPDATE task_timings
+         SET task_name = ?, timing = ?, qty = ?
+         WHERE task_master_id = ?`,
+        [newTaskName, timing, finalQty, taskMasterId]
+      );
+      timingUpdated = timingResult.affectedRows;
+    } else {
+      // If timing object not explicitly passed, at least keep task_name in sync
+      const [timingResult] = await connection.query(
+        `UPDATE task_timings
+         SET task_name = ?
+         WHERE task_master_id = ?`,
+        [newTaskName, taskMasterId]
+      );
+      timingUpdated = timingResult.affectedRows;
     }
 
     // =========================================================
-    // 3. Update task_list
-    //
-    // task_list has task_master_id.
-    // Replace only the old task name inside deliverables.
+    // 4. 🟢 Update task_list Table (Per-client allocations)
     // =========================================================
     const [taskListResult] = await connection.query(
       `UPDATE task_list
        SET deliverables = REPLACE(deliverables, ?, ?)
        WHERE task_master_id = ?
          AND deliverables IS NOT NULL`,
-      [
-        oldTaskName,
-        newTaskName,
-        taskMasterId
-      ]
+      [oldTaskName, newTaskName, taskMasterId]
     );
 
     // =========================================================
-    // 4. Update task_assignments
-    //
-    // These columns contain task names such as:
-    //
-    // GMB (1)
-    // META ADS (1), GMB (1)
-    // GMB (1), FACEBOOK VEDIOS (1)
-    //
-    // So we replace ONLY the task name part.
+    // 5. 🟢 Update time_tracking_task_items Table (Time Tracking Details)
+    // =========================================================
+    // Updates task descriptions inside tracking items tied to this task_master_id through task_list
+    const [trackingItemResult] = await connection.query(
+      `UPDATE time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       SET tti.task_description = REPLACE(tti.task_description, ?, ?)
+       WHERE tl.task_master_id = ?
+         AND tti.task_description IS NOT NULL`,
+      [oldTaskName, newTaskName, taskMasterId]
+    );
+
+    // =========================================================
+    // 6. 🟢 Update task_assignments Table (Role task columns)
     // =========================================================
     const assignmentColumns = [
       'designer_tasks',
@@ -226,7 +216,7 @@ router.put('/:id', async (req, res) => {
       'developer_tasks',
       'ads_platform',
       'pages_platform',
-      'website_designer_task'
+      'website_designer_tasks'
     ];
 
     let assignmentUpdated = 0;
@@ -237,73 +227,56 @@ router.put('/:id', async (req, res) => {
          SET ${column} = REPLACE(${column}, ?, ?)
          WHERE ${column} IS NOT NULL
            AND ${column} LIKE ?`,
-        [
-          oldTaskName,
-          newTaskName,
-          `%${oldTaskName}%`
-        ]
+        [oldTaskName, newTaskName, `%${oldTaskName}%`]
       );
 
       assignmentUpdated += updateResult.affectedRows;
     }
 
     // =========================================================
-    // 5. Commit all changes
+    // 7. Commit all changes safely
     // =========================================================
     await connection.commit();
 
     console.log('==========================================');
-    console.log('✅ TASK MASTER UPDATED');
+    console.log('✅ TASK MASTER & CASCADED TABLES UPDATED');
     console.log(`ID           : ${taskMasterId}`);
     console.log(`Old Name     : ${oldTaskName}`);
     console.log(`New Name     : ${newTaskName}`);
-    console.log(`Role         : ${role_key}`);
-    console.log(
-      `task_list    : ${taskListResult.affectedRows} rows`
-    );
-    console.log(
-      `assignments  : ${assignmentUpdated} rows`
-    );
+    console.log(`Timings      : ${timingUpdated} rows`);
+    console.log(`Task List    : ${taskListResult.affectedRows} rows`);
+    console.log(`Tracking     : ${trackingItemResult.affectedRows} rows`);
+    console.log(`Assignments  : ${assignmentUpdated} rows`);
     console.log('==========================================');
 
     return res.json({
       success: true,
-      message: 'Task updated successfully across all related data',
+      message: 'Task and timings updated successfully across all related data',
       data: {
         id: taskMasterId,
         old_task_name: oldTaskName,
         task_name: newTaskName,
         role_key,
+        timings_updated: timingUpdated,
         task_list_updated: taskListResult.affectedRows,
+        tracking_items_updated: trackingItemResult.affectedRows,
         task_assignments_updated: assignmentUpdated
       }
     });
 
   } catch (err) {
-
     if (connection) {
       try {
         await connection.rollback();
       } catch (rollbackErr) {
-        console.error(
-          'Rollback ERROR:',
-          rollbackErr.message
-        );
+        console.error('Rollback ERROR:', rollbackErr.message);
       }
     }
 
-    console.error(
-      'PUT /task-master/:id ERROR:',
-      err.message
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    console.error('PUT /task-master/:id ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
 
   } finally {
-
     if (connection) {
       connection.release();
     }

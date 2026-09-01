@@ -234,6 +234,52 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // PUT /api/clients/:id
+// router.put('/:id', async (req, res) => {
+//   const {
+//     companyName,  industry, contactPerson, email, address,
+//     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
+//     clientPhone, gstNumber 
+//   } = req.body;
+
+//   if (!companyName)
+//     return res.status(400).json({ success: false, message: 'companyName is required' });
+
+//   try {
+//     const [result] = await db.query(
+//       `UPDATE clients
+//        SET company_name = ?,  industry = ?, contact_person = ?, email = ?, address = ?,
+//            bank_account_name = ?, bank_name = ?, bank_account_number = ?, bank_ifsc = ?,
+//            status = ?, client_phone = ?, gst_number = ?
+//        WHERE id = ?`,
+//       [
+//         companyName,  industry || '', contactPerson || '', email || '', address || '',
+//         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
+//         status || 'draft', clientPhone || '', gstNumber || '', req.params.id
+//       ]
+//     );
+    
+//     if (result.affectedRows === 0)
+//       return res.status(404).json({ success: false, message: 'Client not found' });
+
+//     const [credCount] = await db.query(
+//       `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
+//       [req.params.id]
+//     );
+    
+//     const completionPercent = computePercent({
+//       status: status || 'draft',
+//       bank_account_name: bankAccountName, bank_name: bankName,
+//       bank_account_number: bankAccountNumber, bank_ifsc: bankIfsc,
+//     }, credCount[0].cnt);
+
+//     return res.json({ success: true, message: 'Client updated', completion_percent: completionPercent });
+//   } catch (err) {
+//     console.error('PUT /clients/:id ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
+// PUT /api/clients/:id — Update client & cascade company name changes to all related tables
 router.put('/:id', async (req, res) => {
   const {
     companyName,  industry, contactPerson, email, address,
@@ -244,26 +290,78 @@ router.put('/:id', async (req, res) => {
   if (!companyName)
     return res.status(400).json({ success: false, message: 'companyName is required' });
 
+  const clientId = req.params.id;
+  const connection = await db.getConnection();
+
   try {
-    const [result] = await db.query(
+    await connection.beginTransaction();
+
+    // 1. Fetch old client details to get the previous company name
+    const [oldRows] = await connection.query(`SELECT company_name FROM clients WHERE id = ?`, [clientId]);
+    if (oldRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Client not found' });
+    }
+    const oldCompanyName = oldRows[0].company_name;
+    const newCompanyName = companyName.trim();
+
+    // 2. Update the clients table
+    const [result] = await connection.query(
       `UPDATE clients
        SET company_name = ?,  industry = ?, contact_person = ?, email = ?, address = ?,
            bank_account_name = ?, bank_name = ?, bank_account_number = ?, bank_ifsc = ?,
            status = ?, client_phone = ?, gst_number = ?
        WHERE id = ?`,
       [
-        companyName,  industry || '', contactPerson || '', email || '', address || '',
+        newCompanyName,  industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft', clientPhone || '', gstNumber || '', req.params.id
+        status || 'draft', clientPhone || '', gstNumber || '', clientId
       ]
     );
     
-    if (result.affectedRows === 0)
+    if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ success: false, message: 'Client not found' });
+    }
 
-    const [credCount] = await db.query(
+    // 3. 🟢 CASCADE COMPANY NAME CHANGE: If company name changed, update all linked records
+    if (oldCompanyName && oldCompanyName.trim().toUpperCase() !== newCompanyName.toUpperCase()) {
+      const targetOldName = oldCompanyName.trim();
+
+      // Update invoices table
+      await connection.query(
+        `UPDATE invoices SET client_name = ? WHERE UPPER(TRIM(client_name)) = UPPER(TRIM(?))`,
+        [newCompanyName, targetOldName]
+      );
+
+      // Update quotations table
+      await connection.query(
+        `UPDATE quotations SET client_name = ? WHERE UPPER(TRIM(client_name)) = UPPER(TRIM(?))`,
+        [newCompanyName, targetOldName]
+      );
+
+      // Update task_assignments table
+      await connection.query(
+        `UPDATE task_assignments SET client_name = ? WHERE UPPER(TRIM(client_name)) = UPPER(TRIM(?))`,
+        [newCompanyName, targetOldName]
+      );
+
+      // Update task_list table
+      await connection.query(
+        `UPDATE task_list SET client_name = ? WHERE UPPER(TRIM(client_name)) = UPPER(TRIM(?))`,
+        [newCompanyName, targetOldName]
+      );
+
+      // Update day_plan_rows table
+      await connection.query(
+        `UPDATE day_plan_rows SET client_name = ? WHERE UPPER(TRIM(client_name)) = UPPER(TRIM(?))`,
+        [newCompanyName, targetOldName]
+      );
+    }
+
+    const [credCount] = await connection.query(
       `SELECT COUNT(*) as cnt FROM client_credentials WHERE client_id = ?`,
-      [req.params.id]
+      [clientId]
     );
     
     const completionPercent = computePercent({
@@ -272,10 +370,14 @@ router.put('/:id', async (req, res) => {
       bank_account_number: bankAccountNumber, bank_ifsc: bankIfsc,
     }, credCount[0].cnt);
 
-    return res.json({ success: true, message: 'Client updated', completion_percent: completionPercent });
+    await connection.commit();
+    return res.json({ success: true, message: 'Client updated successfully', completion_percent: completionPercent });
   } catch (err) {
+    await connection.rollback();
     console.error('PUT /clients/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
   }
 });
 
