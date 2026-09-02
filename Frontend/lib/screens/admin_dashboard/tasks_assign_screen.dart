@@ -1379,7 +1379,7 @@ final visibleRows = taskRows.where((r) {
                 OutlinedButton.icon(
                   onPressed: () => setState(() => _showAssigned = !_showAssigned),
                   icon: Icon(_showAssigned ? Icons.pending_actions_rounded : Icons.check_circle_outline_rounded, size: 16, color: const Color(0xFF0052CC)),
-                  label: Text(_showAssigned ? "Show Pending" : "Show Assigned", style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 13)),
+                  label: Text(_showAssigned ? "New Assigned Tasks" : " Assigned Tasks", style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 13)),
                   style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF0052CC))),
                 ),
                 const SizedBox(width: 8),
