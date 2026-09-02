@@ -533,4 +533,88 @@ io.emit("taskAssigned", {
   }
 });
 
+
+// routes/tasks.js — Next cycle route without modifying old task's assignment status
+router.post('/:id/duplicate-next-month', async (req, res) => {
+  try {
+    const [rows] = await db.query(`SELECT * FROM task_assignments WHERE id = ?`, [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: 'Task not found' });
+    const task = rows[0];
+
+    // 🔴 OLD TASK-AI TOUCH SEYYAVENDAM. Adhe assigned list-lae irukkattum!
+
+    let nextMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
+    if (!isNaN(nextMaintenance.getTime())) {
+      nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
+    } else {
+      nextMaintenance = new Date();
+      nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
+    }
+
+    let nextDeadline = task.deadline ? new Date(task.deadline) : new Date();
+    if (!isNaN(nextDeadline.getTime())) {
+      nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+    } else {
+      nextDeadline = new Date();
+      nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+    }
+
+    const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+
+    // 🟢 Insert brand new active task for next cycle (is_assigned = 1)
+    const [result] = await db.query(`
+      INSERT INTO task_assignments (
+        client_name, deliverables, maintenance_date, 
+        ads_handling, ads_platform, 
+        page_handling, pages_platform, 
+        designer, designer_tasks, 
+        videographer, videographer_tasks, 
+        video_editor, video_editor_task, 
+        ui_ux_designer, ui_ux_tasks, 
+        developer, developer_tasks, 
+        website_designer, website_designer_tasks, 
+        deadline, comments, is_assigned
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `, [
+      task.client_name, 
+      task.deliverables, 
+      formatSqlDate(nextMaintenance),
+      task.ads_handling, 
+      task.ads_platform,
+      task.page_handling, 
+      task.pages_platform,
+      task.designer, 
+      task.designer_tasks,
+      task.videographer, 
+      task.videographer_tasks,
+      task.video_editor, 
+      task.video_editor_task,
+      task.ui_ux_designer, 
+      task.ui_ux_tasks,
+      task.developer, 
+      task.developer_tasks,
+      task.website_designer, 
+      task.website_designer_tasks,
+      formatSqlDate(nextDeadline), 
+      task.comments
+    ]);
+
+    const io = req.app.get('io');
+if (io) {
+  io.emit('taskAssigned', { refresh: true });
+  io.emit('task_updated', { type: 'TASK_ASSIGNED', message: 'New recurring task added' });
+}
+
+    return res.status(201).json({ 
+      success: true, 
+      message: 'New next cycle task created successfully!', 
+      newId: result.insertId 
+    });
+  } catch (err) {
+    console.error('Duplicate next month error:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 module.exports = router;

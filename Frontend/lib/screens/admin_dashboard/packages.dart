@@ -1907,12 +1907,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeroSection(isMobile: isMobile),
-              const SizedBox(height: 20),
-              _buildStats(
-                isMobile: isMobile,
-                totalPackages: packagesData.length,
-                popularCount: popularCount,
-              ),
+              
               const SizedBox(height: 28),
               _buildPackagesSectionHeader(
                 isMobile: isMobile,
@@ -2058,104 +2053,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
     );
   }
 
-  Widget _buildStats({
-    required bool isMobile,
-    required int totalPackages,
-    required int popularCount,
-  }) {
-    final stats = [
-      {
-        'label': 'Total Packages',
-        'value': '$totalPackages',
-        'icon': Icons.inventory_2_rounded,
-        'color': _primary,
-      },
-      {
-        'label': 'Popular Plans',
-        'value': '$popularCount',
-        'icon': Icons.workspace_premium_rounded,
-        'color': _warning,
-      },
-    ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: stats.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: isMobile ? 10 : 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: isMobile ? 1.75 : 2.8,
-      ),
-      itemBuilder: (context, index) {
-        final stat = stats[index];
-        final Color color = stat['color'] as Color;
-
-        return Container(
-          padding: EdgeInsets.all(isMobile ? 12 : 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(isMobile ? 16 : 18),
-            border: Border.all(color: _border),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.025),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: isMobile ? 42 : 48,
-                height: isMobile ? 42 : 48,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
-                ),
-                child: Icon(
-                  stat['icon'] as IconData,
-                  color: color,
-                  size: isMobile ? 21 : 24,
-                ),
-              ),
-              SizedBox(width: isMobile ? 10 : 14),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      stat['value'] as String,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: isMobile ? 20 : 22,
-                        fontWeight: FontWeight.w900,
-                        color: _ink,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      stat['label'] as String,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: isMobile ? 9 : 11,
-                        color: _muted,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildPackagesSectionHeader({
     required bool isMobile,

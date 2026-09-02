@@ -5,53 +5,85 @@ const cors    = require('cors');
 const cron = require('node-cron');
 const db = require('./config/db');
 
-// Run every month on the 1st day at midnight (00:00) to check and auto-assign active client tasks for the next month
-cron.schedule('0 0 1 * *', async () => {
-  console.log('🔄 Running Monthly Task Auto-Assignment Check...');
+// Run every day at midnight (00:00) to check expired tasks and auto-create next cycle
+cron.schedule('0 0 * * *', async () => {
+  console.log('🔄 Running Daily Task Auto-Rollover & Next Cycle Check...');
   try {
-    const [activeTasks] = await db.query(`
-      SELECT t.*, c.is_active 
-      FROM task_assignments t
-      JOIN clients c ON t.client_name = c.company_name
-      WHERE t.is_assigned = 1 AND c.is_active = 1
+    // 🟢 DATE(deadline) use seivathal time mismatch aagathu (Expired tasks clean-ah catch aagum)
+    const [expiredTasks] = await db.query(`
+      SELECT * FROM task_assignments 
+      WHERE is_assigned = 1 
+        AND deadline IS NOT NULL 
+        AND DATE(deadline) < CURDATE()
     `);
 
-    for (const task of activeTasks) {
-      let currentDeadline = task.deadline ? new Date(task.deadline) : new Date();
-      currentDeadline.setMonth(currentDeadline.getMonth() + 1);
+    console.log(`📌 Found ${expiredTasks.length} expired task(s) for auto-rollover.`);
 
-      let currentMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
-      currentMaintenance.setMonth(currentMaintenance.getMonth() + 1);
+    for (const task of expiredTasks) {
+      // Calculate next month dates for the auto-generated next cycle task
+      let nextMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
+      if (!isNaN(nextMaintenance.getTime())) {
+        nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
+      } else {
+        nextMaintenance = new Date();
+        nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
+      }
 
+      let nextDeadline = task.deadline ? new Date(task.deadline) : new Date();
+      if (!isNaN(nextDeadline.getTime())) {
+        nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+      } else {
+        nextDeadline = new Date();
+        nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+      }
+
+      const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+
+      // 1. Mark old task as unassigned or archive status if needed, 
+      // (Neengal old task assigned tab-laye irukkanum sonnathanaal, is_assigned change seyyathevai illai, 
+      // aana ungalukku vendumnaal matra status-ku mathikalam. Ippo old task-ai touch seyyavendam ennathal intha line-ai skip panrom).
+
+      // 2. 🟢 Automatically Insert the new next cycle task (is_assigned = 1) with same details
       await db.query(`
         INSERT INTO task_assignments (
           client_name, deliverables, maintenance_date, 
-          ads_handling, ads_platform, ads_submit_date,
-          page_handling, pages_platform, page_submit_date,
-          designer, designer_tasks, designer_submit_date,
-          videographer, videographer_tasks, videographer_submit_date,
-          video_editor, video_editor_task, video_editor_submit_date,
-          ui_ux_designer, ui_ux_tasks, ui_ux_submit_date,
-          developer, developer_tasks, developer_submit_date,
-          website_designer, website_designer_tasks, website_designer_submit_date,
-          deadline, comments, is_assigned, assigned_by_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+          ads_handling, ads_platform, 
+          page_handling, pages_platform, 
+          designer, designer_tasks, 
+          videographer, videographer_tasks, 
+          video_editor, video_editor_task, 
+          ui_ux_designer, ui_ux_tasks, 
+          developer, developer_tasks, 
+          website_designer, website_designer_tasks, 
+          deadline, comments, is_assigned
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `, [
-        task.client_name, task.deliverables, currentMaintenance,
-        task.ads_handling, task.ads_platform, currentMaintenance,
-        task.page_handling, task.pages_platform, currentMaintenance,
-        task.designer, task.designer_tasks, currentMaintenance,
-        task.videographer, task.videographer_tasks, currentMaintenance,
-        task.video_editor, task.video_editor_task, currentMaintenance,
-        task.ui_ux_designer, task.ui_ux_tasks, currentMaintenance,
-        task.developer, task.developer_tasks, currentMaintenance,
-        task.website_designer, task.website_designer_tasks, currentMaintenance,
-        currentDeadline, task.comments, task.assigned_by_name
+        task.client_name, 
+        task.deliverables, 
+        formatSqlDate(nextMaintenance),
+        task.ads_handling, 
+        task.ads_platform,
+        task.page_handling, 
+        task.pages_platform,
+        task.designer, 
+        task.designer_tasks,
+        task.videographer, 
+        task.videographer_tasks,
+        task.video_editor, 
+        task.video_editor_task,
+        task.ui_ux_designer, 
+        task.ui_ux_tasks,
+        task.developer, 
+        task.developer_tasks,
+        task.website_designer, 
+        task.website_designer_tasks,
+        formatSqlDate(nextDeadline), 
+        task.comments
       ]);
     }
-    console.log('✅ Monthly active client tasks auto-assigned successfully for the next month.');
+    console.log('✅ Expired tasks automatically rolled over to the next cycle successfully.');
   } catch (err) {
-    console.error('❌ Auto-assignment cron error:', err.message);
+    console.error('❌ Automatic rollover cron error:', err.message);
   }
 });
 

@@ -1301,49 +1301,60 @@ setState(() {
     //   final clientName = (r['client_name'] ?? '').toString().toLowerCase();
     //   return clientName.contains(query);
     // }).toList();
-    final visibleRows = taskRows.where((r) {
+    
+final visibleRows = taskRows.where((r) {
   final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
   if (_showAssigned != assigned) return false;
 
-  // 🔍 Check Client Active Status
-  final clientName = (r['client_name'] ?? '').toString().trim();
-  if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
-    return true; // Keep pending selection rows visible
+  // 🟢 OLD CYCLE HIDING LOGIC (Without changing backend):
+  // Oru client-kku (e.g., JEYASRI HOSTAL) multiple rows irunthal, 
+  // yethu mthandha/latest deadline or created_at date-ai konda row-o athu mattum thaan assigned tab-la irukkum.
+  // Puthu task (NEXT CYCLE) create aanathaala, antha old row-oda deadline munnadi ulla date-ah irukkum.
+  // Athanaal same client-ku athai vida oru future/latest deadline row iruntha, intha old row-ai hide pannidum!
+  
+  if (_showAssigned && r['client_name'] != null && r['client_name'] != 'PENDING_SELECTION') {
+    final currentClient = r['client_name'].toString().trim().toLowerCase();
+    final currentId = r['id'] is int ? r['id'] : int.tryParse(r['id'].toString()) ?? 0;
+
+    // TaskRows-la intha client-kkuavey innum oru mikkyaana (periya ID ulla or recent deadline ulla) task irukka nu paakrom
+    bool hasNewerTaskForSameClient = taskRows.any((other) {
+      final otherAssigned = other['is_assigned'] == 1 || other['is_assigned'] == true;
+      if (!otherAssigned) return false;
+
+      final otherClient = (other['client_name'] ?? '').toString().trim().toLowerCase();
+      if (otherClient != currentClient) return false;
+
+      final otherId = other['id'] is int ? other['id'] : int.tryParse(other['id'].toString()) ?? 0;
+
+      // Puthusa create aana row-oda ID old row-oda ID-ai vida periyaatha irukkum (Because it's newly inserted)
+      return otherId > currentId;
+    });
+
+    // Oru vela intha client-kku antha puthu task (newer row) iruntha, intha old row-ai hide panniru!
+    if (hasNewerTaskForSameClient) {
+      return false;
+    }
   }
 
-  // Find the client in our fetched list
+  // Client Active Status Verification
+  final clientName = (r['client_name'] ?? '').toString().trim();
+  if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
+    return true; 
+  }
+
   final clientMatch = allClientsData.firstWhere(
     (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
     orElse: () => {},
   );
 
-  // If client exists and is INACTIVE (is_active == 0 or false), hide the row!
   if (clientMatch.isNotEmpty) {
     final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
     if (!isActive) return false; 
   }
 
-  // Search query filtering
   if (_searchQuery.trim().isEmpty) return true;
   final query = _searchQuery.trim().toLowerCase();
-  
   if (clientName.toLowerCase().contains(query)) return true;
-
-  final roleFields = [
-    'ads_handling',
-    'page_handling',
-    'designer',
-    'videographer',
-    'video_editor',
-    'ui_ux_designer',
-    'developer',
-    'website_designer'
-  ];
-
-  for (final field in roleFields) {
-    final empValue = (r[field] ?? '').toString().toLowerCase();
-    if (empValue.contains(query)) return true;
-  }
 
   return false;
 }).toList();
@@ -1859,10 +1870,50 @@ SizedBox(
     );
   }
 
-  Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  // Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  //   return Container(
+  //     width: width,
+  //     padding: const EdgeInsets.symmetric(horizontal: 8),
+  //     child: Row(
+  //       children: [
+  //         if (!assigned) ...[
+  //           Expanded(
+  //             child: SizedBox(
+  //               height: 32,
+  //               child: ElevatedButton(
+  //                 onPressed: () => _toggleAssign(row),
+  //                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
+  //                 child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
+  //               ),
+  //             ),
+  //           ),
+  //           const SizedBox(width: 4),
+  //         ],
+  //         GestureDetector(
+  //           onTap: () => _deleteRow(row['id']),
+  //           child: Container(width: 24, height: 24, decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(4)), child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626))),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
+
+Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+    // 🟢 Deadline complete aayirukka (expired-ah) nu check panrathu
+    bool isDeadlinePassed = false;
+    if (row['deadline'] != null && row['deadline'].toString().trim().isNotEmpty) {
+      try {
+        DateTime deadlineDate = DateTime.parse(row['deadline'].toString());
+        if (deadlineDate.isBefore(DateTime.now())) {
+          isDeadlinePassed = true;
+        }
+      } catch (_) {}
+    }
+
     return Container(
       width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
         children: [
           if (!assigned) ...[
@@ -1873,6 +1924,32 @@ SizedBox(
                   onPressed: () => _toggleAssign(row),
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
                   child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ] else if (assigned && isDeadlinePassed) ...[
+            // 🟢 Assigned aagi, DEADLINE DATE COMPLETE AANATHU MATTUM "NEXT CYCLE" button show aagum
+            Expanded(
+              child: SizedBox(
+                height: 32,
+                child: ElevatedButton(
+                  onPressed: () async {
+  final res = await http.post(Uri.parse('$_baseUrl/tasks/${row['id']}/duplicate-next-month'));
+  if (res.statusCode == 200 || res.statusCode == 201) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ New task successfully added for next cycle!'), backgroundColor: Colors.green)
+    );
+    await _fetchTasks(); // 🟢 Table data-va fresh-ah backend-il irunthu eduthu state-ai update seiyum
+    setState(() {}); // 🟢 Screen-ai re-render seiyum
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('❌ Failed: ${res.body}'), backgroundColor: Colors.red)
+    );
+  }
+},
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16A34A), padding: EdgeInsets.zero),
+                  child: const FittedBox(child: Text("NEXT CYCLE", style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.w900))),
                 ),
               ),
             ),

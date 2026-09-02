@@ -650,6 +650,11 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
         })
         .length;
 
+    // 🟢 Add Draft count calculation here:
+final draftCount = quotationsData
+    .where((row) => (row['status'] ?? 'DRAFT').toString().toUpperCase() == 'DRAFT')
+    .length;
+
     return AdminLayout(
       pageTitle: "Quotations Management",
       currentRoute: "/quotation",
@@ -676,6 +681,7 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
                 total: quotationsData.length,
                 accepted: acceptedCount,
                 pending: pendingCount,
+                draft: draftCount,
               ),
               const SizedBox(height: 18),
               _buildQuotationWorkspace(
@@ -790,6 +796,7 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
     required int total,
     required int accepted,
     required int pending,
+    required int draft,
   }) {
     final stats = [
       {
@@ -810,6 +817,12 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
         'icon': Icons.hourglass_top_rounded,
         'color': const Color(0xFFF59E0B),
       },
+      {
+        'label': 'Draft',
+        'value': draft.toString(),
+        'icon': Icons.drafts_rounded,
+        'color': const Color(0xFF64748B),
+      },
     ];
 
     return GridView.builder(
@@ -817,7 +830,7 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: stats.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isMobile ? 2 : 3,
+        crossAxisCount: isMobile ? 2 : 4,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
         childAspectRatio: isMobile ? 1.85 : (isTablet ? 2.5 : 3.0),
