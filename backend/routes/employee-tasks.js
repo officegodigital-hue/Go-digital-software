@@ -16,98 +16,6 @@ const db      = require('../config/db');
 // Flutter uses this to build the tab list + task cards
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/employee-tasks/by-employee/:name
-// router.get('/by-employee/:name', async (req, res) => {
-//   const name = req.params.name.toUpperCase();
-
-//   try {
-//     // Find rows where employee appears in any role column and the client is ACTIVE (is_active = 1)
-//     const [rows] = await db.query(
-//       `SELECT
-//           ta.*,
-//           ta.deadline
-//        FROM task_assignments ta
-//        INNER JOIN clients c 
-//           ON TRIM(LOWER(ta.client_name)) = TRIM(LOWER(c.company_name))
-//        WHERE (
-//           UPPER(ta.designer)       LIKE ? OR
-//           UPPER(ta.videographer)   LIKE ? OR
-//           UPPER(ta.video_editor)   LIKE ? OR
-//           UPPER(ta.ads_handling)   LIKE ? OR
-//           UPPER(ta.page_handling)  LIKE ? OR
-//           UPPER(ta.ui_ux_designer) LIKE ? OR
-//           UPPER(ta.developer)      LIKE ? OR
-//           UPPER(ta.website_designer) LIKE ?
-//         )
-//           AND ta.is_assigned = 1
-//           AND c.is_active = 1
-//        ORDER BY ta.created_at DESC`,
-//       [
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`,
-//         `%${name}%`
-//       ]
-//     );
-
-//     for (const task of rows) {
-//       if (
-//         task.deliverables &&
-//         task.deliverables.toUpperCase().includes("PACKAGE")
-//       ) {
-//         continue;
-//       }
-      
-//       // Skip if task already exists
-//       const [exists] = await db.query(
-//         `SELECT id
-//          FROM task_list
-//          WHERE task_assignment_id = ?
-//            AND deliverables = ?
-//          LIMIT 1`,
-//         [task.id, task.deliverables]
-//       );
-
-//       if (exists.length === 0) {
-//         await db.query(
-//           `INSERT INTO task_list
-//           (
-//             task_assignment_id,
-//             employee_id,
-//             employee_name,
-//             client_name,
-//             deliverables,
-//             duration,
-//             submission_date,
-//             no_of_rows
-//           )
-//           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-//           [
-//             task.id,
-//             null,
-//             name,
-//             task.client_name,
-//             task.deliverables,
-//             null,
-//             null,
-//             task.deadline,
-//             1
-//           ]
-//         );
-//       }
-//     }
-
-//     return res.json({ success: true, data: rows });
-//   } catch (err) {
-//     console.error('GET /by-employee ERROR:', err.message);
-//     return res.status(500).json({ success: false, message: err.message });
-//   }
-// });
-
-// GET /api/employee-tasks/by-employee/:name
 router.get('/by-employee/:name', async (req, res) => {
   const name = req.params.name.toUpperCase();
 
@@ -164,7 +72,6 @@ router.get('/by-employee/:name', async (req, res) => {
       );
 
       if (exists.length === 0) {
-        // 🟢 CORRECTED SQL INSERT: Column mapping index-kal ippo romba accurate-ah irukku
         await db.query(
           `INSERT INTO task_list
           (
@@ -185,7 +92,8 @@ router.get('/by-employee/:name', async (req, res) => {
             task.client_name,
             task.deliverables,
             null,
-            task.deadline ? task.deadline.toString().split('T')[0] : null, // 🟢 Fixed date formatting here
+            null,
+            task.deadline,
             1
           ]
         );
@@ -198,6 +106,66 @@ router.get('/by-employee/:name', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// router.get('/by-employee/:name', async (req, res) => {
+//   const name = req.params.name.toUpperCase();
+
+//   try {
+//     const [rows] = await db.query(
+//       `SELECT
+//           ta.*,
+//           ta.designer_submit_date,
+//           ta.videographer_submit_date,
+//           ta.video_editor_submit_date,
+//           ta.ads_submit_date,
+//           ta.page_submit_date,
+//           ta.ui_ux_submit_date,
+//           ta.developer_submit_date
+//        FROM task_assignments ta
+//        WHERE (
+//           UPPER(ta.designer)       LIKE ? OR
+//           UPPER(ta.videographer)   LIKE ? OR
+//           UPPER(ta.video_editor)   LIKE ? OR
+//           UPPER(ta.ads_handling)   LIKE ? OR
+//           UPPER(ta.page_handling)  LIKE ? OR
+//           UPPER(ta.ui_ux_designer) LIKE ? OR
+//           UPPER(ta.developer)      LIKE ?
+//         )
+//           AND ta.is_assigned = 1
+//           AND ta.deliverables NOT LIKE '%Package%' -- 🟢 Intha line package names-ai filter pannidum
+//        ORDER BY ta.created_at DESC`,
+//       [
+//         `%${name}%`,
+//         `%${name}%`,
+//         `%${name}%`,
+//         `%${name}%`,
+//         `%${name}%`,
+//         `%${name}%`,
+//         `%${name}%`
+//       ]
+//     );
+
+//     // Baki loops and inserts...
+//     for (const task of rows) {
+//       const [exists] = await db.query(
+//         `SELECT id FROM task_list WHERE task_assignment_id = ? AND deliverables = ? LIMIT 1`,
+//         [task.id, task.deliverables]
+//       );
+
+//       if (exists.length === 0) {
+//         await db.query(
+//           `INSERT INTO task_list (task_assignment_id, employee_name, client_name, deliverables, no_of_rows) VALUES (?, ?, ?, ?, ?)`,
+//           [task.id, name, task.client_name, task.deliverables, 1]
+//         );
+//       }
+//     }
+
+//     return res.json({ success: true, data: rows });
+//   } catch (err) {
+//     console.error('GET /by-employee ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/employee-tasks/tracker?employee=NAME&client=X&task=Y
