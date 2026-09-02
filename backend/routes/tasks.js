@@ -54,9 +54,12 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET assigned clients for logged in employee
+// GET assigned clients for logged in employee (Robust fix for special names and spaces)
 router.get('/employee/:employeeName/:role', async (req, res) => {
-  const { employeeName, role } = req.params;
+  let { employeeName, role } = req.params;
+  
+  // Clean employee name from URL encoding and trailing spaces
+  employeeName = decodeURIComponent(employeeName).trim();
 
   let employeeColumn = '';
   let taskColumn = '';
@@ -71,10 +74,11 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       employeeColumn = 'videographer';
       taskColumn = 'videographer_tasks';
       break;
-      case 'video editor':
-  employeeColumn = 'video_editor';
-  taskColumn = 'video_editor_task';
-  break;
+
+    case 'video editor':
+      employeeColumn = 'video_editor';
+      taskColumn = 'video_editor_task';
+      break;
 
     case 'developer':
       employeeColumn = 'developer';
@@ -97,13 +101,13 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       taskColumn = 'pages_platform';
       break;
 
-      case 'website designer':
-case 'website designer task':
-case 'website_designer':
-case 'website_designer_task':
-  employeeColumn = 'website_designer';
-  taskColumn = 'website_designer_tasks';
-  break;
+    case 'website designer':
+    case 'website designer task':
+    case 'website_designer':
+    case 'website_designer_task':
+      employeeColumn = 'website_designer';
+      taskColumn = 'website_designer_tasks';
+      break;
 
     default:
       return res.status(400).json({
@@ -113,41 +117,37 @@ case 'website_designer_task':
   }
 
   try {
-
+    // 🟢 Using TRIM and UPPER for flexible name matching so spacing or case differences won't throw 500 error
     const [rows] = await db.query(
       `
-     SELECT
-  id,
-  client_name,
-  deliverables,
-  ${taskColumn} as task,
-  ${employeeColumn} as employee
-FROM task_assignments
-WHERE ${employeeColumn}=?
-  AND is_assigned = 1
-ORDER BY created_at DESC
+      SELECT
+        id,
+        client_name,
+        deliverables,
+        ${taskColumn} as task,
+        ${employeeColumn} as employee
+      FROM task_assignments
+      WHERE TRIM(UPPER(${employeeColumn})) = TRIM(UPPER(?))
+        AND is_assigned = 1
+      ORDER BY created_at DESC
       `,
       [employeeName]
     );
-    console.log(rows);
 
-    res.json({
+    return res.json({
       success: true,
       data: rows
     });
 
-  } catch(err){
-
-    console.log(err);
-
-    res.status(500).json({
-      success:false,
-      message:err.message
+  } catch(err) {
+    console.error('❌ GET /employee route error:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message
     });
-
   }
-
 });
+
 
 // POST /api/tasks — create a new task row
 router.post('/', async (req, res) => {
