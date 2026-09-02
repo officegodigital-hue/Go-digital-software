@@ -54,10 +54,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET assigned clients for logged in employee with safety check
+// GET assigned clients for logged in employee
 router.get('/employee/:employeeName/:role', async (req, res) => {
-  let { employeeName, role } = req.params;
-  employeeName = decodeURIComponent(employeeName).trim();
+  const { employeeName, role } = req.params;
 
   let employeeColumn = '';
   let taskColumn = '';
@@ -72,11 +71,10 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       employeeColumn = 'videographer';
       taskColumn = 'videographer_tasks';
       break;
-
-    case 'video editor':
-      employeeColumn = 'video_editor';
-      taskColumn = 'video_editor_task';
-      break;
+      case 'video editor':
+  employeeColumn = 'video_editor';
+  taskColumn = 'video_editor_task';
+  break;
 
     case 'developer':
       employeeColumn = 'developer';
@@ -99,44 +97,57 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       taskColumn = 'pages_platform';
       break;
 
-    case 'website designer':
-    case 'website designer task':
-    case 'website_designer':
-    case 'website_designer_task':
-      employeeColumn = 'website_designer';
-      taskColumn = 'website_designer_tasks';
-      break;
+      case 'website designer':
+case 'website designer task':
+case 'website_designer':
+case 'website_designer_task':
+  employeeColumn = 'website_designer';
+  taskColumn = 'website_designer_tasks';
+  break;
 
     default:
-      return res.status(400).json({ success: false, message: 'Invalid role' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role'
+      });
   }
 
   try {
-    // 🟢 COALESCE use seivathal oru vela task column NULL-ah irunthalum 500 error varathu, empty string-ah load aagum
+
     const [rows] = await db.query(
       `
-      SELECT
-        id,
-        client_name,
-        deliverables,
-        COALESCE(${taskColumn}, '') as task,
-        COALESCE(${employeeColumn}, '') as employee
-      FROM task_assignments
-      WHERE TRIM(UPPER(${employeeColumn})) = TRIM(UPPER(?))
-        AND is_assigned = 1
-      ORDER BY created_at DESC
+     SELECT
+  id,
+  client_name,
+  deliverables,
+  ${taskColumn} as task,
+  ${employeeColumn} as employee
+FROM task_assignments
+WHERE ${employeeColumn}=?
+  AND is_assigned = 1
+ORDER BY created_at DESC
       `,
       [employeeName]
     );
+    console.log(rows);
 
-    return res.json({ success: true, data: rows });
+    res.json({
+      success: true,
+      data: rows
+    });
 
-  } catch(err) {
-    console.error('❌ GET /employee route safe error:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+  } catch(err){
+
+    console.log(err);
+
+    res.status(500).json({
+      success:false,
+      message:err.message
+    });
+
   }
-});
 
+});
 
 // POST /api/tasks — create a new task row
 router.post('/', async (req, res) => {
@@ -523,21 +534,24 @@ io.emit("taskAssigned", {
 });
 
 
-// routes/tasks.js — Next cycle route without modifying old task's assignment status
+// routes/tasks.js — Duplicate next month route with safe maintenance_date handling
 router.post('/:id/duplicate-next-month', async (req, res) => {
   try {
     const [rows] = await db.query(`SELECT * FROM task_assignments WHERE id = ?`, [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Task not found' });
     const task = rows[0];
 
-    // 🔴 OLD TASK-AI TOUCH SEYYAVENDAM. Adhe assigned list-lae irukkattum!
-
-    let nextMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
-    if (!isNaN(nextMaintenance.getTime())) {
-      nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
-    } else {
-      nextMaintenance = new Date();
-      nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
+    // Calculate next month dates safely
+    let nextMaintenance = null;
+    if (task.maintenance_date) {
+      // Oru vela maintenance_date string date-ah irunthaal atha parse panrom, illaiyendraal current date-ku 1 month add panrom
+      let parsedMaint = new Date(task.maintenance_date);
+      if (!isNaN(parsedMaint.getTime())) {
+        parsedMaint.setMonth(parsedMaint.getMonth() + 1);
+        nextMaintenance = parsedMaint.toISOString().slice(0, 19).replace('T', ' ');
+      } else {
+        nextMaintenance = task.maintenance_date; // Fallback to original string if non-standard
+      }
     }
 
     let nextDeadline = task.deadline ? new Date(task.deadline) : new Date();
@@ -548,9 +562,9 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
       nextDeadline.setMonth(nextDeadline.getMonth() + 1);
     }
 
-    const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+    const formatSqlDate = (d) => d instanceof Date ? d.toISOString().slice(0, 19).replace('T', ' ') : d;
 
-    // 🟢 Insert brand new active task for next cycle (is_assigned = 1)
+    // Insert brand new active task for next cycle (is_assigned = 1)
     const [result] = await db.query(`
       INSERT INTO task_assignments (
         client_name, deliverables, maintenance_date, 
@@ -567,7 +581,7 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
     `, [
       task.client_name, 
       task.deliverables, 
-      formatSqlDate(nextMaintenance),
+      nextMaintenance,
       task.ads_handling, 
       task.ads_platform,
       task.page_handling, 
@@ -589,10 +603,10 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
     ]);
 
     const io = req.app.get('io');
-if (io) {
-  io.emit('taskAssigned', { refresh: true });
-  io.emit('task_updated', { type: 'TASK_ASSIGNED', message: 'New recurring task added' });
-}
+    if (io) {
+      io.emit('taskAssigned', { refresh: true });
+      io.emit('task_updated', { type: 'TASK_ASSIGNED', message: 'New recurring task added' });
+    }
 
     return res.status(201).json({ 
       success: true, 
