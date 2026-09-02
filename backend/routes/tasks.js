@@ -54,11 +54,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET assigned clients for logged in employee (Robust fix for special names and spaces)
+// GET assigned clients for logged in employee with safety check
 router.get('/employee/:employeeName/:role', async (req, res) => {
   let { employeeName, role } = req.params;
-  
-  // Clean employee name from URL encoding and trailing spaces
   employeeName = decodeURIComponent(employeeName).trim();
 
   let employeeColumn = '';
@@ -110,22 +108,19 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       break;
 
     default:
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid role'
-      });
+      return res.status(400).json({ success: false, message: 'Invalid role' });
   }
 
   try {
-    // 🟢 Using TRIM and UPPER for flexible name matching so spacing or case differences won't throw 500 error
+    // 🟢 COALESCE use seivathal oru vela task column NULL-ah irunthalum 500 error varathu, empty string-ah load aagum
     const [rows] = await db.query(
       `
       SELECT
         id,
         client_name,
         deliverables,
-        ${taskColumn} as task,
-        ${employeeColumn} as employee
+        COALESCE(${taskColumn}, '') as task,
+        COALESCE(${employeeColumn}, '') as employee
       FROM task_assignments
       WHERE TRIM(UPPER(${employeeColumn})) = TRIM(UPPER(?))
         AND is_assigned = 1
@@ -134,17 +129,11 @@ router.get('/employee/:employeeName/:role', async (req, res) => {
       [employeeName]
     );
 
-    return res.json({
-      success: true,
-      data: rows
-    });
+    return res.json({ success: true, data: rows });
 
   } catch(err) {
-    console.error('❌ GET /employee route error:', err.message);
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    console.error('❌ GET /employee route safe error:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
