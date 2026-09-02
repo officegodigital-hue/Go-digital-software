@@ -1306,17 +1306,34 @@ final visibleRows = taskRows.where((r) {
   final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
   if (_showAssigned != assigned) return false;
 
-  // 🟢 OLD CYCLE HIDING LOGIC (Without changing backend):
-  // Oru client-kku (e.g., JEYASRI HOSTAL) multiple rows irunthal, 
-  // yethu mthandha/latest deadline or created_at date-ai konda row-o athu mattum thaan assigned tab-la irukkum.
-  // Puthu task (NEXT CYCLE) create aanathaala, antha old row-oda deadline munnadi ulla date-ah irukkum.
-  // Athanaal same client-ku athai vida oru future/latest deadline row iruntha, intha old row-ai hide pannidum!
-  
-  if (_showAssigned && r['client_name'] != null && r['client_name'] != 'PENDING_SELECTION') {
-    final currentClient = r['client_name'].toString().trim().toLowerCase();
+  // 1. 🟢 CLIENT ACTIVE STATUS VERIFICATION:
+  // Client-oda name-ai vechu allClientsData-la avanga active-a irukaangala nu paakrom.
+  // Oru vela client inactive-ah irunthal, antha assigned row intha page-la irunthu completely hide aagidum!
+  final clientName = (r['client_name'] ?? '').toString().trim();
+  if (clientName.isNotEmpty && clientName != 'PENDING_SELECTION') {
+    final clientMatch = allClientsData.firstWhere(
+      (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
+      orElse: () => {},
+    );
+
+    if (clientMatch.isNotEmpty) {
+      final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
+      if (!isActive) {
+        return false; // 🚫 Client inactive-ah iruntha row hide aagidum!
+      }
+    } else {
+      // Client list-laye illaina, safe-ah hide panrathu nallathu
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  // 2. OLD CYCLE HIDING LOGIC (When NEXT CYCLE is created):
+  if (_showAssigned) {
+    final currentClient = clientName.toLowerCase();
     final currentId = r['id'] is int ? r['id'] : int.tryParse(r['id'].toString()) ?? 0;
 
-    // TaskRows-la intha client-kkuavey innum oru mikkyaana (periya ID ulla or recent deadline ulla) task irukka nu paakrom
     bool hasNewerTaskForSameClient = taskRows.any((other) {
       final otherAssigned = other['is_assigned'] == 1 || other['is_assigned'] == true;
       if (!otherAssigned) return false;
@@ -1326,30 +1343,12 @@ final visibleRows = taskRows.where((r) {
 
       final otherId = other['id'] is int ? other['id'] : int.tryParse(other['id'].toString()) ?? 0;
 
-      // Puthusa create aana row-oda ID old row-oda ID-ai vida periyaatha irukkum (Because it's newly inserted)
       return otherId > currentId;
     });
 
-    // Oru vela intha client-kku antha puthu task (newer row) iruntha, intha old row-ai hide panniru!
     if (hasNewerTaskForSameClient) {
-      return false;
+      return false; // Puthu cycle task iruntha old row hide aagidum
     }
-  }
-
-  // Client Active Status Verification
-  final clientName = (r['client_name'] ?? '').toString().trim();
-  if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
-    return true; 
-  }
-
-  final clientMatch = allClientsData.firstWhere(
-    (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
-    orElse: () => {},
-  );
-
-  if (clientMatch.isNotEmpty) {
-    final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
-    if (!isActive) return false; 
   }
 
   if (_searchQuery.trim().isEmpty) return true;
@@ -1358,7 +1357,6 @@ final visibleRows = taskRows.where((r) {
 
   return false;
 }).toList();
-
 
     return AdminLayout(
       pageTitle: "Tasks Assign",
