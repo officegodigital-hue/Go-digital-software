@@ -738,6 +738,68 @@ router.get('/month-history/:employeeName', async (req, res) => {
 });
 
 // GET /api/day-planner/submissions?date=2026-07-30&type=Morning
+// router.get('/submissions', async (req, res) => {
+//   const { date, type } = req.query;
+
+//   const targetDate = date || new Date().toISOString().split('T')[0];
+//   const reportType = type || "Morning";
+
+//   try {
+
+//     // Get all active employees
+//     const [employees] = await db.query(
+//       `
+//       SELECT
+//           id,
+//           full_name AS fullName,
+//           role,
+//           user_type AS userType
+//       FROM employee_users
+//       WHERE is_active = 1
+//       ORDER BY full_name
+//       `
+//     );
+
+//     // Get submitted employees for selected report type
+//     const [submissions] = await db.query(
+//       `
+//       SELECT
+//           employee_name AS employeeName,
+//           MAX(is_submitted) AS submitted
+//       FROM day_plan_rows
+//       WHERE
+//           plan_date = ?
+//           AND report_type = ?
+//       GROUP BY employee_name
+//       `,
+//       [
+//         targetDate,
+//         reportType
+//       ]
+//     );
+
+//     return res.json({
+//       success: true,
+//       employees,
+//       submissions: submissions.map((row) => ({
+//         employeeName: row.employeeName,
+//         submitted: row.submitted == 1
+//       }))
+//     });
+
+//   } catch (err) {
+
+//     console.error("GET /day-planner/submissions ERROR:", err);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message
+//     });
+
+//   }
+// });
+
+// GET /api/day-planner/submissions?date=2026-07-30&type=Morning
 router.get('/submissions', async (req, res) => {
   const { date, type } = req.query;
 
@@ -745,7 +807,6 @@ router.get('/submissions', async (req, res) => {
   const reportType = type || "Morning";
 
   try {
-
     // Get all active employees
     const [employees] = await db.query(
       `
@@ -760,12 +821,13 @@ router.get('/submissions', async (req, res) => {
       `
     );
 
-    // Get submitted employees for selected report type
+    // 🟢 Get submitted employees along with total_working_secs for selected report type
     const [submissions] = await db.query(
       `
       SELECT
           employee_name AS employeeName,
-          MAX(is_submitted) AS submitted
+          MAX(is_submitted) AS submitted,
+          MAX(total_working_secs) AS total_working_secs
       FROM day_plan_rows
       WHERE
           plan_date = ?
@@ -783,19 +845,17 @@ router.get('/submissions', async (req, res) => {
       employees,
       submissions: submissions.map((row) => ({
         employeeName: row.employeeName,
-        submitted: row.submitted == 1
+        submitted: row.submitted == 1,
+        total_working_secs: row.total_working_secs || 0 // 🟢 Added total working seconds mapping
       }))
     });
 
   } catch (err) {
-
     console.error("GET /day-planner/submissions ERROR:", err);
-
     return res.status(500).json({
       success: false,
       message: err.message
     });
-
   }
 });
 

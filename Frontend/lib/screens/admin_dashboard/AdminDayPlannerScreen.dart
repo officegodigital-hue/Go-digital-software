@@ -43,6 +43,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   List<Map<String, dynamic>> dayPlanRows = [];
   bool isLoading = false;
   late IO.Socket socket;
+  Timer? _refreshTimer;
 
   bool _hasColumn(List<Map<String, dynamic>> rows, String field) {
     return rows.any((r) {
@@ -56,6 +57,16 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     super.initState();
     _loadEmployeesAndSubmissions();
     _initSocketListener();
+
+    // 🟢 Auto-refresh timer to update working hours every 30 seconds automatically
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        _loadEmployeesAndSubmissions();
+        if (selectedEmployee != null) {
+          _fetchEmployeeDayPlan(selectedEmployee!);
+        }
+      }
+    });
   }
 
   void _initSocketListener() {
@@ -78,11 +89,34 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         }
       }
     });
+
+    // 🟢 Additional socket listeners for live working hours / timer updates
+    socket.off('timer_updated');
+    socket.on('timer_updated', (data) {
+      if (mounted) {
+        _loadEmployeesAndSubmissions();
+        if (selectedEmployee != null) {
+          _fetchEmployeeDayPlan(selectedEmployee!);
+        }
+      }
+    });
+
+    socket.off('working_hours_updated');
+    socket.on('working_hours_updated', (data) {
+      if (mounted) {
+        _loadEmployeesAndSubmissions();
+        if (selectedEmployee != null) {
+          _fetchEmployeeDayPlan(selectedEmployee!);
+        }
+      }
+    });
+    
   }
 
   @override
   void dispose() {
     _horizontalController.dispose();
+    _refreshTimer?.cancel();
     socket.dispose();
     super.dispose();
   }
@@ -583,7 +617,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                         orElse: () => {},
                       );
                       final bool hasSubmitted = submission['submitted'] == true;
-                      final workingSecs = submission['total_working_secs'] ?? 0;
+                      // final workingSecs = submission['total_working_secs'] ?? 0;
+
+                      final workingSecs = submission['total_working_secs'] ?? 
+                    submission['working_secs'] ?? 
+                    submission['totalWorkingSecs'] ?? 
+                    submission['totalSeconds'] ?? 0;
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -869,7 +908,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: _border),
             boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(color: const Color.fromARGB(255, 17, 67, 158).withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
             ],
           ),
           child: Column(

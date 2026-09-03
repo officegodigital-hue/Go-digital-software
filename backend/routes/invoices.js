@@ -605,4 +605,105 @@ router.get('/client-details/:clientName', async (req, res) => {
   }
 });
 
+// POST /api/invoices/generate-recurring — Automatically checks completed maintenance dates and creates next cycle Draft invoice
+router.post('/generate-recurring', authenticateToken, async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch invoices where maintenance date has passed and no active draft exists for the next cycle
+    const [invoices] = await connection.query(`
+      SELECT * FROM invoices 
+      WHERE maintenance_date IS NOT NULL 
+        AND maintenance_date != ''
+    `);
+
+    let createdCount = 0;
+
+    for (const inv of invoices) {
+      // Parse maintenance date (format like DD/MM/YYYY)
+      let parts = (inv.maintenance_date || '').split('/');
+      if (parts.length !== 3) continue;
+      let mDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      if (isNaN(mDate.getTime())) continue;
+
+      // Check if maintenance date has passed (completed)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (mDate < today) {
+        // Calculate next month maintenance date and invoice date based on previous maintenance date
+        let nextMDate = new Date(mDate);
+        nextMDate.setMonth(nextMDate.getMonth() + 1);
+        const nextMDateStr = `${String(nextMDate.getDate()).padStart(2, '0')}/${String(nextMDate.getMonth() + 1).padStart(2, '0')}/${nextMDate.getFullYear()}`;
+
+        // Generate next unique invoice number
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const invoiceNo = `INV-${yyyy}${mm}${dd}${Math.floor(100 + Math.random() * 900)}`;
+
+        // Check if a draft invoice already exists for this client for the next cycle
+        const [existingDraft] = await connection.query(`
+          SELECT id FROM invoices 
+          WHERE client_name = ? AND status = 'DRAFT' AND maintenance_date = ?
+        `, [inv.client_name, nextMDateStr]);
+
+        if (existingDraft.length === 0) {
+          // 2. Insert new invoice as DRAFT with 0 paid amount, where invoice_date and maintenance_date match the next cycle date
+          const [result] = await connection.query(
+            `INSERT INTO invoices
+            (invoice_no, client_name, invoice_date, maintenance_date, include_gst, discount,
+             subtotal, tax, total_amount, paid_amount, balance_amount, status, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'DRAFT', ?, ?)`,
+            [
+              invoiceNo, 
+              inv.client_name, 
+              nextMDateStr, // 🟢 Invoice date set to next cycle date (e.g., 02/10/2026)
+              nextMDateStr, // 🟢 Maintenance date set to next cycle date (e.g., 02/10/2026)
+              inv.include_gst, 
+              inv.discount,
+              inv.subtotal, 
+              inv.tax, 
+              inv.total_amount, 
+              inv.total_amount, // Balance equals total amount since paid is 0
+              inv.notes || '', 
+              inv.created_by
+            ]
+          );
+
+          const newInvoiceId = result.insertId;
+
+          // Copy previous invoice items
+          const [items] = await connection.query(`SELECT * FROM invoice_items WHERE invoice_id = ?`, [inv.id]);
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            await connection.query(
+              `INSERT INTO invoice_items
+              (invoice_id, package_id, description, qty, rate, tax_percent, discount_amount, amount, paid_amount, pending_amount, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              [
+                newInvoiceId, it.package_id, it.description, it.qty, it.rate,
+                it.tax_percent, it.discount_amount, it.amount, it.amount, i
+              ]
+            );
+          }
+
+          createdCount++;
+        }
+      }
+    }
+
+    await connection.commit();
+    return res.json({ success: true, message: `Successfully generated ${createdCount} recurring draft invoice(s).` });
+  } catch (err) {
+    await connection.rollback();
+    console.error('Error generating recurring invoices:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router;

@@ -21,7 +21,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   String activeFilter = "All Logs";
   bool _isFilterMenuOpen = false;
 
-  int _selectedMonth = DateTime.now().month;
+  // 🟢 1. Default month set to 0 to show "All Months" data by default
+  int _selectedMonth = 0; 
   final int _selectedYear = DateTime.now().year;
 
   DateTime? _fromMaintenanceDate;
@@ -66,8 +67,25 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   @override
   void initState() {
     super.initState();
+    _triggerRecurringCheck();
     _fetchInvoices();
     _fetchMetrics();
+  }
+
+  Future<void> _triggerRecurringCheck() async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+      await http.post(
+        Uri.parse('$_baseUrl/invoices/generate-recurring'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    } catch (e) {
+      debugPrint('Recurring check error: $e');
+    }
   }
 
   Future<void> _fetchInvoices() async {
@@ -104,8 +122,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       final authService = Provider.of<AuthService>(context, listen: false);
       final token = authService.token;
 
+      final monthParam = _selectedMonth > 0 ? 'month=$_selectedMonth&' : '';
       final response = await http.get(
-        Uri.parse('$_baseUrl/invoices/metrics?month=$_selectedMonth&year=$_selectedYear'),
+        Uri.parse('$_baseUrl/invoices/metrics?${monthParam}year=$_selectedYear'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -193,6 +212,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   }
 
   bool _isInSelectedMonth(String invoiceDate) {
+    if (_selectedMonth == 0) return true; // Show all months when 0 is selected
     try {
       final date = DateFormat('dd/MM/yyyy').parse(invoiceDate);
       return date.month == _selectedMonth && date.year == _selectedYear;
@@ -201,6 +221,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     }
   }
 
+  // 🟢 2. CUSTOM SORTING & FILTERING LOGIC (Draft -> Partial -> Paid, and Date-wise Newest First)
   List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
@@ -219,8 +240,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       }
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
-      final status = (row["status"] ?? '').toString().toUpperCase();
-      if (activeFilter == "Partial") return status == "PARTIAL";
+      final status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
+      if (activeFilter.toUpperCase() == "PARTIAL") return status == "PARTIAL";
+      if (activeFilter.toUpperCase() == "DRAFT") return status == "DRAFT";
+      if (activeFilter.toUpperCase() == "PAID") return status == "PAID";
+      if (activeFilter.toUpperCase() == "OVERDUE") return status == "OVERDUE";
       return status == activeFilter.toUpperCase();
     }).toList();
 
@@ -228,17 +252,33 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       final statusA = (a["status"] ?? 'DRAFT').toString().toUpperCase();
       final statusB = (b["status"] ?? 'DRAFT').toString().toUpperCase();
       
-      if (statusA == 'PAID' && statusB != 'PAID') return 1;
-      if (statusA != 'PAID' && statusB == 'PAID') return -1;
+      // Priority: DRAFT (1) -> PARTIAL (2) -> OVERDUE (3) -> PAID (4)
+      int getPriority(String status) {
+        if (status == 'DRAFT') return 1;
+        if (status == 'PARTIAL') return 2;
+        if (status == 'OVERDUE') return 3;
+        if (status == 'PAID') return 4;
+        return 5;
+      }
+
+      final pA = getPriority(statusA);
+      final pB = getPriority(statusB);
+
+      if (pA != pB) {
+        return pA.compareTo(pB);
+      }
       
+      // Date-wise: Newest data on top (Descending)
       try {
         final dateA = DateFormat('dd/MM/yyyy').parse(a['invoice_date'] ?? '');
         final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
+        int dateCmp = dateB.compareTo(dateA);
+        if (dateCmp != 0) return dateCmp;
+      } catch (_) {}
 
-        return dateA.compareTo(dateB);
-      } catch (e) {
-        return 0;
-      }
+      final idA = int.tryParse(a['id'].toString()) ?? 0;
+      final idB = int.tryParse(b['id'].toString()) ?? 0;
+      return idB.compareTo(idA);
     });
 
     return filtered;
@@ -1111,12 +1151,15 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
               isDense: true,
               icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF64748B)),
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
-              items: List.generate(12, (i) => i + 1).map((month) {
-                return DropdownMenuItem(
-                  value: month,
-                  child: Text(monthNames[month - 1]),
-                );
-              }).toList(),
+              items: [
+                const DropdownMenuItem(value: 0, child: Text('All Months')),
+                ...List.generate(12, (i) => i + 1).map((month) {
+                  return DropdownMenuItem(
+                    value: month,
+                    child: Text(monthNames[month - 1]),
+                  );
+                }),
+              ],
               onChanged: (month) {
                 if (month != null) {
                   setState(() {
@@ -1194,6 +1237,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ),
         if (_isFilterMenuOpen) ...[
           _buildFilterTab("All Logs"),
+          _buildFilterTab("Draft"), // 🟢 Added Draft filter tab option
           _buildFilterTab("Paid"),
           _buildFilterTab("Partial"),
           _buildFilterTab("Overdue"),

@@ -5,17 +5,37 @@ const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
 
-const formatDate = (date) => {
-  if (!date || date.trim() === '' || date === '—') {
+// const formatDate = (date) => {
+//   if (!date || date.trim() === '' || date === '—') {
+//     return null;
+//   }
+  
+//   // If the date is already in YYYY-MM-DD format, return it
+//   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+//     return date;
+//   }
+
+//   // Convert DD/MM/YYYY to YYYY-MM-DD
+//   if (date.includes('/')) {
+//     const parts = date.split('/');
+//     if (parts.length === 3) {
+//       const day = parts[0].padStart(2, '0');
+//       const month = parts[1].padStart(2, '0');
+//       const year = parts[2];
+//       return `${year}-${month}-${day}`;
+//     }
+//   }
+
+//   return null;
+// };
+
+const formatDbDate = (date) => {
+  if (!date || typeof date !== 'string' || date.trim() === '' || date === '—' || date === 'null') {
     return null;
   }
-  
-  // If the date is already in YYYY-MM-DD format, return it
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return date;
   }
-
-  // Convert DD/MM/YYYY to YYYY-MM-DD
   if (date.includes('/')) {
     const parts = date.split('/');
     if (parts.length === 3) {
@@ -25,9 +45,9 @@ const formatDate = (date) => {
       return `${year}-${month}-${day}`;
     }
   }
-
   return null;
 };
+
 
 // Every role column + its matching "what was assigned" text column.
 // Used by both POST (new assignment) and PUT (reassignment) to loop over
@@ -196,7 +216,8 @@ router.post('/', async (req, res) => {
         developerTasks,
         websiteDesigner,
         websiteDesignerTasks,
-        formatDate(deadline), // 👈 Deadline datetime format-ku format aagum
+        // formatDate(deadline), // 👈 Deadline datetime format-ku format aagum
+        formatDbDate(deadline), // 🟢 Updated to formatDbDate
         maintenanceDate,
         comments,
         isAssigned ? 1 : 0
@@ -301,7 +322,8 @@ router.put('/:id', async (req, res) => {
       ) {
         return oldValue;
       }
-      const formatted = formatDate(newValue);
+      // const formatted = formatDate(newValue);
+      const formatted = formatDbDate(newValue);
       if (!formatted) {
         return oldValue;
       }

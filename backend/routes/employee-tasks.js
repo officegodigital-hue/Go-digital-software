@@ -61,14 +61,9 @@ router.get('/by-employee/:name', async (req, res) => {
         continue;
       }
       
-      let subDate = null;
-      if (task.deadline && task.deadline.toString().trim() !== '' && task.deadline.toString() !== '—') {
-        subDate = task.deadline.toString().split('T')[0];
-      }
-
-      // Check if task already exists in task_list
+      // Skip if task already exists
       const [exists] = await db.query(
-        `SELECT id, submission_date
+        `SELECT id
          FROM task_list
          WHERE task_assignment_id = ?
            AND deliverables = ?
@@ -77,7 +72,6 @@ router.get('/by-employee/:name', async (req, res) => {
       );
 
       if (exists.length === 0) {
-        // Insert if it does not exist
         await db.query(
           `INSERT INTO task_list
           (
@@ -98,17 +92,10 @@ router.get('/by-employee/:name', async (req, res) => {
             task.client_name,
             task.deliverables,
             null,
-            subDate,
+            null,
+            task.deadline,
             1
           ]
-        );
-      } else {
-        // 🟢 Oru vela deadline change aayiruntha, task_list-layum antha submission_date-ai sync/update panrom!
-        await db.query(
-          `UPDATE task_list 
-           SET submission_date = ? 
-           WHERE task_assignment_id = ? AND deliverables = ?`,
-          [subDate, task.id, task.deliverables]
         );
       }
     }

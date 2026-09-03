@@ -1,13 +1,16 @@
+// name=client_credentials_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
+import '../../services/auth_service.dart';
 
 class ClientCredentialsScreen extends StatefulWidget {
-  final int clientId;
+  final int? clientId; // Nullable if viewing the master client list first
 
-  const ClientCredentialsScreen({super.key, required this.clientId});
+  const ClientCredentialsScreen({super.key, this.clientId});
 
   @override
   State<ClientCredentialsScreen> createState() => _ClientCredentialsScreenState();
@@ -16,13 +19,32 @@ class ClientCredentialsScreen extends StatefulWidget {
 class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
+  List<Map<String, dynamic>> _clients = [];
   List<Map<String, dynamic>> _credentials = [];
-  bool _loadingCredentials = true;
+  bool _loadingData = true;
+
+  final ScrollController _horizontalController = ScrollController();
+  final ScrollController _verticalController = ScrollController();
+
+  int? _selectedClientId;
+  String? _selectedClientName;
 
   @override
   void initState() {
     super.initState();
-    _fetchCredentials();
+    _selectedClientId = widget.clientId;
+    if (_selectedClientId != null) {
+      _fetchCredentialsForClient(_selectedClientId!);
+    } else {
+      _fetchClientsList();
+    }
+  }
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    _verticalController.dispose();
+    super.dispose();
   }
 
   void _showSnack(String msg, {bool success = false}) {
@@ -33,35 +55,81 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     ));
   }
 
-  Future<void> _fetchCredentials() async {
-    setState(() => _loadingCredentials = true);
+  // Fetch all clients for the first selection page
+  Future<void> _fetchClientsList() async {
+    setState(() => _loadingData = true);
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/credentials?clientId=${widget.clientId}'));
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/clients'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         setState(() {
-          _credentials = List<Map<String, dynamic>>.from(body['data']);
-          _loadingCredentials = false;
+          _clients = List<Map<String, dynamic>>.from(body['data'] ?? []);
+          _loadingData = false;
         });
       } else {
-        setState(() => _loadingCredentials = false);
-        _showSnack('Failed to load credentials');
+        setState(() => _loadingData = false);
+        _showSnack('Failed to load clients');
       }
     } catch (e) {
-      setState(() => _loadingCredentials = false);
+      setState(() => _loadingData = false);
       _showSnack('Cannot connect to server');
     }
   }
 
-  Future<String?> _createCredential(Map<String, dynamic> data) async {
+  // Fetch credentials for a specific client
+  Future<void> _fetchCredentialsForClient(int clientId) async {
+    setState(() => _loadingData = true);
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/credentials?clientId=$clientId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        setState(() {
+          _credentials = List<Map<String, dynamic>>.from(body['data'] ?? []);
+          _loadingData = false;
+        });
+      } else {
+        setState(() => _loadingData = false);
+        _showSnack('Failed to load credentials');
+      }
+    } catch (e) {
+      setState(() => _loadingData = false);
+      _showSnack('Cannot connect to server');
+    }
+  }
+
+  Future<String?> _createCredential(Map<String, dynamic> data, int targetClientId) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
       final response = await http.post(
         Uri.parse('$_baseUrl/credentials'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({...data, 'clientId': widget.clientId}),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({...data, 'clientId': targetClientId}),
       );
       if (response.statusCode == 201) {
-        await _fetchCredentials();
+        await _fetchCredentialsForClient(targetClientId);
         return null;
       } else {
         final body = jsonDecode(response.body);
@@ -72,15 +140,21 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     }
   }
 
-  Future<String?> _updateCredential(int id, Map<String, dynamic> data) async {
+  Future<String?> _updateCredential(int id, Map<String, dynamic> data, int targetClientId) async {
     try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
       final response = await http.put(
         Uri.parse('$_baseUrl/credentials/$id'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
         body: jsonEncode(data),
       );
       if (response.statusCode == 200) {
-        await _fetchCredentials();
+        await _fetchCredentialsForClient(targetClientId);
         return null;
       } else {
         final body = jsonDecode(response.body);
@@ -91,11 +165,20 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     }
   }
 
-  Future<void> _deleteCredential(int id) async {
+  Future<void> _deleteCredential(int id, int targetClientId) async {
     try {
-      final response = await http.delete(Uri.parse('$_baseUrl/credentials/$id'));
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/credentials/$id'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
       if (response.statusCode == 200) {
-        await _fetchCredentials();
+        await _fetchCredentialsForClient(targetClientId);
         _showSnack('Credential deleted', success: true);
       } else {
         _showSnack('Failed to delete credential');
@@ -137,127 +220,338 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
   Widget build(BuildContext context) {
     return AdminLayout(
       pageTitle: "Client Credentials",
-      currentRoute: "/client-history",
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    "Client Credential Details",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    "Manage and securely store all account credentials for this client.",
-                    style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                  ),
-                ],
+      currentRoute: "/client-credentials",
+      child: _selectedClientId == null ? _buildClientListView() : _buildCredentialsDetailView(),
+    );
+  }
+
+  // ── PART 1: FIRST PAGE - CLIENT NAMES LIST VIEW ──────────────────────────
+  Widget _buildClientListView() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0052CC),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0052CC).withValues(alpha: 0.16),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-              Row(
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'CREDENTIALS DIRECTORY',
+                      style: TextStyle(color: Color(0xFFBFD5FF), fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800),
+                    ),
+                    SizedBox(height: 7),
+                    Text(
+                      'Select a Client',
+                      style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Choose a client below to view and manage their account credentials securely.',
+                      style: TextStyle(color: Color(0xFFDCE8FF), fontSize: 11, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.025), blurRadius: 22, offset: const Offset(0, 8)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                color: const Color(0xFFF8FAFC),
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  children: const [
+                    Expanded(flex: 1, child: Text("S.NO", style: _tableHeaderStyle)),
+                    Expanded(flex: 6, child: Text("CLIENT NAME", style: _tableHeaderStyle)),
+                    Expanded(flex: 2, child: Align(alignment: Alignment.centerRight, child: Text("ACTION", style: _tableHeaderStyle))),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              _loadingData
+                  ? const Padding(
+                      padding: EdgeInsets.all(54),
+                      child: Center(child: CircularProgressIndicator(color: Color(0xFF0052CC))),
+                    )
+                  : _clients.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(54),
+                          child: Center(child: Text('No active clients found.', style: TextStyle(color: Color(0xFF94A3B8)))),
+                        )
+                      : SizedBox(
+                          height: 400,
+                          child: ListView.separated(
+                            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                            itemCount: _clients.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                            itemBuilder: (context, index) {
+                              final client = _clients[index];
+                              final cId = client['id'] is int ? client['id'] : int.tryParse(client['id'].toString()) ?? 0;
+                              final cName = client['company_name'] ?? client['client_name'] ?? 'Unknown Client';
+
+                              return Container(
+                                height: 60,
+                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                color: Colors.white,
+                                child: Row(
+                                  children: [
+                                    Expanded(flex: 1, child: Text((index + 1).toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+                                    Expanded(flex: 6, child: Text(cName, style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B), fontWeight: FontWeight.w800))),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Align(
+                                        alignment: Alignment.centerRight,
+                                        child: ElevatedButton(
+                                          onPressed: () {
+                                            setState(() {
+                                              _selectedClientId = cId;
+                                              _selectedClientName = cName;
+                                            });
+                                            _fetchCredentialsForClient(cId);
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF0052CC),
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                          ),
+                                          child: const Text("View Credentials", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── PART 2: SECOND PAGE - CREDENTIALS DETAIL VIEW ────────────────────────
+  Widget _buildCredentialsDetailView() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0052CC),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0052CC).withValues(alpha: 0.16),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'CREDENTIALS CENTER',
+                      style: TextStyle(color: Color(0xFFBFD5FF), fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      _selectedClientName != null ? 'Credentials for: $_selectedClientName' : 'Client Credential Details',
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Manage and securely store all account credentials for this client.',
+                      style: TextStyle(color: Color(0xFFDCE8FF), fontSize: 11, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 10,
                 children: [
                   OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () {
+                      setState(() {
+                        _selectedClientId = null;
+                        _selectedClientName = null;
+                      });
+                      _fetchClientsList();
+                    },
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white30),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                     ),
-                    child: const Text("Back to Details", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 13)),
+                    child: const Text("Back to Clients", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(width: 12),
                   OutlinedButton(
-                    onPressed: _fetchCredentials,
+                    onPressed: () => _fetchCredentialsForClient(_selectedClientId!),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFCBD5E1)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white30),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                     ),
-                    child: const Text("Refresh", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 13)),
+                    child: const Text("Refresh", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(width: 12),
                   ElevatedButton.icon(
                     onPressed: () => _showAddCredentialDialog(context),
-                    icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                    icon: const Icon(Icons.add, size: 16, color: Color(0xFF0052CC)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0052CC),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      backgroundColor: Colors.white,
                       elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
                     ),
-                    label: const Text("Add Credential", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                    label: const Text("Add Credential", style: TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w800, fontSize: 12)),
                   ),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  color: const Color(0xFFEAEFF8),
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: const [
-                      Expanded(flex: 3, child: Text("USER NAME", style: _tableHeaderStyle)),
-                      Expanded(flex: 3, child: Text("PASSWORD", style: _tableHeaderStyle)),
-                      Expanded(flex: 3, child: Text("PLATFORM", style: _tableHeaderStyle)),
-                      Expanded(flex: 4, child: Text("CONTACT NUMBER / EMAIL", style: _tableHeaderStyle)),
-                      Expanded(flex: 3, child: Text("LAST UPDATED", style: _tableHeaderStyle)),
-                      Expanded(flex: 2, child: Align(alignment: Alignment.centerRight, child: Text("ACTIONS", style: _tableHeaderStyle))),
-                    ],
+        ),
+        const SizedBox(height: 20),
+
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.025),
+                blurRadius: 22,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Scrollbar(
+                controller: _horizontalController,
+                thumbVisibility: true,
+                interactive: true,
+                notificationPredicate: (notification) => notification.metrics.axis == Axis.horizontal,
+                child: SingleChildScrollView(
+                  controller: _horizontalController,
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: SizedBox(
+                    width: 1200,
+                    child: Column(
+                      children: [
+                        Container(
+                          color: const Color(0xFFF8FAFC),
+                          height: 48,
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: const [
+                              Expanded(flex: 3, child: Text("USER NAME", style: _tableHeaderStyle)),
+                              Expanded(flex: 3, child: Text("PASSWORD", style: _tableHeaderStyle)),
+                              Expanded(flex: 3, child: Text("PLATFORM", style: _tableHeaderStyle)),
+                              Expanded(flex: 4, child: Text("CONTACT NUMBER / EMAIL", style: _tableHeaderStyle)),
+                              Expanded(flex: 3, child: Text("LAST UPDATED", style: _tableHeaderStyle)),
+                              Expanded(flex: 2, child: Align(alignment: Alignment.centerRight, child: Text("ACTIONS", style: _tableHeaderStyle))),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                        _loadingData
+                            ? const Padding(
+                                padding: EdgeInsets.all(54),
+                                child: Center(child: CircularProgressIndicator(color: Color(0xFF0052CC))),
+                              )
+                            : _credentials.isEmpty
+                                ? const Padding(
+                                    padding: EdgeInsets.all(54),
+                                    child: Center(child: Text('No credentials yet for this client. Click "Add Credential" to create one.',
+                                        style: TextStyle(color: Color(0xFF94A3B8)))),
+                                  )
+                                : SizedBox(
+                                    height: 400,
+                                    child: Scrollbar(
+                                      controller: _verticalController,
+                                      thumbVisibility: true,
+                                      interactive: true,
+                                      notificationPredicate: (notification) => notification.metrics.axis == Axis.vertical,
+                                      child: SingleChildScrollView(
+                                        controller: _verticalController,
+                                        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                                        child: Column(
+                                          children: _credentials.asMap().entries.expand((entry) {
+                                            final i = entry.key;
+                                            final c = entry.value;
+                                            final row = _buildCredentialRow(
+                                              c['id'],
+                                              c['username'] ?? '',
+                                              c['password'] ?? '',
+                                              c['platform'] ?? '',
+                                              c['contact_number'] ?? '',
+                                              c['email'] ?? '',
+                                              _formatDate(c['updated_at']?.toString()),
+                                              _formatTime(c['updated_at']?.toString()),
+                                            );
+                                            if (i < _credentials.length - 1) {
+                                              return [row, const Divider(height: 1, color: Color(0xFFE2E8F0))];
+                                            }
+                                            return [row];
+                                          }).toList(),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                      ],
+                    ),
                   ),
                 ),
-                if (_loadingCredentials)
-                  const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Center(child: CircularProgressIndicator(color: Color(0xFF0052CC))),
-                  )
-                else if (_credentials.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Center(child: Text('No credentials yet for this client. Click "Add Credential" to create one.',
-                        style: TextStyle(color: Color(0xFF94A3B8)))),
-                  )
-                else
-                  ..._credentials.asMap().entries.expand((entry) {
-                    final i = entry.key;
-                    final c = entry.value;
-                    final row = _buildCredentialRow(
-                      c['id'],
-                      c['username'] ?? '',
-                      c['password'] ?? '',
-                      c['platform'] ?? '',
-                      c['contact_number'] ?? '',
-                      c['email'] ?? '',
-                      _formatDate(c['updated_at']?.toString()),
-                      _formatTime(c['updated_at']?.toString()),
-                    );
-                    if (i < _credentials.length - 1) {
-                      return [row, const Divider(height: 1, color: Color(0xFFE2E8F0))];
-                    }
-                    return [row];
-                  }),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 32),
+      ],
     );
   }
 
+  // ── PART 3: PREMIUM MODERN REDESIGNED POPUP MODAL ────────────────────────
   void _showAddCredentialDialog(BuildContext context, {Map<String, dynamic>? existing}) {
     final isEdit = existing != null;
     const basePlatforms = [
@@ -284,7 +578,10 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
         : 'Select';
 
     final otherPlatformCtrl = TextEditingController(text: isCustomPlatform ? existingPlatform : '');
-    final clientNameCtrl = TextEditingController(text: existing?['username'] ?? '');
+    
+    // 🟢 Default Client Name set automatically based on current selected client
+    final clientNameCtrl = TextEditingController(text: isEdit ? (existing?['client_name'] ?? _selectedClientName ?? '') : (_selectedClientName ?? ''));
+    
     final userNameCtrl = TextEditingController(text: existing?['username'] ?? '');
     final passwordCtrl = TextEditingController(text: existing?['password'] ?? '');
     final contactCtrl = TextEditingController(text: existing?['contact_number'] ?? '');
@@ -326,8 +623,8 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
               };
 
               final error = isEdit
-                  ? await _updateCredential(existing['id'], payload)
-                  : await _createCredential(payload);
+                  ? await _updateCredential(existing['id'], payload, _selectedClientId!)
+                  : await _createCredential(payload, _selectedClientId!);
 
               if (error == null) {
                 if (context.mounted) Navigator.pop(context);
@@ -338,124 +635,205 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
             }
 
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 650),
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                constraints: const BoxConstraints(maxWidth: 620),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 32,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          isEdit ? "Edit Client Credential" : "Client Credential",
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                    // Premium Header Banner inside Modal
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(26, 24, 20, 20),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF003B95), Color(0xFF0052CC)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
-                          onPressed: isSubmitting ? null : () => Navigator.pop(context),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(24),
+                          topRight: Radius.circular(24),
                         ),
-                      ],
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12.0),
-                      child: Divider(color: Color(0xFFE2E8F0), height: 1),
-                    ),
-                    if (dialogError != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEE2E2),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFFCA5A5)),
-                        ),
-                        child: Text(dialogError!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFDC2626))),
                       ),
-                      const SizedBox(height: 16),
-                    ],
-                    Row(
-                      children: [
-                        Expanded(child: _buildDialogInputField(label: "Client Name *", hint: "", controller: clientNameCtrl)),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildDialogDropdownField(
-                            label: "Platform *",
-                            value: dialogSelectedPlatform,
-                            items: availablePlatforms,
-                            onChanged: (val) => setDialogState(() => dialogSelectedPlatform = val!),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (dialogSelectedPlatform == 'Others') ...[
-                      const SizedBox(height: 16),
-                      _buildDialogInputField(label: "Specify Platform Name *", hint: "e.g. Pinterest, Twitter/X", controller: otherPlatformCtrl),
-                    ],
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(child: _buildDialogInputField(label: "User Name *", hint: "", controller: userNameCtrl)),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
                             children: [
-                              const Text("Password *", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                              const SizedBox(height: 6),
-                              SizedBox(
+                              Container(
+                                width: 40,
                                 height: 40,
-                                child: TextField(
-                                  controller: passwordCtrl,
-                                  obscureText: !showPassword,
-                                  decoration: InputDecoration(
-                                    filled: true,
-                                    fillColor: const Color(0xFFF8FAFC),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                                    suffixIcon: IconButton(
-                                      icon: Icon(showPassword ? Icons.visibility_rounded : Icons.visibility_off_rounded, size: 18),
-                                      onPressed: () => setDialogState(() => showPassword = !showPassword),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.lock_outline_rounded, color: Colors.white, size: 20),
+                              ),
+                              const SizedBox(width: 14),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isEdit ? "Edit Account Credential" : "New Account Credential",
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.3),
                                   ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _selectedClientName != null ? 'Client: $_selectedClientName' : 'Secure Vault Entry',
+                                    style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.8), fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                            onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            splashRadius: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Modal Content Body
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 22, 26, 26),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (dialogError != null) ...[
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFCA5A5)),
+                              ),
+                              child: Text(dialogError!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFDC2626))),
+                            ),
+                            const SizedBox(height: 18),
+                          ],
+                          Row(
+                            children: [
+                              Expanded(child: _buildDialogInputField(label: "Client Name *", hint: "", controller: clientNameCtrl, enabled: false)),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildDialogDropdownField(
+                                  label: "Platform *",
+                                  value: dialogSelectedPlatform,
+                                  items: availablePlatforms,
+                                  onChanged: (val) => setDialogState(() => dialogSelectedPlatform = val!),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(child: _buildDialogInputField(label: "Contact Number *", hint: "", controller: contactCtrl)),
-                        const SizedBox(width: 16),
-                        Expanded(child: _buildDialogInputField(label: "Email *", hint: "", controller: emailCtrl)),
-                      ],
-                    ),
-                    const SizedBox(height: 32),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        OutlinedButton(
-                          onPressed: isSubmitting ? null : () => Navigator.pop(context),
-                          child: const Text("Cancel"),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: isSubmitting ? null : handleSubmit,
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E293B)),
-                          child: isSubmitting
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : const Text("Submit", style: TextStyle(color: Colors.white)),
-                        ),
-                      ],
+                          if (dialogSelectedPlatform == 'Others') ...[
+                            const SizedBox(height: 16),
+                            _buildDialogInputField(label: "Specify Platform Name *", hint: "e.g. Pinterest, Twitter/X", controller: otherPlatformCtrl),
+                          ],
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(child: _buildDialogInputField(label: "User Name *", hint: "Enter username/id", controller: userNameCtrl)),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text("Password *", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF334155))),
+                                    const SizedBox(height: 7),
+                                    Container(
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FAFC),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                                      ),
+                                      child: TextField(
+                                        controller: passwordCtrl,
+                                        obscureText: !showPassword,
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                        decoration: InputDecoration(
+                                          hintText: 'Enter password',
+                                          hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                                          filled: false,
+                                          contentPadding: const EdgeInsets.fromLTRB(14, 10, 0, 10),
+                                          border: InputBorder.none,
+                                          suffixIcon: IconButton(
+                                            icon: Icon(showPassword ? Icons.visibility_rounded : Icons.visibility_off_rounded, size: 18, color: const Color(0xFF64748B)),
+                                            onPressed: () => setDialogState(() => showPassword = !showPassword),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(child: _buildDialogInputField(label: "Contact Number *", hint: "+91 ...", controller: contactCtrl)),
+                              const SizedBox(width: 16),
+                              Expanded(child: _buildDialogInputField(label: "Email *", hint: "client@email.com", controller: emailCtrl)),
+                            ],
+                          ),
+                          const SizedBox(height: 28),
+                          // Modal Footer Action Buttons
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              SizedBox(
+                                height: 42,
+                                child: OutlinedButton(
+                                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF64748B),
+                                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                                  ),
+                                  child: const Text("Cancel", style: TextStyle(fontWeight: FontWeight.w700)),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                height: 42,
+                                child: ElevatedButton(
+                                  onPressed: isSubmitting ? null : handleSubmit,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0052CC),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                                  ),
+                                  child: isSubmitting
+                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                      : Text(isEdit ? "Save Changes" : "Save Credential", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -467,23 +845,29 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     );
   }
 
-  Widget _buildDialogInputField({required String label, required String hint, TextEditingController? controller}) {
+  Widget _buildDialogInputField({required String label, required String hint, TextEditingController? controller, bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-        const SizedBox(height: 6),
-        SizedBox(
-          height: 40,
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF334155))),
+        const SizedBox(height: 7),
+        Container(
+          height: 44,
+          decoration: BoxDecoration(
+            color: enabled ? const Color(0xFFF8FAFC) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFCBD5E1)),
+          ),
           child: TextField(
             controller: controller,
+            enabled: enabled,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: enabled ? const Color(0xFF1E293B) : const Color(0xFF64748B)),
             decoration: InputDecoration(
               hintText: hint,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Color(0xFF0052CC))),
+              hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+              filled: false,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              border: InputBorder.none,
             ),
           ),
         ),
@@ -496,16 +880,22 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-        const SizedBox(height: 6),
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF334155))),
+        const SizedBox(height: 7),
         Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(4), border: Border.all(color: const Color(0xFFCBD5E1))),
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFCBD5E1)),
+          ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: value,
               isExpanded: true,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF64748B), size: 20),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
               items: safeItems.map((item) => DropdownMenuItem(value: item, child: Text(item, style: const TextStyle(fontSize: 13)))).toList(),
               onChanged: onChanged,
             ),
@@ -525,7 +915,7 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
           color: Colors.white,
           child: Row(
             children: [
-              Expanded(flex: 3, child: Text(username, style: const TextStyle(fontSize: 13, color: Color(0xFF475569)))),
+              Expanded(flex: 3, child: Text(username, style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600))),
               Expanded(
                 flex: 3,
                 child: Row(
@@ -572,14 +962,14 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFFCBD5E1)),
+                      icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF0052CC)),
                       onPressed: () => _showAddCredentialDialog(context, existing: {
                         'id': id, 'username': username, 'password': pass,
                         'platform': platform, 'contact_number': phone, 'email': email,
                       }),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFCBD5E1)),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFDC2626)),
                       onPressed: () => showDialog(
                         context: context,
                         builder: (_) => AlertDialog(
@@ -590,7 +980,7 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
                             ElevatedButton(
                               onPressed: () {
                                 Navigator.pop(context);
-                                _deleteCredential(id);
+                                _deleteCredential(id, _selectedClientId!);
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
                               child: const Text('Delete', style: TextStyle(color: Colors.white)),
@@ -613,3 +1003,4 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5,
   );
 }
+
