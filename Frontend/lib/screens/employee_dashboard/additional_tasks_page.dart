@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -2132,36 +2133,174 @@ Widget _pageHeader() {
     );
   }
 
-  Widget _taskCategoryTabs() {
-    if (taskTabNames.isEmpty) {
-      return Container(height: 50, color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 28),
-        child: const Center(child: Text('No task categories assigned', style: TextStyle(color: AppColors.textGrey))));
-    }
-    return Container(height: 60, color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          for (int i in _visibleTabIndices)
-            InkWell(
-              onTap: () => setState(() => selectedTabIndex = i),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(
-                  color: selectedTabIndex == i ? const Color(0xFF004AAD) : Colors.transparent,
-                  width: selectedTabIndex == i ? 3 : 0,
-                ))),
-                child: Text(taskTabNames[i], style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                  color: selectedTabIndex == i ? const Color(0xFF004AAD) : Colors.grey)),
-              ),
-            ),
-        ]),
+Widget _taskCategoryTabs() {
+  if (taskTabNames.isEmpty) {
+    return Container(
+      width: double.infinity,
+      height: 72,
+      color: const Color(0xFFF8FAFD),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.only(left: 24),
+      child: const Text(
+        'No task categories assigned',
+        style: TextStyle(
+          color: AppColors.textGrey,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
+
+  const Color blue = Color(0xFF0057B8);
+  const Color inactive = Color(0xFFE9EEF5);
+  const Color inactiveText = Color(0xFF43536A);
+
+  return Container(
+    width: double.infinity,
+    color: const Color(0xFFF8FAFD),
+    padding: const EdgeInsets.only(
+      left: 0, // Start flush from the left edge
+      right: 12,
+      top: 8,
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start, // Align children to the left
+      children: [
+        // TAB AREA (Wrapped with Listener for PC Mouse Wheel Horizontal Scrolling)
+        SizedBox(
+          height: 58,
+          child: Listener(
+            onPointerSignal: (pointerSignal) {
+              if (pointerSignal is PointerScrollEvent) {
+                final offset = _horizontalController.offset + pointerSignal.scrollDelta.dy;
+                if (offset >= 0 && offset <= _horizontalController.position.maxScrollExtent) {
+                  _horizontalController.jumpTo(offset);
+                }
+              }
+            },
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start, // Force items to begin from left
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (int i = 0; i < _visibleTabIndices.length; i++)
+                    _buildTaskCategoryTab(
+                      tabIndex: _visibleTabIndices[i],
+                      isSelected: selectedTabIndex == _visibleTabIndices[i],
+                      blue: blue,
+                      inactive: inactive,
+                      inactiveText: inactiveText,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // BLUE BASE LINE
+        Container(
+          height: 4,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: blue,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+
+        // SCROLLBAR AREA
+        SizedBox(
+          height: 14,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              height: 5,
+              width: 90,
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  width: 38,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: blue,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildTaskCategoryTab({
+  required int tabIndex,
+  required bool isSelected,
+  required Color blue,
+  required Color inactive,
+  required Color inactiveText,
+}) {
+  return GestureDetector(
+    onTap: () {
+      setState(() {
+        selectedTabIndex = tabIndex;
+      });
+    },
+    child: Padding(
+      padding: const EdgeInsets.only(right: 4), // Small spacing gap between tabs
+      child: ClipPath(
+        clipper: _TaskTabClipper(),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          height: isSelected ? 58 : 56,
+          constraints: const BoxConstraints(
+            minWidth: 160,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 24,
+          ),
+          decoration: BoxDecoration(
+            color: isSelected ? blue : inactive,
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: blue.withValues(alpha: 0.25),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            taskTabNames[tabIndex],
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isSelected ? Colors.white : inactiveText,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 //   Widget _taskDetailsContainer() {
 //     if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
@@ -3406,3 +3545,28 @@ Widget _taskInfoBlock({
 
 const TextStyle _headerStyle = TextStyle(
     fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554));
+
+
+    // Exact Parallel Slanted Tab Shape Clipper
+class _TaskTabClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    const double slant = 18.0;
+
+    final Path path = Path();
+
+    path.moveTo(0, size.height);
+    path.lineTo(slant, 0);
+    path.lineTo(size.width, 0);
+    path.lineTo(size.width - slant, size.height);
+
+    path.close();
+
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant _TaskTabClipper oldClipper) {
+    return false;
+  }
+}

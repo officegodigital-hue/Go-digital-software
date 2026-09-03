@@ -1,6 +1,8 @@
+// name=employee_history_page.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/core/constants/app_colors.dart';
@@ -147,7 +149,6 @@ class _EmployeeHistoryPageState extends State<EmployeeHistoryPage> {
     }
   }
 
-  // 🟢 FIXED: Individual completed/rejected rows will each appear as history tasks under their deliverables tab
   Future<void> _fetchCompletedHistory() async {
     setState(() { _loadingTasks = true; _error = null; });
     try {
@@ -156,7 +157,6 @@ class _EmployeeHistoryPageState extends State<EmployeeHistoryPage> {
         return;
       }
 
-      // 🟢 Corrected endpoint to fetch completed/rejected history items directly
       final r = await http.get(Uri.parse('$_baseUrl/tracking-items/history/$_employeeName'));
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
@@ -197,22 +197,13 @@ class _EmployeeHistoryPageState extends State<EmployeeHistoryPage> {
         for (final tab in allTabs) {
           final tasksForTab = processed.where((t) => t['singleTask'] == tab).toList();
           for (final t in tasksForTab) {
-           final taskId = t['historyTaskId'].toString();
+            final taskId = t['historyTaskId'].toString();
 
-final rowsList =
-    List<dynamic>.from(t['rowsData'] ?? []);
+            final rowsList = List<dynamic>.from(t['rowsData'] ?? []);
+            final firstRow = rowsList.isNotEmpty ? Map<String, dynamic>.from(rowsList.first) : <String, dynamic>{};
+            final noOfRows = int.tryParse((firstRow['no_of_rows'] ?? rowsList.length).toString()) ?? rowsList.length;
 
-// Current task-oda first database row
-final firstRow = rowsList.isNotEmpty
-    ? Map<String, dynamic>.from(rowsList.first)
-    : <String, dynamic>{};
-
-// task_list.no_of_rows
-final noOfRows = int.tryParse(
-  (firstRow['no_of_rows'] ?? rowsList.length).toString(),
-) ?? rowsList.length;
-
-rowCounts[taskId] = noOfRows;
+            rowCounts[taskId] = noOfRows;
 
             for (int ri = 0; ri < rowsList.length; ri++) {
               final rItem = rowsList[ri];
@@ -224,15 +215,14 @@ rowCounts[taskId] = noOfRows;
               taskTotalDurations[taskKey] = Duration(seconds: rItem['duration_secs'] ?? 0);
               
               final st = (rItem['status'] ?? '').toString().toUpperCase();
-              // taskStatus[taskKey] = st == 'REJECTED' ? TaskStatus.rejected : TaskStatus.completed;
 
               if (st == 'COMPLETED') {
-  taskStatus[taskKey] = TaskStatus.completed;
-} else if (st == 'REJECTED') {
-  taskStatus[taskKey] = TaskStatus.rejected;
-} else {
-  taskStatus[taskKey] = TaskStatus.idle;
-}
+                taskStatus[taskKey] = TaskStatus.completed;
+              } else if (st == 'REJECTED') {
+                taskStatus[taskKey] = TaskStatus.rejected;
+              } else {
+                taskStatus[taskKey] = TaskStatus.idle;
+              }
 
               if (rItem['start_time'] != null && rItem['start_time'].toString().isNotEmpty) {
                 try { taskStartTimes[taskKey] = DateTime.parse(rItem['start_time']).toLocal(); } catch (_) {}
@@ -270,7 +260,7 @@ rowCounts[taskId] = noOfRows;
         setState(() {
           completedTasks = processed;
           taskTabNames = allTabs.toList();
-          if (taskTabNames.isNotEmpty) selectedTabIndex = 0;
+          if (taskTabNames.isNotEmpty && selectedTabIndex == null) selectedTabIndex = 0;
           _loadingTasks = false;
         });
       } else {
@@ -386,249 +376,105 @@ rowCounts[taskId] = noOfRows;
     );
   }
 
+  // 🟢 Custom Slanted Tabs Layout matching assigned tasks page reference style
   Widget _taskCategoryTabs() {
-    if (taskTabNames.isEmpty) return const SizedBox.shrink();
-    return Container(
-      height: 60, color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          for (int i in _visibleTabIndices)
-            InkWell(
-              onTap: () => setState(() => selectedTabIndex = i),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(
-                  color: selectedTabIndex == i ? const Color(0xFF004AAD) : Colors.transparent,
-                  width: selectedTabIndex == i ? 3 : 0,
-                ))),
-                child: Text(taskTabNames[i], style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: selectedTabIndex == i ? const Color(0xFF004AAD) : Colors.grey)),
-              ),
-            ),
-        ]),
-      ),
-    );
-  }
+    if (taskTabNames.isEmpty) {
+      return Container(
+        width: double.infinity,
+        height: 72,
+        color: const Color(0xFFF8FAFD),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 24),
+        child: const Text(
+          'No task categories assigned',
+          style: TextStyle(
+            color: AppColors.textGrey,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
 
-//  Widget _taskDetailsContainer() {
-//   if (selectedTabIndex == null ||
-//       selectedTabIndex! >= taskTabNames.length) {
-//     return const SizedBox.shrink();
-//   }
+    const Color blue = Color(0xFF0057B8);
+    const Color inactive = Color(0xFFE9EEF5);
+    const Color inactiveText = Color(0xFF43536A);
 
-//   final tabName = taskTabNames[selectedTabIndex!];
-
-//   var tasksForTab = completedTasks
-//       .where((t) => t['singleTask'] == tabName)
-//       .toList();
-
-//   // Client filter
-//   if (_selectedClientFilter != null &&
-//       _selectedClientFilter!.isNotEmpty) {
-//     tasksForTab = tasksForTab
-//         .where(
-//           (t) =>
-//               (t['client_name'] ?? '').toString() ==
-//               _selectedClientFilter,
-//         )
-//         .toList();
-//   }
-
-//   if (tasksForTab.isEmpty) {
-//     return Center(
-//       child: Text('No history for $tabName'),
-//     );
-//   }
-
-//   return Column(
-//     children: tasksForTab.map((task) {
-//       // historyTaskId use pannuvom
-//       final taskId = task['historyTaskId'].toString();
-
-//       final isExpand = expandedTaskId == taskId;
-
-//       return Column(
-//         children: [
-//           Container(
-//             margin: const EdgeInsets.only(bottom: 2),
-//             padding: const EdgeInsets.all(18),
-//             decoration: const BoxDecoration(
-//               color: Colors.white,
-//               border: Border(
-//                 bottom: BorderSide(
-//                   color: AppColors.border,
-//                 ),
-//               ),
-//             ),
-//             child: Row(
-//               children: [
-//                 _detailItem(
-//                   'CLIENT :',
-//                   (task['client_name'] ?? 'N/A').toString(),
-//                   flex: 2,
-//                 ),
-
-//                 _detailItem(
-//                   'DELIVERABLES :',
-//                   (task['singleTask'] ?? '').toString(),
-//                   flex: 2,
-//                 ),
-
-//                 Expanded(
-//                   flex: 2,
-//                   child: Row(
-//                     children: [
-//                       const Text(
-//                         'SUBMIT DATE :',
-//                         style: TextStyle(
-//                           fontSize: 10,
-//                           fontWeight: FontWeight.w800,
-//                           color: Color(0xFF172554),
-//                         ),
-//                       ),
-//                       const SizedBox(width: 4),
-//                       Text(
-//                         _formatDateForDisplay(
-//                           task['assignedDate']?.toString(),
-//                         ),
-//                         style: const TextStyle(
-//                           fontSize: 10,
-//                           color: AppColors.textGrey,
-//                         ),
-//                       ),
-//                     ],
-//                   ),
-//                 ),
-
-//                 const Spacer(),
-
-//                 ElevatedButton(
-//                   onPressed: () {
-//                     setState(() {
-//                       expandedTaskId =
-//                           isExpand ? null : taskId;
-//                     });
-//                   },
-//                   style: ElevatedButton.styleFrom(
-//                     backgroundColor: isExpand
-//                         ? AppColors.red
-//                         : const Color(0xFFD9E8FF),
-//                     foregroundColor: isExpand
-//                         ? Colors.white
-//                         : const Color(0xFF003A9B),
-//                   ),
-//                   child: Text(
-//                     isExpand ? 'HIDE' : 'OPEN',
-//                   ),
-//                 ),
-//               ],
-//             ),
-//           ),
-
-//           if (isExpand)
-//             _buildTaskTable(task, taskId),
-//         ],
-//       );
-//     }).toList(),
-//   );
-// }
-
-String _getRowStatusText(TaskStatus status) {
-  switch (status) {
-    case TaskStatus.completed:
-      return 'COMPLETED';
-
-    case TaskStatus.rejected:
-      return 'REJECTED';
-
-    case TaskStatus.running:
-    case TaskStatus.held:
-    case TaskStatus.idle:
-      return 'PENDING';
-  }
-}
-
-Widget _taskDetailsContainer() {
-  if (selectedTabIndex == null ||
-      selectedTabIndex! >= taskTabNames.length) {
-    return const SizedBox.shrink();
-  }
-
-  final tabName = taskTabNames[selectedTabIndex!];
-
-  var tasksForTab = completedTasks
-      .where((t) => t['singleTask'] == tabName)
-      .toList();
-
-  // ================================================================
-  // CLIENT FILTER
-  // ================================================================
-  if (_selectedClientFilter != null &&
-      _selectedClientFilter!.isNotEmpty) {
-    tasksForTab = tasksForTab
-        .where(
-          (t) =>
-              (t['client_name'] ?? '').toString() ==
-              _selectedClientFilter,
-        )
-        .toList();
-  }
-
-  // ================================================================
-  // EMPTY STATE
-  // ================================================================
-  if (tasksForTab.isEmpty) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(
-        horizontal: 28,
-        vertical: 16,
-      ),
-      padding: const EdgeInsets.symmetric(
-        vertical: 40,
-        horizontal: 20,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-        ),
+      color: const Color(0xFFF8FAFD),
+      padding: const EdgeInsets.only(
+        left: 0,
+        right: 12,
+        top: 8,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          SizedBox(
+            height: 58,
+            child: Listener(
+              onPointerSignal: (pointerSignal) {
+                if (pointerSignal is PointerScrollEvent) {
+                  final offset = _horizontalController.offset + pointerSignal.scrollDelta.dy;
+                  if (offset >= 0 && offset <= _horizontalController.position.maxScrollExtent) {
+                    _horizontalController.jumpTo(offset);
+                  }
+                }
+              },
+              child: SingleChildScrollView(
+                controller: _horizontalController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (int i = 0; i < _visibleTabIndices.length; i++)
+                      _buildTaskCategoryTab(
+                        tabIndex: _visibleTabIndices[i],
+                        isSelected: selectedTabIndex == _visibleTabIndices[i],
+                        blue: blue,
+                        inactive: inactive,
+                        inactiveText: inactiveText,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           Container(
-            width: 52,
-            height: 52,
-            decoration: const BoxDecoration(
-              color: Color(0xFFF1F5F9),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.history_rounded,
-              size: 25,
-              color: Color(0xFF94A3B8),
+            height: 4,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: blue,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 12),
-          const Text(
-            'No history found',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF334155),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'No completed records available for $tabName.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xFF94A3B8),
+          SizedBox(
+            height: 14,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                height: 5,
+                width: 90,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    width: 38,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: blue,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -636,379 +482,376 @@ Widget _taskDetailsContainer() {
     );
   }
 
-  // ================================================================
-  // HISTORY TASK CARDS WITH ROWS PLUS (+) BUTTON
-  // ================================================================
-  return Column(
-    children: tasksForTab.map((task) {
-      final taskId = task['historyTaskId'].toString();
-      final isExpand = expandedTaskId == taskId;
-
-      final clientName = (task['client_name'] ?? 'N/A').toString();
-      final deliverable = (task['singleTask'] ?? '').toString();
-      final submitDate = _formatDateForDisplay(task['assignedDate']?.toString());
-      final currentRowsCount = rowCounts[taskId] ?? 1;
-
-      return Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.025),
-                  blurRadius: 5,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+  Widget _buildTaskCategoryTab({
+    required int tabIndex,
+    required bool isSelected,
+    required Color blue,
+    required Color inactive,
+    required Color inactiveText,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          selectedTabIndex = tabIndex;
+        });
+      },
+      child: Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: ClipPath(
+          clipper: _TaskTabClipper(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            height: isSelected ? 58 : 56,
+            constraints: const BoxConstraints(
+              minWidth: 160,
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // CLIENT
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    height: 46,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
-                      borderRadius: BorderRadius.circular(8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24,
+            ),
+            decoration: BoxDecoration(
+              color: isSelected ? blue : inactive,
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: blue.withValues(alpha: 0.25),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              taskTabNames[tabIndex],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isSelected ? Colors.white : inactiveText,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getRowStatusText(TaskStatus status) {
+    switch (status) {
+      case TaskStatus.completed:
+        return 'COMPLETED';
+      case TaskStatus.rejected:
+        return 'REJECTED';
+      case TaskStatus.running:
+      case TaskStatus.held:
+      case TaskStatus.idle:
+        return 'PENDING';
+    }
+  }
+
+  Widget _taskDetailsContainer() {
+    if (selectedTabIndex == null ||
+        selectedTabIndex! >= taskTabNames.length) {
+      return const SizedBox.shrink();
+    }
+
+    final tabName = taskTabNames[selectedTabIndex!];
+
+    var tasksForTab = completedTasks
+        .where((t) => t['singleTask'] == tabName)
+        .toList();
+
+    if (_selectedClientFilter != null &&
+        _selectedClientFilter!.isNotEmpty) {
+      tasksForTab = tasksForTab
+          .where(
+            (t) =>
+                (t['client_name'] ?? '').toString() ==
+                _selectedClientFilter,
+          )
+          .toList();
+    }
+
+    if (tasksForTab.isEmpty) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(
+          horizontal: 28,
+          vertical: 16,
+        ),
+        padding: const EdgeInsets.symmetric(
+          vertical: 40,
+          horizontal: 20,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.history_rounded,
+                size: 25,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'No history found',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'No completed records available for $tabName.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: tasksForTab.map((task) {
+        final taskId = task['historyTaskId'].toString();
+        final isExpand = expandedTaskId == taskId;
+
+        final clientName = (task['client_name'] ?? 'N/A').toString();
+        final deliverable = (task['singleTask'] ?? '').toString();
+        final submitDate = _formatDateForDisplay(task['assignedDate']?.toString());
+
+        return Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.025),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 🟢 CLIENT NAME CONTAINER WITH BLUE BACKGROUND (Color(0xFF004AAD))
+                  Expanded(
+                    flex: 3,
+                    child: Container(
+                      height: 46,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF004AAD),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Icon(Icons.business_outlined, size: 15, color: Colors.white),
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('CLIENT', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.7)),
+                                const SizedBox(height: 2),
+                                Text(clientName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  // DELIVERABLE
+                  Expanded(
+                    flex: 3,
+                    child: _taskInfoBlock(
+                      icon: Icons.layers_outlined,
+                      label: 'DELIVERABLES',
+                      value: deliverable.isEmpty ? 'N/A' : deliverable,
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  // SUBMIT DATE
+                  Expanded(
+                    flex: 3,
                     child: Row(
                       children: [
                         Container(
-                          width: 28,
-                          height: 28,
+                          width: 32,
+                          height: 32,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(6),
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(7),
                           ),
-                          child: const Icon(Icons.business_outlined, size: 15, color: Colors.white),
+                          child: const Icon(Icons.calendar_today_outlined, size: 15, color: Color(0xFF475569)),
                         ),
-                        const SizedBox(width: 9),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text('CLIENT', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8), letterSpacing: 0.7)),
-                              const SizedBox(height: 2),
-                              Text(clientName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                              const Text('SUBMIT DATE', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                              const SizedBox(height: 3),
+                              Text(submitDate, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
                             ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
 
-                const SizedBox(width: 14),
+                  const SizedBox(width: 14),
 
-                // DELIVERABLE
-                Expanded(
-                  flex: 3,
-                  child: _taskInfoBlock(
-                    icon: Icons.layers_outlined,
-                    label: 'DELIVERABLES',
-                    value: deliverable.isEmpty ? 'N/A' : deliverable,
-                  ),
-                ),
-
-                const SizedBox(width: 14),
-
-                // SUBMIT DATE
-                Expanded(
-                  flex: 3,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: const Icon(Icons.calendar_today_outlined, size: 15, color: Color(0xFF475569)),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('SUBMIT DATE', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.5)),
-                            const SizedBox(height: 3),
-                            Text(submitDate, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
-                          ],
+                  // OPEN / HIDE
+                  SizedBox(
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          expandedTaskId = isExpand ? null : taskId;
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isExpand ? const Color(0xFFFEF2F2) : const Color(0xFFE8F1FF),
+                        foregroundColor: isExpand ? const Color(0xFFDC2626) : const Color(0xFF004AAD),
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 17),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(color: isExpand ? const Color(0xFFFECACA) : const Color(0xFFBFDBFE)),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(width: 14),
-
-                // 🟢 ROWS PLUS (+) BUTTON CONTROLLER IN HISTORY PAGE
-//                 Container(
-//                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-//                   decoration: BoxDecoration(
-//                     color: const Color(0xFFF8FAFC),
-//                     border: Border.all(color: const Color(0xFFE2E8F0)),
-//                     borderRadius: BorderRadius.circular(8),
-//                   ),
-//                   child: Row(
-//                     mainAxisSize: MainAxisSize.min,
-//                     children: [
-//                       const Text('ROWS', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
-//                       const SizedBox(width: 7),
-//                       Container(
-//                         width: 34, height: 28,
-//                         alignment: Alignment.center,
-//                         decoration: BoxDecoration(
-//                           color: Colors.white,
-//                           borderRadius: BorderRadius.circular(5),
-//                           border: Border.all(color: const Color(0xFFCBD5E1)),
-//                         ),
-//                         child: Text(
-//                           '$currentRowsCount',
-//                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-//                         ),
-//                       ),
-//                       const SizedBox(width: 5),
-//                      // PLUS BUTTON: Increases row count, updates database rows, and ensures the task moves back to Assigned Tasks with a fresh active row
-// // PLUS BUTTON: Increases row count strictly by +1 and updates database
-//                       InkWell(
-//                         borderRadius: BorderRadius.circular(5),
-//                         onTap: () async {
-//                           try {
-//                             final rowsDataList = List<dynamic>.from(task['rowsData'] ?? []);
-//                             if (rowsDataList.isEmpty) return;
-
-//                             final firstRow = Map<String, dynamic>.from(rowsDataList.first);
-//                             final taskListId = int.tryParse((firstRow['task_list_id'] ?? firstRow['taskListId'] ?? '').toString());
-
-//                             if (taskListId == null) {
-//                               debugPrint('task_list_id not found');
-//                               return;
-//                             }
-
-//                             // 🟢 FIXED: Database-il irukkira actual rows count-ai eduththu athanodu strict-ah +1 mattum add panrom
-//                             // Ithanaala pazhaya count-ku reduce aagathu, eppovum increase mattum thaan aagum.
-//                             final fetchRes = await http.get(Uri.parse('$_baseUrl/task-list'));
-//                             int actualDbCount = currentRowsCount;
-                            
-//                             if (fetchRes.statusCode == 200) {
-//                               final body = jsonDecode(fetchRes.body);
-//                               final allLists = List<dynamic>.from(body['data'] ?? []);
-//                               final matched = allLists.firstWhere(
-//                                 (item) => item['id'].toString() == taskListId.toString(),
-//                                 orElse: () => null,
-//                               );
-//                               if (matched != null && matched['no_of_rows'] != null) {
-//                                 actualDbCount = int.tryParse(matched['no_of_rows'].toString()) ?? currentRowsCount;
-//                               }
-//                             }
-
-//                             final newCount = actualDbCount + 1;
-
-//                             // 1. Update backend no_of_rows strictly
-//                             final response = await http.patch(
-//                               Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
-//                               headers: {'Content-Type': 'application/json'},
-//                               body: jsonEncode({
-//                                 'noOfRows': newCount,
-//                               }),
-//                             );
-
-//                             if (response.statusCode == 200) {
-//                               // 2. Ensure a new IDLE tracking item row exists for this new incremented row index
-//                               await http.post(
-//                                 Uri.parse('$_baseUrl/tracking-items'),
-//                                 headers: {'Content-Type': 'application/json'},
-//                                 body: jsonEncode({
-//                                   'taskListId': taskListId,
-//                                   'sNo': newCount,
-//                                   'submitDate': task['assignedDate'] ?? '',
-//                                   'taskDescription': deliverable,
-//                                   'durationSecs': 0,
-//                                   'comment': '',
-//                                   'performance': 'N/A',
-//                                   'status': 'IDLE',
-//                                 }),
-//                               );
-
-//                               if (!mounted) return;
-
-//                               setState(() {
-//                                 rowCounts[taskId] = newCount;
-//                               });
-
-//                               ScaffoldMessenger.of(context).showSnackBar(
-//                                 const SnackBar(
-//                                   content: Text('✅ Row added! Task moved back to Assigned Tasks.'),
-//                                   backgroundColor: Colors.green,
-//                                   duration: Duration(seconds: 2),
-//                                 ),
-//                               );
-
-//                               await _fetchCompletedHistory();
-//                             } else {
-//                               debugPrint('Row count update failed: ${response.statusCode} ${response.body}');
-//                             }
-//                           } catch (e) {
-//                             debugPrint('Error updating row count from history: $e');
-//                           }
-//                         },
-//                         child: Container(
-//                           width: 24, height: 24,
-//                           alignment: Alignment.center,
-//                           decoration: BoxDecoration(color: const Color(0xFF004AAD), borderRadius: BorderRadius.circular(5)),
-//                           child: const Icon(Icons.add, size: 14, color: Colors.white),
-//                         ),
-//                       ),
-                      
-//                                        ],
-//                   ),
-//                 ),
-
-//                 const SizedBox(width: 14),
-
-                // COMPLETED BADGE
-                // Container(
-                //   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-                //   decoration: BoxDecoration(
-                //     color: const Color(0xFFF0FDF4),
-                //     borderRadius: BorderRadius.circular(7),
-                //     border: Border.all(color: const Color(0xFFBBF7D0)),
-                //   ),
-                //   child: const Row(
-                //     mainAxisSize: MainAxisSize.min,
-                //     children: [
-                //       Icon(Icons.check_circle_outline, size: 14, color: Color(0xFF15803D)),
-                //       SizedBox(width: 5),
-                //       Text('COMPLETED', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Color(0xFF15803D))),
-                //     ],
-                //   ),
-                // ),
-
-                // const SizedBox(width: 12),
-
-                // OPEN / HIDE
-                SizedBox(
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        expandedTaskId = isExpand ? null : taskId;
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isExpand ? const Color(0xFFFEF2F2) : const Color(0xFFE8F1FF),
-                      foregroundColor: isExpand ? const Color(0xFFDC2626) : const Color(0xFF004AAD),
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 17),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: isExpand ? const Color(0xFFFECACA) : const Color(0xFFBFDBFE)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(isExpand ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 17),
+                          const SizedBox(width: 4),
+                          Text(isExpand ? 'HIDE' : 'OPEN', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                        ],
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(isExpand ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 17),
-                        const SizedBox(width: 4),
-                        Text(isExpand ? 'HIDE' : 'OPEN', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-                      ],
-                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            if (isExpand)
+              _buildTaskTable(task, taskId),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _taskInfoBlock({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(
+              icon,
+              size: 15,
+              color: const Color(0xFF475569),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF64748B),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF334155),
                   ),
                 ),
               ],
             ),
           ),
-
-          if (isExpand)
-            _buildTaskTable(task, taskId),
         ],
-      );
-    }).toList(),
-  );
-}
-
-
-Widget _taskInfoBlock({
-  required IconData icon,
-  required String label,
-  required String value,
-}) {
-  return Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: 10,
-      vertical: 8,
-    ),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Icon(
-            icon,
-            size: 15,
-            color: const Color(0xFF475569),
-          ),
-        ),
-
-        const SizedBox(width: 8),
-
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 0.5,
-                ),
-              ),
-
-              const SizedBox(height: 3),
-
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF334155),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
+      ),
+    );
+  }
 
   Widget _buildTaskTable(Map<String, dynamic> task, String taskId) {
     final rowCount = rowCounts[taskId] ?? 1;
@@ -1045,25 +888,17 @@ Widget _taskInfoBlock({
   }
 
   Widget _buildRow(int index, Map<String, dynamic> task, String taskId) {
-
-    
     final taskKey = '${taskId}_row_$index';
     final editDate = editableSubmitDates[taskKey] ?? '--';
-    final rowsData =
-      List<dynamic>.from(task['rowsData'] ?? []);
+    final rowsData = List<dynamic>.from(task['rowsData'] ?? []);
 
-  final rowData =
-      index < rowsData.length
-          ? Map<String, dynamic>.from(rowsData[index])
-          : <String, dynamic>{};
-
-  final actualSno = rowData['s_no'] ?? index + 1;
+    final rowData = index < rowsData.length ? Map<String, dynamic>.from(rowsData[index]) : <String, dynamic>{};
+    final actualSno = rowData['s_no'] ?? index + 1;
     final editDesc = editableTaskDescs[taskKey] ?? task['singleTask'] ?? 'N/A';
     final savedComment = taskComments[taskKey] ?? '';
     final totalDur = taskTotalDurations[taskKey] ?? Duration.zero;
     final perf = _calculatePerformance(task['singleTask'] ?? '', totalDur);
     final perfColor = _getPerformanceColor(perf);
-    // final curStatus = taskStatus[taskKey] ?? TaskStatus.completed;
     final curStatus = taskStatus[taskKey] ?? TaskStatus.idle;
 
     bool hasStarted = taskStartTimes[taskKey] != null;
@@ -1077,55 +912,49 @@ Widget _taskInfoBlock({
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: Row(children: [
         SizedBox(
-  width: snoWidth,
-  child: Text(
-    actualSno.toString(),
-    textAlign: TextAlign.center,
-    style: const TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.w500,
-    ),
-  ),
-),
-SizedBox(width: submitDateWidth, child: Text(editDate, style: const TextStyle(fontSize: 11, color: Color(0xFF004AAD)))),
+          width: snoWidth,
+          child: Text(
+            actualSno.toString(),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        SizedBox(width: submitDateWidth, child: Text(editDate, style: const TextStyle(fontSize: 11, color: Color(0xFF004AAD)))),
         SizedBox(width: taskWidth, child: Text(editDesc, style: const TextStyle(fontSize: 11))),
         
-        // 🟢 View-only Action Buttons displaying all 5 buttons with timestamps
         SizedBox(width: actionWidth,
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                // 1. START
                 _viewBtn("START", hasStarted ? Colors.blue.shade900 : Colors.grey.shade200, hasStarted ? Colors.white : Colors.grey),
                 const SizedBox(width: 4),
                 if (hasStarted)
                   Text('S: ${formatTime(taskStartTimes[taskKey])}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blue)),
                 const SizedBox(width: 12),
 
-                // 2. HOLD
                 _viewBtn("HOLD", hasHeld ? Colors.grey.shade700 : Colors.grey.shade200, hasHeld ? Colors.white : Colors.grey),
                 const SizedBox(width: 4),
                 if (hasHeld)
                   ...taskHoldTimes[taskKey]!.map((h) => Text('${formatTime(h)} ', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey))),
                 const SizedBox(width: 12),
 
-                // 3. RESTART
                 _viewBtn("RESTART", hasRestarted ? Colors.orange.shade800 : Colors.grey.shade200, hasRestarted ? Colors.white : Colors.grey),
                 const SizedBox(width: 4),
                 if (hasRestarted)
                   ...taskRestartTimes[taskKey]!.map((r) => Text('R: ${formatTime(r)} ', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.orange))),
                 const SizedBox(width: 12),
 
-                // 4. COMPLETED
                 _viewBtn("COMPLETED", isCompleted ? Colors.green.shade700 : Colors.grey.shade200, isCompleted ? Colors.white : Colors.grey),
                 const SizedBox(width: 4),
                 if (isCompleted && (taskCompletedTimes[taskKey] ?? []).isNotEmpty)
                   Text('C: ${formatTime(taskCompletedTimes[taskKey]!.first)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF00812B))),
                 const SizedBox(width: 12),
 
-                // 5. REJECTED
                 _viewBtn("REJECTED", isRejected ? Colors.red.shade700 : Colors.grey.shade200, isRejected ? Colors.white : Colors.grey),
                 const SizedBox(width: 4),
                 if (isRejected && (taskRejectedTimes[taskKey] ?? []).isNotEmpty)
@@ -1165,58 +994,30 @@ SizedBox(width: submitDateWidth, child: Text(editDate, style: const TextStyle(fo
     return '${d.inHours.toString().padLeft(2,'0')}:${d.inMinutes.remainder(60).toString().padLeft(2,'0')}:${d.inSeconds.remainder(60).toString().padLeft(2,'0')}';
   }
 
-  // String _statusString(TaskStatus s) {
-  //   switch (s) {
-  //     case TaskStatus.completed: return 'COMPLETED';
-  //     case TaskStatus.rejected:  return 'REJECTED';
-  //     default:                   return 'COMPLETED';
-  //   }
-  // }
-
   String _statusString(TaskStatus s) {
-  switch (s) {
-    case TaskStatus.completed:
-      return 'COMPLETED';
-
-    case TaskStatus.rejected:
-      return 'REJECTED';
-
-    case TaskStatus.running:
-    case TaskStatus.held:
-    case TaskStatus.idle:
-      return 'PENDING';
+    switch (s) {
+      case TaskStatus.completed:
+        return 'COMPLETED';
+      case TaskStatus.rejected:
+        return 'REJECTED';
+      case TaskStatus.running:
+      case TaskStatus.held:
+      case TaskStatus.idle:
+        return 'PENDING';
+    }
   }
-}
-
-  // Color _statusColor(TaskStatus s) {
-  //   switch (s) {
-  //     case TaskStatus.completed: return const Color(0xFF00812B);
-  //     case TaskStatus.rejected:  return const Color(0xFFC40000);
-  //     default:                   return const Color(0xFF00812B);
-  //   }
-  // }
 
   Color _statusColor(TaskStatus s) {
-  switch (s) {
-    case TaskStatus.completed:
-      return const Color(0xFF00812B);
-
-    case TaskStatus.rejected:
-      return const Color(0xFFC40000);
-
-    case TaskStatus.running:
-    case TaskStatus.held:
-    case TaskStatus.idle:
-      return const Color(0xFFD97706);
-  }
-}
-
-  Widget _detailItem(String label, String value, {required int flex}) {
-    return Expanded(flex: flex, child: Row(children: [
-      Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF172554))),
-      const SizedBox(width: 4),
-      Expanded(child: Text(value, style: const TextStyle(fontSize: 10, color: AppColors.textGrey), overflow: TextOverflow.ellipsis)),
-    ]));
+    switch (s) {
+      case TaskStatus.completed:
+        return const Color(0xFF00812B);
+      case TaskStatus.rejected:
+        return const Color(0xFFC40000);
+      case TaskStatus.running:
+      case TaskStatus.held:
+      case TaskStatus.idle:
+        return const Color(0xFFD97706);
+    }
   }
 
   String _formatDateForDisplay(String? raw) {
@@ -1227,6 +1028,30 @@ SizedBox(width: submitDateWidth, child: Text(editDate, style: const TextStyle(fo
     } catch (_) {
       return raw;
     }
+  }
+}
+
+// 🟢 Slanted Tab Shape Clipper
+class _TaskTabClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    const double slant = 18.0;
+
+    final Path path = Path();
+
+    path.moveTo(0, size.height);
+    path.lineTo(slant, 0);
+    path.lineTo(size.width, 0);
+    path.lineTo(size.width - slant, size.height);
+
+    path.close();
+
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant _TaskTabClipper oldClipper) {
+    return false;
   }
 }
 
