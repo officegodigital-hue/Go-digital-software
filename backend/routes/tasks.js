@@ -286,7 +286,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/tasks/:id — update task safely
+// // PUT /api/tasks/:id — update task safely
 router.put('/:id', async (req, res) => {
   try {
     const [existingRows] = await db.query(
@@ -304,14 +304,21 @@ router.put('/:id', async (req, res) => {
     const existing = existingRows[0];
 
     const keepExisting = (newValue, oldValue) => {
-      if (
-        newValue === undefined ||
-        newValue === null ||
-        (typeof newValue === 'string' && newValue.trim() === '')
-      ) {
+    //   if (
+    //     newValue === undefined ||
+    //     newValue === null ||
+    //     (typeof newValue === 'string' && newValue.trim() === '')
+    //   ) 
+    //   {
+    //     return oldValue;
+    //   }
+    //   return newValue;
+    // };
+
+    if (newValue === undefined) {
         return oldValue;
       }
-      return newValue;
+      return newValue === null ? '' : newValue;
     };
 
     const keepExistingDate = (newValue, oldValue) => {
@@ -462,6 +469,9 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+
+
+
 // PATCH /api/tasks/:id/assign — toggle is_assigned
 // PATCH /api/tasks/:id/assign — toggle is_assigned & trigger notification
 router.patch('/:id/assign', async (req, res) => {
@@ -556,7 +566,7 @@ io.emit("taskAssigned", {
 });
 
 
-// routes/tasks.js — Duplicate next month route with safe maintenance_date handling
+// routes/tasks.js — Duplicate next month route
 router.post('/:id/duplicate-next-month', async (req, res) => {
   try {
     const [rows] = await db.query(`SELECT * FROM task_assignments WHERE id = ?`, [req.params.id]);
@@ -566,13 +576,12 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
     // Calculate next month dates safely
     let nextMaintenance = null;
     if (task.maintenance_date) {
-      // Oru vela maintenance_date string date-ah irunthaal atha parse panrom, illaiyendraal current date-ku 1 month add panrom
       let parsedMaint = new Date(task.maintenance_date);
       if (!isNaN(parsedMaint.getTime())) {
         parsedMaint.setMonth(parsedMaint.getMonth() + 1);
         nextMaintenance = parsedMaint.toISOString().slice(0, 19).replace('T', ' ');
       } else {
-        nextMaintenance = task.maintenance_date; // Fallback to original string if non-standard
+        nextMaintenance = task.maintenance_date;
       }
     }
 
@@ -585,6 +594,22 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
     }
 
     const formatSqlDate = (d) => d instanceof Date ? d.toISOString().slice(0, 19).replace('T', ' ') : d;
+    const formattedDeadlineStr = formatSqlDate(nextDeadline);
+
+    // 🟢 Prevent manual duplicate if it already exists for the same deadline date
+    const [existingNextCycle] = await db.query(`
+      SELECT id FROM task_assignments 
+      WHERE client_name = ? 
+        AND deliverables = ? 
+        AND deadline = ?
+    `, [task.client_name, task.deliverables, formattedDeadlineStr]);
+
+    if (existingNextCycle.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'A task for this next cycle deadline already exists!' 
+      });
+    }
 
     // Insert brand new active task for next cycle (is_assigned = 1)
     const [result] = await db.query(`
@@ -620,7 +645,7 @@ router.post('/:id/duplicate-next-month', async (req, res) => {
       task.developer_tasks,
       task.website_designer, 
       task.website_designer_tasks,
-      formatSqlDate(nextDeadline), 
+      formattedDeadlineStr, 
       task.comments
     ]);
 

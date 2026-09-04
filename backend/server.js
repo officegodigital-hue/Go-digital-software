@@ -1,15 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-
+const http    = require('http');
+const { Server } = require("socket.io");
 const cron = require('node-cron');
 const db = require('./config/db');
 
-// Run every day at midnight (00:00) to check expired tasks and auto-create next cycle
+// Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
 cron.schedule('0 0 * * *', async () => {
   console.log('🔄 Running Daily Task Auto-Rollover & Next Cycle Check...');
   try {
-    // 🟢 DATE(deadline) use seivathal time mismatch aagathu (Expired tasks clean-ah catch aagum)
     const [expiredTasks] = await db.query(`
       SELECT * FROM task_assignments 
       WHERE is_assigned = 1 
@@ -17,10 +17,10 @@ cron.schedule('0 0 * * *', async () => {
         AND DATE(deadline) < CURDATE()
     `);
 
-    console.log(`📌 Found ${expiredTasks.length} expired task(s) for auto-rollover.`);
+    console.log(`📌 Found ${expiredTasks.length} expired task(s) for auto-rollover check.`);
 
     for (const task of expiredTasks) {
-      // Calculate next month dates for the auto-generated next cycle task
+      // 🟢 Calculate next cycle dates (adding 1 month to maintenance & deadline)
       let nextMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
       if (!isNaN(nextMaintenance.getTime())) {
         nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
@@ -37,58 +37,65 @@ cron.schedule('0 0 * * *', async () => {
         nextDeadline.setMonth(nextDeadline.getMonth() + 1);
       }
 
-      const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+      const formatSqlDate = (d) => d instanceof Date ? d.toISOString().slice(0, 19).replace('T', ' ') : d.toISOString().slice(0, 19).replace('T', ' ');
 
-      // 1. Mark old task as unassigned or archive status if needed, 
-      // (Neengal old task assigned tab-laye irukkanum sonnathanaal, is_assigned change seyyathevai illai, 
-      // aana ungalukku vendumnaal matra status-ku mathikalam. Ippo old task-ai touch seyyavendam ennathal intha line-ai skip panrom).
+      // 🟢 Check if next cycle task already exists for this client and deliverables to prevent daily spamming
+      const [existingNextCycle] = await db.query(`
+        SELECT id FROM task_assignments 
+        WHERE client_name = ? 
+          AND deliverables = ? 
+          AND deadline = ?
+      `, [task.client_name, task.deliverables, formatSqlDate(nextDeadline)]);
 
-      // 2. 🟢 Automatically Insert the new next cycle task (is_assigned = 1) with same details
-      await db.query(`
-        INSERT INTO task_assignments (
-          client_name, deliverables, maintenance_date, 
-          ads_handling, ads_platform, 
-          page_handling, pages_platform, 
-          designer, designer_tasks, 
-          videographer, videographer_tasks, 
-          video_editor, video_editor_task, 
-          ui_ux_designer, ui_ux_tasks, 
-          developer, developer_tasks, 
-          website_designer, website_designer_tasks, 
-          deadline, comments, is_assigned
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-      `, [
-        task.client_name, 
-        task.deliverables, 
-        formatSqlDate(nextMaintenance),
-        task.ads_handling, 
-        task.ads_platform,
-        task.page_handling, 
-        task.pages_platform,
-        task.designer, 
-        task.designer_tasks,
-        task.videographer, 
-        task.videographer_tasks,
-        task.video_editor, 
-        task.video_editor_task,
-        task.ui_ux_designer, 
-        task.ui_ux_tasks,
-        task.developer, 
-        task.developer_tasks,
-        task.website_designer, 
-        task.website_designer_tasks,
-        formatSqlDate(nextDeadline), 
-        task.comments
-      ]);
+      // Oru vela antha next cycle deadline-ku task illaiyendraal mattum, auto-assign seyyum (Once only)
+      if (existingNextCycle.length === 0) {
+        await db.query(`
+          INSERT INTO task_assignments (
+            client_name, deliverables, maintenance_date, 
+            ads_handling, ads_platform, 
+            page_handling, pages_platform, 
+            designer, designer_tasks, 
+            videographer, videographer_tasks, 
+            video_editor, video_editor_task, 
+            ui_ux_designer, ui_ux_tasks, 
+            developer, developer_tasks, 
+            website_designer, website_designer_tasks, 
+            deadline, comments, is_assigned
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        `, [
+          task.client_name, 
+          task.deliverables, 
+          formatSqlDate(nextMaintenance),
+          task.ads_handling, 
+          task.ads_platform,
+          task.page_handling, 
+          task.pages_platform,
+          task.designer, 
+          task.designer_tasks,
+          task.videographer, 
+          task.videographer_tasks,
+          task.video_editor, 
+          task.video_editor_task,
+          task.ui_ux_designer, 
+          task.ui_ux_tasks,
+          task.developer, 
+          task.developer_tasks,
+          task.website_designer, 
+          task.website_designer_tasks,
+          formatSqlDate(nextDeadline), 
+          task.comments
+        ]);
+        console.log(`✅ Auto-created next cycle task for client: ${task.client_name}`);
+      }
     }
-    console.log('✅ Expired tasks automatically rolled over to the next cycle successfully.');
+    console.log('✅ Expired tasks automatic rollover process completed.');
   } catch (err) {
     console.error('❌ Automatic rollover cron error:', err.message);
   }
 });
 
-const http = require("http");
-const { Server } = require("socket.io");
+
+
 
 const employeeRoutes = require('./routes/employees');
 const timingRoutes    = require('./routes/timings'); 
