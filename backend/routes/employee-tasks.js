@@ -61,9 +61,14 @@ router.get('/by-employee/:name', async (req, res) => {
         continue;
       }
       
+       let subDate = null;
+      if (task.deadline && task.deadline.toString().trim() !== '' && task.deadline.toString() !== '—') {
+        subDate = task.deadline.toString().split('T')[0];
+      }
+
       // Skip if task already exists
       const [exists] = await db.query(
-        `SELECT id
+        `SELECT id, submission_date
          FROM task_list
          WHERE task_assignment_id = ?
            AND deliverables = ?
@@ -92,10 +97,19 @@ router.get('/by-employee/:name', async (req, res) => {
             task.client_name,
             task.deliverables,
             null,
-            null,
-            task.deadline,
+            subDate,
+            // null,
+            // task.deadline,
             1
           ]
+        );
+        } else {
+        // 🟢 Oru vela deadline change aayiruntha, task_list-layum antha submission_date-ai sync/update panrom!
+        await db.query(
+          `UPDATE task_list 
+           SET submission_date = ? 
+           WHERE task_assignment_id = ? AND deliverables = ?`,
+          [subDate, task.id, task.deliverables]
         );
       }
     }
