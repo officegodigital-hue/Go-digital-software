@@ -118,7 +118,7 @@ const trackingItemsRoutes = require('./routes/tracking-items');
 const dashboardRoutes = require('./routes/dashboard');
 const adminEmployeeStatusRoutes = require('./routes/admin-employee-status');
 const notificationsRoutes = require('./routes/notifications');
-const chatRoutes = require('./routes/chat');
+// const chatRoutes = require('./routes/chat');
 
 const DayPlannerRoutes = require('./routes/day-planner');
 const performanceRoutes = require('./routes/performance');
@@ -186,7 +186,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/chat', chatRoutes);
+// app.use('/api/chat', chatRoutes);
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
