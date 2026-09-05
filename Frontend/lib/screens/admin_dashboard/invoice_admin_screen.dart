@@ -41,17 +41,15 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   static const int _invoicesPerPage = 999;
   int _currentPage = 1;
 
-  static const Map<String, Color> _statusBg = {
+static const Map<String, Color> _statusBg = {
     'DRAFT':   Color(0xFFF1F5F9),
-    'PARTIAL': Color(0xFFFEF3C7),
+    'PENDING': Color(0xFFFEF3C7), // Replaced PARTIAL/OVERDUE key with PENDING
     'PAID':    Color(0xFFDCFCE7),
-    'OVERDUE': Color(0xFFFEE2E2),
   };
   static const Map<String, Color> _statusText = {
     'DRAFT':   Color(0xFF475569),
-    'PARTIAL': Color(0xFFD97706),
+    'PENDING': Color(0xFFD97706), // Replaced PARTIAL/OVERDUE key with PENDING
     'PAID':    Color(0xFF16A34A),
-    'OVERDUE': Color(0xFFDC2626),
   };
 
   final ScrollController _verticalController = ScrollController();
@@ -222,7 +220,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   }
 
   // 🟢 2. CUSTOM SORTING & FILTERING LOGIC (Draft -> Partial -> Paid, and Date-wise Newest First)
-  List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
+List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
         return false;
@@ -240,25 +238,33 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       }
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
-      final status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
-      if (activeFilter.toUpperCase() == "PARTIAL") return status == "PARTIAL";
-      if (activeFilter.toUpperCase() == "DRAFT") return status == "DRAFT";
-      if (activeFilter.toUpperCase() == "PAID") return status == "PAID";
-      if (activeFilter.toUpperCase() == "OVERDUE") return status == "OVERDUE";
-      return status == activeFilter.toUpperCase();
+      
+      // Normalize raw status from DB
+      String rawStatus = (row["status"] ?? 'DRAFT').toString().toUpperCase();
+      if (rawStatus == 'PARTIAL' || rawStatus == 'OVERDUE') {
+        rawStatus = 'PENDING';
+      }
+
+      if (activeFilter.toUpperCase() == "PENDING") return rawStatus == "PENDING";
+      if (activeFilter.toUpperCase() == "DRAFT") return rawStatus == "DRAFT";
+      if (activeFilter.toUpperCase() == "PAID") return rawStatus == "PAID";
+      
+      return rawStatus == activeFilter.toUpperCase();
     }).toList();
 
     filtered.sort((a, b) {
-      final statusA = (a["status"] ?? 'DRAFT').toString().toUpperCase();
-      final statusB = (b["status"] ?? 'DRAFT').toString().toUpperCase();
+      String statusA = (a["status"] ?? 'DRAFT').toString().toUpperCase();
+      String statusB = (b["status"] ?? 'DRAFT').toString().toUpperCase();
       
-      // Priority: DRAFT (1) -> PARTIAL (2) -> OVERDUE (3) -> PAID (4)
+      if (statusA == 'PARTIAL' || statusA == 'OVERDUE') statusA = 'PENDING';
+      if (statusB == 'PARTIAL' || statusB == 'OVERDUE') statusB = 'PENDING';
+      
+      // Priority: DRAFT (1) -> PENDING (2) -> PAID (3)
       int getPriority(String status) {
         if (status == 'DRAFT') return 1;
-        if (status == 'PARTIAL') return 2;
-        if (status == 'OVERDUE') return 3;
-        if (status == 'PAID') return 4;
-        return 5;
+        if (status == 'PENDING') return 2;
+        if (status == 'PAID') return 3;
+        return 4;
       }
 
       final pA = getPriority(statusA);
@@ -283,6 +289,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
     return filtered;
   }
+
 
   String _formatCurrency(double v) {
     final isNegative = v < 0;
@@ -1237,10 +1244,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ),
         if (_isFilterMenuOpen) ...[
           _buildFilterTab("All Logs"),
-          _buildFilterTab("Draft"), // 🟢 Added Draft filter tab option
+          _buildFilterTab("Draft"),
+          _buildFilterTab("Pending"), // 🟢 Replaced Partial/Overdue with Pending
           _buildFilterTab("Paid"),
-          _buildFilterTab("Partial"),
-          _buildFilterTab("Overdue"),
         ],
         InkWell(
           onTap: () {
@@ -1659,7 +1665,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final String maintenanceDate = row["maintenance_date"] ?? '';
     final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
     final String amount = _formatCurrency(total);
-    final String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
+    // 🟢 Changed from final String status to mutable String status
+    String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
+    if (status == 'PARTIAL' || status == 'OVERDUE') {
+      status = 'PENDING';
+    }
     final String linkedQuotNo = row["linked_quotation_no"] ?? '';
     final int? linkedQuotId = row["linked_quotation_id"];
     final String createdByName = row["created_by_name"] ?? 'Main Admin';
@@ -1787,6 +1797,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       ),
     );
   }
+
+
 
   Widget _desktopActionIcon({required IconData icon, required Color color, required String tooltip, required VoidCallback onTap}) {
     return Tooltip(

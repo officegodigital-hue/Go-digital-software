@@ -1281,628 +1281,1539 @@ void _selectClient(Map<String, dynamic> client) {
   
 
   @override
-Widget build(BuildContext context) {
-  double subtotal = 0;
-double overallPaid = 0;
-double calculatedItemDiscounts = 0;
-double calculatedItemTaxes = 0;
+  Widget build(BuildContext context) {
+    double subtotal = 0;
+    double overallPaid = 0;
+    double calculatedItemDiscounts = 0;
+    double calculatedItemTaxes = 0;
 
-for (final row in _items) {
-  final double rate = _parseAmount(row.rateCtrl.text);
-  final double qty = double.tryParse(row.qtyCtrl.text) ?? 1.0;
+    for (final row in _items) {
+      final rate = _parseAmount(row.rateCtrl.text);
+      final qty = double.tryParse(row.qtyCtrl.text) ?? 1.0;
+      final taxPct = _parseAmount(row.taxCtrl.text);
+      double discountAmt = _parseAmount(row.discountCtrl.text);
 
-  final double taxPct = _parseAmount(row.taxCtrl.text);
-  double discountAmt = _parseAmount(row.discountCtrl.text);
+      final base = rate * qty;
+      final itemTax = includeGST ? (base * taxPct / 100) : 0.0;
+      final amountBeforeDiscount = base + itemTax;
 
-  // Base Amount
-  final double base = rate * qty;
+      if (discountAmt > amountBeforeDiscount) {
+        discountAmt = amountBeforeDiscount;
+      }
 
-  // GST on Base Amount
-  final double itemTax =
-      includeGST ? (base * taxPct / 100) : 0.0;
+      subtotal += base;
+      calculatedItemTaxes += itemTax;
+      calculatedItemDiscounts += discountAmt;
+      overallPaid += _parseAmount(row.paidCtrl.text);
+    }
 
-  // Total before Discount
-  final double amountBeforeDiscount = base + itemTax;
+    final totalAmount = subtotal + calculatedItemTaxes;
+    final totalDiscount = calculatedItemDiscounts;
+    final taxTotal = calculatedItemTaxes;
 
-  // Discount should not exceed Amount
-  if (discountAmt > amountBeforeDiscount) {
-    discountAmt = amountBeforeDiscount;
-  }
+    double grandTotal = totalAmount - totalDiscount;
+    if (grandTotal < 0) grandTotal = 0;
 
-  subtotal += base;
-  calculatedItemTaxes += itemTax;
-  calculatedItemDiscounts += discountAmt;
-  overallPaid += _parseAmount(row.paidCtrl.text);
-}
-// Overall Discount
-// double globalDiscount = _parseAmount(discountController.text);
+    double balanceAmount = grandTotal - overallPaid;
+    if (balanceAmount < 0) balanceAmount = 0;
 
-// final double totalAmount = subtotal + calculatedItemTaxes;
-
-// if (globalDiscount > totalAmount) {
-//   globalDiscount = totalAmount;
-// }
-
-// final double totalDiscount =
-//     calculatedItemDiscounts + globalDiscount;
-
-// final double taxTotal = calculatedItemTaxes;
-
-// // Grand Total
-// double grandTotal = totalAmount - totalDiscount;
-
-// if (grandTotal < 0) {
-//   grandTotal = 0;
-// }
-
-final double totalAmount = subtotal + calculatedItemTaxes;
-
-final double totalDiscount = calculatedItemDiscounts;
-
-final double taxTotal = calculatedItemTaxes;
-
-double grandTotal = totalAmount - totalDiscount;
-
-if (grandTotal < 0) {
-  grandTotal = 0;
-}
-
-// Balance
-double balanceAmount = grandTotal - overallPaid;
-
-if (balanceAmount < 0) {
-  balanceAmount = 0;
-}
-
-  if (_loadingExisting) {
-    return AdminLayout(
-      pageTitle: "Invoice",
-      currentRoute: "/invoice",
-      child: const Center(
-        child: CircularProgressIndicator(
-          color: Color(0xFF0052CC),
+    if (_loadingExisting) {
+      return AdminLayout(
+        pageTitle: "Invoice",
+        currentRoute: "/invoice",
+        child: const Center(
+          child: CircularProgressIndicator(color: Color(0xFF0052CC)),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  final pageTitle = _viewOnly
-      ? "View Invoice"
-      : (_invoiceId != null
-            ? "Edit Invoice"
-            : "Add Invoice");
+    final pageTitle = _viewOnly
+        ? "View Invoice"
+        : (_invoiceId != null ? "Edit Invoice" : "Add Invoice");
 
+    Future<void> saveInvoice() async {
+      setState(() => _isSaving = true);
+      final ok = await _saveInvoice(
+        subtotal,
+        0.0,
+        taxTotal,
+        grandTotal,
+        overallPaid,
+        balanceAmount,
+      );
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      if (ok) _showSavedSuccessDialog();
+    }
+
+    Future<void> saveAndPrint() async {
+      setState(() => _isPrinting = true);
+
+      if (_viewOnly) {
+        await _printInvoice(
+          subtotal,
+          totalDiscount,
+          taxTotal,
+          grandTotal,
+          overallPaid,
+          balanceAmount,
+        );
+      } else {
+        final saved = await _saveInvoice(
+          subtotal,
+          0.0,
+          taxTotal,
+          grandTotal,
+          overallPaid,
+          balanceAmount,
+        );
+
+        await _printInvoice(
+          subtotal,
+          totalDiscount,
+          taxTotal,
+          grandTotal,
+          overallPaid,
+          balanceAmount,
+        );
+
+        if (mounted && saved) {
+          _showSavedSuccessDialog();
+        }
+      }
+
+      if (mounted) setState(() => _isPrinting = false);
+    }
 
     return AdminLayout(
       pageTitle: pageTitle,
       currentRoute: "/invoice",
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(pageTitle, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                Row(
-                  children: [
-                    OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                      child: const Text("Discard", style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 13)),
-                    ),
-                    const SizedBox(width: 12),
-                    if (!_viewOnly)
-                      ElevatedButton(
-                        onPressed: _isSaving ? null : () async {
-                          setState(() => _isSaving = true);
-                          // final ok = await _saveInvoice(subtotal, totalDiscount, taxTotal, grandTotal, overallPaid, balanceAmount);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 700;
+          final isTablet = constraints.maxWidth >= 700 && constraints.maxWidth < 1050;
 
-                          final ok = await _saveInvoice(
-  subtotal,
-  0.0 ,
-  taxTotal,
-  grandTotal,
-  overallPaid,
-  balanceAmount,
-);
-
-                          setState(() => _isSaving = false);
-                          if (ok && mounted) _showSavedSuccessDialog();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0052CC),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                          elevation: 0,
-                        ),
-                        child: _isSaving
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text("Save Invoice", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                      ),
-                  ],
-                ),
-              ],
+          return SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: isMobile ? 0 : 2,
+              right: isMobile ? 0 : 2,
+              bottom: 30,
             ),
-            const SizedBox(height: 28),
-
-            // Top Header Info
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(child: _buildInlineFormInput("Invoice No", invoiceNoController, readOnly: true, fillColor: const Color(0xFFEFF6FF))),
-                  const SizedBox(width: 16),
-                  Expanded(child: _buildDatePickerFormInput("Date", dateController)),
-                  const SizedBox(width: 16),
-                   Expanded(
-                  child: _buildClientNameDropdown(),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(child: _buildDatePickerFormInput("Maintenance Date", maintenanceDateController)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Line Items Table (Columns: Description, Rate, Qty, Tax, Discount, Amount, Paid, Pending, Action)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    color: const Color(0xFFEAEFF8),
-                    height: 44,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: const [
-                        SizedBox(width: 35, child: Text("S.No", style: _tableLabelStyle)),
-                        Expanded(flex: 4, child: Text("Description", style: _tableLabelStyle)),
-                        SizedBox(width: 80, child: Text("Rate", textAlign: TextAlign.left, style: _tableLabelStyle)),
-                        SizedBox(width: 55, child: Text("QTY", textAlign: TextAlign.left, style: _tableLabelStyle)),
-                        SizedBox(width: 65, child: Text("Tax %", textAlign: TextAlign.left, style: _tableLabelStyle)),
-                        SizedBox(width: 75, child: Text("Discount", textAlign: TextAlign.left, style: _tableLabelStyle)),
-                        SizedBox(width: 85, child: Text("Amount", textAlign: TextAlign.center, style: _tableLabelStyle)),
-                        SizedBox(width: 90, child: Text("Paid", textAlign: TextAlign.center, style: _tableLabelStyle)),
-                        SizedBox(width: 95, child: Text("Pending", textAlign: TextAlign.center, style: _tableLabelStyle)),
-                        SizedBox(width: 30, child: Text("")),
-                      ],
-                    ),
-                  ),
-                  for (int i = 0; i < _items.length; i++) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      child: Row(
-                        children: [
-                          SizedBox(width: 35, child: Text((i + 1).toString().padLeft(2, '0'), style: const TextStyle(fontWeight: FontWeight.bold))),
-                          Expanded(
-                            flex: 4,
-                            child: Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
-                              child: _items[i].isPackageRow
-                                  ? _buildBeautifulPackageDropdown(_items[i])
-                                  : _buildDescriptionField(_items[i]),
-                            ),
-                          ),
-
-                          SizedBox(
-                            width: 80,
-                            child : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
-                          ),
-
-                          // Rate
-                          // SizedBox(
-                          //   width: 80,
-                          //   child: _items[i].isPackageRow
-                          //       ? _buildReadOnlyRateField(_items[i].rateCtrl)
-                          //       : _buildInnerNumInput(_items[i].rateCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
-                          // ),
-                          const SizedBox(width: 6),
-                          // QTY
-                          SizedBox(
-                            width: 55,
-                            child: _buildInnerNumInput(_items[i].qtyCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
-                          ),
-                          const SizedBox(width: 6),
-                          // Tax % (Default 18%)
-                          SizedBox(
-                            width: 65,
-                            child: _buildInnerNumInput(_items[i].taxCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
-                          ),
-                          const SizedBox(width: 6),
-                          // Discount % (Default 0%)
-                          SizedBox(
-                            width: 85,
-                            child: _buildInnerNumInput(_items[i].discountCtrl, textAlign: TextAlign.center, onChanged: () => setState(() {})),
-                          ),
-                          const SizedBox(width: 6),
-                          // Amount
-                          // SizedBox(
-                          //   width: 85,
-                          //   child: Text(
-                          //     "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
-                          //     textAlign: TextAlign.right,
-                          //     style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                          //   ),
-                          // ),
-
-                          SizedBox(
-  width: 85,
-  child: MouseRegion(
-    cursor: SystemMouseCursors.basic,
-    child: Text(
-      "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
-      textAlign: TextAlign.center,
-      style: const TextStyle(
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF0F172A),
-      ),
-    ),
-  ),
-),
-                          // Paid Amount
-                          SizedBox(
-                            width: 90,
-                            child: _buildPaidAmountField(_items[i]),
-                          ),
-                          // Pending Amount
-                          // SizedBox(
-                          //   width: 95,
-                          //   child: Text(
-                          //     "₹${_rowPending(_items[i]).toStringAsFixed(2)}",
-                          //     textAlign: TextAlign.right,
-                          //     style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0052CC)),
-                          //   ),
-                          // ),
-                          SizedBox(
-  width: 95,
-  child: MouseRegion(
-    cursor: SystemMouseCursors.basic,
-    child: Text(
-      "₹${_rowPending(_items[i]).toStringAsFixed(2)}",
-      textAlign: TextAlign.center,
-      style: const TextStyle(
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF0052CC),
-      ),
-    ),
-  ),
-),
-                          // SizedBox(
-                          //   width: 30,
-                          //   child: Align(
-                          //     alignment: Alignment.centerRight,
-                          //     child: _viewOnly ? const SizedBox.shrink() : GestureDetector(
-                          //       onTap: () => _removeRow(i),
-                          //       child: Icon(Icons.delete_outline_rounded, size: 18, color: _items.length > 1 ? Colors.red : Colors.grey.shade300),
-                          //     ),
-                          //   ),
-                          // ),
-                          SizedBox(
-  width: 30,
-  child: Align(
-    alignment: Alignment.center,
-    child: _viewOnly
-        ? const SizedBox.shrink()
-        : MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => _removeRow(i),
-              child: Icon(
-                Icons.delete_outline_rounded,
-                size: 18,
-                color: _items.length > 1
-                    ? Colors.red
-                    : Colors.grey.shade300,
-              ),
-            ),
-          ),
-  ),
-),
-                        ],
-                      ),
-                    ),
-                    if (i < _items.length - 1) const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            if (!_viewOnly)
-              GestureDetector(
-                onTap: _addSection,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.add_circle_outline_rounded, size: 16, color: Color(0xFF0052CC)),
-                    SizedBox(width: 6),
-                    Text("Add Section", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 24),
-
-            // Notes, Terms & Conditions AND Partial Payment History Table below
-            Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  flex: 5,
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Checkbox(
-                                        value: _includeNotes,
-                                        activeColor: const Color(0xFF0052CC),
-                                        onChanged: (val) => setState(() => _includeNotes = val ?? false),
-                                      ),
-                                      const Text("Notes", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextField(
-                                    controller: notesController,
-                                    
-                                    maxLines: 3,
-                                    readOnly: _viewOnly,
-                                    decoration: InputDecoration(
-                                      hintText: "Add internal notes...",
-                                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
-                                      focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
-                                    ),
-                                    
-                                    style: const TextStyle(fontSize: 10),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                                  Row(
-                                    children: [
-                                      Checkbox(
-                                        value: _includeTerms,
-                                        activeColor: const Color(0xFF0052CC),
-                                        onChanged: (val) => setState(() => _includeTerms = val ?? false),
-                                      ),
-                                      const Text("Terms & Conditions", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextField(
-                                    controller: termsController,
-                                    maxLines: 4,
-                                    readOnly: _viewOnly,
-                                    decoration: InputDecoration(
-                                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300)),
-                                      focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF0052CC))),
-                                    ),
-                                    style: const TextStyle(fontSize: 10),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                // ─────────────────────────────────────────────
+                // PAGE HERO
+                // ─────────────────────────────────────────────
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(isMobile ? 16 : 22),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0052CC),
+                    borderRadius: BorderRadius.circular(isMobile ? 18 : 20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0052CC).withValues(alpha: .14),
+                        blurRadius: 24,
+                        offset: const Offset(0, 9),
                       ),
-                      const SizedBox(height: 20),
-
-                      // Partial Payment History Tracking Table
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
+                    ],
+                  ),
+                  child: isMobile
+                      ? Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("Partial Payment History", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                            const SizedBox(height: 12),
-                            Table(
-                              border: TableBorder.all(color: const Color(0xFFCBD5E1), width: 0.5),
-                              columnWidths: const {
-                                0: FixedColumnWidth(35),
-                                1: FlexColumnWidth(2),
-                                2: FlexColumnWidth(2),
-                                3: FlexColumnWidth(2),
-                                4: FlexColumnWidth(2),
-                                5: FlexColumnWidth(2),
-                              },
+                            Row(
                               children: [
-                                TableRow(
-                                  decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
-                                  children: [
-                                    _paymentTableHeader('S.No'),
-                                    _paymentTableHeader('Paid Date'),
-                                    _paymentTableHeader('Total Amt'),
-                                    _paymentTableHeader('Paid Total'),
-                                    _paymentTableHeader('Paid Amt'),
-                                    _paymentTableHeader('Balance'),
-                                  ],
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: .14),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.receipt_long_rounded,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
                                 ),
-                                if (_paymentHistory.isEmpty)
-                                  TableRow(
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      for (int i = 0; i < 6; i++)
-                                        TableCell(
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(8.0),
-                                            child: Text(i == 0 ? '1' : (i == 1 ? (dateController.text.isNotEmpty ? dateController.text : '-') : '₹0.00'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                                          ),
+                                      Text(
+                                        pageTitle.toUpperCase(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w900,
                                         ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        _viewOnly
+                                            ? "Review invoice details"
+                                            : "Create and manage invoice",
+                                        style: const TextStyle(
+                                          color: Color(0xFFDCE8FF),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
                                     ],
-                                  )
-                                else
-                                  for (int i = 0; i < _paymentHistory.length; i++)
-                                    TableRow(
-                                      children: [
-                                        _paymentTableCell((i + 1).toString(), align: TextAlign.center),
-                                        _paymentTableCell(_paymentHistory[i]['paid_date'] ?? ''),
-                                        _paymentTableCell('₹${_paymentHistory[i]['total_amount']}'),
-                                        _paymentTableCell('₹${_paymentHistory[i]['paid_total_amount']}'),
-                                        _paymentTableCell('₹${_paymentHistory[i]['paid_amount']}'),
-                                        _paymentTableCell('₹${_paymentHistory[i]['balanced_amount']}'),
-                                      ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _heroActionButton(
+                                    icon: Icons.arrow_back_rounded,
+                                    label: "Back",
+                                    onTap: () => Navigator.pop(context),
+                                    outlined: true,
+                                  ),
+                                ),
+                                if (!_viewOnly) ...[
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _heroActionButton(
+                                      icon: Icons.save_rounded,
+                                      label: _isSaving ? "Saving..." : "Save",
+                                      onTap: _isSaving ? null : saveInvoice,
                                     ),
+                                  ),
+                                ],
                               ],
                             ),
                           ],
+                        )
+                      : Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: .14),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.receipt_long_rounded,
+                                color: Colors.white,
+                                size: 25,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "INVOICE CENTER",
+                                    style: TextStyle(
+                                      color: Color(0xFFBFD5FF),
+                                      fontSize: 10,
+                                      letterSpacing: 1.2,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    pageTitle,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _viewOnly
+                                        ? "Review invoice details and print"
+                                        : "Create, update and print professional invoices",
+                                    style: const TextStyle(
+                                      color: Color(0xFFDCE8FF),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _heroActionButton(
+                              icon: Icons.arrow_back_rounded,
+                              label: "Back",
+                              onTap: () => Navigator.pop(context),
+                              outlined: true,
+                            ),
+                            if (!_viewOnly) ...[
+                              const SizedBox(width: 10),
+                              _heroActionButton(
+                                icon: Icons.save_rounded,
+                                label: _isSaving ? "Saving..." : "Save Invoice",
+                                onTap: _isSaving ? null : saveInvoice,
+                              ),
+                            ],
+                          ],
+                        ),
+                ),
+
+                SizedBox(height: isMobile ? 14 : 18),
+
+                // ─────────────────────────────────────────────
+                // INVOICE INFORMATION
+                // ─────────────────────────────────────────────
+                _sectionCard(
+                  title: "Invoice Information",
+                  icon: Icons.info_outline_rounded,
+                  isMobile: isMobile,
+                  child: isMobile
+                      ? Column(
+                          children: [
+                            _buildInlineFormInput(
+                              "Invoice No",
+                              invoiceNoController,
+                              readOnly: true,
+                              fillColor: const Color(0xFFEFF6FF),
+                            ),
+                            const SizedBox(height: 12),
+                            _buildDatePickerFormInput("Invoice Date", dateController),
+                            const SizedBox(height: 12),
+                            _buildClientNameDropdown(),
+                            const SizedBox(height: 12),
+                            _buildDatePickerFormInput(
+                              "Maintenance Date",
+                              maintenanceDateController,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: _buildInlineFormInput(
+                                "Invoice No",
+                                invoiceNoController,
+                                readOnly: true,
+                                fillColor: const Color(0xFFEFF6FF),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: _buildDatePickerFormInput(
+                                "Invoice Date",
+                                dateController,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(child: _buildClientNameDropdown()),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: _buildDatePickerFormInput(
+                                "Maintenance Date",
+                                maintenanceDateController,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+
+                
+                const SizedBox(height: 16),
+
+                // ─────────────────────────────────────────────
+                // LINE ITEMS
+                // ─────────────────────────────────────────────
+                _sectionCard(
+                  title: "Invoice Items",
+                  icon: Icons.list_alt_rounded,
+                  isMobile: isMobile,
+                  trailing: !_viewOnly
+                      ? TextButton.icon(
+                          onPressed: _addSection,
+                          icon: const Icon(
+                            Icons.add_rounded,
+                            size: 17,
+                            color: Color(0xFF0052CC),
+                          ),
+                          label: const Text(
+                            "Add Item",
+                            style: TextStyle(
+                              color: Color(0xFF0052CC),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        )
+                      : null,
+                  child: isMobile
+                      ? Column(
+                          children: [
+                            for (int i = 0; i < _items.length; i++)
+                              _buildMobileInvoiceItemCard(
+                                _items[i],
+                                i,
+                              ),
+                          ],
+                        )
+                      : _buildDesktopInvoiceItems(),
+                ),
+
+                if (!isMobile && !isTablet)
+                  const SizedBox(height: 18)
+                else
+                  const SizedBox(height: 14),
+
+                // ─────────────────────────────────────────────
+                // NOTES + TERMS
+                // ─────────────────────────────────────────────
+                _sectionCard(
+                  title: "Additional Information",
+                  icon: Icons.notes_rounded,
+                  isMobile: isMobile,
+                  child: isMobile
+                      ? Column(
+                          children: [
+                            _buildNotesEditor(),
+                            const SizedBox(height: 14),
+                            _buildTermsEditor(),
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _buildNotesEditor()),
+                            const SizedBox(width: 18),
+                            Expanded(child: _buildTermsEditor()),
+                          ],
+                        ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ─────────────────────────────────────────────
+                // BOTTOM AREA: PAYMENT HISTORY + SUMMARY
+                // ─────────────────────────────────────────────
+                if (isMobile) ...[
+                  _buildMobileSummary(
+                    subtotal,
+                    totalAmount,
+                    totalDiscount,
+                    taxTotal,
+                    grandTotal,
+                    overallPaid,
+                    balanceAmount,
+                    saveAndPrint,
+                  ),
+                  const SizedBox(height: 14),
+                  _buildPaymentHistoryCard(isMobile: true),
+                ] else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: _buildPaymentHistoryCard(isMobile: false),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        flex: 3,
+                        child: _buildDesktopSummary(
+                          subtotal,
+                          totalAmount,
+                          totalDiscount,
+                          taxTotal,
+                          grandTotal,
+                          overallPaid,
+                          balanceAmount,
+                          saveAndPrint,
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 24),
 
-                // Summary Panel in requested precise sequence:
-                // Subtotal -> Total Amount -> Discount Total -> Tax Total -> Grand Total -> Total Paid -> Balance to be paid
-                Expanded(
-                  flex: 3,
-                  child: Container(
-                    padding: const EdgeInsets.all(24),
+                const SizedBox(height: 18),
+
+                // Bottom action bar on mobile
+                if (isMobile)
+                  Container(
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Column(
+                    child: Row(
                       children: [
-                        _buildSummaryLineItem("Subtotal", "₹${subtotal.toStringAsFixed(2)}"),
-                        const SizedBox(height: 12),
-                        _buildSummaryLineItem("Total Amount", "₹${totalAmount.toStringAsFixed(2)}"),
-                        const SizedBox(height: 12),
-                        _buildSummaryLineItem("Discount Total", "₹${totalDiscount.toStringAsFixed(2)}", textColor: Colors.redAccent),
-                        const SizedBox(height: 12),
-                        _buildSummaryLineItem("Tax Total (GST)", "₹${taxTotal.toStringAsFixed(2)}"),
-                        const SizedBox(height: 12),
-                        _buildSummaryLineItem("Grand Total", "₹${grandTotal.toStringAsFixed(2)}", isBold: true, textColor: const Color(0xFF0052CC)),
-                        const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
-                        _buildSummaryLineItem("Total Paid", "₹${overallPaid.toStringAsFixed(2)}", textColor: const Color(0xFF16A34A)),
-                        const SizedBox(height: 12),
-                        _buildSummaryLineItem("Balance to be Paid", "₹${balanceAmount.toStringAsFixed(2)}", isBold: true, textColor: balanceAmount > 0 ? const Color(0xFFDC2626) : const Color(0xFF16A34A)),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            // onPressed: _isPrinting ? null : () async {
-                            //   setState(() => _isPrinting = true);
-                            //   await _printInvoice(subtotal, totalDiscount, taxTotal, grandTotal, overallPaid, balanceAmount);
-                            //   setState(() => _isPrinting = false);
-                            // },
-                           onPressed: _isPrinting ? null : () async {
-                              setState(() => _isPrinting = true);
-         
-                              // if (_viewOnly) {
-                              //   await _printInvoice(subtotal, totalDiscount, totalAmount, taxTotal, overallPaid, balanceAmount);
-                              //   if (!mounted) return;
-                              //   setState(() => _isPrinting = false);
-                              //   return;
-                              // }
-         
-                              // final saved = await _saveInvoice(subtotal, totalDiscount, taxTotal, totalAmount, overallPaid, balanceAmount);
-                              // await _printInvoice(subtotal, totalDiscount, taxTotal, totalAmount, overallPaid, balanceAmount);
-         
-                              // if (!mounted) return;
-                              // setState(() => _isPrinting = false);
-         
-                              // if (saved) {
-                              //   _showSavedSuccessDialog();
-                              // }
-
-                              if (_viewOnly) {
-  await _printInvoice(
-    subtotal,
-    totalDiscount,
-    taxTotal,
-    grandTotal,
-    overallPaid,
-    balanceAmount,
-  );
-
-  if (!mounted) return;
-  setState(() => _isPrinting = false);
-  return;
-}
-
-final saved = await _saveInvoice(
-  subtotal,
-  0.0 ,
-  taxTotal,
-  grandTotal,
-  overallPaid,
-  balanceAmount,
-);
-
-await _printInvoice(
-  subtotal,
-  totalDiscount ,
-  taxTotal,
-  grandTotal,
-  overallPaid,
-  balanceAmount,
-);
-
-if (!mounted) return;
-setState(() => _isPrinting = false);
-
-if (saved) {
-  _showSavedSuccessDialog();
-}
-
-                            },
-
-                            icon: const Icon(Icons.print, size: 16, color: Colors.white),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0052CC),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close_rounded, size: 17),
+                            label: const Text("Cancel"),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF475569),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
-                            label: const Text("Save & Print Invoice", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                           ),
                         ),
+                        if (!_viewOnly) ...[
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isSaving ? null : saveInvoice,
+                              icon: _isSaving
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.save_rounded, size: 17),
+                              label: const Text("Save Invoice"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0052CC),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _heroActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool outlined = false,
+  }) {
+    return SizedBox(
+      height: 42,
+      child: outlined
+          ? OutlinedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 16),
+              label: Text(label),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withValues(alpha: .38)),
+                backgroundColor: Colors.white.withValues(alpha: .08),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            )
+          : ElevatedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 16),
+              label: Text(label),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF0052CC),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _sectionCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
+    required bool isMobile,
+    Widget? trailing,
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(isMobile ? 15 : 16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              isMobile ? 14 : 18,
+              isMobile ? 13 : 15,
+              isMobile ? 10 : 14,
+              isMobile ? 12 : 15,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 17,
+                    color: const Color(0xFF0052CC),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: isMobile ? 13 : 14,
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing,
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          Padding(
+            padding: EdgeInsets.all(isMobile ? 14 : 18),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+
+ Widget _buildDesktopInvoiceItems() {
+    return Column(
+      children: [
+        Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF7F9FC),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+          ),
+          child: Row(
+            children: const [
+              SizedBox(
+                width: 34,
+                child: Text("S.No", style: _tableLabelStyle),
+              ),
+              Expanded(
+                flex: 4,
+                child: Text("Description", style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 78,
+                child: Text("Rate", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 52,
+                child: Text("QTY", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 62,
+                child: Text("Tax %", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 76,
+                child: Text("Discount", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 82,
+                child: Text("Amount", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 86,
+                child: Text("Paid", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(
+                width: 92,
+                child: Text("Pending", textAlign: TextAlign.center, style: _tableLabelStyle),
+              ),
+              SizedBox(width: 28),
+            ],
+          ),
+        ),
+        for (int i = 0; i < _items.length; i++) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 34,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      (i + 1).toString().padLeft(2, '0'),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Column(
+                      children: [
+                        _buildBeautifulPackageDropdown(_items[i]),
+                        const SizedBox(height: 6),
+                        _buildDescriptionField(_items[i]),
                       ],
                     ),
                   ),
                 ),
+                SizedBox(
+                  width: 78,
+                  child: _buildInnerNumInput(
+                    _items[i].rateCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                SizedBox(
+                  width: 52,
+                  child: _buildInnerNumInput(
+                    _items[i].qtyCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                SizedBox(
+                  width: 62,
+                  child: _buildInnerNumInput(
+                    _items[i].taxCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                SizedBox(
+                  width: 76,
+                  child: _buildInnerNumInput(
+                    _items[i].discountCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+                SizedBox(
+                  width: 82,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _amountChip(
+                      "₹${_rowAmount(_items[i]).toStringAsFixed(2)}",
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 86,
+                  child: _buildPaidAmountField(_items[i]),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _amountChip(
+                      "₹${_rowPending(_items[i]).toStringAsFixed(2)}",
+                      color: const Color(0xFF0052CC),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _viewOnly
+                        ? const SizedBox.shrink()
+                        : IconButton(
+                            onPressed: _items.length > 1
+                                ? () => _removeRow(i)
+                                : null,
+                            icon: Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                              color: _items.length > 1
+                                  ? const Color(0xFFDC2626)
+                                  : const Color(0xFFCBD5E1),
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: "Remove",
+                          ),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 40),
+          ),
+          if (i < _items.length - 1)
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+        ],
+      ],
+    );
+  }
+
+  
+  Widget _buildMobileInvoiceItemCard(_InvoiceItemRow row, int index) {
+    final amount = _rowAmount(row);
+    final pending = _rowPending(row);
+
+    return Container(
+      margin: EdgeInsets.only(bottom: index == _items.length - 1 ? 0 : 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "${index + 1}",
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  row.descriptionCtrl.text.isNotEmpty
+                      ? row.descriptionCtrl.text.split('\n').first
+                      : "Invoice Item ${index + 1}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              if (!_viewOnly)
+                IconButton(
+                  onPressed: _items.length > 1 ? () => _removeRow(index) : null,
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 18,
+                    color: _items.length > 1
+                        ? const Color(0xFFDC2626)
+                        : const Color(0xFFCBD5E1),
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          row.isPackageRow
+              ? _buildBeautifulPackageDropdown(row)
+              : _buildDescriptionField(row),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _mobileItemField(
+                  "Rate",
+                  _buildInnerNumInput(
+                    row.rateCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _mobileItemField(
+                  "Qty",
+                  _buildInnerNumInput(
+                    row.qtyCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _mobileItemField(
+                  "Tax %",
+                  _buildInnerNumInput(
+                    row.taxCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _mobileItemField(
+                  "Discount",
+                  _buildInnerNumInput(
+                    row.discountCtrl,
+                    textAlign: TextAlign.center,
+                    readOnly: _viewOnly,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _mobileValueBox(
+                  "Amount",
+                  "₹${amount.toStringAsFixed(2)}",
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _mobileValueBox(
+                  "Pending",
+                  "₹${pending.toStringAsFixed(2)}",
+                  valueColor: const Color(0xFF0052CC),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _mobileItemField(
+            "Paid Amount",
+            _buildPaidAmountField(row),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileItemField(String label, Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 4),
+        child,
+      ],
+    );
+  }
+
+  Widget _mobileValueBox(
+    String label,
+    String value, {
+    Color valueColor = const Color(0xFF0F172A),
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          height: 38,
+          width: double.infinity,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFCBD5E1)),
+          ),
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
+              color: valueColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _amountChip(String text, {Color color = const Color(0xFF0F172A)}) {
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w900,
+        color: color,
+      ),
+    );
+  }
+
+  Widget _buildNotesEditor() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _toggleTitle(
+          "Notes",
+          Icons.sticky_note_2_outlined,
+          _includeNotes,
+          (value) => setState(() => _includeNotes = value),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: notesController,
+          maxLines: 4,
+          readOnly: _viewOnly,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF334155)),
+          decoration: InputDecoration(
+            hintText: "Add internal notes...",
+            hintStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            contentPadding: const EdgeInsets.all(11),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF0052CC)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTermsEditor() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _toggleTitle(
+          "Terms & Conditions",
+          Icons.gavel_outlined,
+          _includeTerms,
+          (value) => setState(() => _includeTerms = value),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: termsController,
+          maxLines: 4,
+          readOnly: _viewOnly,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF334155)),
+          decoration: InputDecoration(
+            hintText: "Enter terms & conditions...",
+            hintStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            contentPadding: const EdgeInsets.all(11),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF0052CC)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _toggleTitle(
+    String label,
+    IconData icon,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
+    return Row(
+      children: [
+        Checkbox(
+          value: value,
+          activeColor: const Color(0xFF0052CC),
+          onChanged: _viewOnly ? null : (v) => onChanged(v ?? false),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        Icon(icon, size: 16, color: const Color(0xFF0052CC)),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF475569),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentHistoryCard({required bool isMobile}) {
+    final table = Table(
+      border: TableBorder.all(color: const Color(0xFFE2E8F0), width: .6),
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      columnWidths: const {
+        0: FixedColumnWidth(38),
+        1: FixedColumnWidth(95),
+        2: FixedColumnWidth(100),
+        3: FixedColumnWidth(100),
+        4: FixedColumnWidth(95),
+        5: FixedColumnWidth(95),
+      },
+      children: [
+        TableRow(
+          decoration: const BoxDecoration(color: Color(0xFFF7F9FC)),
+          children: [
+            _paymentTableHeader('S.No'),
+            _paymentTableHeader('Paid Date'),
+            _paymentTableHeader('Total Amt'),
+            _paymentTableHeader('Paid Total'),
+            _paymentTableHeader('Paid Amt'),
+            _paymentTableHeader('Balance'),
           ],
+        ),
+        if (_paymentHistory.isEmpty)
+          TableRow(
+            children: [
+              for (int i = 0; i < 6; i++)
+                TableCell(
+                  child: Padding(
+                    padding: const EdgeInsets.all(9),
+                    child: Text(
+                      i == 0
+                          ? '1'
+                          : (i == 1
+                              ? (dateController.text.isNotEmpty
+                                  ? dateController.text
+                                  : '-')
+                              : '₹0.00'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          )
+        else
+          for (int i = 0; i < _paymentHistory.length; i++)
+            TableRow(
+              children: [
+                _paymentTableCell((i + 1).toString(), align: TextAlign.center),
+                _paymentTableCell(_paymentHistory[i]['paid_date'] ?? ''),
+                _paymentTableCell('₹${_paymentHistory[i]['total_amount']}'),
+                _paymentTableCell('₹${_paymentHistory[i]['paid_total_amount']}'),
+                _paymentTableCell('₹${_paymentHistory[i]['paid_amount']}'),
+                _paymentTableCell('₹${_paymentHistory[i]['balanced_amount']}'),
+              ],
+            ),
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.all(isMobile ? 14 : 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(isMobile ? 15 : 16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  Icons.history_rounded,
+                  size: 17,
+                  color: Color(0xFF16A34A),
+                ),
+              ),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text(
+                  "Payment History",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              Text(
+                "${_paymentHistory.length} record${_paymentHistory.length == 1 ? '' : 's'}",
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (isMobile)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: table,
+            )
+          else
+            table,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopSummary(
+    double subtotal,
+    double totalAmount,
+    double totalDiscount,
+    double taxTotal,
+    double grandTotal,
+    double overallPaid,
+    double balanceAmount,
+    VoidCallback saveAndPrint,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _summaryHeader(balanceAmount),
+          const SizedBox(height: 16),
+          _buildSummaryLineItem("Subtotal", "₹${subtotal.toStringAsFixed(2)}"),
+          const SizedBox(height: 11),
+          _buildSummaryLineItem("Total Amount", "₹${totalAmount.toStringAsFixed(2)}"),
+          const SizedBox(height: 11),
+          _buildSummaryLineItem(
+            "Discount Total",
+            "₹${totalDiscount.toStringAsFixed(2)}",
+            textColor: const Color(0xFFDC2626),
+          ),
+          const SizedBox(height: 11),
+          _buildSummaryLineItem("Tax Total (GST)", "₹${taxTotal.toStringAsFixed(2)}"),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 13),
+            child: Divider(height: 1),
+          ),
+          _buildSummaryLineItem(
+            "Grand Total",
+            "₹${grandTotal.toStringAsFixed(2)}",
+            isBold: true,
+            textColor: const Color(0xFF0052CC),
+          ),
+          const SizedBox(height: 11),
+          _buildSummaryLineItem(
+            "Total Paid",
+            "₹${overallPaid.toStringAsFixed(2)}",
+            textColor: const Color(0xFF16A34A),
+          ),
+          const SizedBox(height: 11),
+          _buildSummaryLineItem(
+            "Balance to be Paid",
+            "₹${balanceAmount.toStringAsFixed(2)}",
+            isBold: true,
+            textColor: balanceAmount > 0
+                ? const Color(0xFFDC2626)
+                : const Color(0xFF16A34A),
+          ),
+          const SizedBox(height: 18),
+          _savePrintButton(saveAndPrint),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileSummary(
+    double subtotal,
+    double totalAmount,
+    double totalDiscount,
+    double taxTotal,
+    double grandTotal,
+    double overallPaid,
+    double balanceAmount,
+    VoidCallback saveAndPrint,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _summaryHeader(balanceAmount),
+          const SizedBox(height: 14),
+          _mobileSummaryTile(
+            "Subtotal",
+            "₹${subtotal.toStringAsFixed(2)}",
+            Icons.calculate_outlined,
+          ),
+          _mobileSummaryTile(
+            "Tax / GST",
+            "₹${taxTotal.toStringAsFixed(2)}",
+            Icons.percent_rounded,
+          ),
+          _mobileSummaryTile(
+            "Discount",
+            "₹${totalDiscount.toStringAsFixed(2)}",
+            Icons.discount_outlined,
+            valueColor: const Color(0xFFDC2626),
+          ),
+          _mobileSummaryTile(
+            "Total Amount",
+            "₹${totalAmount.toStringAsFixed(2)}",
+            Icons.receipt_long_outlined,
+          ),
+          Container(
+            margin: const EdgeInsets.only(top: 5, bottom: 8),
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: Column(
+              children: [
+                _buildSummaryLineItem(
+                  "Grand Total",
+                  "₹${grandTotal.toStringAsFixed(2)}",
+                  isBold: true,
+                  textColor: const Color(0xFF0052CC),
+                ),
+                const SizedBox(height: 10),
+                _buildSummaryLineItem(
+                  "Total Paid",
+                  "₹${overallPaid.toStringAsFixed(2)}",
+                  textColor: const Color(0xFF16A34A),
+                ),
+                const SizedBox(height: 10),
+                _buildSummaryLineItem(
+                  "Balance",
+                  "₹${balanceAmount.toStringAsFixed(2)}",
+                  isBold: true,
+                  textColor: balanceAmount > 0
+                      ? const Color(0xFFDC2626)
+                      : const Color(0xFF16A34A),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _savePrintButton(saveAndPrint),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryHeader(double balance) {
+    final paid = balance <= 0;
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: paid ? const Color(0xFFF0FDF4) : const Color(0xFFFFF7ED),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(
+            paid ? Icons.check_circle_outline_rounded : Icons.payments_outlined,
+            size: 18,
+            color: paid ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+          ),
+        ),
+        const SizedBox(width: 9),
+        const Expanded(
+          child: Text(
+            "Invoice Summary",
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: paid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(
+            paid ? "PAID" : "BALANCE",
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: paid ? const Color(0xFF15803D) : const Color(0xFFD97706),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mobileSummaryTile(
+    String label,
+    String value,
+    IconData icon, {
+    Color valueColor = const Color(0xFF334155),
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF64748B)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _savePrintButton(VoidCallback onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      height: 46,
+      child: ElevatedButton.icon(
+        onPressed: _isPrinting ? null : onPressed,
+        icon: _isPrinting
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.print_rounded, size: 18),
+        label: Text(
+          _viewOnly ? "Print Invoice" : "Save & Print Invoice",
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF0052CC),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       ),
     );
@@ -2140,19 +3051,21 @@ Widget _buildClientNameDropdown() {
 
 
   Widget _buildDescriptionField(_InvoiceItemRow row) {
-    return SizedBox(
-      height: 38,
-      child: TextField(
-        controller: row.descriptionCtrl,
-        style: const TextStyle(fontSize: 12),
-        decoration: InputDecoration(
-          hintText: "Description",
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-        ),
+  return SizedBox(
+    child: TextField(
+      controller: row.descriptionCtrl,
+      maxLines: null, // Multiple lines-ah expand aaga
+      keyboardType: TextInputType.multiline,
+      style: const TextStyle(fontSize: 12),
+      decoration: InputDecoration(
+        hintText: "Description",
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _buildReadOnlyRateField(TextEditingController controller) {
     return SizedBox(

@@ -83,10 +83,17 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
 
   Future<void> _updateQuotationStatus(int id, String status) async {
     try {
+
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token; // 🟢 Retrieve auth token
+
       final response = await http.patch(
         Uri.parse("$_baseUrl/quotations/$id/status"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"status": "ACCEPTED"}),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer $token",
+        },
+        body: jsonEncode({"status": status}),
       );
 
       if (response.statusCode == 200) {

@@ -145,7 +145,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/quotations/:id/status — update status; if ACCEPTED, auto-create a linked invoice
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { status } = req.body;
   const allowed = ['DRAFT', 'SENT', 'ACCEPTED', 'EXPIRED'];
 
@@ -153,6 +153,7 @@ router.patch('/:id/status', async (req, res) => {
     return res.status(400).json({ success: false, message: `status must be one of ${allowed.join(', ')}` });
 
   const newStatus = status.toUpperCase();
+  const adminId = req.user.id; // 🟢 Logged-in admin/employee ID
 
   const connection = await db.getConnection();
   try {
@@ -173,13 +174,11 @@ router.patch('/:id/status', async (req, res) => {
     let invoiceId   = null;
 
     if (newStatus === 'ACCEPTED') {
-      // Check if this quotation already has a linked invoice (avoid duplicates)
       const [existing] = await connection.query(
         `SELECT linked_invoice_id, invoice_no FROM quotations WHERE id = ?`,
         [req.params.id]
       );
       if (existing[0]?.linked_invoice_id) {
-        // Already linked — just return the existing invoice info
         await connection.commit();
         return res.json({
           success: true,
@@ -188,7 +187,6 @@ router.patch('/:id/status', async (req, res) => {
         });
       }
 
-      // Fetch full quotation + items
       const [quotRows] = await connection.query(
         `SELECT * FROM quotations WHERE id = ?`, [req.params.id]);
       const quot = quotRows[0];
@@ -198,14 +196,12 @@ router.patch('/:id/status', async (req, res) => {
         [req.params.id]
       );
 
-      // ── Generate invoice number — suffix matches quotation exactly ──────────
       const quotNo = quot.quotation_no || '';
       const parts  = quotNo.split('-');
       const year   = parts[1] || new Date().getFullYear();
       const suffix = parts[2] || '0001';
       invoiceNo    = `INV-${year}-${suffix}`;
 
-      // If that exact invoice number already exists, append -R2, -R3 etc.
       const [dupCheck] = await connection.query(
         `SELECT id FROM invoices WHERE invoice_no = ?`, [invoiceNo]);
       if (dupCheck.length > 0) {
@@ -214,13 +210,13 @@ router.patch('/:id/status', async (req, res) => {
 
       const invStatus = 'DRAFT';
 
-      // Insert the invoice — all financial data copied from the accepted quotation
+      // 🟢 3. Insert invoice with created_by set to the logged-in user
       const [invResult] = await connection.query(
         `INSERT INTO invoices
           (invoice_no, client_name, invoice_date, maintenance_date, include_gst,
            discount, subtotal, tax, total_amount, paid_amount, balance_amount,
-           status, notes, linked_quotation_id, linked_quotation_no)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, '', ?, ?)`,
+           status, notes, linked_quotation_id, linked_quotation_no, created_by)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, '', ?, ?, ?)`,
         [
           invoiceNo,
           quot.client_name,
@@ -234,11 +230,11 @@ router.patch('/:id/status', async (req, res) => {
           invStatus,
           req.params.id,
           quotNo,
+          adminId, // 🟢 Login pannavanga ID inga store aagum
         ]
       );
       invoiceId = invResult.insertId;
 
-      // Copy quotation items → invoice items
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         await connection.query(
@@ -259,7 +255,6 @@ router.patch('/:id/status', async (req, res) => {
         );
       }
 
-      // Store the link back on the quotation row
       await connection.query(
         `UPDATE quotations SET linked_invoice_id = ?, invoice_no = ? WHERE id = ?`,
         [invoiceId, invoiceNo, req.params.id]
