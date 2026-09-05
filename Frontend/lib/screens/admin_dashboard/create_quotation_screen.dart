@@ -184,8 +184,7 @@ Future<void> _searchClients(String query) async {
 
   setState(() => _loadingClients = true);
   try {
-    // API URL உங்கள் quotation-ல் உள்ளது போலவே இருக்கட்டும்
-    final response = await http.get(
+   final response = await http.get(
       Uri.parse('$_baseUrl/clients/search/query?query=${Uri.encodeComponent(query)}'),
     );
 
@@ -1140,7 +1139,7 @@ void _setDefaultQuotationNumber() {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      Navigator.pushNamedAndRemoveUntil(context, '/quotation', (route) => false);
+                      Navigator.pushNamedAndRemoveUntil(context, '/quotations', (route) => false);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0052CC),
