@@ -110,7 +110,7 @@ extension EmployeeRoleExtension on EmployeeRole {
       'Video Task Planner History',
       'Task Review',
       'Task Status',
-      'Notifications',
+      'Chat',
       'Feedback',
       'Feedback History',
     ];

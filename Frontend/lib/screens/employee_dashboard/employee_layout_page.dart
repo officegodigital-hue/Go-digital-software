@@ -21,6 +21,7 @@ import 'package:godigital_portal/screens/employee_dashboard/TaskStatusScreen.dar
 import 'package:godigital_portal/screens/employee_dashboard/task_review.dart';
 import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
+import 'package:godigital_portal/screens/employee_dashboard/client_credentials_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
@@ -137,8 +138,11 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return ManagerReviewScreen(searchQuery: searchQuery);
       case 'Task Status':
         return const TaskStatusScreen();
-      case 'Notifications':
+      case 'Chat':
+      // case 'Notifications':
         return const NotificationsScreen();
+      case 'Client Credentials':
+        return const ClientCredentialsScreen();
       case 'Feedback':
         return const FeedbackPage();
       case 'Feedback History':

@@ -326,62 +326,905 @@ void dispose() {
   Widget build(BuildContext context) {
     return AdminLayout(
       pageTitle: 'Time Manager',
-      currentRoute: '/time',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Page header ──
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+      currentRoute: '/time-manager',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 750;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
+              _buildTimeManagerHero(isMobile),
+              const SizedBox(height: 18),
+              if (isMobile)
+                _buildMobileWorkspace()
+              else
+                _buildDesktopWorkspace(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTimeManagerHero(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(isMobile ? 18 : 28),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF003B95),
+            Color(0xFF0052CC),
+            Color(0xFF1267E8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(isMobile ? 20 : 26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0052CC).withValues(alpha: 0.20),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        runSpacing: 16,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: isMobile ? 50 : 60,
+                height: isMobile ? 50 : 60,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.20),
+                  ),
+                ),
+                child: Icon(
+                  Icons.schedule_rounded,
+                  size: isMobile ? 26 : 31,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Flexible(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Time Management',
                       style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1A1A2E),
+                        fontSize: isMobile ? 20 : 34,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: -0.4,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
-                      'Efficiently organize tasks, schedules, and deadlines to maximize productivity.',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                      'Manage task timings, quantities, and productivity schedules.',
+                      style: TextStyle(
+                        fontSize: isMobile ? 11.5 : 13,
+                        height: 1.45,
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 28),
-
-          // ── Split Pane Workspace Grid ──
-          LayoutBuilder(builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 700;
-
-            if (isWide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 3, child: _buildTable()),
-                  const SizedBox(width: 24),
-                  Expanded(flex: 2, child: _buildFormPanel()),
-                ],
-              );
-            }
-
-            return Column(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.20),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _buildFormPanel(),
-                const SizedBox(height: 24),
-                _buildTable(),
+                const Icon(
+                  Icons.timer_outlined,
+                  size: 17,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  '${_entries.length} ${_entries.length == 1 ? 'Task' : 'Tasks'} Configured',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
               ],
-            );
-          }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopWorkspace() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 3, child: _buildTable()),
+        const SizedBox(width: 22),
+        Expanded(flex: 2, child: _buildFormPanel()),
+      ],
+    );
+  }
+
+  Widget _buildMobileWorkspace() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildMobileFormCard(),
+        const SizedBox(height: 14),
+        _buildMobileTaskLog(),
+      ],
+    );
+  }
+
+  Widget _buildMobileFormCard() {
+    final isEditing = _editingId != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF003B95), Color(0xFF0052CC)],
+              ),
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(
+                    isEditing
+                        ? Icons.edit_note_rounded
+                        : Icons.add_alarm_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isEditing ? 'Edit Task Timing' : 'Set Task Timing',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isEditing
+                            ? 'Update the selected timing configuration'
+                            : 'Create a timing rule for a task',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 10.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildMobileTaskSelector(),
+                if (_selectedTaskMasterId == -1) ...[
+                  const SizedBox(height: 12),
+                  _buildInlineFormInputField(
+                    label: 'Custom Task Name *',
+                    controller: _otherTaskCtrl,
+                    hint: 'Enter custom task name',
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildInlineFormInputField(
+                        label: 'Qty',
+                        controller: _qtyCtrl,
+                        hint: '1',
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: _buildMobileTimingEditor(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _saving ? null : _clearForm,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF374151),
+                          side: const BorderSide(
+                            color: Color(0xFFD1D5DB),
+                          ),
+                          minimumSize: const Size.fromHeight(43),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _saveForm,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0052CC),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          minimumSize: const Size.fromHeight(43),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        child: _saving
+                            ? const SizedBox(
+                                width: 17,
+                                height: 17,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                isEditing ? 'Update Timing' : 'Create Timing',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileTaskSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Task Name *',
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF374151),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          height: 45,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F9FC),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: _selectedTaskMasterId,
+              isExpanded: true,
+              hint: Text(
+                _loadingTaskMaster ? 'Loading tasks...' : 'Select task',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+              icon: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFF0052CC),
+              ),
+              items: [
+                ..._taskMasterList.map((t) {
+                  final int tId = t['id'];
+                  final String tName = t['task_name'];
+                  final isUsed = _entries.any(
+                    (e) =>
+                        e.taskName == tName &&
+                        e.id != _editingId,
+                  );
+
+                  return DropdownMenuItem<int>(
+                    value: tId,
+                    enabled: !isUsed,
+                    child: Text(
+                      isUsed ? '$tName (already added)' : tName,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isUsed
+                            ? const Color(0xFFB0B7C3)
+                            : const Color(0xFF1A1A2E),
+                      ),
+                    ),
+                  );
+                }),
+                const DropdownMenuItem<int>(
+                  value: -1,
+                  child: Text(
+                    'Other',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+              onChanged: (val) {
+                setState(() {
+                  _selectedTaskMasterId = val;
+                  if (val != null && val != -1) {
+                    final match = _taskMasterList.firstWhere(
+                      (t) => t['id'] == val,
+                      orElse: () => {},
+                    );
+                    _selectedTaskName = match['task_name'];
+                  } else {
+                    _selectedTaskName = null;
+                  }
+                });
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileTimingEditor() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Timing *',
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF374151),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 45,
+                child: TextField(
+                  controller: _timingValCtrl,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF1A1A2E),
+                  ),
+                  decoration: InputDecoration(
+                    hintText:
+                        _selectedTimingUnit == 'hrs' ? 'hrs' : '30',
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF7F9FC),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(11),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFE2E8F0),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(11),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF0052CC),
+                        width: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildUnitSegment(),
+            ),
+          ],
+        ),
+        if (_selectedTimingUnit == 'hrs') ...[
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 42,
+            child: TextField(
+              controller: _timingMinCtrl,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF1A1A2E),
+              ),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(
+                  Icons.more_time_rounded,
+                  size: 17,
+                  color: Color(0xFF0052CC),
+                ),
+                hintText: 'Additional minutes',
+                hintStyle: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF94A3B8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF7F9FC),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFE2E8F0),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF0052CC),
+                    width: 1.4,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMobileTaskLog() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 15,
+              vertical: 13,
+            ),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF2FF),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.list_alt_rounded,
+                    size: 18,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Task Timing Log',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Configured task duration rules',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh',
+                  onPressed: _fetchEntries,
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                    size: 19,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF0052CC),
+                ),
+              ),
+            )
+          else if (_loadError != null)
+            Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.cloud_off_rounded,
+                    size: 38,
+                    color: Color(0xFF94A3B8),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _loadError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
+                    onPressed: _fetchEntries,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Retry'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0052CC),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_entries.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(28),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.schedule_outlined,
+                    size: 42,
+                    color: Color(0xFFCBD5E1),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'No task timings yet',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Create a timing rule using the form above.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: _entries.asMap().entries.map((item) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _buildMobileTaskCard(
+                      item.value,
+                      item.key,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileTaskCard(_TaskEntry entry, int index) {
+    final isEditing = _editingId == entry.id;
+
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: isEditing
+            ? const Color(0xFFF0F5FF)
+            : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isEditing
+              ? const Color(0xFF9DBCF5)
+              : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  entry.taskName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              if (isEditing)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDBEAFE),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'EDITING',
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1D4ED8),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMobileInfoTile(
+                  Icons.production_quantity_limits_rounded,
+                  'Quantity',
+                  entry.qty.trim().isEmpty ? '1' : entry.qty,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: _buildMobileInfoTile(
+                  Icons.timer_outlined,
+                  'Duration',
+                  entry.timing,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _populateForm(entry),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text(
+                    'Edit',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0052CC),
+                    side: const BorderSide(
+                      color: Color(0xFFBBD1F7),
+                    ),
+                    minimumSize: const Size.fromHeight(38),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _deleteEntry(entry.id),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    size: 16,
+                  ),
+                  label: const Text(
+                    'Delete',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFDC2626),
+                    side: const BorderSide(
+                      color: Color(0xFFFECACA),
+                    ),
+                    minimumSize: const Size.fromHeight(38),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileInfoTile(
+    IconData icon,
+    String label,
+    String value,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 9,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: const Color(0xFF0052CC),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF334155),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

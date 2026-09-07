@@ -2233,16 +2233,18 @@ Widget _taskMasterTextField({
           ]),
           const SizedBox(height: 16),
        if (loading && taskRows.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 70),
-                child: CircularProgressIndicator(color: Color(0xFF0052CC)),
-              ),
-            )
-          else
-            _buildResponsiveAssignmentTable(),
-
-            
+  const Center(
+    child: Padding(
+      padding: EdgeInsets.symmetric(vertical: 70),
+      child: CircularProgressIndicator(
+        color: Color(0xFF0052CC),
+      ),
+    ),
+  )
+else
+  _buildResponsiveAssignmentTable(
+    MediaQuery.of(context).size.width,
+  ),
 
         ],
       ),
@@ -2258,7 +2260,7 @@ Widget _taskMasterTextField({
   // • Horizontal scrollbar is always visible at the bottom.
   // • Extra rows never get hidden; they are reached with the right scrollbar.
   // ════════════════════════════════════════════════════════════════════════════
-  Widget _buildResponsiveAssignmentTable() {
+  Widget _buildDesktopAssignmentTable() {
     const double tableWidth = 3240.0;
     const double clientWidth = 200.0;
     const double headerHeight = 50.0;
@@ -2402,6 +2404,1098 @@ Widget _taskMasterTextField({
           ]),
         ),
       ]),
+    );
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RESPONSIVE ASSIGNMENT VIEW
+  // Desktop keeps the existing wide table.
+  // Mobile uses compact Admin-Panel style cards so no horizontal table scrolling
+  // is required on small screens.
+  // ════════════════════════════════════════════════════════════════════════════
+  Widget _buildResponsiveAssignmentTable(double availableWidth) {
+    if (availableWidth < 900) {
+      return _buildMobileAssignmentList();
+    }
+    return _buildDesktopAssignmentTable();
+  }
+
+  Widget _buildMobileAssignmentList() {
+    final rows = _visibleRows;
+
+    if (rows.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 55),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(
+                Icons.assignment_outlined,
+                size: 28,
+                color: Color(0xFF0052CC),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _showAssigned ? 'No assigned tasks' : 'No pending tasks',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              _searchQuery.trim().isEmpty
+                  ? 'Tasks matching this view will appear here.'
+                  : 'No task matches "$_searchQuery".',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _buildMobileListSummary(rows.length),
+        const SizedBox(height: 12),
+        ...rows.asMap().entries.map(
+          (entry) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildMobileTaskCard(entry.value, entry.key + 1),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileListSummary(int count) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: .035),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _showAssigned
+                  ? const Color(0xFFDCFCE7)
+                  : const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              _showAssigned
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.pending_actions_rounded,
+              size: 19,
+              color: _showAssigned
+                  ? const Color(0xFF16A34A)
+                  : const Color(0xFF0052CC),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _showAssigned ? 'Assigned Tasks' : 'Pending Tasks',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$count task${count == 1 ? '' : 's'} available',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: _showAssigned
+                  ? const Color(0xFFF0FDF4)
+                  : const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: _showAssigned
+                    ? const Color(0xFF16A34A)
+                    : const Color(0xFF0052CC),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileTaskCard(Map<String, dynamic> row, int index) {
+    final assigned =
+        row['is_assigned'] == 1 || row['is_assigned'] == true;
+
+    final client = (row['client_name'] ?? '').toString().trim();
+    final package = (row['deliverables'] ?? '').toString().trim();
+    final maintenance = formatDisplayDate(row['maintenance_date']);
+    final deadlineRaw = (row['deadline'] ?? '').toString().trim();
+    final deadline = deadlineRaw.isEmpty ? 'Not set' : formatDisplayDate(deadlineRaw);
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: .045),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          children: [
+            // Card header
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 13, 10, 13),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF0759D5), Color(0xFF0042A8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: const Icon(
+                      Icons.business_rounded,
+                      color: Colors.white,
+                      size: 21,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'CLIENT',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white70,
+                            letterSpacing: .8,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          client.isEmpty || client == 'PENDING_SELECTION'
+                              ? 'Select client'
+                              : client,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: assigned
+                          ? const Color(0xFFDCFCE7)
+                          : Colors.white.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      assigned ? 'ASSIGNED' : 'PENDING',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                        color: assigned
+                            ? const Color(0xFF15803D)
+                            : Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  _buildMobileSectionLabel(
+                    Icons.business_center_outlined,
+                    'Basic Details',
+                  ),
+                  const SizedBox(height: 9),
+                  _buildMobilePackageField(row),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMobileDateField(
+                          label: 'Maintenance',
+                          value: maintenance,
+                          onTap: () => _pickDate(row, 'maintenance_date'),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: _buildMobileDateField(
+                          label: 'Deadline',
+                          value: deadline,
+                          onTap: () => _pickDate(row, 'deadline'),
+                          isDeadline: true,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 15),
+                  _buildMobileSectionLabel(
+                    Icons.groups_2_outlined,
+                    'Employee Assignments',
+                  ),
+                  const SizedBox(height: 9),
+
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'ads_handler_task',
+                    employeeKey: 'ads_handling',
+                    taskKey: 'ads_platform',
+                    title: 'Ads Handler',
+                    icon: Icons.campaign_rounded,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'page_handler_task',
+                    employeeKey: 'page_handling',
+                    taskKey: 'pages_platform',
+                    title: 'Page Handler',
+                    icon: Icons.public_rounded,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'graphic_designer_task',
+                    employeeKey: 'designer',
+                    taskKey: 'designer_tasks',
+                    title: 'Designer',
+                    icon: Icons.palette_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'videographer_task',
+                    employeeKey: 'videographer',
+                    taskKey: 'videographer_tasks',
+                    title: 'Videographer',
+                    icon: Icons.videocam_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'video_editor_task',
+                    employeeKey: 'video_editor',
+                    taskKey: 'video_editor_task',
+                    title: 'Video Editor',
+                    icon: Icons.video_settings_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'ui_ux_designer_task',
+                    employeeKey: 'ui_ux_designer',
+                    taskKey: 'ui_ux_tasks',
+                    title: 'UI/UX Designer',
+                    icon: Icons.design_services_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'developer_task',
+                    employeeKey: 'developer',
+                    taskKey: 'developer_tasks',
+                    title: 'Developer',
+                    icon: Icons.code_rounded,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMobileRoleCard(
+                    row: row,
+                    roleKey: 'website_designer_task',
+                    employeeKey: 'website_designer',
+                    taskKey: 'website_designer_tasks',
+                    title: 'Website Designer',
+                    icon: Icons.web_outlined,
+                  ),
+
+                  const SizedBox(height: 15),
+                  _buildMobileCommentField(row),
+
+                  const SizedBox(height: 12),
+                  _buildMobileActionBar(row, assigned),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileSectionLabel(IconData icon, String title) {
+    return Row(
+      children: [
+        Container(
+          width: 31,
+          height: 31,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: const Color(0xFF0052CC),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobilePackageField(Map<String, dynamic> row) {
+    String current = (row['deliverables'] ?? '').toString();
+    final titles = packagesList
+        .map((p) => (p['title'] ?? '').toString())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    if (!titles.contains(current)) current = '';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        final selected = await showModalBottomSheet<String>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          builder: (sheetContext) {
+            String query = '';
+            return StatefulBuilder(
+              builder: (sheetContext, setSheetState) {
+                final filtered = titles.where((title) {
+                  return query.trim().isEmpty ||
+                      title.toLowerCase().contains(query.toLowerCase());
+                }).toList();
+
+                return SafeArea(
+                  child: SizedBox(
+                    height: MediaQuery.of(sheetContext).size.height * .72,
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 10),
+                          width: 38,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFCBD5E1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Select Package',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            onChanged: (v) =>
+                                setSheetState(() => query = v),
+                            decoration: InputDecoration(
+                              hintText: 'Search package...',
+                              prefixIcon: const Icon(Icons.search_rounded),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 7),
+                            itemBuilder: (_, i) {
+                              final title = filtered[i];
+                              final selected = title == current;
+                              return ListTile(
+                                onTap: () => Navigator.pop(sheetContext, title),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(
+                                    color: selected
+                                        ? const Color(0xFF93C5FD)
+                                        : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                tileColor: selected
+                                    ? const Color(0xFFEFF6FF)
+                                    : Colors.white,
+                                leading: const Icon(
+                                  Icons.inventory_2_outlined,
+                                  color: Color(0xFF0052CC),
+                                ),
+                                title: Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                trailing: selected
+                                    ? const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Color(0xFF0052CC),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+
+        if (selected != null && selected != current) {
+          await _onPackageSelected(row, selected);
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFDCE5F0)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.inventory_2_outlined,
+              size: 18,
+              color: Color(0xFF0052CC),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'DELIVERABLE / PACKAGE',
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF94A3B8),
+                      letterSpacing: .5,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    current.isEmpty ? 'Select package' : current,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: current.isEmpty
+                          ? const Color(0xFFB45309)
+                          : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Color(0xFF64748B),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileDateField({
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+    bool isDeadline = false,
+  }) {
+    final empty = value == '—' || value == 'Not set';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: isDeadline && !empty
+              ? const Color(0xFFFFF7ED)
+              : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDeadline && !empty
+                ? const Color(0xFFFED7AA)
+                : const Color(0xFFDCE5F0),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isDeadline
+                  ? Icons.event_available_rounded
+                  : Icons.calendar_today_rounded,
+              size: 17,
+              color: isDeadline && !empty
+                  ? const Color(0xFFEA580C)
+                  : const Color(0xFF0052CC),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF94A3B8),
+                      letterSpacing: .4,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: empty
+                          ? FontWeight.w500
+                          : FontWeight.w800,
+                      color: empty
+                          ? const Color(0xFF94A3B8)
+                          : const Color(0xFF334155),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileRoleCard({
+    required Map<String, dynamic> row,
+    required String roleKey,
+    required String employeeKey,
+    required String taskKey,
+    required String title,
+    required IconData icon,
+  }) {
+    final employee = (row[employeeKey] ?? '').toString();
+    final task = (row[taskKey] ?? '').toString();
+    final hasEmployee =
+        employee.isNotEmpty && employee.toUpperCase() != 'NONE';
+    final hasTask = task.trim().isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: hasEmployee
+            ? const Color(0xFFF8FAFC)
+            : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: hasEmployee
+              ? const Color(0xFFE2E8F0)
+              : const Color(0xFFFCD34D),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: hasEmployee
+                      ? const Color(0xFFEFF6FF)
+                      : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 17,
+                  color: hasEmployee
+                      ? const Color(0xFF0052CC)
+                      : const Color(0xFFD97706),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              if (hasTask)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.check_rounded,
+                    size: 12,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () => _showEmployeePicker(
+              current: employee,
+              onChanged: (value) {
+                setState(() => row[employeeKey] = value);
+                _saveRow(row);
+              },
+            ),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: hasEmployee
+                      ? const Color(0xFFDCE5F0)
+                      : const Color(0xFFFCD34D),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    hasEmployee
+                        ? Icons.person_rounded
+                        : Icons.person_add_alt_1_rounded,
+                    size: 15,
+                    color: hasEmployee
+                        ? const Color(0xFF0052CC)
+                        : const Color(0xFFD97706),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      hasEmployee ? employee : 'Select employee',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: hasEmployee
+                            ? const Color(0xFF0052CC)
+                            : const Color(0xFFB45309),
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 17,
+                    color: Color(0xFF64748B),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 7),
+          InkWell(
+            onTap: () => _showTaskSelectionPopup(
+              roleKey: roleKey,
+              row: row,
+              dbFieldKey: taskKey,
+            ),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.checklist_rounded,
+                    size: 15,
+                    color: Color(0xFF0052CC),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      hasTask ? task : 'Select tasks',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight:
+                            hasTask ? FontWeight.w700 : FontWeight.w500,
+                        color: hasTask
+                            ? const Color(0xFF1D4ED8)
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.edit_note_rounded,
+                    size: 17,
+                    color: Color(0xFF64748B),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileCommentField(Map<String, dynamic> row) {
+    return TextField(
+      controller: TextEditingController(
+        text: (row['comments'] ?? '').toString(),
+      ),
+      minLines: 2,
+      maxLines: 4,
+      onSubmitted: (value) {
+        row['comments'] = value;
+        _saveRow(row);
+      },
+      decoration: InputDecoration(
+        labelText: 'Comments',
+        labelStyle: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF64748B),
+        ),
+        hintText: 'Add a note for this task...',
+        hintStyle: const TextStyle(
+          fontSize: 10.5,
+          color: Color(0xFF94A3B8),
+        ),
+        prefixIcon: const Padding(
+          padding: EdgeInsets.only(bottom: 28),
+          child: Icon(
+            Icons.notes_rounded,
+            size: 17,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        contentPadding: const EdgeInsets.all(12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFDCE5F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFDCE5F0)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: Color(0xFF0052CC),
+            width: 1.3,
+          ),
+        ),
+      ),
+      style: const TextStyle(
+        fontSize: 11,
+        color: Color(0xFF0F172A),
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildMobileActionBar(
+    Map<String, dynamic> row,
+    bool assigned,
+  ) {
+    bool isDeadlinePassed = false;
+    final raw = (row['deadline'] ?? '').toString().trim();
+
+    if (raw.isNotEmpty) {
+      try {
+        DateTime deadlineDate = DateTime.parse(raw);
+        isDeadlinePassed = deadlineDate.isBefore(DateTime.now());
+      } catch (_) {}
+    }
+
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: !assigned
+                  ? () => _toggleAssign(row)
+                  : isDeadlinePassed
+                      ? () async {
+                          final res = await http.post(
+                            Uri.parse(
+                              '$_baseUrl/tasks/${row['id']}/duplicate-next-month',
+                            ),
+                          );
+
+                          if (!mounted) return;
+
+                          if (res.statusCode == 200 ||
+                              res.statusCode == 201) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'New task successfully added for next cycle!',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            await _fetchTasks();
+                            if (mounted) setState(() {});
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Failed: ${res.body}'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      : null,
+              icon: Icon(
+                !assigned
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.autorenew_rounded,
+                size: 17,
+              ),
+              label: Text(
+                !assigned ? 'ASSIGN TASK' : 'NEXT CYCLE',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: !assigned
+                    ? const Color(0xFF0052CC)
+                    : const Color(0xFF16A34A),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFFF1F5F9),
+                disabledForegroundColor: const Color(0xFF94A3B8),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(11),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 44,
+          height: 44,
+          child: IconButton(
+            tooltip: 'Delete',
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) {
+                  return AlertDialog(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    title: const Text(
+                      'Delete Task?',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    content: const Text(
+                      'This task will be removed from the assignment list.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () =>
+                            Navigator.pop(dialogContext, true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFDC2626),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  );
+                },
+              );
+
+              if (confirmed == true) {
+                await _deleteRow(row['id']);
+              }
+            },
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFFFEE2E2),
+              foregroundColor: const Color(0xFFDC2626),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
+              ),
+            ),
+            icon: const Icon(Icons.delete_outline_rounded, size: 20),
+          ),
+        ),
+      ],
     );
   }
 

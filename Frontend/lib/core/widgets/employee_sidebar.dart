@@ -21,7 +21,9 @@ class EmployeeSidebar extends StatelessWidget {
     switch (title) { 
       case 'Dashboard': return Icons.dashboard_rounded;
       case 'Day Planner': return Icons.task_alt_rounded;
-      case 'Notifications': return Icons.notifications_rounded;
+      // case 'Notifications': return Icons.notifications_rounded;
+      case 'Chat': return Icons.chat_bubble_rounded; // 🟢 Chat icon
+      case 'Client Credentials': return Icons.vpn_key_rounded;
       case 'Daily Reports': return Icons.checklist_outlined;
       case 'Assigned Task': return Icons.assignment_rounded;
       case 'Live Tracking Tasks': return Icons.timer_rounded;

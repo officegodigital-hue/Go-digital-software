@@ -216,12 +216,13 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     return '$hour:$minute $ampm';
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
-    return AdminLayout(
-      pageTitle: "Client Credentials",
-      currentRoute: "/client-credentials",
-      child: _selectedClientId == null ? _buildClientListView() : _buildCredentialsDetailView(),
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: SingleChildScrollView(
+        child: _selectedClientId == null ? _buildClientListView() : _buildCredentialsDetailView(),
+      ),
     );
   }
 
