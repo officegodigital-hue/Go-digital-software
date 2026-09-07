@@ -215,6 +215,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _messageController.addListener(_onMessageChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      //final authService = context.read<AuthService>();
+      //final loggedInName = authService.user?['fullName'] as String? ?? 'Admin';
+
       final authService = context.read<AuthService>();
       final loggedInName = authService.user?['fullName'] as String? ?? 'Admin';
 
