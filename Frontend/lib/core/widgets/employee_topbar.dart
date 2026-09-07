@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../constants/app_colors.dart';
 import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
@@ -36,6 +37,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   bool _showPopup = false;
   Timer? _popupTimer;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  IO.Socket? _socket;
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
 
@@ -69,6 +71,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
 
     _startPolling();
     _fetchTodayWorkingHours();
+    _connectNotificationSocket();
   }
 
   @override
@@ -76,10 +79,66 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _pollingTimer?.cancel();
     _popupTimer?.cancel();
     _searchController.dispose();
+    _socket?.dispose();
     _audioPlayer.dispose();
     _rotateController.dispose();
     _glowController.dispose();
     super.dispose();
+  }
+
+  String get _socketUrl {
+    return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
+  }
+
+  void _connectNotificationSocket() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final employeeName = authService.user?['fullName'];
+    if (employeeName == null || employeeName.toString().isEmpty) return;
+
+    try {
+      _socket = IO.io(_socketUrl, {
+        'transports': ['websocket'],
+        'autoConnect': false,
+        'reconnection': true,
+      });
+
+      _socket!.connect();
+
+      void handle(dynamic payload) {
+        if (!mounted || payload is! Map) return;
+        final recipient = payload['recipientName']?.toString() ?? '';
+        final sender = payload['senderName']?.toString() ?? '';
+        final isGroup = payload['isGroup'] == true ||
+            payload['isGroup'] == 1 ||
+            payload['isGroup']?.toString() == '1';
+
+        if (isGroup || recipient != employeeName || sender == employeeName) return;
+
+        final id = int.tryParse(payload['id']?.toString() ?? '') ?? 0;
+        if (id != 0 && _knownNotificationIds.contains(id)) return;
+        if (id != 0) _knownNotificationIds.add(id);
+
+        setState(() => _unreadCount += 1);
+
+        final raw = payload['message']?.toString() ?? 'New message';
+        String preview = raw;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            preview = decoded['preview']?.toString() ??
+                decoded['text']?.toString() ??
+                (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
+          }
+        } catch (_) {}
+
+        _playNotificationSound();
+        _triggerTopRightPopup(preview);
+      }
+
+      _socket!.on('new_notification', handle);
+    } catch (e) {
+      debugPrint('Topbar socket init error: $e');
+    }
   }
 
   void _startPolling() {
