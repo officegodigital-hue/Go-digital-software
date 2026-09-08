@@ -1,12 +1,32 @@
-import 'package:flutter/material.dart';
+// lib/screens/admin_dashboard/performance_screen.dart
+//
+// Employee Performance Dashboard.
+//
+// Flow for a non-technical person looking at this screen:
+//   1. Search and pick an employee.
+//   2. Choose "Daily" (pick one date) or "Monthly" (pick a From/To range).
+//   3. The page shows: how many tasks are Completed / Processing / On Hold /
+//      Pending / Rejected, a couple of charts, and — most importantly — every
+//      client assigned to that employee with the exact tasks under each
+//      client and their current status. Tasks are automatically grouped by
+//      role (Designer, Videographer, Developer, etc.) using whatever role
+//      each task belongs to in Task Master, so nothing needs to be
+//      hand-mapped per employee.
+//
+// Needs `fl_chart` in pubspec.yaml:
+//   dependencies:
+//     fl_chart: ^0.68.0
+
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../layouts/admin_layout.dart';
-import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
-import 'package:intl/intl.dart';
+import '../../services/auth_service.dart';
 
 class PerformanceScreen extends StatefulWidget {
   const PerformanceScreen({super.key});
@@ -16,583 +36,968 @@ class PerformanceScreen extends StatefulWidget {
 }
 
 class _PerformanceScreenState extends State<PerformanceScreen> {
-  String _activePeriod = "This Month";
-  String _activeView = "Client";
-  bool _loading = true;
+  static String get _baseUrl => ApiConfig.baseUrl;
 
-  int _clientsCount = 0;
-  int _employeesCount = 0;
-  double _efficiencyPercent = 94.5;
-  String _revenueString = "₹4.8L";
+  // ---- status palette (used everywhere: cards, chips, charts) ----
+  static const Map<String, Color> _statusColor = {
+    'PENDING': Color(0xFF94A3B8),
+    'PROCESSING': Color(0xFF0052CC),
+    'ON HOLD': Color(0xFFD97706),
+    'COMPLETED': Color(0xFF16A34A),
+    'REJECTED': Color(0xFFDC2626),
+  };
 
-  List<double> _chartValues = [78, 88, 70, 96];
-  List<String> _chartLabels = ["W1", "W2", "W3", "W4"];
+  // ---- employee search ----
+  final TextEditingController _employeeSearchCtrl = TextEditingController();
+  final LayerLink _employeeLayerLink = LayerLink();
+  OverlayEntry? _employeeOverlay;
+  List<Map<String, dynamic>> _allEmployees = [];
+  List<Map<String, dynamic>> _employeeResults = [];
+  bool _loadingEmployees = true;
+  Map<String, dynamic>? _selectedEmployee;
 
-  double _approvedShare = 0.62;
-  double _reworkShare = 0.18;
-  double _rejectedShare = 0.10;
-  double _othersShare = 0.10;
+  // ---- filters ----
+  String _mode = 'daily'; // 'daily' | 'monthly'
+  DateTime _selectedDate = DateTime.now();
+  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _toDate = DateTime.now();
 
-  List<Map<String, dynamic>> _topEmployees = [];
-  List<Map<String, dynamic>> _clientPerformances = [];
+  // ---- data ----
+  bool _loadingData = false;
+  String? _error;
+  Map<String, dynamic>? _data;
 
-  int _completedTasksPercent = 80;
-  int _pendingTasksPercent = 15;
-  int _onHoldTasksPercent = 5;
+  // ---- client cards expand/collapse ----
+  final Set<String> _expandedClients = {};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchAnalyticsData();
-    });
+    _fetchEmployees();
   }
 
-  Future<void> _fetchAnalyticsData() async {
-    setState(() => _loading = true);
+  @override
+  void dispose() {
+    _employeeOverlay?.remove();
+    _employeeSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ================================================================
+  // DATA FETCHING
+  // ================================================================
+  Future<Map<String, String>> _authHeaders() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${authService.token}',
+    };
+  }
+
+  Future<void> _fetchEmployees() async {
+    setState(() => _loadingEmployees = true);
     try {
-      final res = await http.get(Uri.parse('${ApiConfig.baseUrl}/performance/analytics'));
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
-        final data = decoded['data'];
-        final revenue = (data['estimatedRevenue'] ?? 0).toDouble();
-
-        if (data != null) {
-          setState(() {
-            _clientsCount = data['clientsCount'] ?? 0;
-            _employeesCount = data['employeesCount'] ?? 0;
-            _efficiencyPercent = (data['efficiencyPercent'] ?? 94.5).toDouble();
-            // _revenueString = data['estimatedRevenue'] ?? "₹4.8L";
-            _revenueString = "₹${revenue.toStringAsFixed(0)}";
-
-            // Productivity Donut shares
-            final ratios = data['productivity']?['ratios'];
-            if (ratios != null) {
-              _approvedShare = (ratios['approved'] ?? 0.62).toDouble();
-              _reworkShare = (ratios['rework'] ?? 0.18).toDouble();
-              _rejectedShare = (ratios['rejected'] ?? 0.10).toDouble();
-              _othersShare = (ratios['review'] ?? 0.10).toDouble();
-            }
-
-            // Top 10 Employees
-            _topEmployees = List<Map<String, dynamic>>.from(data['topEmployees'] ?? []);
-
-            // Client performance rankings
-            _clientPerformances = List<Map<String, dynamic>>.from(data['clientPerformances'] ?? []);
-
-            // Task distribution percentages
-            final dist = data['taskStatusDistribution'];
-            if (dist != null) {
-              _completedTasksPercent = dist['completedPercent'] ?? 80;
-              _pendingTasksPercent = dist['pendingPercent'] ?? 15;
-              _onHoldTasksPercent = dist['holdPercent'] ?? 5;
-            }
-          });
-        }
+      final response = await http.get(
+        Uri.parse('$_baseUrl/employees'),
+        headers: await _authHeaders(),
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        setState(() {
+          _allEmployees = List<Map<String, dynamic>>.from(body['data'] ?? []);
+          _loadingEmployees = false;
+        });
+      } else {
+        setState(() => _loadingEmployees = false);
       }
     } catch (e) {
-      debugPrint("Performance analytics error: $e");
-    } finally {
-      setState(() => _loading = false);
+      setState(() => _loadingEmployees = false);
     }
   }
 
+  Future<void> _fetchPerformance() async {
+    if (_selectedEmployee == null) return;
 
-  void _updateChartParameters(String period, String view) {
     setState(() {
-      _activePeriod = period;
-      _activeView = view;
-
-      if (period == "This Week") {
-        _chartLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-        _chartValues = view == "Client" ? [65, 72, 68, 85, 90, 78, 95] : [55, 62, 60, 72, 80, 75, 88];
-      } else if (period == "This Month") {
-        _chartLabels = ["W1", "W2", "W3", "W4"];
-        _chartValues = view == "Client" ? [78, 88, 70, 96] : [70, 76, 82, 92];
-      } else if (period == "This Year") {
-        _chartLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        _chartValues = view == "Client" ? [42, 55, 47, 63, 58, 77, 68, 80, 74, 84, 78, 91] : [35, 48, 42, 59, 55, 70, 62, 75, 69, 82, 74, 89];
-      } else {
-        _chartLabels = ["9AM", "11AM", "1PM", "3PM", "5PM", "7PM"];
-        _chartValues = [70, 82, 75, 88, 92, 95];
-      }
+      _loadingData = true;
+      _error = null;
     });
+
+    try {
+      final employeeName = _selectedEmployee!['full_name'] ?? '';
+      String url;
+
+      if (_mode == 'daily') {
+        final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+        url = '$_baseUrl/performance?employeeName=${Uri.encodeComponent(employeeName)}&mode=daily&date=$dateStr';
+      } else {
+        final fromStr = DateFormat('yyyy-MM-dd').format(_fromDate);
+        final toStr = DateFormat('yyyy-MM-dd').format(_toDate);
+        url = '$_baseUrl/performance?employeeName=${Uri.encodeComponent(employeeName)}&mode=monthly&fromDate=$fromStr&toDate=$toStr';
+      }
+
+      final response = await http.get(Uri.parse(url), headers: await _authHeaders());
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        setState(() {
+          _data = body['data'];
+          _loadingData = false;
+          _expandedClients.clear();
+        });
+      } else {
+        final body = jsonDecode(response.body);
+        setState(() {
+          _error = body['message'] ?? 'Failed to load performance data';
+          _loadingData = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Cannot connect to server';
+        _loadingData = false;
+      });
+    }
   }
 
-  LineChartData _buildLineChartData() {
-    return LineChartData(
-      minY: 0,
-      maxY: 100,
-      gridData: FlGridData(
-        show: true,
-        drawVerticalLine: false,
-        getDrawingHorizontalLine: (val) => FlLine(color: const Color(0xFFF1F5F9), strokeWidth: 1),
-      ),
-      borderData: FlBorderData(show: false),
-      titlesData: FlTitlesData(
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            interval: 25,
-            reservedSize: 28,
-            getTitlesWidget: (value, meta) => Text(
-              "${value.toInt()}%",
-              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+  // ================================================================
+  // EMPLOYEE SEARCH DROPDOWN (same floating-overlay pattern used
+  // elsewhere in this app for client search)
+  // ================================================================
+  void _onEmployeeSearchChanged(String query) {
+    final q = query.trim().toLowerCase();
+    setState(() {
+      _employeeResults = q.isEmpty
+          ? []
+          : _allEmployees.where((e) {
+              final name = (e['full_name'] ?? '').toString().toLowerCase();
+              final staffId = (e['staff_id'] ?? '').toString().toLowerCase();
+              return name.contains(q) || staffId.contains(q);
+            }).toList();
+    });
+    if (_employeeResults.isNotEmpty) {
+      _showEmployeeOverlay();
+    } else {
+      _hideEmployeeOverlay();
+    }
+  }
+
+  void _selectEmployee(Map<String, dynamic> employee) {
+    setState(() {
+      _selectedEmployee = employee;
+      _employeeSearchCtrl.text = employee['full_name'] ?? '';
+      _data = null;
+    });
+    _hideEmployeeOverlay();
+    _fetchPerformance();
+  }
+
+  void _showEmployeeOverlay() {
+    _employeeOverlay?.remove();
+    _employeeOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        width: 340,
+        child: CompositedTransformFollower(
+          link: _employeeLayerLink,
+          showWhenUnlinked: false,
+          offset: const Offset(0, 52),
+          child: Material(
+            elevation: 12,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 260),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: _employeeResults.length,
+                itemBuilder: (context, index) {
+                  final emp = _employeeResults[index];
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: const Color(0xFFEFF6FF),
+                      child: Text(
+                        (emp['initials'] ?? '?').toString(),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC)),
+                      ),
+                    ),
+                    title: Text(emp['full_name'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    subtitle: Text(emp['role'] ?? '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                    onTap: () => _selectEmployee(emp),
+                  );
+                },
+              ),
             ),
           ),
         ),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            getTitlesWidget: (value, meta) {
-              int idx = value.toInt();
-              if (idx < 0 || idx >= _chartLabels.length) return const SizedBox();
-              return Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(
-                  _chartLabels[idx],
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                ),
-              );
-            },
-          ),
-        ),
       ),
-      lineBarsData: [
-        LineChartBarData(
-          isCurved: true,
-          color: const Color(0xFF0052CC),
-          barWidth: 3.5,
-          isStrokeCapRound: true,
-          dotData: FlDotData(
-            show: true,
-            getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-              radius: 4.5,
-              color: Colors.white,
-              strokeWidth: 2.5,
-              strokeColor: const Color(0xFF0052CC),
-            ),
-          ),
-          belowBarData: BarAreaData(
-            show: true,
-            gradient: LinearGradient(
-              colors: [
-                const Color(0xFF0052CC).withValues(alpha: 0.15),
-                const Color(0xFF0052CC).withValues(alpha: 0.0),
+    );
+    Overlay.of(context).insert(_employeeOverlay!);
+  }
+
+  void _hideEmployeeOverlay() {
+    _employeeOverlay?.remove();
+    _employeeOverlay = null;
+  }
+
+  // ================================================================
+  // DATE PICKERS
+  // ================================================================
+  Future<void> _pickSingleDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+      _fetchPerformance();
+    }
+  }
+
+  Future<void> _pickFromDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _fromDate,
+      firstDate: DateTime(2020),
+      lastDate: _toDate,
+    );
+    if (picked != null) {
+      setState(() => _fromDate = picked);
+      _fetchPerformance();
+    }
+  }
+
+  Future<void> _pickToDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _toDate,
+      firstDate: _fromDate,
+      lastDate: DateTime(2035),
+    );
+    if (picked != null) {
+      setState(() => _toDate = picked);
+      _fetchPerformance();
+    }
+  }
+
+  // ================================================================
+  // BUILD
+  // ================================================================
+  @override
+  Widget build(BuildContext context) {
+    return AdminLayout(
+      pageTitle: 'Employee Performance',
+      currentRoute: '/performance',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 720;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHero(isMobile),
+              const SizedBox(height: 18),
+              _buildFilterCard(isMobile),
+              const SizedBox(height: 18),
+              if (_selectedEmployee == null)
+                _buildEmptyPrompt()
+              else if (_loadingData)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 60),
+                  child: Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5))),
+                )
+              else if (_error != null)
+                _buildErrorState()
+              else if (_data != null) ...[
+                _buildSummaryCards(isMobile),
+                const SizedBox(height: 18),
+                _buildChartsSection(isMobile),
+                const SizedBox(height: 18),
+                _buildClientsSection(isMobile),
               ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+              const SizedBox(height: 32),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ---------------- Hero ----------------
+  Widget _buildHero(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(isMobile ? 18 : 22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+        ),
+        borderRadius: BorderRadius.circular(isMobile ? 20 : 22),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF4F46E5).withValues(alpha: 0.2), blurRadius: 24, offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(14)),
+            child: const Icon(Icons.insights_rounded, color: Colors.white, size: 25),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Employee Performance', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(
+                  'Search an employee to see their assigned clients, tasks and progress at a glance.',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11, height: 1.35),
+                ),
+              ],
             ),
           ),
-          spots: List.generate(
-            _chartValues.length,
-            (index) => FlSpot(index.toDouble(), _chartValues[index]),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Filter card ----------------
+  Widget _buildFilterCard(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 16, offset: const Offset(0, 6))],
+      ),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: [
+          SizedBox(width: isMobile ? double.infinity : 300, child: _buildEmployeeSearchField()),
+          SizedBox(width: isMobile ? double.infinity : 240, child: _buildModeToggle()),
+          if (_mode == 'daily')
+            SizedBox(width: isMobile ? double.infinity : 200, child: _buildDateField('Date', _selectedDate, _pickSingleDate))
+          else ...[
+            SizedBox(width: isMobile ? double.infinity : 190, child: _buildDateField('From Date', _fromDate, _pickFromDate)),
+            SizedBox(width: isMobile ? double.infinity : 190, child: _buildDateField('To Date', _toDate, _pickToDate)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmployeeSearchField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Employee', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+        const SizedBox(height: 6),
+        CompositedTransformTarget(
+          link: _employeeLayerLink,
+          child: SizedBox(
+            height: 42,
+            child: TextField(
+              controller: _employeeSearchCtrl,
+              onChanged: _onEmployeeSearchChanged,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Search by name or staff ID...',
+                hintStyle: const TextStyle(fontSize: 12),
+                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                suffixIcon: _loadingEmployees
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : null,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF4F46E5))),
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AdminLayout(
-      pageTitle: "Performance Dashboard",
-      currentRoute: "/performance",
-      child: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(38, 24, 38, 40),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Performance Dashboard",
-                            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            "Real-time analytics across client execution, team productivity, and delivery metrics.",
-                            style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                          ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          children: ["Today", "This Week", "This Month", "This Year"].map((period) {
-                            final isActive = _activePeriod == period;
-                            return GestureDetector(
-                              onTap: () => _updateChartParameters(period, _activeView),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isActive ? const Color(0xFF0052CC) : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  period,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: isActive ? Colors.white : const Color(0xFF64748B),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  Row(
-                    children: [
-                      Expanded(child: _buildMetricCard("Clients", "$_clientsCount", Icons.business_center_rounded, const Color(0xFF0052CC))),
-                      const SizedBox(width: 20),
-                      Expanded(child: _buildMetricCard("Employees", "$_employeesCount", Icons.group_rounded, const Color(0xFF0EA5E9))),
-                      const SizedBox(width: 20),
-                      Expanded(child: _buildMetricCard("Efficiency", "$_efficiencyPercent% ▲", Icons.trending_up_rounded, const Color(0xFF16A34A))),
-                      const SizedBox(width: 20),
-                      Expanded(child: _buildMetricCard("Revenue", _revenueString, Icons.account_balance_wallet_rounded, const Color(0xFF9333EA))),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          height: 420,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text("Performance Trend", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                                  Container(
-                                    padding: const EdgeInsets.all(3),
-                                    decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(6)),
-                                    child: Row(
-                                      children: ["Client", "Employee"].map((view) {
-                                        final isSel = _activeView == view;
-                                        return GestureDetector(
-                                          onTap: () => _updateChartParameters(_activePeriod, view),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                            decoration: BoxDecoration(
-                                              color: isSel ? Colors.white : Colors.transparent,
-                                              borderRadius: BorderRadius.circular(4),
-                                              boxShadow: isSel ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)] : [],
-                                            ),
-                                            child: Text(
-                                              view,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                                color: isSel ? const Color(0xFF0052CC) : const Color(0xFF64748B),
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 25),
-                              Expanded(
-                                child: LineChart(_buildLineChartData()),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        flex: 1,
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          height: 420,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("Productivity", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                              const SizedBox(height: 20),
-                              Expanded(
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    PieChart(
-                                      PieChartData(
-                                        sectionsSpace: 3,
-                                        centerSpaceRadius: 55,
-                                        sections: [
-                                          PieChartSectionData(color: const Color(0xFF16A34A), value: _approvedShare * 100, title: '', radius: 22),
-                                          PieChartSectionData(color: const Color(0xFFE67E00), value: _reworkShare * 100, title: '', radius: 22),
-                                          PieChartSectionData(color: const Color(0xFFE10000), value: _rejectedShare * 100, title: '', radius: 22),
-                                          PieChartSectionData(color: const Color(0xFF0052CC), value: _othersShare * 100, title: '', radius: 22),
-                                        ],
-                                      ),
-                                    ),
-                                    const Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text("100%", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                                        Text("Total", style: TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 15),
-                              _buildLegendRow("Approved", "${(_approvedShare * 100).toStringAsFixed(0)}%", const Color(0xFF16A34A)),
-                              _buildLegendRow("Reworks", "${(_reworkShare * 100).toStringAsFixed(0)}%", const Color(0xFFE67E00)),
-                              _buildLegendRow("Rejected", "${(_rejectedShare * 100).toStringAsFixed(0)}%", const Color(0xFFE10000)),
-                              _buildLegendRow("Others", "${(_othersShare * 100).toStringAsFixed(0)}%", const Color(0xFF0052CC)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  
-                  // Top 10 Performing Employees
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("Top Performing Employees", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                        const SizedBox(height: 20),
-                        _topEmployees.isEmpty
-                            ? const Text("No employee performance records found.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13))
-                            : Column(
-                                children: _topEmployees.map((emp) => Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 10),
-                                      child: Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 16,
-                                            backgroundColor: const Color(0xFFEFF6FF),
-                                            child: Text(emp["name"][0].toUpperCase(), style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.bold, fontSize: 12)),
-                                          ),
-                                          const SizedBox(width: 14),
-                                          SizedBox(
-                                            width: 120,
-                                            child: Text(emp["name"], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF334155))),
-                                          ),
-                                          Expanded(
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(4),
-                                              child: LinearProgressIndicator(
-                                                value: (emp["percent"] as int) / 100.0,
-                                                backgroundColor: const Color(0xFFF1F5F9),
-                                                color: const Color(0xFF0052CC),
-                                                minHeight: 10,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 20),
-                                          Text("${emp["percent"]}%", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
-                                        ],
-                                      ),
-                                    )).toList(),
-                              ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  
-                  // Task Status & Client Performance
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("Task Status", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                              const SizedBox(height: 20),
-                              _buildStatusRow("Completed", "$_completedTasksPercent%", const Color(0xFF16A34A), _completedTasksPercent / 100.0),
-                              const SizedBox(height: 16),
-                              _buildStatusRow("Pending", "$_pendingTasksPercent%", const Color(0xFFE67E00), _pendingTasksPercent / 100.0),
-                              const SizedBox(height: 16),
-                              _buildStatusRow("Hold", "$_onHoldTasksPercent%", const Color(0xFFE10000), _onHoldTasksPercent / 100.0),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("Client Performance", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                              const SizedBox(height: 20),
-                              _clientPerformances.isEmpty
-                                  ? const Text("No client ratings available.", style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13))
-                                  : Column(
-                                      children: _clientPerformances.map((client) => Padding(
-                                            padding: const EdgeInsets.symmetric(vertical: 8),
-                                            child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    const Icon(Icons.business_rounded, size: 16, color: Color(0xFF0052CC)),
-                                                    const SizedBox(width: 10),
-                                                    Text(client["name"], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
-                                                  ],
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFFEFF6FF),
-                                                    borderRadius: BorderRadius.circular(6),
-                                                  ),
-                                                  child: Text("${client["score"]}%", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0052CC), fontSize: 12)),
-                                                ),
-                                              ],
-                                            ),
-                                          )).toList(),
-                                    ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+  Widget _buildModeToggle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('View', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+        const SizedBox(height: 6),
+        Container(
+          height: 42,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(10)),
+          child: Row(
+            children: [
+              Expanded(child: _modeButton('Daily', 'daily')),
+              Expanded(child: _modeButton('Monthly', 'monthly')),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildMetricCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2))],
+  Widget _modeButton(String label, String value) {
+    final isActive = _mode == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _mode = value);
+        _fetchPerformance();
+      },
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isActive ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: isActive ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4)] : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: isActive ? const Color(0xFF4F46E5) : const Color(0xFF64748B)),
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
+    );
+  }
+
+  Widget _buildDateField(String label, DateTime value, VoidCallback onTap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
+              border: Border.all(color: const Color(0xFFCBD5E1)),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: color, size: 24),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF64748B)),
+                const SizedBox(width: 8),
+                Text(DateFormat('dd/MM/yyyy').format(value), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              ],
+            ),
           ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
-              const SizedBox(height: 4),
-              Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-            ],
-          ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  // ---------------- Empty / error states ----------------
+  Widget _buildEmptyPrompt() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFE2E8F0))),
+      child: const Center(
+        child: Column(
+          children: [
+            Icon(Icons.person_search_rounded, size: 40, color: Color(0xFF94A3B8)),
+            SizedBox(height: 10),
+            Text('Search and select an employee above', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+            SizedBox(height: 4),
+            Text('Their performance, assigned clients and tasks will show here.', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildLegendRow(String title, String percentage, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
-            ],
-          ),
-          Text(percentage, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-        ],
+  Widget _buildErrorState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 50),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFE2E8F0))),
+      child: Center(
+        child: Column(
+          children: [
+            const Icon(Icons.cloud_off_rounded, size: 34, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 10),
+            Text(_error ?? 'Something went wrong', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(onPressed: _fetchPerformance, icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry')),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStatusRow(String label, String value, Color color, double progress) {
+  // ---------------- Summary cards ----------------
+  Widget _buildSummaryCards(bool isMobile) {
+    final summary = _data!['summary'] as Map<String, dynamic>;
+    final emp = _data!['employee'] as Map<String, dynamic>;
+
+    final cards = [
+      _statCard('Total Tasks', summary['totalTasks'].toString(), Icons.list_alt_rounded, const Color(0xFF172033)),
+      _statCard('Completed', summary['completed'].toString(), Icons.check_circle_rounded, _statusColor['COMPLETED']!),
+      _statCard('Processing', summary['processing'].toString(), Icons.autorenew_rounded, _statusColor['PROCESSING']!),
+      _statCard('On Hold', summary['onHold'].toString(), Icons.pause_circle_rounded, _statusColor['ON HOLD']!),
+      _statCard('Pending', summary['pending'].toString(), Icons.hourglass_empty_rounded, _statusColor['PENDING']!),
+      _statCard('Rejected', summary['rejected'].toString(), Icons.cancel_rounded, _statusColor['REJECTED']!),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: const Color(0xFFEFF6FF),
+              child: Text((emp['initials'] ?? '?').toString(), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF4F46E5))),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(emp['fullName'] ?? '', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+                Text('${emp['role'] ?? ''} • Total time ${summary['totalDuration']}', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+              ],
+            ),
           ],
         ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress.clamp(0.0, 1.0),
-            backgroundColor: const Color(0xFFF1F5F9),
-            color: color,
-            minHeight: 8,
-          ),
+        const SizedBox(height: 14),
+        GridView.count(
+          crossAxisCount: isMobile ? 2 : 6,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: isMobile ? 1.5 : 1.15,
+          children: cards,
         ),
       ],
+    );
+  }
+
+  Widget _statCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(height: 6),
+          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color)),
+          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Charts ----------------
+  Widget _buildChartsSection(bool isMobile) {
+    final summary = _data!['summary'] as Map<String, dynamic>;
+    final roles = List<Map<String, dynamic>>.from(_data!['roles'] ?? []);
+    final trend = List<Map<String, dynamic>>.from(_data!['trend'] ?? []);
+
+    final statusChart = _chartCard(
+      title: 'Status Breakdown',
+      child: SizedBox(height: 220, child: _buildStatusPieChart(summary)),
+    );
+
+    final roleChart = _chartCard(
+      title: 'Tasks by Role',
+      child: SizedBox(height: 220, child: _buildRoleBarChart(roles)),
+    );
+
+    final trendChart = _mode == 'monthly'
+        ? _chartCard(
+            title: 'Completed Tasks Trend',
+            child: SizedBox(height: 220, child: _buildTrendLineChart(trend)),
+          )
+        : null;
+
+    if (isMobile) {
+      return Column(
+        children: [
+          statusChart,
+          const SizedBox(height: 14),
+          roleChart,
+          if (trendChart != null) ...[const SizedBox(height: 14), trendChart],
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: statusChart),
+            const SizedBox(width: 14),
+            Expanded(child: roleChart),
+          ],
+        ),
+        if (trendChart != null) ...[const SizedBox(height: 14), trendChart],
+      ],
+    );
+  }
+
+  Widget _chartCard({required String title, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusPieChart(Map<String, dynamic> summary) {
+    final entries = <MapEntry<String, int>>[
+      MapEntry('Completed', summary['completed'] as int),
+      MapEntry('Processing', summary['processing'] as int),
+      MapEntry('On Hold', summary['onHold'] as int),
+      MapEntry('Pending', summary['pending'] as int),
+      MapEntry('Rejected', summary['rejected'] as int),
+    ].where((e) => e.value > 0).toList();
+
+    if (entries.isEmpty) {
+      return const Center(child: Text('No tasks in this period', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))));
+    }
+
+    final colors = {
+      'Completed': _statusColor['COMPLETED']!,
+      'Processing': _statusColor['PROCESSING']!,
+      'On Hold': _statusColor['ON HOLD']!,
+      'Pending': _statusColor['PENDING']!,
+      'Rejected': _statusColor['REJECTED']!,
+    };
+
+    return Row(
+      children: [
+        Expanded(
+          child: PieChart(
+            PieChartData(
+              sectionsSpace: 2,
+              centerSpaceRadius: 34,
+              sections: entries.map((e) {
+                return PieChartSectionData(
+                  value: e.value.toDouble(),
+                  color: colors[e.key],
+                  title: '${e.value}',
+                  radius: 46,
+                  titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: entries.map((e) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Container(width: 9, height: 9, decoration: BoxDecoration(color: colors[e.key], shape: BoxShape.circle)),
+                  const SizedBox(width: 6),
+                  Text('${e.key} (${e.value})', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoleBarChart(List<Map<String, dynamic>> roles) {
+    if (roles.isEmpty) {
+      return const Center(child: Text('No tasks in this period', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))));
+    }
+
+    final maxVal = roles.map((r) => r['totalTasks'] as int).fold<int>(0, (a, b) => a > b ? a : b);
+
+    return BarChart(
+      BarChartData(
+        maxY: (maxVal + 1).toDouble(),
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              getTitlesWidget: (value, meta) {
+                final i = value.toInt();
+                if (i < 0 || i >= roles.length) return const SizedBox.shrink();
+                final name = roles[i]['roleName'].toString();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    name.length > 8 ? '${name.substring(0, 8)}…' : name,
+                    style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        barGroups: List.generate(roles.length, (i) {
+          return BarChartGroupData(
+            x: i,
+            barRods: [
+              BarChartRodData(
+                toY: (roles[i]['totalTasks'] as int).toDouble(),
+                color: const Color(0xFF4F46E5),
+                width: 18,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildTrendLineChart(List<Map<String, dynamic>> trend) {
+    if (trend.isEmpty) {
+      return const Center(child: Text('No activity in this period', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))));
+    }
+
+    final spots = List.generate(trend.length, (i) {
+      final completed = (trend[i]['COMPLETED'] ?? 0) as int;
+      return FlSpot(i.toDouble(), completed.toDouble());
+    });
+
+    final maxY = spots.map((s) => s.y).fold<double>(0, (a, b) => a > b ? a : b);
+
+    return LineChart(
+      LineChartData(
+        minY: 0,
+        maxY: maxY + 1,
+        gridData: const FlGridData(show: true, drawVerticalLine: false),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: (trend.length / 6).clamp(1, trend.length).toDouble(),
+              getTitlesWidget: (value, meta) {
+                final i = value.toInt();
+                if (i < 0 || i >= trend.length) return const SizedBox.shrink();
+                final date = DateTime.tryParse(trend[i]['date'].toString());
+                final label = date != null ? DateFormat('dd/MM').format(date) : '';
+                return Padding(padding: const EdgeInsets.only(top: 6), child: Text(label, style: const TextStyle(fontSize: 9, color: Color(0xFF64748B))));
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: const Color(0xFF16A34A),
+            barWidth: 3,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: true, color: const Color(0xFF16A34A).withValues(alpha: 0.08)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Clients + tasks section ----------------
+  Widget _buildClientsSection(bool isMobile) {
+    final clients = List<Map<String, dynamic>>.from(_data!['clients'] ?? []);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Assigned Clients & Tasks (${clients.length})', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+          const SizedBox(height: 4),
+          const Text('Tap a client to see every task, its role, and current status.', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          const SizedBox(height: 12),
+          if (clients.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 30),
+              child: Center(child: Text('No clients/tasks found for this period', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
+            )
+          else
+            ...clients.map((client) => _buildClientCard(client, isMobile)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientCard(Map<String, dynamic> client, bool isMobile) {
+    final clientName = client['clientName'] as String;
+    final isExpanded = _expandedClients.contains(clientName);
+    final tasks = List<Map<String, dynamic>>.from(client['tasks'] ?? []);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedClients.remove(clientName);
+                } else {
+                  _expandedClients.add(clientName);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(10)),
+                    child: const Icon(Icons.apartment_rounded, size: 17, color: Color(0xFF4F46E5)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(clientName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+                        const SizedBox(height: 3),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            _miniBadge('${client['totalTasks']} tasks', const Color(0xFF64748B)),
+                            if ((client['COMPLETED'] ?? 0) > 0) _miniBadge('${client['COMPLETED']} done', _statusColor['COMPLETED']!),
+                            if ((client['IN PROGRESS'] ?? 0) > 0) _miniBadge('${client['IN PROGRESS']} processing', _statusColor['PROCESSING']!),
+                            if ((client['ON HOLD'] ?? 0) > 0) _miniBadge('${client['ON HOLD']} hold', _statusColor['ON HOLD']!),
+                            if ((client['IDLE'] ?? 0) > 0) _miniBadge('${client['IDLE']} pending', _statusColor['PENDING']!),
+                            if ((client['REJECTED'] ?? 0) > 0) _miniBadge('${client['REJECTED']} rejected', _statusColor['REJECTED']!),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(isExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: const Color(0xFF64748B)),
+                ],
+              ),
+            ),
+          ),
+          if (isExpanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: Column(
+                children: tasks.map((t) => _buildTaskRow(t, isMobile)).toList(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+      child: Text(text, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: color)),
+    );
+  }
+
+  Widget _buildTaskRow(Map<String, dynamic> task, bool isMobile) {
+    final status = task['status'] as String;
+    final color = _statusColor[status == 'IDLE' ? 'PENDING' : (status == 'IN PROGRESS' ? 'PROCESSING' : status)] ?? const Color(0xFF64748B);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(task['deliverable'] ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  _miniBadge(task['roleName'] ?? '', const Color(0xFF4F46E5)),
+                  _miniBadge(task['statusLabel'] ?? '', color),
+                  _miniBadge('⏱ ${task['duration']}', const Color(0xFF64748B)),
+                  _miniBadge('⭐ ${task['performance']}', const Color(0xFF64748B)),
+                ]),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(flex: 3, child: Text(task['deliverable'] ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
+                Expanded(flex: 2, child: _miniBadge(task['roleName'] ?? '', const Color(0xFF4F46E5))),
+                Expanded(flex: 2, child: _miniBadge(task['statusLabel'] ?? '', color)),
+                Expanded(flex: 1, child: Text(task['duration'] ?? '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+                Expanded(flex: 1, child: Text(task['performance'] ?? '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+              ],
+            ),
     );
   }
 }

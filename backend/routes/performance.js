@@ -1,433 +1,227 @@
-// routes/performance.js
+// routes/performance.js — Employee Performance Dashboard API
+//
+// One employee at a time. Two modes:
+//   mode=daily   -> ?employeeName=...&date=YYYY-MM-DD
+//   mode=monthly -> ?employeeName=...&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD
+//
+// Pulls every task_list row for that employee (their assigned clients +
+// deliverables), joined to its time_tracking_task_items row for the actual
+// status/duration/performance, and to task_master/task_roles so each task
+// can be grouped by role (Designer, Videographer, etc.) automatically —
+// no manual role mapping needed on the frontend.
+//
+// Status vocabulary used throughout (matches tracking-items.js):
+//   IDLE        -> "Pending"     (not started yet)
+//   IN PROGRESS -> "Processing"
+//   ON HOLD     -> "On Hold"
+//   COMPLETED   -> "Completed"
+//   REJECTED    -> "Rejected"
+
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
-// GET /api/performance/analytics
-router.get('/analytics', async (req, res) => {
-  try {
-
-    // ===========================
-    // Total Clients
-    // ===========================
-    const [clientRows] = await db.query(`
-      SELECT COUNT(*) AS total_clients
-      FROM clients
-    `);
-
-    const totalClients = Number(clientRows[0]?.total_clients || 0);
-
-    // ===========================
-    // Active Employees Count
-    // ===========================
-    const [employeeCountRows] = await db.query(`
-      SELECT COUNT(DISTINCT employee_name) AS total_employees
-      FROM task_list
-      WHERE employee_name IS NOT NULL
-        AND employee_name <> ''
-    `);
-
-    const activeEmployeesCount = Number(
-      employeeCountRows[0]?.total_employees || 0
-    );
-
-    // ===========================
-    // Top Performing Employees
-    // ===========================
-    const [employeeRows] = await db.query(`
-      SELECT
-          tl.employee_name,
-          COUNT(tti.id) AS total_tasks,
-          SUM(CASE WHEN tti.status='COMPLETED' THEN 1 ELSE 0 END) AS completed_count
-      FROM task_list tl
-      LEFT JOIN time_tracking_task_items tti
-             ON tti.task_list_id = tl.id
-      WHERE tl.employee_name IS NOT NULL
-        AND tl.employee_name <> ''
-      GROUP BY tl.employee_name
-      ORDER BY completed_count DESC,total_tasks DESC
-      LIMIT 10
-    `);
-
-    const topEmployees = employeeRows.map(emp => {
-
-      const total = Number(emp.total_tasks || 0);
-
-      const completed = Number(emp.completed_count || 0);
-
-      const score =
-          total > 0
-              ? Math.round((completed / total) * 100)
-              : 0;
-
-      return {
-        name: emp.employee_name,
-        percent: score
-      };
-    });
-
-    // ===========================
-    // Productivity
-    // ===========================
-    const [reviewRows] = await db.query(`
-      SELECT
-        SUM(CASE WHEN manager_action='APPROVED' THEN 1 ELSE 0 END) approved,
-        SUM(CASE WHEN manager_action='REWORK' THEN 1 ELSE 0 END) rework,
-        SUM(CASE WHEN manager_action='REJECTED' THEN 1 ELSE 0 END) rejected,
-        SUM(
-            CASE
-                WHEN manager_action='ACTION'
-                  OR manager_action IS NULL
-                THEN 1
-                ELSE 0
-            END
-        ) review_pending
-      FROM manager_review
-    `);
-
-    const prod = reviewRows[0] || {};
-
-    const approved = Number(prod.approved || 0);
-    const rework = Number(prod.rework || 0);
-    const rejected = Number(prod.rejected || 0);
-    const reviewPending = Number(prod.review_pending || 0);
-
-    const totalReviews =
-        approved +
-        rework +
-        rejected +
-        reviewPending;
-
-    const reviewTotal =
-        totalReviews == 0 ? 1 : totalReviews;
-
-    const productivity = {
-      approved,
-      rework,
-      rejected,
-      review: reviewPending,
-
-      ratios: {
-        approved: Number((approved / reviewTotal).toFixed(2)),
-        rework: Number((rework / reviewTotal).toFixed(2)),
-        rejected: Number((rejected / reviewTotal).toFixed(2)),
-        review: Number((reviewPending / reviewTotal).toFixed(2))
-      }
-    };
-
-    // ===========================
-    // Task Status
-    // ===========================
-    const [statusRows] = await db.query(`
-      SELECT
-
-        SUM(
-            CASE
-                WHEN status='COMPLETED'
-                THEN 1
-                ELSE 0
-            END
-        ) completed,
-
-        SUM(
-            CASE
-                WHEN status IN ('PENDING','PROCESSING','IN PROGRESS')
-                THEN 1
-                ELSE 0
-            END
-        ) pending,
-
-        SUM(
-            CASE
-                WHEN status IN ('HOLD','ON HOLD')
-                THEN 1
-                ELSE 0
-            END
-        ) on_hold,
-
-        COUNT(*) total_tasks
-
-      FROM time_tracking_task_items
-    `);
-
-    const st = statusRows[0] || {};
-
-    const completed = Number(st.completed || 0);
-    const pending = Number(st.pending || 0);
-    const hold = Number(st.on_hold || 0);
-
-    const totalTasks =
-        Number(st.total_tasks || 0) == 0
-            ? 1
-            : Number(st.total_tasks);
-
-    const taskStatusDistribution = {
-
-      completedPercent:
-          Math.round((completed / totalTasks) * 100),
-
-      pendingPercent:
-          Math.round((pending / totalTasks) * 100),
-
-      holdPercent:
-          Math.round((hold / totalTasks) * 100)
-    };
-
-    // ===========================
-    // Client Performance
-    // ===========================
-    const [clientPerfRows] = await db.query(`
-      SELECT
-
-        tl.client_name,
-
-        COUNT(tti.id) total_items,
-
-        SUM(
-            CASE
-                WHEN tti.status='COMPLETED'
-                THEN 1
-                ELSE 0
-            END
-        ) completed_items
-
-      FROM task_list tl
-
-      LEFT JOIN time_tracking_task_items tti
-             ON tti.task_list_id = tl.id
-
-      GROUP BY tl.client_name
-
-      ORDER BY completed_items DESC
-
-      LIMIT 5
-    `);
-
-    const clientPerformances =
-        clientPerfRows.map(c => {
-
-          const total =
-              Number(c.total_items || 0);
-
-          const completed =
-              Number(c.completed_items || 0);
-
-          const score =
-              total > 0
-                  ? Math.round((completed / total) * 100)
-                  : 0;
-
-          return {
-            name: c.client_name || "Client",
-            score
-          };
-        });
-
-    // ===========================
-// Revenue (Invoice Total)
-// ===========================
-const [revenueRows] = await db.query(`
-    SELECT
-        COALESCE(SUM(total_amount), 0) AS totalRevenue
-    FROM invoices
-`);
-
-const estimatedRevenue =
-    Number(revenueRows[0]?.totalRevenue || 0);
-
-// ===========================
-// Overall Efficiency
-// ===========================
-const efficiencyPercent =
-    Math.round(
-        (completed / totalTasks) * 100
-    );
-
-    // ===========================
-    // Response
-    // ===========================
-    return res.json({
-
-      success: true,
-
-      data: {
-
-        clientsCount: totalClients,
-
-        employeesCount: activeEmployeesCount,
-
-        efficiencyPercent,
-
-        estimatedRevenue: estimatedRevenue,
-
-        productivity,
-
-        topEmployees,
-
-        taskStatusDistribution,
-
-        clientPerformances
-
-      }
-
-    });
-
-  } catch (err) {
-
-    console.error("Performance Analytics Error:", err);
-
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
+const STATUS_LABELS = {
+  IDLE: 'PENDING',
+  'IN PROGRESS': 'PROCESSING',
+  'ON HOLD': 'ON HOLD',
+  COMPLETED: 'COMPLETED',
+  REJECTED: 'REJECTED',
+};
+
+function normalizedStatus(raw) {
+  const s = (raw || 'IDLE').toString().trim().toUpperCase();
+  return STATUS_LABELS[s] ? s : 'IDLE';
+}
+
+function emptyStatusCounts() {
+  return { IDLE: 0, 'IN PROGRESS': 0, 'ON HOLD': 0, COMPLETED: 0, REJECTED: 0 };
+}
+
+function formatDuration(seconds) {
+  seconds = Number(seconds) || 0;
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+  if (hrs > 0) return `${hrs}h`;
+  return `${mins}m`;
+}
+
+function toISODate(value) {
+  // Accepts 'YYYY-MM-DD' or 'DD/MM/YYYY'; returns 'YYYY-MM-DD' or null.
+  if (!value) return null;
+  const str = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  const slashParts = str.split('/');
+  if (slashParts.length === 3) {
+    const [dd, mm, yyyy] = slashParts;
+    if (dd && mm && yyyy) {
+      return `${yyyy.padStart(4, '0')}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+    }
   }
-});
+  return null;
+}
 
-
-// GET /api/performance/dashboard-analytics?range=week
-router.get('/dashboard-analytics', async (req, res) => {
+// GET /api/performance — main dashboard payload for one employee
+router.get('/', async (req, res) => {
   try {
+    const employeeName = (req.query.employeeName || '').trim();
+    const mode = (req.query.mode || 'daily').trim().toLowerCase();
 
-    const range = (req.query.range || "week").toLowerCase();
-
-    let whereClause = "";
-
-    switch (range) {
-      case "today":
-        whereClause = "WHERE DATE(mr.created_at) = CURDATE()";
-        break;
-
-      case "month":
-        whereClause =
-          "WHERE mr.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-        break;
-
-      case "week":
-      default:
-        whereClause =
-          "WHERE mr.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
-        break;
+    if (!employeeName) {
+      return res.status(400).json({ success: false, message: 'employeeName is required' });
+    }
+    if (!['daily', 'monthly'].includes(mode)) {
+      return res.status(400).json({ success: false, message: 'mode must be daily or monthly' });
     }
 
-    // ==========================
-    // Employee Performance
-    // ==========================
-    const [employeeRows] = await db.query(`
+    let fromDate, toDate;
+
+    if (mode === 'daily') {
+      fromDate = toDate = toISODate(req.query.date) || new Date().toISOString().slice(0, 10);
+    } else {
+      fromDate = toISODate(req.query.fromDate);
+      toDate = toISODate(req.query.toDate);
+      if (!fromDate || !toDate) {
+        return res.status(400).json({ success: false, message: 'fromDate and toDate are required for monthly mode (YYYY-MM-DD)' });
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Employee basic info (for the header card on the frontend)
+    // ------------------------------------------------------------
+    const [empRows] = await db.query(
+      `SELECT id, full_name, initials, staff_id, role, user_type
+       FROM employee_users
+       WHERE TRIM(LOWER(full_name)) = TRIM(LOWER(?))
+       LIMIT 1`,
+      [employeeName]
+    );
+    const employee = empRows[0] || { full_name: employeeName };
+
+    // ------------------------------------------------------------
+    // Every task_list row for this employee in range, with its
+    // tracking item (status/duration/performance) and role info.
+    // A task_list row with no tracking item yet still counts as
+    // an assigned task (treated as IDLE / Pending).
+    // ------------------------------------------------------------
+    const [rows] = await db.query(
+      `
       SELECT
-          tl.employee_name,
+        tl.id            AS task_list_id,
+        tl.client_name,
+        tl.deliverables,
+        tl.task_master_id,
+        tm.role_key,
+        COALESCE(tr.role_name, tm.role_key, 'General') AS role_name,
+        tti.id           AS tracking_item_id,
+        tti.status,
+        tti.duration_secs,
+        tti.performance,
+        tti.task_description,
+        COALESCE(tti.submit_date, tl.submission_date) AS activity_date
+      FROM task_list tl
+      LEFT JOIN task_master tm ON tm.id = tl.task_master_id
+      LEFT JOIN task_roles tr ON tr.role_key = tm.role_key
+      LEFT JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+      WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
+        AND DATE(COALESCE(tti.submit_date, tl.submission_date)) BETWEEN ? AND ?
+      ORDER BY activity_date DESC
+      `,
+      [employeeName, fromDate, toDate]
+    );
 
-          SUM(CASE
-                WHEN mr.manager_action='APPROVED'
-                THEN 1 ELSE 0
-              END) approved,
+    // ------------------------------------------------------------
+    // Aggregate: overall status counts, per-client, per-role,
+    // and a daily trend line (for monthly mode).
+    // ------------------------------------------------------------
+    const summary = { totalTasks: rows.length, totalDurationSecs: 0, ...emptyStatusCounts() };
+    const clientsMap = new Map();
+    const rolesMap = new Map();
+    const trendMap = new Map(); // date -> status counts
 
-          SUM(CASE
-                WHEN mr.manager_action='REWORK'
-                THEN 1 ELSE 0
-              END) rework,
+    for (const row of rows) {
+      const status = normalizedStatus(row.status);
+      const durationSecs = Number(row.duration_secs) || 0;
 
-          SUM(CASE
-                WHEN mr.manager_action='REJECTED'
-                THEN 1 ELSE 0
-              END) rejected,
+      summary[status] += 1;
+      summary.totalDurationSecs += durationSecs;
 
-          SUM(CASE
-                WHEN mr.manager_action='ACTION'
-                  OR mr.manager_action IS NULL
-                THEN 1 ELSE 0
-              END) review
+      // ---- by client ----
+      const clientKey = row.client_name || 'Unassigned';
+      if (!clientsMap.has(clientKey)) {
+        clientsMap.set(clientKey, { clientName: clientKey, totalTasks: 0, totalDurationSecs: 0, ...emptyStatusCounts(), tasks: [] });
+      }
+      const clientEntry = clientsMap.get(clientKey);
+      clientEntry.totalTasks += 1;
+      clientEntry.totalDurationSecs += durationSecs;
+      clientEntry[status] += 1;
+      clientEntry.tasks.push({
+        taskListId: row.task_list_id,
+        trackingItemId: row.tracking_item_id,
+        deliverable: row.deliverables,
+        roleName: row.role_name,
+        status,
+        statusLabel: STATUS_LABELS[status],
+        durationSecs,
+        duration: formatDuration(durationSecs),
+        performance: row.performance || 'N/A',
+        activityDate: row.activity_date,
+      });
 
-      FROM manager_review mr
+      // ---- by role ----
+      const roleKey = row.role_name || 'General';
+      if (!rolesMap.has(roleKey)) {
+        rolesMap.set(roleKey, { roleName: roleKey, totalTasks: 0, ...emptyStatusCounts() });
+      }
+      const roleEntry = rolesMap.get(roleKey);
+      roleEntry.totalTasks += 1;
+      roleEntry[status] += 1;
 
-      INNER JOIN task_list tl
-          ON tl.id = mr.task_list_id
+      // ---- daily trend (always built; frontend only needs it for monthly) ----
+      const dayKey = row.activity_date
+        ? new Date(row.activity_date).toISOString().slice(0, 10)
+        : fromDate;
+      if (!trendMap.has(dayKey)) {
+        trendMap.set(dayKey, { date: dayKey, ...emptyStatusCounts() });
+      }
+      trendMap.get(dayKey)[status] += 1;
+    }
 
-      ${whereClause}
-
-      WHERE tl.employee_name IS NOT NULL
-        AND tl.employee_name <> ''
-
-      GROUP BY tl.employee_name
-
-      ORDER BY approved DESC
-    `);
-
-    const employeePerformance = employeeRows.map(row => ({
-      name: row.employee_name,
-      approved: Number(row.approved || 0),
-      rework: Number(row.rework || 0),
-      review: Number(row.review || 0),
-      rejected: Number(row.rejected || 0),
-    }));
-
-
-    // ==========================
-    // Client Performance
-    // ==========================
-    const [clientRows] = await db.query(`
-      SELECT
-          tl.client_name,
-
-          SUM(CASE
-                WHEN mr.manager_action='APPROVED'
-                THEN 1 ELSE 0
-              END) approved,
-
-          SUM(CASE
-                WHEN mr.manager_action='REWORK'
-                THEN 1 ELSE 0
-              END) rework,
-
-          SUM(CASE
-                WHEN mr.manager_action='REJECTED'
-                THEN 1 ELSE 0
-              END) rejected,
-
-          SUM(CASE
-                WHEN mr.manager_action='ACTION'
-                  OR mr.manager_action IS NULL
-                THEN 1 ELSE 0
-              END) review
-
-      FROM manager_review mr
-
-      INNER JOIN task_list tl
-          ON tl.id = mr.task_list_id
-
-      ${whereClause}
-
-      GROUP BY tl.client_name
-
-      ORDER BY approved DESC
-    `);
-
-    const clientPerformance = clientRows.map(row => ({
-      name: row.client_name,
-      approved: Number(row.approved || 0),
-      rework: Number(row.rework || 0),
-      review: Number(row.review || 0),
-      rejected: Number(row.rejected || 0),
-    }));
-
+    const clients = Array.from(clientsMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
+    const roles = Array.from(rolesMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
+    const trend = Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
     return res.json({
       success: true,
       data: {
-        employeePerformance,
-        clientPerformance
-      }
+        employee: {
+          id: employee.id || null,
+          fullName: employee.full_name || employeeName,
+          initials: employee.initials || '',
+          staffId: employee.staff_id || '',
+          role: employee.role || '',
+        },
+        range: { mode, fromDate, toDate },
+        summary: {
+          totalTasks: summary.totalTasks,
+          totalDuration: formatDuration(summary.totalDurationSecs),
+          completed: summary.COMPLETED,
+          processing: summary['IN PROGRESS'],
+          onHold: summary['ON HOLD'],
+          pending: summary.IDLE,
+          rejected: summary.REJECTED,
+        },
+        clients,
+        roles,
+        trend,
+      },
     });
-
   } catch (err) {
-
-    console.error("Dashboard Analytics Error:", err);
-
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
+    console.error('GET /performance ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
