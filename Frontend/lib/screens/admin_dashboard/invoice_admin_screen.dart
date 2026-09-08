@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import 'helpers/csv_export.dart';
 
 class InvoiceAdminScreen extends StatefulWidget {
   const InvoiceAdminScreen({super.key});
@@ -309,6 +310,109 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
       result = '$restWithCommas,$last3';
     }
     return '${isNegative ? '-' : ''}₹$result.${parts[1]}';
+  }
+
+  // ============================================================
+  // EXPORT TO CSV — exports every column shown in the table,
+  // S.No through Status, for the currently filtered invoice list.
+  // ============================================================
+  Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
+    final invoices = _getFilteredAndSortedInvoices();
+
+    if (invoices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No invoices to export'),
+        backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
+
+    String csvEscape(String value) {
+      if (value.contains(',') || value.contains('"') || value.contains('\n')) {
+        return '"${value.replaceAll('"', '""')}"';
+      }
+      return value;
+    }
+
+    final headers = [
+      'S.No',
+      'Invoice Date',
+      'Invoice No',
+      'Client Name',
+      'Package Details',
+      'Maintenance Date',
+      'Total Amount',
+      'Paid Amount',
+      'Pending Amount',
+      'Status',
+      if (isMainAdmin) 'Created By',
+    ];
+
+    final buffer = StringBuffer();
+    buffer.writeln(headers.map(csvEscape).join(','));
+
+    for (int i = 0; i < invoices.length; i++) {
+      final row = invoices[i];
+
+      final invNo = (row['invoice_no'] ?? '').toString();
+      final client = (row['client_name'] ?? '').toString();
+      final type = (row['package_type'] ?? '-').toString();
+      final invoiceDate = (row['invoice_date'] ?? '').toString();
+      final maintenanceDate = (row['maintenance_date'] ?? '').toString();
+      final total = _parseAmount(row['total_amount']);
+      final paid = _parseAmount(row['paid_amount']);
+      final pending = _parseAmount(row['balance_amount']);
+      final createdByName = (row['created_by_name'] ?? 'Main Admin').toString();
+
+      String status = (row['status'] ?? 'DRAFT').toString().toUpperCase();
+      if (status == 'PARTIAL' || status == 'OVERDUE') {
+        status = 'PENDING';
+      }
+
+      final line = [
+        (i + 1).toString(),
+        invoiceDate,
+        invNo,
+        client,
+        type,
+        maintenanceDate,
+        total.toStringAsFixed(2),
+        paid.toStringAsFixed(2),
+        pending.toStringAsFixed(2),
+        status,
+        if (isMainAdmin) createdByName,
+      ];
+
+      buffer.writeln(line.map(csvEscape).join(','));
+    }
+
+    final fileName = 'Invoices_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
+
+    try {
+      // Prepend a UTF-8 BOM so Excel opens the file with correct encoding
+      // (important for the ₹ symbol / non-ASCII characters, if any).
+      final csvBytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(buffer.toString())];
+
+      // ✅ Platform-aware save: on Flutter Web this triggers a real browser
+      // download straight into the PC's Downloads folder. On mobile/desktop
+      // it writes a temp file and opens the native share/save sheet.
+      await saveAndShareCsv(csvBytes, fileName);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✓ CSV exported successfully!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error exporting CSV: $e'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    }
   }
 
   Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice) async {
@@ -1081,13 +1185,13 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
                     children: [
                       _workspaceTitle(totalInvoices),
                       const SizedBox(height: 14),
-                      _buildFilterRow(monthNames, fullWidth: true),
+                      _buildFilterRow(monthNames, isMainAdmin, fullWidth: true),
                     ],
                   )
                 : Row(
                     children: [
                       Expanded(child: _workspaceTitle(totalInvoices)),
-                      _buildFilterRow(monthNames),
+                      _buildFilterRow(monthNames, isMainAdmin),
                     ],
                   ),
           ),
@@ -1139,7 +1243,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     );
   }
 
-  Widget _buildFilterRow(List<String> monthNames, {bool fullWidth = false}) {
+  Widget _buildFilterRow(List<String> monthNames, bool isMainAdmin, {bool fullWidth = false}) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -1272,6 +1376,26 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
                 Icon(_isFilterMenuOpen ? Icons.filter_list_off_rounded : Icons.filter_list_rounded, size: 14, color: const Color(0xFF64748B)),
                 const SizedBox(width: 5),
                 Text(_isFilterMenuOpen ? "Hide Filter" : "Filter", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+              ],
+            ),
+          ),
+        ),
+        InkWell(
+          onTap: () => _exportInvoicesToCSV(isMainAdmin),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              border: Border.all(color: const Color(0xFF0052CC)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.file_download_outlined, size: 14, color: Color(0xFF0052CC)),
+                SizedBox(width: 5),
+                Text("Export", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
               ],
             ),
           ),

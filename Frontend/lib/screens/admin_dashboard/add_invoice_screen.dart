@@ -125,24 +125,33 @@ OverlayEntry? _clientOverlay;
   late List<_InvoiceItemRow> _items;
 
 
+@override
+void initState() {
+  super.initState();
 
-  @override
-  void initState() {
-    super.initState();
-    _items = [_InvoiceItemRow(isPackageRow: true)];
-    final now = DateTime.now();
-    dateController.text = DateFormat('dd/MM/yyyy').format(now);
-    maintenanceDateController.text = DateFormat('dd/MM/yyyy').format(now.add(const Duration(days: 30)));
-    _fetchPackages();
+  _items = [_InvoiceItemRow(isPackageRow: true)];
 
-    _invoiceId = widget.invoiceId;
-    _viewOnly = widget.viewOnly;
-    if (_invoiceId != null) {
-      _loadExistingInvoice(_invoiceId!);
-    } else {
-      _fetchNextInvoiceNumber();
-    }
+  final now = DateTime.now();
+
+  dateController.text =
+      DateFormat('dd/MM/yyyy').format(now);
+
+  maintenanceDateController.text =
+      DateFormat('dd/MM/yyyy')
+          .format(now.add(const Duration(days: 30)));
+
+  _fetchPackages();
+
+  _fetchNextInvoiceNumber();
+
+  _invoiceId = widget.invoiceId;
+  _viewOnly = widget.viewOnly;
+
+  if (_invoiceId != null) {
+    _loadExistingInvoice(_invoiceId!);
   }
+}
+
 
   @override
   void didChangeDependencies() {
@@ -250,31 +259,76 @@ void _hideClientOverlay() {
     }
   }
 
-  Future<void> _fetchNextInvoiceNumber() async {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/invoices/next-number'));
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        setState(() {
-          invoiceNoController.text = body['data']['invoiceNo'];
-        });
-      } else {
-        _setDefaultInvoiceNumber();
-      }
-    } catch (e) {
-      _setDefaultInvoiceNumber();
-    }
-  }
+Future<void> _fetchNextInvoiceNumber() async {
+  try {
+    final currentDateText = dateController.text.isNotEmpty
+        ? dateController.text
+        : DateFormat('dd/MM/yyyy').format(DateTime.now());
 
-  void _setDefaultInvoiceNumber() {
-    final now = DateTime.now();
-    final yyyy = now.year.toString();
-    final mm = now.month.toString().padLeft(2, '0');
-    final dd = now.day.toString().padLeft(2, '0');
+    final url =
+        '$_baseUrl/invoices/next-number'
+        '?mode=daily'
+        '&date=${Uri.encodeComponent(currentDateText)}';
+
+    print('NEXT INVOICE URL: $url');
+
+    // ✅ This endpoint is protected by authenticateToken on the backend,
+    // so it must send the auth token like every other API call here.
+    // Without it, the request gets a 401, falls into the catch block,
+    // and the invoice number field is left blank.
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final token = authService.token;
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    print('NEXT INVOICE STATUS: ${response.statusCode}');
+    print('NEXT INVOICE BODY: ${response.body}');
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Invoice API failed: ${response.statusCode}',
+      );
+    }
+
+    final body = jsonDecode(response.body);
+
+    final invoiceNo =
+        body['data']?['invoiceNo'] ??
+        body['data']?['invoice_no'] ??
+        body['invoiceNo'] ??
+        body['invoice_no'];
+
+    print('FINAL INVOICE NUMBER: $invoiceNo');
+
+    if (invoiceNo == null ||
+        invoiceNo.toString().trim().isEmpty) {
+      throw Exception(
+        'Backend returned empty invoice number',
+      );
+    }
+
+    if (!mounted) return;
+
     setState(() {
-      invoiceNoController.text = 'INV-$yyyy$mm${dd}301';
+      invoiceNoController.text =
+          invoiceNo.toString().trim();
+    });
+  } catch (e) {
+    print('FETCH NEXT INVOICE ERROR: $e');
+
+    if (!mounted) return;
+
+    setState(() {
+      invoiceNoController.text = '';
     });
   }
+}
 
   Future<void> _loadExistingInvoice(int id) async {
     setState(() => _loadingExisting = true);
@@ -509,6 +563,27 @@ double _rowPending(_InvoiceItemRow row) {
             );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // ✅ Backend always returns the REAL saved invoice number
+        // (generatedInvoiceNo) in data.invoiceNo. Update the controller
+        // with it so the UI/dialog/PDF show the actual saved number,
+        // not the stale preview number from _fetchNextInvoiceNumber().
+        try {
+          final savedBody = jsonDecode(response.body);
+          final savedInvoiceNo =
+              savedBody['data']?['invoiceNo'] ??
+              savedBody['data']?['invoice_no'];
+
+          if (savedInvoiceNo != null &&
+              savedInvoiceNo.toString().trim().isNotEmpty &&
+              mounted) {
+            setState(() {
+              invoiceNoController.text = savedInvoiceNo.toString().trim();
+            });
+          }
+        } catch (_) {
+          // If parsing fails, keep the existing preview value.
+        }
+
         return true;
       } else {
         final body = jsonDecode(response.body);
@@ -3133,5 +3208,3 @@ Widget _buildClientNameDropdown() {
 
   static const TextStyle _tableLabelStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569));
 }
-
-

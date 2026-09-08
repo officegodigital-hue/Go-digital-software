@@ -3,6 +3,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 const { authenticateToken } = require('./auth');
+const { generateNextInvoiceNumber } = require('./invoices');
 
 
 // GET /api/quotations/next-number — generates the next QT-YYYY-### number
@@ -197,16 +198,17 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       );
 
       const quotNo = quot.quotation_no || '';
-      const parts  = quotNo.split('-');
-      const year   = parts[1] || new Date().getFullYear();
-      const suffix = parts[2] || '0001';
-      invoiceNo    = `INV-${year}-${suffix}`;
 
-      const [dupCheck] = await connection.query(
-        `SELECT id FROM invoices WHERE invoice_no = ?`, [invoiceNo]);
-      if (dupCheck.length > 0) {
-        invoiceNo = `INV-${year}-${suffix}-R${dupCheck.length + 1}`;
-      }
+      // ✅ Use the SAME invoice-number generator as the invoices
+      // route (daily mode: INV-YYYYMMDD301, 302, 303...), so a
+      // quotation-converted invoice continues from whatever the
+      // last real invoice number in the `invoices` table was —
+      // instead of inventing its own number from the quotation no.
+      invoiceNo = await generateNextInvoiceNumber(
+        connection,
+        quot.quotation_date || new Date(),
+        'daily'
+      );
 
       const invStatus = 'DRAFT';
 
@@ -460,4 +462,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
