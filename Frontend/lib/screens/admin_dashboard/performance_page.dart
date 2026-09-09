@@ -319,9 +319,15 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               else if (_data != null) ...[
                 _buildSummaryCards(isMobile),
                 const SizedBox(height: 18),
+                _buildDayPlannerSection(isMobile),
+                const SizedBox(height: 18),
+                _buildApprovalSection(isMobile),
+                const SizedBox(height: 18),
                 _buildChartsSection(isMobile),
                 const SizedBox(height: 18),
                 _buildClientsSection(isMobile),
+                const SizedBox(height: 18),
+                _buildPerformanceHistorySection(isMobile),
               ],
               const SizedBox(height: 32),
             ],
@@ -552,8 +558,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Widget _buildSummaryCards(bool isMobile) {
     final summary = _data!['summary'] as Map<String, dynamic>;
     final emp = _data!['employee'] as Map<String, dynamic>;
+    final clientsAssignedCount = _data!['clientsAssignedCount'] ?? 0;
 
     final cards = [
+      _statCard('Clients Assigned', clientsAssignedCount.toString(), Icons.apartment_rounded, const Color(0xFF4F46E5)),
       _statCard('Total Tasks', summary['totalTasks'].toString(), Icons.list_alt_rounded, const Color(0xFF172033)),
       _statCard('Completed', summary['completed'].toString(), Icons.check_circle_rounded, _statusColor['COMPLETED']!),
       _statCard('Processing', summary['processing'].toString(), Icons.autorenew_rounded, _statusColor['PROCESSING']!),
@@ -584,7 +592,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         ),
         const SizedBox(height: 14),
         GridView.count(
-          crossAxisCount: isMobile ? 2 : 6,
+          crossAxisCount: isMobile ? 2 : 7,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 12,
@@ -618,10 +626,297 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
+  // ---------------- Day Planner submission ----------------
+  Widget _buildDayPlannerSection(bool isMobile) {
+    final planner = _data!['dayPlanner'] as Map<String, dynamic>;
+    final isDaily = planner['mode'] == 'daily';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.event_note_rounded, size: 16, color: Color(0xFF4F46E5)),
+              SizedBox(width: 6),
+              Text('Day Planner Submission', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (isDaily) _buildDailyPlannerStatus(planner) else _buildMonthlyPlannerStatus(planner, isMobile),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyPlannerStatus(Map<String, dynamic> planner) {
+    final submitted = planner['submitted'] == true;
+    final hasEntry = planner['hasEntry'] == true;
+    final reports = List<Map<String, dynamic>>.from(planner['reports'] ?? []);
+
+    if (!hasEntry) {
+      return _plannerBanner(
+        icon: Icons.help_outline_rounded,
+        color: const Color(0xFF94A3B8),
+        title: 'No Day Planner entry for this date',
+        subtitle: 'The employee has not created a planner row for this day yet.',
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _plannerBanner(
+          icon: submitted ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+          color: submitted ? _statusColor['COMPLETED']! : _statusColor['REJECTED']!,
+          title: submitted ? 'Submitted today' : 'Not submitted yet',
+          subtitle: submitted ? 'The Day Planner was submitted for this date.' : 'The Day Planner has not been submitted for this date.',
+        ),
+        if (reports.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: reports.map((r) {
+              final s = r['submitted'] == true;
+              return _miniBadge('${r['reportType']}: ${s ? 'Submitted' : 'Pending'}', s ? _statusColor['COMPLETED']! : _statusColor['PENDING']!);
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMonthlyPlannerStatus(Map<String, dynamic> planner, bool isMobile) {
+    final totalDays = planner['totalDays'] ?? 0;
+    final submittedDays = planner['submittedDays'] ?? 0;
+    final missedDays = planner['missedDays'] ?? 0;
+    final days = List<Map<String, dynamic>>.from(planner['days'] ?? []);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _miniBadge('$submittedDays / $totalDays days submitted', _statusColor['COMPLETED']!),
+            if (missedDays > 0) _miniBadge('$missedDays missed', _statusColor['REJECTED']!),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: days.map((d) {
+            final submitted = d['submitted'] == true;
+            final date = DateTime.tryParse(d['date'].toString());
+            return Tooltip(
+              message: '${d['date']} — ${submitted ? 'Submitted' : 'Missed'}',
+              child: Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: submitted ? _statusColor['COMPLETED']!.withValues(alpha: 0.15) : _statusColor['REJECTED']!.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: submitted ? _statusColor['COMPLETED']! : _statusColor['REJECTED']!, width: 1),
+                ),
+                child: Text(
+                  date != null ? DateFormat('d').format(date) : '?',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: submitted ? _statusColor['COMPLETED']! : _statusColor['REJECTED']!),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _plannerBanner({required IconData icon, required Color color, required String title, required String subtitle}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: color)),
+                Text(subtitle, style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Approval productivity (from Manager Review) ----------------
+  Widget _buildApprovalSection(bool isMobile) {
+    final stats = _data!['approvalStats'] as Map<String, dynamic>;
+
+    final cards = [
+      _statCard('Approved', stats['approved'].toString(), Icons.thumb_up_alt_rounded, _statusColor['COMPLETED']!),
+      _statCard('Rework', stats['rework'].toString(), Icons.replay_rounded, _statusColor['ON HOLD']!),
+      _statCard('Rejected', stats['rejected'].toString(), Icons.thumb_down_alt_rounded, _statusColor['REJECTED']!),
+      _statCard('Pending Review', stats['pendingReview'].toString(), Icons.rate_review_rounded, _statusColor['PROCESSING']!),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.fact_check_rounded, size: 16, color: Color(0xFF4F46E5)),
+              SizedBox(width: 6),
+              Text('Manager Approval Productivity', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '${stats['totalReviewed']} submitted task${stats['totalReviewed'] == 1 ? '' : 's'} reviewed by the manager in this period.',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+          ),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: isMobile ? 2 : 4,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: isMobile ? 1.6 : 1.3,
+            children: cards,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Performance history (all-time, last 15) ----------------
+  Widget _buildPerformanceHistorySection(bool isMobile) {
+    final history = List<Map<String, dynamic>>.from(_data!['performanceHistory'] ?? []);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Performance History', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
+          const SizedBox(height: 3),
+          const Text(
+            'Most recent completed/rejected tasks (all-time) — On Time vs Delayed compares actual time taken to the expected time in Task Master. Archived = older than 30 days.',
+            style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+          ),
+          const SizedBox(height: 12),
+          if (history.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: Text('No task history yet', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),
+            )
+          else
+            ...history.map((h) => _buildHistoryRow(h, isMobile)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryRow(Map<String, dynamic> h, bool isMobile) {
+    final status = (h['status'] ?? '').toString().toUpperCase();
+    final statusColor = status == 'REJECTED' ? _statusColor['REJECTED']! : _statusColor['COMPLETED']!;
+    final timeliness = h['timeliness'] as String;
+    final timelinessColor = timeliness == 'DELAYED'
+        ? _statusColor['REJECTED']!
+        : timeliness == 'ON TIME'
+            ? _statusColor['COMPLETED']!
+            : const Color(0xFF94A3B8);
+    final archived = h['archived'] == true;
+    final date = DateTime.tryParse(h['date']?.toString() ?? '');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: archived ? const Color(0xFFF8FAFC) : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(h['deliverable'] ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
+                    if (date != null) Text(DateFormat('dd/MM').format(date), style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
+                  ],
+                ),
+                Text(h['client'] ?? '', style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  _miniBadge(status, statusColor),
+                  if (timeliness != 'N/A') _miniBadge(timeliness, timelinessColor),
+                  if (archived) _miniBadge('ARCHIVED', const Color(0xFF64748B)),
+                  _miniBadge('⭐ ${h['performance']}', const Color(0xFF64748B)),
+                  _miniBadge('⏱ ${h['duration']}', const Color(0xFF64748B)),
+                ]),
+              ],
+            )
+          : Row(
+              children: [
+                if (date != null) SizedBox(width: 70, child: Text(DateFormat('dd/MM/yy').format(date), style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)))),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(h['deliverable'] ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+                      Text(h['client'] ?? '', style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
+                    ],
+                  ),
+                ),
+                Expanded(child: _miniBadge(status, statusColor)),
+                Expanded(child: timeliness != 'N/A' ? _miniBadge(timeliness, timelinessColor) : const Text('—', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)))),
+                Expanded(child: archived ? _miniBadge('ARCHIVED', const Color(0xFF64748B)) : const SizedBox.shrink()),
+                Expanded(child: Text('⭐ ${h['performance']}', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+                Expanded(child: Text(h['duration'] ?? '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+              ],
+            ),
+    );
+  }
+
   // ---------------- Charts ----------------
   Widget _buildChartsSection(bool isMobile) {
     final summary = _data!['summary'] as Map<String, dynamic>;
-    final roles = List<Map<String, dynamic>>.from(_data!['roles'] ?? []);
+    final taskTypes = List<Map<String, dynamic>>.from(_data!['taskTypes'] ?? []);
     final trend = List<Map<String, dynamic>>.from(_data!['trend'] ?? []);
 
     final statusChart = _chartCard(
@@ -629,9 +924,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       child: SizedBox(height: 220, child: _buildStatusPieChart(summary)),
     );
 
-    final roleChart = _chartCard(
-      title: 'Tasks by Role',
-      child: SizedBox(height: 220, child: _buildRoleBarChart(roles)),
+    final typeChart = _chartCard(
+      title: 'Tasks by Type (e.g. Posters, Videos)',
+      child: SizedBox(height: 220, child: _buildTaskTypeBarChart(taskTypes)),
     );
 
     final trendChart = _mode == 'monthly'
@@ -646,7 +941,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           statusChart,
           const SizedBox(height: 14),
-          roleChart,
+          typeChart,
           if (trendChart != null) ...[const SizedBox(height: 14), trendChart],
         ],
       );
@@ -659,7 +954,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           children: [
             Expanded(child: statusChart),
             const SizedBox(width: 14),
-            Expanded(child: roleChart),
+            Expanded(child: typeChart),
           ],
         ),
         if (trendChart != null) ...[const SizedBox(height: 14), trendChart],
@@ -749,12 +1044,14 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _buildRoleBarChart(List<Map<String, dynamic>> roles) {
-    if (roles.isEmpty) {
+  Widget _buildTaskTypeBarChart(List<Map<String, dynamic>> taskTypes) {
+    if (taskTypes.isEmpty) {
       return const Center(child: Text('No tasks in this period', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))));
     }
 
-    final maxVal = roles.map((r) => r['totalTasks'] as int).fold<int>(0, (a, b) => a > b ? a : b);
+    // Show top 8 task types so the chart stays legible.
+    final topTypes = taskTypes.take(8).toList();
+    final maxVal = topTypes.map((r) => r['totalTasks'] as int).fold<int>(0, (a, b) => a > b ? a : b);
 
     return BarChart(
       BarChartData(
@@ -771,8 +1068,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               reservedSize: 34,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
-                if (i < 0 || i >= roles.length) return const SizedBox.shrink();
-                final name = roles[i]['roleName'].toString();
+                if (i < 0 || i >= topTypes.length) return const SizedBox.shrink();
+                final name = topTypes[i]['deliverable'].toString();
                 return Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
@@ -784,12 +1081,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             ),
           ),
         ),
-        barGroups: List.generate(roles.length, (i) {
+        barGroups: List.generate(topTypes.length, (i) {
           return BarChartGroupData(
             x: i,
             barRods: [
               BarChartRodData(
-                toY: (roles[i]['totalTasks'] as int).toDouble(),
+                toY: (topTypes[i]['totalTasks'] as int).toDouble(),
                 color: const Color(0xFF4F46E5),
                 width: 18,
                 borderRadius: BorderRadius.circular(4),

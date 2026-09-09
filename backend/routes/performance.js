@@ -4,18 +4,26 @@
 //   mode=daily   -> ?employeeName=...&date=YYYY-MM-DD
 //   mode=monthly -> ?employeeName=...&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD
 //
-// Pulls every task_list row for that employee (their assigned clients +
-// deliverables), joined to its time_tracking_task_items row for the actual
-// status/duration/performance, and to task_master/task_roles so each task
-// can be grouped by role (Designer, Videographer, etc.) automatically —
-// no manual role mapping needed on the frontend.
-//
-// Status vocabulary used throughout (matches tracking-items.js):
-//   IDLE        -> "Pending"     (not started yet)
-//   IN PROGRESS -> "Processing"
-//   ON HOLD     -> "On Hold"
-//   COMPLETED   -> "Completed"
-//   REJECTED    -> "Rejected"
+// What this returns, in plain terms:
+//   - summary          -> task counts for the selected period (Completed/
+//                         Processing/On Hold/Pending/Rejected) + total time
+//   - clientsAssignedCount -> how many clients this employee has EVER been
+//                         assigned (all-time, not limited to the period)
+//   - dayPlanner        -> did they submit their Day Planner for the
+//                         selected day, or (monthly) which days they missed
+//   - taskTypes         -> tasks grouped by deliverable name (e.g. "Poster
+//                         Design", "Reel Editing") so you can see exactly
+//                         how many posters / videos / etc. were completed
+//   - approvalStats     -> from manager_review: how many of their submitted
+//                         tasks were Approved / Rejected / sent for Rework /
+//                         still waiting on the manager
+//   - performanceHistory -> the last 15 completed/rejected tasks (all-time),
+//                         each tagged On Time / Delayed by comparing actual
+//                         time taken to the expected time in Task Master,
+//                         plus an "Archived" flag for anything older than 30 days
+//   - clients            -> assigned clients ACTIVE in this period, each with
+//                         their task list and per-task status
+//   - trend              -> completed-tasks-per-day, for the monthly chart
 
 const express = require('express');
 const router = express.Router();
@@ -47,8 +55,30 @@ function formatDuration(seconds) {
   return `${mins}m`;
 }
 
+// Best-effort parser for whatever format Task Master's "timing" field was
+// typed in — "2 hrs", "45 mins", "1.5 hr", "90" (assumed minutes), etc.
+function parseTimingToSeconds(timing) {
+  if (!timing) return null;
+  const str = timing.toString().trim().toLowerCase();
+
+  const hrMatch = str.match(/([\d.]+)\s*h/);
+  const minMatch = str.match(/([\d.]+)\s*m/);
+
+  if (hrMatch || minMatch) {
+    const hrs = hrMatch ? parseFloat(hrMatch[1]) : 0;
+    const mins = minMatch ? parseFloat(minMatch[1]) : 0;
+    return Math.round(hrs * 3600 + mins * 60);
+  }
+
+  const plainNumber = parseFloat(str);
+  if (!isNaN(plainNumber)) {
+    return Math.round(plainNumber * 60); // assume minutes
+  }
+
+  return null;
+}
+
 function toISODate(value) {
-  // Accepts 'YYYY-MM-DD' or 'DD/MM/YYYY'; returns 'YYYY-MM-DD' or null.
   if (!value) return null;
   const str = String(value).trim();
 
@@ -62,6 +92,17 @@ function toISODate(value) {
     }
   }
   return null;
+}
+
+function dateRangeArray(fromISO, toISO) {
+  const dates = [];
+  let cur = new Date(fromISO + 'T00:00:00');
+  const end = new Date(toISO + 'T00:00:00');
+  while (cur <= end) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
 }
 
 // GET /api/performance — main dashboard payload for one employee
@@ -78,7 +119,6 @@ router.get('/', async (req, res) => {
     }
 
     let fromDate, toDate;
-
     if (mode === 'daily') {
       fromDate = toDate = toISODate(req.query.date) || new Date().toISOString().slice(0, 10);
     } else {
@@ -89,8 +129,10 @@ router.get('/', async (req, res) => {
       }
     }
 
+    const todayISO = new Date().toISOString().slice(0, 10);
+
     // ------------------------------------------------------------
-    // Employee basic info (for the header card on the frontend)
+    // Employee basic info
     // ------------------------------------------------------------
     const [empRows] = await db.query(
       `SELECT id, full_name, initials, staff_id, role, user_type
@@ -102,10 +144,73 @@ router.get('/', async (req, res) => {
     const employee = empRows[0] || { full_name: employeeName };
 
     // ------------------------------------------------------------
+    // How many clients this employee has EVER been assigned (all-time,
+    // not limited to the selected period).
+    // ------------------------------------------------------------
+    const [clientCountRows] = await db.query(
+      `SELECT COUNT(DISTINCT client_name) AS cnt
+       FROM task_list
+       WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?))`,
+      [employeeName]
+    );
+    const clientsAssignedCount = clientCountRows[0]?.cnt || 0;
+
+    // ------------------------------------------------------------
+    // Day Planner submission tracking
+    // ------------------------------------------------------------
+    let dayPlanner;
+    if (mode === 'daily') {
+      const [plannerRows] = await db.query(
+        `SELECT report_type, is_submitted, submitted_at, status
+         FROM day_plan_rows
+         WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?)) AND plan_date = ?
+         ORDER BY report_type ASC`,
+        [employeeName, fromDate]
+      );
+      const reports = plannerRows.map(r => ({
+        reportType: r.report_type,
+        submitted: !!r.is_submitted,
+        submittedAt: r.submitted_at,
+        status: r.status || '',
+      }));
+      dayPlanner = {
+        mode: 'daily',
+        date: fromDate,
+        hasEntry: reports.length > 0,
+        submitted: reports.some(r => r.submitted),
+        reports,
+      };
+    } else {
+      const [plannerRows] = await db.query(
+        `SELECT plan_date, MAX(is_submitted) AS anySubmitted
+         FROM day_plan_rows
+         WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?)) AND plan_date BETWEEN ? AND ?
+         GROUP BY plan_date`,
+        [employeeName, fromDate, toDate]
+      );
+      const submittedMap = new Map(
+        plannerRows.map(r => [
+          (r.plan_date instanceof Date ? r.plan_date.toISOString().slice(0, 10) : r.plan_date.toString()),
+          !!r.anySubmitted,
+        ])
+      );
+
+      const allDates = dateRangeArray(fromDate, toDate).filter(d => d <= todayISO);
+      const days = allDates.map(d => ({ date: d, submitted: submittedMap.get(d) || false }));
+      const submittedDays = days.filter(d => d.submitted).length;
+
+      dayPlanner = {
+        mode: 'monthly',
+        totalDays: days.length,
+        submittedDays,
+        missedDays: days.length - submittedDays,
+        days,
+      };
+    }
+
+    // ------------------------------------------------------------
     // Every task_list row for this employee in range, with its
-    // tracking item (status/duration/performance) and role info.
-    // A task_list row with no tracking item yet still counts as
-    // an assigned task (treated as IDLE / Pending).
+    // tracking item (status/duration/performance) and role/type info.
     // ------------------------------------------------------------
     const [rows] = await db.query(
       `
@@ -133,14 +238,10 @@ router.get('/', async (req, res) => {
       [employeeName, fromDate, toDate]
     );
 
-    // ------------------------------------------------------------
-    // Aggregate: overall status counts, per-client, per-role,
-    // and a daily trend line (for monthly mode).
-    // ------------------------------------------------------------
     const summary = { totalTasks: rows.length, totalDurationSecs: 0, ...emptyStatusCounts() };
     const clientsMap = new Map();
-    const rolesMap = new Map();
-    const trendMap = new Map(); // date -> status counts
+    const taskTypesMap = new Map(); // by deliverable name — "how many posters, how many videos"
+    const trendMap = new Map();
 
     for (const row of rows) {
       const status = normalizedStatus(row.status);
@@ -171,19 +272,17 @@ router.get('/', async (req, res) => {
         activityDate: row.activity_date,
       });
 
-      // ---- by role ----
-      const roleKey = row.role_name || 'General';
-      if (!rolesMap.has(roleKey)) {
-        rolesMap.set(roleKey, { roleName: roleKey, totalTasks: 0, ...emptyStatusCounts() });
+      // ---- by task type (deliverable name) ----
+      const typeKey = row.deliverables || 'Other';
+      if (!taskTypesMap.has(typeKey)) {
+        taskTypesMap.set(typeKey, { deliverable: typeKey, roleName: row.role_name, totalTasks: 0, ...emptyStatusCounts() });
       }
-      const roleEntry = rolesMap.get(roleKey);
-      roleEntry.totalTasks += 1;
-      roleEntry[status] += 1;
+      const typeEntry = taskTypesMap.get(typeKey);
+      typeEntry.totalTasks += 1;
+      typeEntry[status] += 1;
 
-      // ---- daily trend (always built; frontend only needs it for monthly) ----
-      const dayKey = row.activity_date
-        ? new Date(row.activity_date).toISOString().slice(0, 10)
-        : fromDate;
+      // ---- daily trend ----
+      const dayKey = row.activity_date ? new Date(row.activity_date).toISOString().slice(0, 10) : fromDate;
       if (!trendMap.has(dayKey)) {
         trendMap.set(dayKey, { date: dayKey, ...emptyStatusCounts() });
       }
@@ -191,8 +290,83 @@ router.get('/', async (req, res) => {
     }
 
     const clients = Array.from(clientsMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
-    const roles = Array.from(rolesMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
+    const taskTypes = Array.from(taskTypesMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
     const trend = Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    // ------------------------------------------------------------
+    // Approval productivity — sourced from manager_review, for tasks
+    // submitted (COMPLETED) inside the selected period.
+    // ------------------------------------------------------------
+    const [reviewRows] = await db.query(
+      `
+      SELECT COALESCE(mr.manager_action, 'ACTION') AS manager_action, COUNT(*) AS cnt
+      FROM time_tracking_task_items tti
+      JOIN task_list tl ON tl.id = tti.task_list_id
+      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+      WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
+        AND tti.status = 'COMPLETED'
+        AND DATE(tti.submit_date) BETWEEN ? AND ?
+      GROUP BY COALESCE(mr.manager_action, 'ACTION')
+      `,
+      [employeeName, fromDate, toDate]
+    );
+    const approvalStats = { approved: 0, rejected: 0, rework: 0, pendingReview: 0, totalReviewed: 0 };
+    for (const r of reviewRows) {
+      const action = (r.manager_action || 'ACTION').toUpperCase();
+      const count = Number(r.cnt) || 0;
+      approvalStats.totalReviewed += count;
+      if (action === 'APPROVED') approvalStats.approved = count;
+      else if (action === 'REJECTED') approvalStats.rejected = count;
+      else if (action === 'REWORK') approvalStats.rework = count;
+      else approvalStats.pendingReview = count;
+    }
+
+    // ------------------------------------------------------------
+    // Performance history — last 15 completed/rejected tasks, ALL-TIME
+    // (not limited to the selected period), tagged On Time / Delayed by
+    // comparing actual duration to the expected Task Master timing, plus
+    // an Archived flag for anything older than 30 days.
+    // ------------------------------------------------------------
+    const [historyRows] = await db.query(
+      `
+      SELECT
+        tl.client_name, tl.deliverables,
+        tti.status, tti.duration_secs, tti.performance, tti.submit_date,
+        tt.timing AS expected_timing
+      FROM task_list tl
+      JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+      LEFT JOIN task_timings tt ON tt.task_master_id = tl.task_master_id
+      WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
+        AND tti.status IN ('COMPLETED', 'REJECTED')
+      ORDER BY tti.submit_date DESC
+      LIMIT 15
+      `,
+      [employeeName]
+    );
+
+    const now = new Date();
+    const performanceHistory = historyRows.map(r => {
+      const expectedSecs = parseTimingToSeconds(r.expected_timing);
+      const actualSecs = Number(r.duration_secs) || 0;
+      let timeliness = 'N/A';
+      if (expectedSecs !== null && actualSecs > 0) {
+        timeliness = actualSecs <= expectedSecs ? 'ON TIME' : 'DELAYED';
+      }
+
+      const submitDate = r.submit_date ? new Date(r.submit_date) : null;
+      const ageDays = submitDate ? Math.floor((now - submitDate) / (1000 * 60 * 60 * 24)) : null;
+
+      return {
+        date: r.submit_date,
+        client: r.client_name,
+        deliverable: r.deliverables,
+        status: r.status,
+        duration: formatDuration(actualSecs),
+        performance: r.performance || 'N/A',
+        timeliness,
+        archived: ageDays !== null && ageDays > 30,
+      };
+    });
 
     return res.json({
       success: true,
@@ -205,6 +379,8 @@ router.get('/', async (req, res) => {
           role: employee.role || '',
         },
         range: { mode, fromDate, toDate },
+        clientsAssignedCount,
+        dayPlanner,
         summary: {
           totalTasks: summary.totalTasks,
           totalDuration: formatDuration(summary.totalDurationSecs),
@@ -214,8 +390,10 @@ router.get('/', async (req, res) => {
           pending: summary.IDLE,
           rejected: summary.REJECTED,
         },
+        taskTypes,
+        approvalStats,
+        performanceHistory,
         clients,
-        roles,
         trend,
       },
     });

@@ -1913,14 +1913,34 @@ final String sizeText = sizeInKb > 1024
   }
 
   Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
-    final payload = _messagePayload(raw);
+    Map<String, dynamic>? payload;
+    String displayPreview = '';
+
+    if (raw is Map) {
+      payload = Map<String, dynamic>.from(raw);
+    } else if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          payload = Map<String, dynamic>.from(decoded);
+          displayPreview = payload['preview']?.toString() ?? '';
+        }
+      } catch (_) {}
+    }
+
+    final innerPayload = payload != null && payload['payload'] is Map 
+        ? Map<String, dynamic>.from(payload['payload']) 
+        : null;
+
+    final type = innerPayload?['type']?.toString() ?? payload?['type']?.toString();
 
     // ✅ Render Day Planner Submission Card
-    if (payload != null && payload['type'] == 'PLAN_SUBMITTED') {
-      final sender = payload['sender']?.toString() ?? 'Employee';
-      final reportType = payload['reportType']?.toString() ?? 'Day';
-      final date = payload['date']?.toString() ?? '';
-      final plannerData = payload['plannerData'] as List<dynamic>? ?? [];
+    if (type == 'PLAN_SUBMITTED') {
+      final pData = innerPayload ?? payload ?? {};
+      final sender = pData['sender']?.toString() ?? 'Employee';
+      final reportType = pData['reportType']?.toString() ?? 'Day';
+      final date = pData['date']?.toString() ?? '';
+      final plannerData = pData['plannerData'] as List<dynamic>? ?? [];
 
       return Container(
         width: double.infinity,
@@ -1929,13 +1949,6 @@ final String sizeText = sizeInKb > 1024
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFCBD5E1)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1948,29 +1961,12 @@ final String sizeText = sizeInKb > 1024
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 32, height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.assignment_turned_in_rounded, color: Colors.white, size: 18),
-                  ),
+                  const Icon(Icons.assignment_turned_in_rounded, color: Colors.white, size: 18),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "$sender Submitted Planner",
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          "$reportType Report • $date",
-                          style: const TextStyle(color: Color(0xFFDCE8FF), fontSize: 10.5, fontWeight: FontWeight.w600),
-                        ),
-                      ],
+                    child: Text(
+                      "$sender Submitted Planner",
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
                     ),
                   ),
                 ],
@@ -1978,188 +1974,45 @@ final String sizeText = sizeInKb > 1024
             ),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: plannerData.isEmpty
-                  ? const Text("No tasks listed.", style: TextStyle(fontSize: 11, color: Colors.grey))
-                  : Column(
-                      children: plannerData.map((item) {
-                        final itemMap = item is Map ? item : {};
-                        final clientName = itemMap['client_name'] ?? 'Client';
-                        final todayPlan = itemMap['today_plan'] ?? '-';
-                        final status = itemMap['status'] ?? 'PENDING';
-                        final deliverables = itemMap['deliverables_1'] ?? '';
-
-                        Color badgeBg = const Color(0xFFFEF3C7);
-                        Color badgeText = const Color(0xFFB45309);
-                        if (status.toString().toUpperCase() == 'COMPLETE') {
-                          badgeBg = const Color(0xFFF0FDF4);
-                          badgeText = const Color(0xFF16A34A);
-                        }
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      clientName,
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(6)),
-                                    child: Text(status, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: badgeText)),
-                                  ),
-                                ],
-                              ),
-                              if (deliverables.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  "Deliverables: $deliverables",
-                                  style: const TextStyle(fontSize: 10.5, color: Color(0xFF475569)),
-                                ),
-                              ],
-                              const SizedBox(height: 4),
-                              Text(
-                                "Plan: $todayPlan",
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
+              child: Text("$reportType Report • Date: $date", style: const TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
       );
     }
 
-    if (payload != null && payload['type'] == 'file') {
-      final fileName = payload['fileName']?.toString() ?? 'Shared file';
-      final relativeUrl = payload['url']?.toString() ?? payload['fileUrl']?.toString() ?? '';
-      final originUrl = _baseUrl.replaceAll(RegExp(r'/api/?$'), '');
-      final fileUrl = relativeUrl.startsWith('http') 
-    ? relativeUrl 
-    : '$originUrl/api/chat/download/${Uri.encodeComponent(fileName)}';
-      final size = int.tryParse(payload['size']?.toString() ?? '') ?? 0;
-      
-      final double sizeInKb = size / 1024;
-      final String sizeText = sizeInKb > 1024 
-          ? '${(size / (1024 * 1024)).toStringAsFixed(2)} MB' 
-          : '${sizeInKb.toStringAsFixed(1)} KB';
-
+    // ✅ Render General Notification Cards (Task Planner Share, Updates, Assignments, etc.)
+    if (displayPreview.isNotEmpty || type != null) {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF4F8FF),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD6E5FF)),
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Color(0xFF0052CC),
-                  child: Icon(Icons.description_rounded, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(fileName, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                      const SizedBox(height: 2),
-                      Text(size > 0 ? sizeText : 'Document', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              displayPreview.isNotEmpty ? displayPreview : (innerPayload?['taskName'] ?? 'Notification Update'),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
             ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0052CC),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    elevation: 0,
-                  ),
-                  icon: const Icon(Icons.download_rounded, size: 14),
-                  label: const Text('Download', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                 onPressed: fileUrl.isEmpty ? null : () async {
-  try {
-    final uri = Uri.parse(fileUrl);
-    final response = await http.get(uri);
-    if (response.statusCode == 200) {
-      final blob = html.Blob([response.bodyBytes], 'application/octet-stream');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute("download", fileName)
-        ..click();
-      html.Url.revokeObjectUrl(url);
-    } else {
-      final uriFallback = Uri.parse(fileUrl);
-      if (await canLaunchUrl(uriFallback)) {
-        await launchUrl(uriFallback, mode: LaunchMode.externalApplication);
-      }
-    }
-  } catch (e) {
-    debugPrint("Download error: $e");
-  }
-},
-                ),
-              ],
-            ),
+            if (innerPayload?['content'] != null && innerPayload!['content'].toString().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _buildRichTextWithLinks(innerPayload['content'].toString()),
+            ],
+            if (innerPayload?['contentType'] != null) ...[
+              const SizedBox(height: 4),
+              Text("Type: ${innerPayload!['contentType']}", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+            ],
           ],
         ),
       );
     }
 
+    // Fallback normal text
     final textValue = payload?['text']?.toString() ?? raw?.toString() ?? '';
-    final reply = payload?['replyTo']?.toString();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (reply != null && reply.isNotEmpty)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(10),
-              border: const Border(left: BorderSide(color: Color(0xFF0052CC), width: 3)),
-            ),
-            child: Text(
-              reply,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
-            ),
-          ),
-        _buildRichTextWithLinks(textValue),
-      ],
-    );
+    return _buildRichTextWithLinks(textValue);
   }
   
   Widget _buildRichTextWithLinks(String value) {

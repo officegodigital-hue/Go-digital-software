@@ -551,51 +551,36 @@ router.post('/submit', async (req, res) => {
       ]
     );
 
-    // Get admins
+    // Get Main Admin instead of all admins
     const [admins] = await db.query(
       `
       SELECT full_name
       FROM employee_users
-      WHERE user_type='admin'
-      AND is_active=1
+      WHERE (user_type = 'admin' OR is_main_admin = 1)
+      ORDER BY is_main_admin DESC, id ASC
+      LIMIT 1
       `
     );
 
-    // Notify every admin with total working time included in payload
-    for (const admin of admins) {
+    if (admins.length > 0) {
+      const mainAdmin = admins[0];
 
       await createNotification({
-
         senderName: employeeName,
-
-        recipientName: admin.full_name,
-
+        recipientName: mainAdmin.full_name,
         message: JSON.stringify({
-
-          preview: `${employeeName} submitted  Day Planner`,
-
+          preview: `${employeeName} submitted ${currentReportType} Day Planner`,
           payload: {
-
             type: "PLAN_SUBMITTED",
-
             sender: employeeName,
-
-            recipient: admin.full_name,
-
+            recipient: mainAdmin.full_name,
             reportType: currentReportType,
-
             date,
-
             totalWorkingSecs,
-
             plannerData: plannerRows
-
           }
-
         })
-
       });
-
     }
 
     return res.json({
