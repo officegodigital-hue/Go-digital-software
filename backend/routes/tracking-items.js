@@ -23,45 +23,75 @@ const emitTaskUpdate = (req, trackingItemId, action) => {
   }
 };
 
-// function calculateWorkingDuration(row) {
+async function logLiveTrackingHistory(db, trackingItemId, actionStatus) {
+  try {
+    // 1. Fetch tracking item & task list details
+    const [rows] = await db.query(`
+      SELECT 
+        tti.id AS tracking_item_id,
+        tti.task_list_id,
+        tti.start_time,
+        COALESCE(tti.complete_time, tti.reject_time) AS ended_at,
+        tti.duration_secs,
+        tti.status,
+        tti.comment,
+        tti.performance,
+        tl.employee_name,
+        tl.client_name,
+        tl.deliverables AS task
+      FROM time_tracking_task_items tti
+      INNER JOIN task_list tl ON tl.id = tti.task_list_id
+      WHERE tti.id = ?
+    `, [trackingItemId]);
 
-//   if (!row.start_time || !row.complete_time) {
-//     return 0;
-//   }
+    if (rows.length === 0) return;
+    const item = rows[0];
 
-//   const start = new Date(row.start_time);
-//   const complete = new Date(row.complete_time);
+    // 2. Check if an entry already exists for this tracking item today
+    const [existing] = await db.query(`
+      SELECT id FROM live_tracking_history 
+      WHERE tracking_item_id = ? AND DATE(created_at) = CURDATE()
+    `, [trackingItemId]);
 
-//   let totalSeconds =
-//     Math.floor((complete - start) / 1000);
-
-//   let holdSeconds = 0;
-
-//   for (let i = 1; i <= 10; i++) {
-
-//     const hold = row[`hold_time_${i}`];
-//     const restart = row[`restart_time_${i}`];
-
-//     if (hold && restart) {
-
-//       holdSeconds += Math.floor(
-//         (new Date(restart) - new Date(hold)) / 1000
-//       );
-
-//     }
-
-//   }
-
-//   totalSeconds -= holdSeconds;
-
-//   if (totalSeconds < 0)
-//     totalSeconds = 0;
-
-//   return totalSeconds;
-// }
-
-// GET /api/tracking-items/by-task-list/:taskListId — all rows for ONE task_list entry
-// All action timestamps are plain columns on this table now, so no JOIN is needed.
+    if (existing.length > 0) {
+      // Update existing record for today
+      await db.query(`
+        UPDATE live_tracking_history 
+        SET status = ?, started_at = ?, ended_at = ?, duration_secs = ?, manager_action = ?, manager_comment = ?
+        WHERE id = ?
+      `, [
+        item.status,
+        item.start_time,
+        item.ended_at,
+        item.duration_secs,
+        item.performance || 'ACTION',
+        item.comment || '',
+        existing[0].id
+      ]);
+    } else {
+      // Insert new record into live_tracking_history for today
+      await db.query(`
+        INSERT INTO live_tracking_history 
+        (task_list_id, tracking_item_id, employee_name, client_name, task, status, started_at, ended_at, duration_secs, manager_action, manager_comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        item.task_list_id,
+        item.tracking_item_id,
+        item.employee_name,
+        item.client_name,
+        item.task,
+        item.status,
+        item.start_time,
+        item.ended_at,
+        item.duration_secs,
+        item.performance || 'ACTION',
+        item.comment || ''
+      ]);
+    }
+  } catch (err) {
+    console.error('❌ logLiveTrackingHistory error:', err.message);
+  }
+}
 
 function calculateWorkingDuration(row, customEndTime = null) {
   if (!row.start_time) return 0;
@@ -488,6 +518,9 @@ WHERE id=?`,
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
+// 🟢 Auto-save to live tracking history
+    await logLiveTrackingHistory(db, id, 'IN PROGRESS');
+
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
     emitTaskUpdate(req, id, 'IN PROGRESS');
     return res.json({ success: true, message: 'Task started', data: rows[0] });
@@ -576,6 +609,9 @@ const [[task]] = await db.query(
    await updateDayPlannerDeliverables(updatedRow.task_list_id);
 }
 
+// 🟢 Auto-save to live tracking history
+    await logLiveTrackingHistory(db, id, 'ON HOLD');
+
     emitTaskUpdate(req, id, 'ON HOLD');
     return res.json({ success: true, message: `Task on hold (slot ${slot})`, data: { ...updatedRow, durationSecs } });
   } catch (err) {
@@ -620,6 +656,9 @@ router.post('/:id/complete', async (req, res) => {
 
 await updateDayPlannerWorkingHours(task.employee_name);
 await updateDayPlannerDeliverables(row.task_list_id);
+
+    // 🟢 Auto-save to live tracking history
+    await logLiveTrackingHistory(db, id, 'COMPLETED');
 
     emitTaskUpdate(req, id, 'COMPLETED');
     return res.json({ success: true, message: 'Task completed', data: { ...row, durationSecs } });
@@ -702,6 +741,9 @@ const [[task]] = await db.query(
 await updateDayPlannerWorkingHours(task.employee_name);
 await updateDayPlannerDeliverables(updated.task_list_id);
 
+// 🟢 Auto-save to live tracking history
+    await logLiveTrackingHistory(db, id, 'IN PROGRESS');
+    
     emitTaskUpdate(req, id, 'IN PROGRESS');
     return res.json({ success: true, message: `Task restarted (slot ${slot})`, data: updated[0] });
   } catch (err) {

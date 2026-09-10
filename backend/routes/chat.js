@@ -1166,22 +1166,32 @@ router.delete('/:id', async (req, res) => {
 });
 
 router.get('/download/:filename', async (req, res) => {
-  const filename = decodeURIComponent(req.params.filename);
-  const chatUploadDir = path.join(__dirname, '..', 'uploads', 'chat');
-  const filePath = path.join(chatUploadDir, filename);
-
-  if (fs.existsSync(filePath)) {
-    return res.download(filePath, filename);
+  const filename = decodeURIComponent(req.params.filename).trim();
+  const chatUploadDir = path.resolve(__dirname, '..', 'uploads', 'chat');
+  
+  const exactPath = path.join(chatUploadDir, filename);
+  if (fs.existsSync(exactPath)) {
+    return res.download(exactPath, filename);
   }
 
   try {
+    if (!fs.existsSync(chatUploadDir)) {
+      return res.status(404).json({ success: false, message: 'Upload directory missing' });
+    }
+
     const files = fs.readdirSync(chatUploadDir);
-    const matchedFile = files.find(f => f.endsWith(`-${filename}`) || f === filename);
+    const matchedFile = files.find(f => 
+      f === filename || 
+      f.includes(filename) || 
+      filename.includes(f.replace(/^\d+-\d+-/, ''))
+    );
+
     if (matchedFile) {
-      return res.download(path.join(chatUploadDir, matchedFile), filename);
+      const actualPath = path.join(chatUploadDir, matchedFile);
+      return res.download(actualPath, filename);
     }
   } catch (err) {
-    console.error('File search error:', err);
+    console.error('File download search error:', err.message);
   }
 
   return res.status(404).json({ success: false, message: 'File not found on server' });

@@ -91,7 +91,61 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     return names;
   }
 
-  List<int> get _visibleTabIndices {
+  // List<int> get _visibleTabIndices {
+  //   final indices = <int>[];
+    
+  //   for (int i = 0; i < taskTabNames.length; i++) {
+  //     final tabName = taskTabNames[i];
+  //     bool hasActiveTaskForTab = false;
+      
+  //     final tasksForThisTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
+  //     for (var task in tasksForThisTab) {
+  //       if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
+  //         if ((task['client_name'] ?? '').toString() != _selectedClientFilter) continue;
+  //       }
+
+  //       final taskId = _taskIdFor(task);
+  //       final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (task['rowCount'] ?? 1);
+
+  //       final rawDeadline = task['deadline'] ?? '';
+  //       final parsedDate = _parseFlexibleDate(rawDeadline);
+  //       bool isDateValid = false;
+        
+  //       if (parsedDate != null) {
+  //         final now = DateTime.now();
+  //         final today = DateTime(now.year, now.month, now.day);
+  //         final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+  //         if (target.compareTo(today) >= 0) {
+  //           isDateValid = true; 
+  //         }
+  //       }
+
+  //       if (isDateValid) {
+  //         hasActiveTaskForTab = true;
+  //         break;
+  //       }
+
+  //       for (int r = 0; r < rowCount; r++) {
+  //         final taskKey = '${taskId}_row_$r';
+  //         final status = taskStatus[taskKey] ?? TaskStatus.idle;
+
+  //         if (status != TaskStatus.completed && status != TaskStatus.rejected) {
+  //           hasActiveTaskForTab = true;
+  //           break;
+  //         }
+  //       }
+  //       if (hasActiveTaskForTab) break;
+  //     }
+
+  //     if (hasActiveTaskForTab) {
+  //       indices.add(i);
+  //     }
+  //   }
+    
+  //   return indices;
+  // }
+
+List<int> get _visibleTabIndices {
     final indices = <int>[];
     
     for (int i = 0; i < taskTabNames.length; i++) {
@@ -107,6 +161,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
         final taskId = _taskIdFor(task);
         final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (task['rowCount'] ?? 1);
 
+        // 🟢 1. Check Date Validation (Hide if Overdue / Past Date)
         final rawDeadline = task['deadline'] ?? '';
         final parsedDate = _parseFlexibleDate(rawDeadline);
         bool isDateValid = false;
@@ -120,21 +175,24 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
           }
         }
 
-        if (isDateValid) {
-          hasActiveTaskForTab = true;
-          break;
-        }
+        if (!isDateValid) continue; // Skip overdue tasks
 
+        // 🟢 2. Check Row Status (Hide if all rows completed/rejected)
+        bool hasActiveRows = false;
         for (int r = 0; r < rowCount; r++) {
           final taskKey = '${taskId}_row_$r';
           final status = taskStatus[taskKey] ?? TaskStatus.idle;
 
           if (status != TaskStatus.completed && status != TaskStatus.rejected) {
-            hasActiveTaskForTab = true;
+            hasActiveRows = true;
             break;
           }
         }
-        if (hasActiveTaskForTab) break;
+
+        if (hasActiveRows) {
+          hasActiveTaskForTab = true;
+          break;
+        }
       }
 
       if (hasActiveTaskForTab) {
@@ -1555,8 +1613,16 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 700;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(38, 30, 38, 30),
+      padding: EdgeInsets.fromLTRB(
+        isMobile ? 12 : 38,
+        isMobile ? 14 : 30,
+        isMobile ? 12 : 38,
+        isMobile ? 24 : 30,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1598,96 +1664,281 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Widget _pageHeader() {
-    return Row(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              'Assigned Tasks',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-            ),
-            SizedBox(height: 6),
-            Text(
-              'Monitor and manage tasks assigned to you with real-time progress updates.',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textGrey,
-              ),
-            ),
-          ],
-        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 700;
 
-        const Spacer(),
+        if (isMobile) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: const Color(0xFF004AAD),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF004AAD).withValues(alpha: .16),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .14),
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .20),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.assignment_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Assigned Tasks',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Your assigned work and live progress',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFFDCE8FF),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setString('employeeMenu', 'History');
+                          if (!mounted) return;
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const EmployeeLayoutPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.history_rounded, size: 16),
+                        label: const Text(
+                          'History',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(
+                            color: Colors.white.withValues(alpha: .55),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setString('employeeMenu', 'Additional Task');
+                          if (!mounted) return;
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const EmployeeLayoutPage(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 17),
+                        label: const Text(
+                          'Additional Task',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF004AAD),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
 
-        OutlinedButton.icon(
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('employeeMenu', 'History');
-            if (!mounted) return;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const EmployeeLayoutPage(),
+        // Desktop: premium hero header. Existing task controls and business
+        // logic remain below this section unchanged.
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(28, 24, 24, 24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF004AAD),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF004AAD).withValues(alpha: .14),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-            );
-          },
-          icon: const Icon(Icons.history_rounded, size: 16, color: Color(0xFF004AAD)),
-          label: const Text(
-            'History',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF004AAD),
-            ),
+            ],
           ),
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: Color(0xFF004AAD)),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(3),
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 10),
-
-        ElevatedButton(
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('employeeMenu', 'Additional Task');
-            if (!mounted) return;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const EmployeeLayoutPage(),
+          child: Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .20),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.assignment_rounded,
+                  color: Colors.white,
+                  size: 30,
+                ),
               ),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF004AAD),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 22,
-              vertical: 14,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(3),
-            ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Assigned Tasks',
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Monitor and manage tasks assigned to you with real-time progress updates.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFFDCE8FF),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('employeeMenu', 'History');
+                  if (!mounted) return;
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const EmployeeLayoutPage(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.history_rounded, size: 16),
+                label: const Text(
+                  'History',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(
+                    color: Colors.white.withValues(alpha: .55),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 17,
+                    vertical: 13,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('employeeMenu', 'Additional Task');
+                  if (!mounted) return;
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const EmployeeLayoutPage(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.add_rounded, size: 17),
+                label: const Text(
+                  'Add Additional Task',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF004AAD),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 13,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
+              ),
+            ],
           ),
-          child: const Text(
-            '+ Add Additional Task',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
   
@@ -2017,267 +2268,1084 @@ Widget _buildTaskCategoryTab({
     );
   }
 
-  Widget _taskDetailsContainer() {
-    if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
-      return const Center(child: Text('No task details available'));
+ Widget _taskDetailsContainer() {
+  if (selectedTabIndex == null || selectedTabIndex! >= taskTabNames.length) {
+    return const Center(child: Text('No task details available'));
+  }
+
+  final tabName = taskTabNames[selectedTabIndex!];
+
+  // var tasksForTab = assignedTasks.where((t) {
+  //   if (t['singleTask'] != tabName) return false;
+
+  //   final taskId = _taskIdFor(t);
+  //   final rowCount = rowCounts[taskId] != null
+  //       ? rowCounts[taskId]!
+  //       : (t['rowCount'] ?? 1);
+
+  //   final rawDeadline = t['deadline'] ?? '';
+  //   final parsedDate = _parseFlexibleDate(rawDeadline);
+  //   bool isDateValid = false;
+
+  //   if (parsedDate != null) {
+  //     final now = DateTime.now();
+  //     final today = DateTime(now.year, now.month, now.day);
+  //     final target = DateTime(
+  //       parsedDate.year,
+  //       parsedDate.month,
+  //       parsedDate.day,
+  //     );
+
+  //     if (target.compareTo(today) >= 0) {
+  //       isDateValid = true;
+  //     }
+  //   }
+
+  //   if (isDateValid) return true;
+
+  //   bool hasActiveRows = false;
+
+  //   for (int i = 0; i < rowCount; i++) {
+  //     final taskKey = '${taskId}_row_$i';
+  //     final status = taskStatus[taskKey] ?? TaskStatus.idle;
+
+  //     if (status != TaskStatus.completed &&
+  //         status != TaskStatus.rejected) {
+  //       hasActiveRows = true;
+  //       break;
+  //     }
+  //   }
+
+  //   return hasActiveRows;
+  // }).toList();
+
+  var tasksForTab = assignedTasks.where((t) {
+    if (t['singleTask'] != tabName) return false;
+
+    //  1. Check Date Validation (Hide if Overdue)
+    final rawDeadline = t['deadline'] ?? '';
+    final parsedDate = _parseFlexibleDate(rawDeadline);
+    if (parsedDate != null) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+      if (target.compareTo(today) < 0) {
+        return false; // Skip overdue tasks
+      }
     }
 
-    final tabName = taskTabNames[selectedTabIndex!];
-    
-    var tasksForTab = assignedTasks.where((t) {
-      if (t['singleTask'] != tabName) return false;
-      
-      final taskId = _taskIdFor(t);
-      final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (t['rowCount'] ?? 1);
-      
-      final rawDeadline = t['deadline'] ?? '';
-      final parsedDate = _parseFlexibleDate(rawDeadline);
-      bool isDateValid = false;
-      
-      if (parsedDate != null) {
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
-        if (target.compareTo(today) >= 0) {
-          isDateValid = true; 
-        }
-      }
+    final taskId = _taskIdFor(t);
+    final rowCount = rowCounts[taskId] != null
+        ? rowCounts[taskId]!
+        : (t['rowCount'] ?? 1);
 
-      if (isDateValid) return true;
-      
-      bool hasActiveRows = false;
-      for (int i = 0; i < rowCount; i++) {
-        final taskKey = '${taskId}_row_$i';
-        final status = taskStatus[taskKey] ?? TaskStatus.idle;
-        if (status != TaskStatus.completed && status != TaskStatus.rejected) {
-          hasActiveRows = true;
-          break;
-        }
-      }
-      return hasActiveRows; 
-    }).toList();
+    // 🟢 2. Check Row Status (Hide if completed/rejected)
+    bool hasActiveRows = false;
+    for (int i = 0; i < rowCount; i++) {
+      final taskKey = '${taskId}_row_$i';
+      final status = taskStatus[taskKey] ?? TaskStatus.idle;
 
-    if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
-      tasksForTab = tasksForTab
-          .where((t) => (t['client_name'] ?? '').toString() == _selectedClientFilter)
-          .toList();
+      if (status != TaskStatus.completed &&
+          status != TaskStatus.rejected) {
+        hasActiveRows = true;
+        break;
+      }
     }
 
-    if (tasksForTab.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 60),
-          child: Text('No active tasks for this category', style: TextStyle(color: AppColors.textGrey)),
+    return hasActiveRows;
+  }).toList();
+  
+  if (_selectedClientFilter != null &&
+      _selectedClientFilter!.isNotEmpty) {
+    tasksForTab = tasksForTab
+        .where(
+          (t) =>
+              (t['client_name'] ?? '').toString() ==
+              _selectedClientFilter,
+        )
+        .toList();
+  }
+
+  if (tasksForTab.isEmpty) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Text(
+          'No active tasks for this category',
+          style: TextStyle(color: AppColors.textGrey),
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    return Column(children: tasksForTab.asMap().entries.map((entry) {
-      final idx      = entry.key;
-      final task     = entry.value;
-      final taskId   = '${task['client_name']}_${task['singleTask']}_$idx';
-      final isExpand = expandedTaskId == taskId;
-      final expMins  = expectedTimingMinutes[(task['singleTask'] as String).trim().toLowerCase()];
-      final currentRowsCount = rowCounts[taskId] ?? (task['rowCount'] as int?) ?? 1;
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final double screenWidth = constraints.maxWidth;
 
-      return Column(children: [
-        Container(
-          margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(bottom: BorderSide(color: AppColors.border)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+      // Mobile breakpoint only.
+      final bool isMobile = screenWidth < 700;
+
+      return Column(
+        children: tasksForTab.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final task = entry.value;
+
+          final taskId =
+              '${task['client_name']}_${task['singleTask']}_$idx';
+
+          final isExpand = expandedTaskId == taskId;
+
+          final expMins =
+              expectedTimingMinutes[
+                  (task['singleTask'] as String)
+                      .trim()
+                      .toLowerCase()];
+
+          final currentRowsCount =
+              rowCounts[taskId] ??
+                  (task['rowCount'] as int?) ??
+                  1;
+
+          return Column(
             children: [
-              Expanded(
-                flex: 3,
-                child: InkWell(
-                  onTap: () => _showClientTaskSummaryDialog(task, taskId),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    height: 46,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF004AAD),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFF004AAD)),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 2)),
-                      ],
+              Container(
+                margin: const EdgeInsets.only(bottom: 2),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 10 : 18,
+                  vertical: isMobile ? 10 : 14,
+                ),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: AppColors.border,
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 28, height: 28,
-                          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(6)),
-                          child: const Icon(Icons.business_outlined, size: 15, color: Colors.white),
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                ),
+
+                // --------------------------------------------------
+                // MOBILE UI
+                // --------------------------------------------------
+                child: isMobile
+                    ? Column(
+                        children: [
+                          // CLIENT
+                          InkWell(
+                            onTap: () =>
+                                _showClientTaskSummaryDialog(
+                              task,
+                              taskId,
+                            ),
+                            borderRadius:
+                                BorderRadius.circular(8),
+                            child: Container(
+                              width: double.infinity,
+                              height: 48,
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    const Color(0xFF004AAD),
+                                borderRadius:
+                                    BorderRadius.circular(8),
+                                border: Border.all(
+                                  color:
+                                      const Color(0xFF004AAD),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black
+                                        .withValues(alpha: 0.08),
+                                    blurRadius: 4,
+                                    offset:
+                                        const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 30,
+                                    height: 30,
+                                    decoration:
+                                        BoxDecoration(
+                                      color: Colors.white
+                                          .withValues(
+                                        alpha: 0.10,
+                                      ),
+                                      borderRadius:
+                                          BorderRadius
+                                              .circular(6),
+                                    ),
+                                    child: const Icon(
+                                      Icons.business_outlined,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 9),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment
+                                              .center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment
+                                              .start,
+                                      children: [
+                                        const Text(
+                                          'CLIENT',
+                                          style: TextStyle(
+                                            fontSize: 8,
+                                            fontWeight:
+                                                FontWeight.w800,
+                                            color: Color(
+                                                0xFF94A3B8),
+                                            letterSpacing:
+                                                0.7,
+                                          ),
+                                        ),
+                                        const SizedBox(
+                                            height: 2),
+                                        Text(
+                                          task['client_name'] ??
+                                              'N/A',
+                                          maxLines: 1,
+                                          overflow:
+                                              TextOverflow
+                                                  .ellipsis,
+                                          style:
+                                              const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight:
+                                                FontWeight.w800,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons
+                                        .chevron_right_rounded,
+                                    size: 18,
+                                    color:
+                                        Color(0xFF94A3B8),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // DELIVERABLES + DURATION
+                          Row(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
                             children: [
-                              const Text('CLIENT', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8), letterSpacing: 0.7)),
-                              const SizedBox(height: 2),
-                              Text(task['client_name'] ?? 'N/A', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                              Expanded(
+                                flex: 3,
+                                child: _taskInfoBlock(
+                                  icon:
+                                      Icons.layers_outlined,
+                                  label: 'DELIVERABLES',
+                                  value:
+                                      task['singleTask'] ??
+                                          'N/A',
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: _taskInfoBlock(
+                                  icon:
+                                      Icons.schedule_outlined,
+                                  label: 'DURATION',
+                                  value:
+                                      taskListDurations[
+                                              taskId] ??
+                                          _formatExpectedDuration(
+                                              expMins),
+                                  valueColor: (taskListDurations[
+                                                  taskId] !=
+                                              null ||
+                                          expMins != null)
+                                      ? const Color(0xFF0052CC)
+                                      : const Color(0xFF94A3B8),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFF94A3B8)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              
-              Expanded(
-                flex: 3,
-                child: _taskInfoBlock(
-                  icon: Icons.layers_outlined,
-                  label: 'DELIVERABLES',
-                  value: task['singleTask'] ?? 'N/A',
-                ),
-              ),
-              const SizedBox(width: 12),
 
-              Expanded(
-                flex: 2,
-                child: _taskInfoBlock(
-                  icon: Icons.schedule_outlined,
-                  label: 'DURATION',
-                  value: taskListDurations[taskId] ?? _formatExpectedDuration(expMins),
-                  valueColor: (taskListDurations[taskId] != null || expMins != null) ? const Color(0xFF0052CC) : const Color(0xFF94A3B8),
-                ),
-              ),
-              const SizedBox(width: 12),
+                          const SizedBox(height: 10),
 
-              Expanded(
-                flex: 3,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 32, height: 32,
-                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(7)),
-                      child: const Icon(Icons.calendar_today_outlined, size: 15, color: Color(0xFF475569)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('SUBMIT DATE', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.5)),
-                          const SizedBox(height: 3),
-                          _dateWithDaysLeft(task['assignedDate']),
+                          // SUBMIT DATE
+                          Container(
+                            width: double.infinity,
+                            padding:
+                                const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  const Color(0xFFF8FAFC),
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                              border: Border.all(
+                                color:
+                                    const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration:
+                                      BoxDecoration(
+                                    color:
+                                        const Color(0xFFF1F5F9),
+                                    borderRadius:
+                                        BorderRadius.circular(
+                                            7),
+                                  ),
+                                  child: const Icon(
+                                    Icons
+                                        .calendar_today_outlined,
+                                    size: 15,
+                                    color:
+                                        Color(0xFF475569),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment
+                                            .start,
+                                    children: [
+                                      const Text(
+                                        'SUBMIT DATE',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight:
+                                              FontWeight.w800,
+                                          color: Color(
+                                              0xFF64748B),
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      _dateWithDaysLeft(
+                                        task['assignedDate'],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // ROWS + OPEN/HIDE
+                          Row(
+                            children: [
+                              // ROW COUNT
+                              Expanded(
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                        0xFFF8FAFC),
+                                    border: Border.all(
+                                      color: const Color(
+                                          0xFFE2E8F0),
+                                    ),
+                                    borderRadius:
+                                        BorderRadius.circular(
+                                            8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize:
+                                        MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        'ROWS',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight:
+                                              FontWeight.w800,
+                                          color: Color(
+                                              0xFF64748B),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 7),
+                                      Container(
+                                        width: 34,
+                                        height: 28,
+                                        alignment:
+                                            Alignment.center,
+                                        decoration:
+                                            BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius
+                                                  .circular(5),
+                                          border: Border.all(
+                                            color: const Color(
+                                                0xFFCBD5E1),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '$currentRowsCount',
+                                          style:
+                                              const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight:
+                                                FontWeight.w800,
+                                            color: Color(
+                                                0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 5),
+
+                                      // + BUTTON
+                                      InkWell(
+                                        borderRadius:
+                                            BorderRadius
+                                                .circular(5),
+                                        onTap: () async {
+                                          final currentCount =
+                                              rowCounts[
+                                                      taskId] ??
+                                                  (task['rowCount']
+                                                          as int?) ??
+                                                  1;
+
+                                          final newCount =
+                                              currentCount + 1;
+
+                                          setState(() {
+                                            rowCounts[taskId] =
+                                                newCount;
+                                          });
+
+                                          final taskListId =
+                                              taskListIds[taskId];
+
+                                          if (taskListId != null) {
+                                            http.patch(
+                                              Uri.parse(
+                                                '$_baseUrl/task-list/$taskListId/rows',
+                                              ),
+                                              headers: {
+                                                'Content-Type':
+                                                    'application/json',
+                                              },
+                                              body: jsonEncode({
+                                                'noOfRows':
+                                                    newCount,
+                                              }),
+                                            ).catchError(
+                                              (e) => debugPrint(
+                                                'Row count save error: $e',
+                                              ),
+                                            );
+                                          }
+
+                                          await _saveAll();
+                                        },
+                                        child: Container(
+                                          width: 24,
+                                          height: 24,
+                                          alignment:
+                                              Alignment.center,
+                                          decoration:
+                                              BoxDecoration(
+                                            color: const Color(
+                                                0xFF004AAD),
+                                            borderRadius:
+                                                BorderRadius
+                                                    .circular(5),
+                                          ),
+                                          child: const Icon(
+                                            Icons.add,
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 8),
+
+                              // OPEN / HIDE
+                              SizedBox(
+                                height: 40,
+                                child: ElevatedButton(
+                                  onPressed: () async {
+                                    if (!isExpand) {
+                                      await _ensureTaskListEntry(
+                                        task,
+                                        taskId,
+                                      );
+                                    }
+
+                                    setState(
+                                      () => expandedTaskId =
+                                          isExpand
+                                              ? null
+                                              : taskId,
+                                    );
+
+                                    final prefs =
+                                        await SharedPreferences
+                                            .getInstance();
+
+                                    if (expandedTaskId != null) {
+                                      await prefs.setString(
+                                        'last_expanded_task',
+                                        expandedTaskId!,
+                                      );
+
+                                      if (selectedTabIndex !=
+                                          null) {
+                                        await prefs.setInt(
+                                          'last_selected_tab',
+                                          selectedTabIndex!,
+                                        );
+                                      }
+                                    } else {
+                                      await prefs.remove(
+                                        'last_expanded_task',
+                                      );
+                                    }
+                                  },
+                                  style:
+                                      ElevatedButton.styleFrom(
+                                    backgroundColor: isExpand
+                                        ? const Color(0xFFFEF2F2)
+                                        : const Color(0xFFE8F1FF),
+                                    foregroundColor: isExpand
+                                        ? const Color(0xFFDC2626)
+                                        : const Color(0xFF004AAD),
+                                    elevation: 0,
+                                    padding:
+                                        const EdgeInsets.symmetric(
+                                      horizontal: 15,
+                                    ),
+                                    shape:
+                                        RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              8),
+                                      side: BorderSide(
+                                        color: isExpand
+                                            ? const Color(
+                                                0xFFFECACA)
+                                            : const Color(
+                                                0xFFBFDBFE),
+                                      ),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize:
+                                        MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        isExpand
+                                            ? Icons
+                                                .keyboard_arrow_up_rounded
+                                            : Icons
+                                                .keyboard_arrow_down_rounded,
+                                        size: 17,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        isExpand ? 'HIDE' : 'OPEN',
+                                        style:
+                                            const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight:
+                                              FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
+                      )
+
+                    // --------------------------------------------------
+                    // DESKTOP UI — ORIGINAL UI
+                    // --------------------------------------------------
+                    : Row(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: InkWell(
+                              onTap: () =>
+                                  _showClientTaskSummaryDialog(
+                                task,
+                                taskId,
+                              ),
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                              child: Container(
+                                height: 46,
+                                padding:
+                                    const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      const Color(0xFF004AAD),
+                                  borderRadius:
+                                      BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color:
+                                        const Color(0xFF004AAD),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black
+                                          .withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      blurRadius: 4,
+                                      offset:
+                                          const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 28,
+                                      height: 28,
+                                      decoration:
+                                          BoxDecoration(
+                                        color: Colors.white
+                                            .withValues(
+                                          alpha: 0.10,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius
+                                                .circular(6),
+                                      ),
+                                      child: const Icon(
+                                        Icons
+                                            .business_outlined,
+                                        size: 15,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 9),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment
+                                                .center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment
+                                                .start,
+                                        children: [
+                                          const Text(
+                                            'CLIENT',
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              fontWeight:
+                                                  FontWeight
+                                                      .w800,
+                                              color: Color(
+                                                  0xFF94A3B8),
+                                              letterSpacing:
+                                                  0.7,
+                                            ),
+                                          ),
+                                          const SizedBox(
+                                              height: 2),
+                                          Text(
+                                            task['client_name'] ??
+                                                'N/A',
+                                            maxLines: 1,
+                                            overflow:
+                                                TextOverflow
+                                                    .ellipsis,
+                                            style:
+                                                const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight:
+                                                  FontWeight.w800,
+                                              color:
+                                                  Colors.white,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(
+                                      Icons
+                                          .chevron_right_rounded,
+                                      size: 18,
+                                      color:
+                                          Color(0xFF94A3B8),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            flex: 3,
+                            child: _taskInfoBlock(
+                              icon: Icons.layers_outlined,
+                              label: 'DELIVERABLES',
+                              value:
+                                  task['singleTask'] ?? 'N/A',
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            flex: 2,
+                            child: _taskInfoBlock(
+                              icon: Icons.schedule_outlined,
+                              label: 'DURATION',
+                              value:
+                                  taskListDurations[taskId] ??
+                                      _formatExpectedDuration(
+                                          expMins),
+                              valueColor:
+                                  (taskListDurations[
+                                                  taskId] !=
+                                              null ||
+                                          expMins != null)
+                                      ? const Color(0xFF0052CC)
+                                      : const Color(0xFF94A3B8),
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            flex: 3,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        const Color(0xFFF1F5F9),
+                                    borderRadius:
+                                        BorderRadius.circular(
+                                            7),
+                                  ),
+                                  child: const Icon(
+                                    Icons
+                                        .calendar_today_outlined,
+                                    size: 15,
+                                    color:
+                                        Color(0xFF475569),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment
+                                            .start,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment
+                                            .center,
+                                    children: [
+                                      const Text(
+                                        'SUBMIT DATE',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight:
+                                              FontWeight.w800,
+                                          color: Color(
+                                              0xFF64748B),
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      _dateWithDaysLeft(
+                                        task['assignedDate'],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Container(
+                            padding:
+                                const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  const Color(0xFFF8FAFC),
+                              border: Border.all(
+                                color:
+                                    const Color(0xFFE2E8F0),
+                              ),
+                              borderRadius:
+                                  BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize:
+                                  MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'ROWS',
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight:
+                                        FontWeight.w800,
+                                    color:
+                                        Color(0xFF64748B),
+                                  ),
+                                ),
+                                const SizedBox(width: 7),
+                                Container(
+                                  width: 34,
+                                  height: 28,
+                                  alignment:
+                                      Alignment.center,
+                                  decoration:
+                                      BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius:
+                                        BorderRadius.circular(
+                                            5),
+                                    border: Border.all(
+                                      color: const Color(
+                                          0xFFCBD5E1),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '$currentRowsCount',
+                                    style:
+                                        const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight:
+                                          FontWeight.w800,
+                                      color:
+                                          Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                InkWell(
+                                  borderRadius:
+                                      BorderRadius.circular(5),
+                                  onTap: () async {
+                                    final currentCount =
+                                        rowCounts[taskId] ??
+                                            (task['rowCount']
+                                                    as int?) ??
+                                            1;
+
+                                    final newCount =
+                                        currentCount + 1;
+
+                                    setState(() {
+                                      rowCounts[taskId] =
+                                          newCount;
+                                    });
+
+                                    final taskListId =
+                                        taskListIds[taskId];
+
+                                    if (taskListId != null) {
+                                      http.patch(
+                                        Uri.parse(
+                                          '$_baseUrl/task-list/$taskListId/rows',
+                                        ),
+                                        headers: {
+                                          'Content-Type':
+                                              'application/json',
+                                        },
+                                        body: jsonEncode({
+                                          'noOfRows':
+                                              newCount,
+                                        }),
+                                      ).catchError(
+                                        (e) => debugPrint(
+                                          'Row count save error: $e',
+                                        ),
+                                      );
+                                    }
+
+                                    await _saveAll();
+                                  },
+                                  child: Container(
+                                    width: 24,
+                                    height: 24,
+                                    alignment:
+                                        Alignment.center,
+                                    decoration:
+                                        BoxDecoration(
+                                      color: const Color(
+                                          0xFF004AAD),
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              5),
+                                    ),
+                                    child: const Icon(
+                                      Icons.add,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          SizedBox(
+                            height: 40,
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                if (!isExpand) {
+                                  await _ensureTaskListEntry(
+                                    task,
+                                    taskId,
+                                  );
+                                }
+
+                                setState(
+                                  () => expandedTaskId =
+                                      isExpand
+                                          ? null
+                                          : taskId,
+                                );
+
+                                final prefs =
+                                    await SharedPreferences
+                                        .getInstance();
+
+                                if (expandedTaskId != null) {
+                                  await prefs.setString(
+                                    'last_expanded_task',
+                                    expandedTaskId!,
+                                  );
+
+                                  if (selectedTabIndex !=
+                                      null) {
+                                    await prefs.setInt(
+                                      'last_selected_tab',
+                                      selectedTabIndex!,
+                                    );
+                                  }
+                                } else {
+                                  await prefs.remove(
+                                    'last_expanded_task',
+                                  );
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isExpand
+                                    ? const Color(0xFFFEF2F2)
+                                    : const Color(0xFFE8F1FF),
+                                foregroundColor: isExpand
+                                    ? const Color(0xFFDC2626)
+                                    : const Color(0xFF004AAD),
+                                elevation: 0,
+                                padding:
+                                    const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                ),
+                                shape:
+                                    RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: isExpand
+                                        ? const Color(
+                                            0xFFFECACA)
+                                        : const Color(
+                                            0xFFBFDBFE),
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize:
+                                    MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isExpand
+                                        ? Icons
+                                            .keyboard_arrow_up_rounded
+                                        : Icons
+                                            .keyboard_arrow_down_rounded,
+                                    size: 17,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    isExpand
+                                        ? 'HIDE'
+                                        : 'OPEN',
+                                    style:
+                                        const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight:
+                                          FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
               ),
-              const SizedBox(width: 12),
-
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('ROWS', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF64748B))),
-                    const SizedBox(width: 7),
-                    Container(
-                      width: 34, height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(5), border: Border.all(color: const Color(0xFFCBD5E1))),
-                      child: Text('$currentRowsCount', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                    ),
-                    const SizedBox(width: 5),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(5),
-                      onTap: () async {
-                        final currentCount = rowCounts[taskId] ?? (task['rowCount'] as int?) ?? 1;
-                        final newCount = currentCount + 1;
-                        setState(() { rowCounts[taskId] = newCount; });
-
-                        final taskListId = taskListIds[taskId];
-                        if (taskListId != null) {
-                          http.patch(
-                            Uri.parse('$_baseUrl/task-list/$taskListId/rows'),
-                            headers: {'Content-Type': 'application/json'},
-                            body: jsonEncode({'noOfRows': newCount}),
-                          ).catchError((e) => debugPrint('Row count save error: $e'));
-                        }
-                        await _saveAll();
-                      },
-                      child: Container(
-                        width: 24, height: 24,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(color: const Color(0xFF004AAD), borderRadius: BorderRadius.circular(5)),
-                        child: const Icon(Icons.add, size: 14, color: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-              const SizedBox(width: 12),
 
-              SizedBox(
-                height: 40,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    if (!isExpand) {
-                      await _ensureTaskListEntry(task, taskId);
-                    }
-                    setState(() => expandedTaskId = isExpand ? null : taskId);
-
-                    final prefs = await SharedPreferences.getInstance();
-                    if (expandedTaskId != null) {
-                      await prefs.setString('last_expanded_task', expandedTaskId!);
-                      if (selectedTabIndex != null) {
-                        await prefs.setInt('last_selected_tab', selectedTabIndex!);
-                      }
-                    } else {
-                      await prefs.remove('last_expanded_task');
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isExpand ? const Color(0xFFFEF2F2) : const Color(0xFFE8F1FF),
-                    foregroundColor: isExpand ? const Color(0xFFDC2626) : const Color(0xFF004AAD),
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(
-                        color: isExpand ? const Color(0xFFFECACA) : const Color(0xFFBFDBFE),
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(isExpand ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 17),
-                      const SizedBox(width: 5),
-                      Text(isExpand ? 'HIDE' : 'OPEN', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-                    ],
-                  ),
-                ),
-              ),
+              // Expanded task table remains exactly the same.
+              if (isExpand)
+                _buildTaskTable(task, taskId),
             ],
-          ),
-        ),
-        if (isExpand) _buildTaskTable(task, taskId),
-      ]);
-    }).toList());
-  }
+          );
+        }).toList(),
+      );
+    },
+  );
+}
+
+
 
   // ── SINGLE ROW (With Action column for Delete / Clear) ───────────────────
   Widget _buildRow(int index, Map<String, dynamic> task, String taskId) {
