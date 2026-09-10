@@ -1,34 +1,35 @@
-// routes/performance.js — Employee Performance Dashboard API
+// routes/performance.js — Employee Performance & Productivity Dashboard API
 //
-// One employee at a time. Two modes:
-//   mode=daily   -> ?employeeName=...&date=YYYY-MM-DD
-//   mode=monthly -> ?employeeName=...&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD
+// Two endpoints:
 //
-// What this returns, in plain terms:
-//   - summary          -> task counts for the selected period (Completed/
-//                         Processing/On Hold/Pending/Rejected) + total time
-//   - clientsAssignedCount -> how many clients this employee has EVER been
-//                         assigned (all-time, not limited to the period)
-//   - dayPlanner        -> did they submit their Day Planner for the
-//                         selected day, or (monthly) which days they missed
-//   - taskTypes         -> tasks grouped by deliverable name (e.g. "Poster
-//                         Design", "Reel Editing") so you can see exactly
-//                         how many posters / videos / etc. were completed
-//   - approvalStats     -> from manager_review: how many of their submitted
-//                         tasks were Approved / Rejected / sent for Rework /
-//                         still waiting on the manager
-//   - performanceHistory -> the last 15 completed/rejected tasks (all-time),
-//                         each tagged On Time / Delayed by comparing actual
-//                         time taken to the expected time in Task Master,
-//                         plus an "Archived" flag for anything older than 30 days
-//   - clients            -> assigned clients ACTIVE in this period, each with
-//                         their task list and per-task status
-//   - trend              -> completed-tasks-per-day, for the monthly chart
+//   GET /api/performance/overview  -> lightweight performance summary for
+//                                      EVERY employee at once (for the grid
+//                                      of cards on first load — no manual
+//                                      search needed before anything shows).
+//
+//   GET /api/performance/detail    -> full A-to-Z dashboard for ONE employee
+//                                      (KPIs, working hours, task/role
+//                                      breakdown, client tracking, Day
+//                                      Planner consistency, manager review
+//                                      productivity, timeline, trend).
+//
+// Both accept the same range params:
+//   mode=daily   & date=YYYY-MM-DD
+//   mode=monthly & fromDate=YYYY-MM-DD & toDate=YYYY-MM-DD
+//
+// Nothing here is invented/dummy — everything is derived from tables that
+// already exist and are already written to by tracking-items.js,
+// day-planner.js and manager-review.js:
+//   task_list, time_tracking_task_items, task_master, task_roles,
+//   day_plan_rows, manager_review, employee_users.
 
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
+// ────────────────────────────────────────────────────────────────
+// Shared helpers
+// ────────────────────────────────────────────────────────────────
 const STATUS_LABELS = {
   IDLE: 'PENDING',
   'IN PROGRESS': 'PROCESSING',
@@ -46,7 +47,12 @@ function emptyStatusCounts() {
   return { IDLE: 0, 'IN PROGRESS': 0, 'ON HOLD': 0, COMPLETED: 0, REJECTED: 0 };
 }
 
-function formatDuration(seconds) {
+function pct(numerator, denominator) {
+  if (!denominator) return 0;
+  return Math.round((numerator / denominator) * 1000) / 10; // one decimal place
+}
+
+function formatHours(seconds) {
   seconds = Number(seconds) || 0;
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
@@ -55,85 +61,234 @@ function formatDuration(seconds) {
   return `${mins}m`;
 }
 
-// Best-effort parser for whatever format Task Master's "timing" field was
-// typed in — "2 hrs", "45 mins", "1.5 hr", "90" (assumed minutes), etc.
-function parseTimingToSeconds(timing) {
-  if (!timing) return null;
-  const str = timing.toString().trim().toLowerCase();
-
-  const hrMatch = str.match(/([\d.]+)\s*h/);
-  const minMatch = str.match(/([\d.]+)\s*m/);
-
-  if (hrMatch || minMatch) {
-    const hrs = hrMatch ? parseFloat(hrMatch[1]) : 0;
-    const mins = minMatch ? parseFloat(minMatch[1]) : 0;
-    return Math.round(hrs * 3600 + mins * 60);
-  }
-
-  const plainNumber = parseFloat(str);
-  if (!isNaN(plainNumber)) {
-    return Math.round(plainNumber * 60); // assume minutes
-  }
-
-  return null;
-}
-
 function toISODate(value) {
   if (!value) return null;
   const str = String(value).trim();
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-
   const slashParts = str.split('/');
   if (slashParts.length === 3) {
     const [dd, mm, yyyy] = slashParts;
-    if (dd && mm && yyyy) {
-      return `${yyyy.padStart(4, '0')}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-    }
+    if (dd && mm && yyyy) return `${yyyy.padStart(4, '0')}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
   }
   return null;
 }
 
-function dateRangeArray(fromISO, toISO) {
-  const dates = [];
-  let cur = new Date(fromISO + 'T00:00:00');
-  const end = new Date(toISO + 'T00:00:00');
-  while (cur <= end) {
-    dates.push(cur.toISOString().slice(0, 10));
-    cur.setDate(cur.getDate() + 1);
+function resolveRange(query) {
+  const mode = (query.mode || 'daily').trim().toLowerCase();
+  if (mode === 'daily') {
+    const date = toISODate(query.date) || new Date().toISOString().slice(0, 10);
+    return { mode, fromDate: date, toDate: date };
   }
-  return dates;
+  const fromDate = toISODate(query.fromDate);
+  const toDate = toISODate(query.toDate);
+  return { mode: 'monthly', fromDate, toDate };
 }
 
-// GET /api/performance — main dashboard payload for one employee
-router.get('/', async (req, res) => {
+function daysBetweenInclusive(fromDate, toDate) {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const diff = Math.round((to - from) / (1000 * 60 * 60 * 24)) + 1;
+  return Math.max(1, diff);
+}
+
+// A single weighted formula used EVERYWHERE performance % is shown, so the
+// number on the overview grid matches the number in the detail page.
+//   40% task completion rate
+//   25% manager-approval rate (of reviewed tasks)
+//   20% Day Planner submission consistency
+//   15% productivity (completed-task time vs total tracked time)
+function calculatePerformanceScore({ totalTasks, completed, approved, rework, rejectedReview, plannerSubmittedDays, expectedDays, productiveSecs, totalTrackedSecs }) {
+  const completionRate = totalTasks > 0 ? completed / totalTasks : 0;
+
+  const reviewedTotal = approved + rework + rejectedReview;
+  const approvalRate = reviewedTotal > 0 ? approved / reviewedTotal : (totalTasks > 0 ? 0.5 : 0); // neutral if nothing reviewed yet
+
+  const plannerRate = expectedDays > 0 ? Math.min(1, plannerSubmittedDays / expectedDays) : 0;
+
+  const productivityRate = totalTrackedSecs > 0 ? Math.min(1, productiveSecs / totalTrackedSecs) : (totalTasks > 0 ? 0.5 : 0);
+
+  const score = (completionRate * 40) + (approvalRate * 25) + (plannerRate * 20) + (productivityRate * 15);
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function performanceGrade(score) {
+  if (score >= 85) return 'Excellent';
+  if (score >= 70) return 'Good';
+  if (score >= 50) return 'Average';
+  return 'Needs Improvement';
+}
+
+// ════════════════════════════════════════════════════════════════
+// GET /api/performance/overview — ALL employees at once
+// ════════════════════════════════════════════════════════════════
+router.get('/overview', async (req, res) => {
+  try {
+    const { mode, fromDate, toDate } = resolveRange(req.query);
+    if (!fromDate || !toDate) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing date range' });
+    }
+    const expectedDays = daysBetweenInclusive(fromDate, toDate);
+
+    // 1) All active employees
+    const [employees] = await db.query(
+      `SELECT id, full_name, initials, staff_id, role, user_type
+       FROM employee_users
+       WHERE is_active = 1
+       ORDER BY full_name ASC`
+    );
+
+    // 2) Task + tracking aggregation per employee, in range (one query, no N+1)
+    const [taskRows] = await db.query(
+      `
+      SELECT
+        tl.employee_name,
+        tl.client_name,
+        tti.status,
+        tti.duration_secs,
+        tti.start_time,
+        tti.complete_time
+      FROM task_list tl
+      LEFT JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+      WHERE DATE(COALESCE(tti.submit_date, tl.submission_date)) BETWEEN ? AND ?
+      `,
+      [fromDate, toDate]
+    );
+
+    // 3) Day planner submissions per employee, in range
+    const [plannerRows] = await db.query(
+      `SELECT employee_name, plan_date, report_type, is_submitted, total_working_secs
+       FROM day_plan_rows
+       WHERE plan_date BETWEEN ? AND ?`,
+      [fromDate, toDate]
+    );
+
+    // 4) Manager review decisions per employee, in range (via tracking item -> task_list)
+    const [reviewRows] = await db.query(
+      `
+      SELECT tl.employee_name, mr.manager_action
+      FROM manager_review mr
+      JOIN time_tracking_task_items tti ON tti.id = mr.tracking_item_id
+      JOIN task_list tl ON tl.id = tti.task_list_id
+      WHERE DATE(mr.reviewed_at) BETWEEN ? AND ?
+      `,
+      [fromDate, toDate]
+    );
+
+    // ---- fold into per-employee accumulators ----
+    const byEmployee = new Map();
+    const ensure = (name) => {
+      if (!byEmployee.has(name)) {
+        byEmployee.set(name, {
+          clients: new Set(),
+          totalTasks: 0,
+          totalTrackedSecs: 0,
+          productiveSecs: 0,
+          ...emptyStatusCounts(),
+          plannerDaySet: new Set(),
+          approved: 0,
+          rework: 0,
+          rejectedReview: 0,
+          pendingReview: 0,
+        });
+      }
+      return byEmployee.get(name);
+    };
+
+    for (const row of taskRows) {
+      const name = row.employee_name;
+      if (!name) continue;
+      const acc = ensure(name);
+      const status = normalizedStatus(row.status);
+      const secs = Number(row.duration_secs) || 0;
+
+      acc.totalTasks += 1;
+      acc[status] += 1;
+      acc.totalTrackedSecs += secs;
+      if (status === 'COMPLETED') acc.productiveSecs += secs;
+      if (row.client_name) acc.clients.add(row.client_name);
+    }
+
+    for (const row of plannerRows) {
+      if (!row.employee_name || !row.is_submitted) continue;
+      ensure(row.employee_name).plannerDaySet.add(row.plan_date.toString());
+    }
+
+    for (const row of reviewRows) {
+      if (!row.employee_name) continue;
+      const acc = ensure(row.employee_name);
+      const action = (row.manager_action || 'ACTION').toUpperCase();
+      if (action === 'APPROVED') acc.approved += 1;
+      else if (action === 'REWORK') acc.rework += 1;
+      else if (action === 'REJECTED') acc.rejectedReview += 1;
+      else acc.pendingReview += 1;
+    }
+
+    // ---- build response per employee ----
+    const data = employees.map((emp) => {
+      const acc = byEmployee.get(emp.full_name) || ensure(emp.full_name);
+
+      const performancePct = calculatePerformanceScore({
+        totalTasks: acc.totalTasks,
+        completed: acc.COMPLETED,
+        approved: acc.approved,
+        rework: acc.rework,
+        rejectedReview: acc.rejectedReview,
+        plannerSubmittedDays: acc.plannerDaySet.size,
+        expectedDays,
+        productiveSecs: acc.productiveSecs,
+        totalTrackedSecs: acc.totalTrackedSecs,
+      });
+
+      return {
+        id: emp.id,
+        fullName: emp.full_name,
+        initials: emp.initials || '',
+        staffId: emp.staff_id || '',
+        role: emp.role || '',
+        totalClients: acc.clients.size,
+        totalTasks: acc.totalTasks,
+        completed: acc.COMPLETED,
+        processing: acc['IN PROGRESS'],
+        onHold: acc['ON HOLD'],
+        pending: acc.IDLE,
+        rejected: acc.REJECTED,
+        completedPct: pct(acc.COMPLETED, acc.totalTasks),
+        pendingPct: pct(acc.IDLE, acc.totalTasks),
+        processingPct: pct(acc['IN PROGRESS'], acc.totalTasks),
+        rejectedPct: pct(acc.REJECTED, acc.totalTasks),
+        workingHours: formatHours(acc.totalTrackedSecs),
+        workingSecs: acc.totalTrackedSecs,
+        productivityPct: pct(acc.productiveSecs, acc.totalTrackedSecs || acc.productiveSecs),
+        plannerSubmittedDays: acc.plannerDaySet.size,
+        expectedDays,
+        performancePct,
+        performanceGrade: performanceGrade(performancePct),
+      };
+    });
+
+    return res.json({ success: true, data: { range: { mode, fromDate, toDate }, employees: data } });
+  } catch (err) {
+    console.error('GET /performance/overview ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// GET /api/performance/detail — full A-to-Z dashboard for ONE employee
+// ════════════════════════════════════════════════════════════════
+router.get('/detail', async (req, res) => {
   try {
     const employeeName = (req.query.employeeName || '').trim();
-    const mode = (req.query.mode || 'daily').trim().toLowerCase();
-
     if (!employeeName) {
       return res.status(400).json({ success: false, message: 'employeeName is required' });
     }
-    if (!['daily', 'monthly'].includes(mode)) {
-      return res.status(400).json({ success: false, message: 'mode must be daily or monthly' });
+    const { mode, fromDate, toDate } = resolveRange(req.query);
+    if (!fromDate || !toDate) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing date range' });
     }
+    const expectedDays = daysBetweenInclusive(fromDate, toDate);
 
-    let fromDate, toDate;
-    if (mode === 'daily') {
-      fromDate = toDate = toISODate(req.query.date) || new Date().toISOString().slice(0, 10);
-    } else {
-      fromDate = toISODate(req.query.fromDate);
-      toDate = toISODate(req.query.toDate);
-      if (!fromDate || !toDate) {
-        return res.status(400).json({ success: false, message: 'fromDate and toDate are required for monthly mode (YYYY-MM-DD)' });
-      }
-    }
-
-    const todayISO = new Date().toISOString().slice(0, 10);
-
-    // ------------------------------------------------------------
-    // Employee basic info
-    // ------------------------------------------------------------
+    // ---- employee basic info ----
     const [empRows] = await db.query(
       `SELECT id, full_name, initials, staff_id, role, user_type
        FROM employee_users
@@ -143,94 +298,31 @@ router.get('/', async (req, res) => {
     );
     const employee = empRows[0] || { full_name: employeeName };
 
-    // ------------------------------------------------------------
-    // How many clients this employee has EVER been assigned (all-time,
-    // not limited to the selected period).
-    // ------------------------------------------------------------
-    const [clientCountRows] = await db.query(
-      `SELECT COUNT(DISTINCT client_name) AS cnt
-       FROM task_list
-       WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?))`,
-      [employeeName]
-    );
-    const clientsAssignedCount = clientCountRows[0]?.cnt || 0;
-
-    // ------------------------------------------------------------
-    // Day Planner submission tracking
-    // ------------------------------------------------------------
-    let dayPlanner;
-    if (mode === 'daily') {
-      const [plannerRows] = await db.query(
-        `SELECT report_type, is_submitted, submitted_at, status
-         FROM day_plan_rows
-         WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?)) AND plan_date = ?
-         ORDER BY report_type ASC`,
-        [employeeName, fromDate]
-      );
-      const reports = plannerRows.map(r => ({
-        reportType: r.report_type,
-        submitted: !!r.is_submitted,
-        submittedAt: r.submitted_at,
-        status: r.status || '',
-      }));
-      dayPlanner = {
-        mode: 'daily',
-        date: fromDate,
-        hasEntry: reports.length > 0,
-        submitted: reports.some(r => r.submitted),
-        reports,
-      };
-    } else {
-      const [plannerRows] = await db.query(
-        `SELECT plan_date, MAX(is_submitted) AS anySubmitted
-         FROM day_plan_rows
-         WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?)) AND plan_date BETWEEN ? AND ?
-         GROUP BY plan_date`,
-        [employeeName, fromDate, toDate]
-      );
-      const submittedMap = new Map(
-        plannerRows.map(r => [
-          (r.plan_date instanceof Date ? r.plan_date.toISOString().slice(0, 10) : r.plan_date.toString()),
-          !!r.anySubmitted,
-        ])
-      );
-
-      const allDates = dateRangeArray(fromDate, toDate).filter(d => d <= todayISO);
-      const days = allDates.map(d => ({ date: d, submitted: submittedMap.get(d) || false }));
-      const submittedDays = days.filter(d => d.submitted).length;
-
-      dayPlanner = {
-        mode: 'monthly',
-        totalDays: days.length,
-        submittedDays,
-        missedDays: days.length - submittedDays,
-        days,
-      };
-    }
-
-    // ------------------------------------------------------------
-    // Every task_list row for this employee in range, with its
-    // tracking item (status/duration/performance) and role/type info.
-    // ------------------------------------------------------------
+    // ---- every task_list row for this employee in range, with role + tracking + review ----
     const [rows] = await db.query(
       `
       SELECT
         tl.id            AS task_list_id,
         tl.client_name,
         tl.deliverables,
-        tl.task_master_id,
         tm.role_key,
         COALESCE(tr.role_name, tm.role_key, 'General') AS role_name,
         tti.id           AS tracking_item_id,
         tti.status,
         tti.duration_secs,
         tti.performance,
-        tti.task_description,
-        COALESCE(tti.submit_date, tl.submission_date) AS activity_date
+        tti.start_time,
+        tti.complete_time,
+        tti.reject_time,
+        COALESCE(tti.submit_date, tl.submission_date) AS activity_date,
+        mr.manager_action,
+        mr.manager_comment,
+        mr.reviewed_at
       FROM task_list tl
       LEFT JOIN task_master tm ON tm.id = tl.task_master_id
       LEFT JOIN task_roles tr ON tr.role_key = tm.role_key
       LEFT JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
       WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
         AND DATE(COALESCE(tti.submit_date, tl.submission_date)) BETWEEN ? AND ?
       ORDER BY activity_date DESC
@@ -238,27 +330,58 @@ router.get('/', async (req, res) => {
       [employeeName, fromDate, toDate]
     );
 
-    const summary = { totalTasks: rows.length, totalDurationSecs: 0, ...emptyStatusCounts() };
+    // ---- day planner rows for this employee in range ----
+    const [plannerRows] = await db.query(
+      `SELECT plan_date, report_type, is_submitted, submitted_at, total_working_secs
+       FROM day_plan_rows
+       WHERE TRIM(LOWER(employee_name)) = TRIM(LOWER(?))
+         AND plan_date BETWEEN ? AND ?
+       ORDER BY plan_date ASC`,
+      [employeeName, fromDate, toDate]
+    );
+
+    // ============================================================
+    // Aggregate: summary, clients, roles, trend, timeline, planner
+    // ============================================================
+    const summaryCounts = { totalTasks: rows.length, totalTrackedSecs: 0, productiveSecs: 0, ...emptyStatusCounts() };
     const clientsMap = new Map();
-    const taskTypesMap = new Map(); // by deliverable name — "how many posters, how many videos"
-    const trendMap = new Map();
+    const rolesMap = new Map();
+    const trendMap = new Map(); // date -> { COMPLETED, IN PROGRESS, ON HOLD, IDLE, REJECTED }
+    const timeline = [];
+    const review = { approved: 0, rework: 0, rejected: 0, pending: 0 };
+    let idleSecsFromHold = 0;
 
     for (const row of rows) {
       const status = normalizedStatus(row.status);
-      const durationSecs = Number(row.duration_secs) || 0;
+      const secs = Number(row.duration_secs) || 0;
 
-      summary[status] += 1;
-      summary.totalDurationSecs += durationSecs;
+      summaryCounts[status] += 1;
+      summaryCounts.totalTrackedSecs += secs;
+      if (status === 'COMPLETED') summaryCounts.productiveSecs += secs;
 
-      // ---- by client ----
+      // idle/hold time = elapsed wall-clock time minus actual worked seconds
+      if (row.start_time && (row.complete_time || row.reject_time)) {
+        const end = new Date(row.complete_time || row.reject_time);
+        const start = new Date(row.start_time);
+        const elapsed = Math.max(0, Math.floor((end - start) / 1000));
+        idleSecsFromHold += Math.max(0, elapsed - secs);
+      }
+
+      // ---- clients ----
       const clientKey = row.client_name || 'Unassigned';
       if (!clientsMap.has(clientKey)) {
-        clientsMap.set(clientKey, { clientName: clientKey, totalTasks: 0, totalDurationSecs: 0, ...emptyStatusCounts(), tasks: [] });
+        clientsMap.set(clientKey, { clientName: clientKey, totalTasks: 0, totalDurationSecs: 0, ...emptyStatusCounts(), lastActivity: null, tasks: [] });
       }
       const clientEntry = clientsMap.get(clientKey);
       clientEntry.totalTasks += 1;
-      clientEntry.totalDurationSecs += durationSecs;
+      clientEntry.totalDurationSecs += secs;
       clientEntry[status] += 1;
+      if (!clientEntry.lastActivity || (row.activity_date && new Date(row.activity_date) > new Date(clientEntry.lastActivity))) {
+        clientEntry.lastActivity = row.activity_date;
+      }
+
+      const reviewStatus = row.manager_action && row.manager_action !== 'ACTION' ? row.manager_action : (row.tracking_item_id ? 'PENDING REVIEW' : '—');
+
       clientEntry.tasks.push({
         taskListId: row.task_list_id,
         trackingItemId: row.tracking_item_id,
@@ -266,107 +389,106 @@ router.get('/', async (req, res) => {
         roleName: row.role_name,
         status,
         statusLabel: STATUS_LABELS[status],
-        durationSecs,
-        duration: formatDuration(durationSecs),
+        durationSecs: secs,
+        duration: formatHours(secs),
         performance: row.performance || 'N/A',
+        startTime: row.start_time,
+        completedTime: row.complete_time,
         activityDate: row.activity_date,
+        reviewStatus,
+        reviewComment: row.manager_comment || '',
       });
 
-      // ---- by task type (deliverable name) ----
-      const typeKey = row.deliverables || 'Other';
-      if (!taskTypesMap.has(typeKey)) {
-        taskTypesMap.set(typeKey, { deliverable: typeKey, roleName: row.role_name, totalTasks: 0, ...emptyStatusCounts() });
-      }
-      const typeEntry = taskTypesMap.get(typeKey);
-      typeEntry.totalTasks += 1;
-      typeEntry[status] += 1;
+      // ---- roles ----
+      const roleKey = row.role_name || 'General';
+      if (!rolesMap.has(roleKey)) rolesMap.set(roleKey, { roleName: roleKey, totalTasks: 0, ...emptyStatusCounts() });
+      const roleEntry = rolesMap.get(roleKey);
+      roleEntry.totalTasks += 1;
+      roleEntry[status] += 1;
 
-      // ---- daily trend ----
+      // ---- trend ----
       const dayKey = row.activity_date ? new Date(row.activity_date).toISOString().slice(0, 10) : fromDate;
-      if (!trendMap.has(dayKey)) {
-        trendMap.set(dayKey, { date: dayKey, ...emptyStatusCounts() });
-      }
+      if (!trendMap.has(dayKey)) trendMap.set(dayKey, { date: dayKey, ...emptyStatusCounts() });
       trendMap.get(dayKey)[status] += 1;
-    }
 
-    const clients = Array.from(clientsMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
-    const taskTypes = Array.from(taskTypesMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
-    const trend = Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-
-    // ------------------------------------------------------------
-    // Approval productivity — sourced from manager_review, for tasks
-    // submitted (COMPLETED) inside the selected period.
-    // ------------------------------------------------------------
-    const [reviewRows] = await db.query(
-      `
-      SELECT COALESCE(mr.manager_action, 'ACTION') AS manager_action, COUNT(*) AS cnt
-      FROM time_tracking_task_items tti
-      JOIN task_list tl ON tl.id = tti.task_list_id
-      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
-      WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
-        AND tti.status = 'COMPLETED'
-        AND DATE(tti.submit_date) BETWEEN ? AND ?
-      GROUP BY COALESCE(mr.manager_action, 'ACTION')
-      `,
-      [employeeName, fromDate, toDate]
-    );
-    const approvalStats = { approved: 0, rejected: 0, rework: 0, pendingReview: 0, totalReviewed: 0 };
-    for (const r of reviewRows) {
-      const action = (r.manager_action || 'ACTION').toUpperCase();
-      const count = Number(r.cnt) || 0;
-      approvalStats.totalReviewed += count;
-      if (action === 'APPROVED') approvalStats.approved = count;
-      else if (action === 'REJECTED') approvalStats.rejected = count;
-      else if (action === 'REWORK') approvalStats.rework = count;
-      else approvalStats.pendingReview = count;
-    }
-
-    // ------------------------------------------------------------
-    // Performance history — last 15 completed/rejected tasks, ALL-TIME
-    // (not limited to the selected period), tagged On Time / Delayed by
-    // comparing actual duration to the expected Task Master timing, plus
-    // an Archived flag for anything older than 30 days.
-    // ------------------------------------------------------------
-    const [historyRows] = await db.query(
-      `
-      SELECT
-        tl.client_name, tl.deliverables,
-        tti.status, tti.duration_secs, tti.performance, tti.submit_date,
-        tt.timing AS expected_timing
-      FROM task_list tl
-      JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
-      LEFT JOIN task_timings tt ON tt.task_master_id = tl.task_master_id
-      WHERE TRIM(LOWER(tl.employee_name)) = TRIM(LOWER(?))
-        AND tti.status IN ('COMPLETED', 'REJECTED')
-      ORDER BY tti.submit_date DESC
-      LIMIT 15
-      `,
-      [employeeName]
-    );
-
-    const now = new Date();
-    const performanceHistory = historyRows.map(r => {
-      const expectedSecs = parseTimingToSeconds(r.expected_timing);
-      const actualSecs = Number(r.duration_secs) || 0;
-      let timeliness = 'N/A';
-      if (expectedSecs !== null && actualSecs > 0) {
-        timeliness = actualSecs <= expectedSecs ? 'ON TIME' : 'DELAYED';
+      // ---- manager review counts ----
+      if (row.tracking_item_id) {
+        const action = (row.manager_action || 'ACTION').toUpperCase();
+        if (action === 'APPROVED') review.approved += 1;
+        else if (action === 'REWORK') review.rework += 1;
+        else if (action === 'REJECTED') review.rejected += 1;
+        else review.pending += 1;
       }
 
-      const submitDate = r.submit_date ? new Date(r.submit_date) : null;
-      const ageDays = submitDate ? Math.floor((now - submitDate) / (1000 * 60 * 60 * 24)) : null;
+      // ---- timeline events ----
+      if (row.start_time) timeline.push({ date: row.start_time, type: 'TASK_STARTED', label: `Started "${row.deliverables}" (${row.client_name})` });
+      if (row.complete_time) timeline.push({ date: row.complete_time, type: 'TASK_COMPLETED', label: `Completed "${row.deliverables}" (${row.client_name})` });
+      if (row.reject_time) timeline.push({ date: row.reject_time, type: 'TASK_REJECTED', label: `Rejected "${row.deliverables}" (${row.client_name})` });
+      if (row.reviewed_at && row.manager_action && row.manager_action !== 'ACTION') {
+        timeline.push({ date: row.reviewed_at, type: `MANAGER_${row.manager_action}`, label: `Manager ${row.manager_action.toLowerCase()} "${row.deliverables}"` });
+      }
+    }
 
-      return {
-        date: r.submit_date,
-        client: r.client_name,
-        deliverable: r.deliverables,
-        status: r.status,
-        duration: formatDuration(actualSecs),
-        performance: r.performance || 'N/A',
-        timeliness,
-        archived: ageDays !== null && ageDays > 30,
-      };
+    // ---- day planner performance ----
+    const plannerByDate = new Map();
+    for (const p of plannerRows) {
+      const dateKey = p.plan_date.toString();
+      if (!plannerByDate.has(dateKey)) plannerByDate.set(dateKey, { date: dateKey, morningSubmitted: false, eveningSubmitted: false, workingSecs: 0 });
+      const entry = plannerByDate.get(dateKey);
+      if (p.report_type === 'Morning' && p.is_submitted) entry.morningSubmitted = true;
+      if (p.report_type === 'Evening' && p.is_submitted) entry.eveningSubmitted = true;
+      entry.workingSecs = Math.max(entry.workingSecs, Number(p.total_working_secs) || 0);
+      if (p.is_submitted && p.submitted_at) {
+        timeline.push({
+          date: p.submitted_at,
+          type: 'PLANNER_SUBMITTED',
+          label: `Submitted ${p.report_type} Day Planner`,
+        });
+      }
+    }
+    const plannerDays = Array.from(plannerByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+    const plannerSubmittedDays = plannerDays.filter((d) => d.morningSubmitted || d.eveningSubmitted).length;
+    const morningSubmittedCount = plannerDays.filter((d) => d.morningSubmitted).length;
+    const eveningSubmittedCount = plannerDays.filter((d) => d.eveningSubmitted).length;
+
+    // ---- performance score ----
+    const performancePct = calculatePerformanceScore({
+      totalTasks: summaryCounts.totalTasks,
+      completed: summaryCounts.COMPLETED,
+      approved: review.approved,
+      rework: review.rework,
+      rejectedReview: review.rejected,
+      plannerSubmittedDays,
+      expectedDays,
+      productiveSecs: summaryCounts.productiveSecs,
+      totalTrackedSecs: summaryCounts.totalTrackedSecs,
     });
+
+    // ---- performance trend (per day in range, using each day's own mini-score) ----
+    const trend = Array.from(trendMap.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((day) => {
+        const dayTotal = day.IDLE + day['IN PROGRESS'] + day['ON HOLD'] + day.COMPLETED + day.REJECTED;
+        return {
+          date: day.date,
+          completed: day.COMPLETED,
+          processing: day['IN PROGRESS'],
+          onHold: day['ON HOLD'],
+          pending: day.IDLE,
+          rejected: day.REJECTED,
+          dayPerformancePct: pct(day.COMPLETED, dayTotal),
+        };
+      });
+
+    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const clients = Array.from(clientsMap.values())
+      .map((c) => ({ ...c, completionPct: pct(c.COMPLETED, c.totalTasks), totalDuration: formatHours(c.totalDurationSecs) }))
+      .sort((a, b) => b.totalTasks - a.totalTasks);
+
+    const roles = Array.from(rolesMap.values()).sort((a, b) => b.totalTasks - a.totalTasks);
+
+    const reviewedTotal = review.approved + review.rework + review.rejected;
 
     return res.json({
       success: true,
@@ -378,27 +500,59 @@ router.get('/', async (req, res) => {
           staffId: employee.staff_id || '',
           role: employee.role || '',
         },
-        range: { mode, fromDate, toDate },
-        clientsAssignedCount,
-        dayPlanner,
+        range: { mode, fromDate, toDate, expectedDays },
+        performance: { score: performancePct, grade: performanceGrade(performancePct) },
         summary: {
-          totalTasks: summary.totalTasks,
-          totalDuration: formatDuration(summary.totalDurationSecs),
-          completed: summary.COMPLETED,
-          processing: summary['IN PROGRESS'],
-          onHold: summary['ON HOLD'],
-          pending: summary.IDLE,
-          rejected: summary.REJECTED,
+          totalClients: clientsMap.size,
+          totalTasks: summaryCounts.totalTasks,
+          completed: summaryCounts.COMPLETED,
+          processing: summaryCounts['IN PROGRESS'],
+          onHold: summaryCounts['ON HOLD'],
+          pending: summaryCounts.IDLE,
+          rejected: summaryCounts.REJECTED,
+          completedPct: pct(summaryCounts.COMPLETED, summaryCounts.totalTasks),
+          processingPct: pct(summaryCounts['IN PROGRESS'], summaryCounts.totalTasks),
+          onHoldPct: pct(summaryCounts['ON HOLD'], summaryCounts.totalTasks),
+          pendingPct: pct(summaryCounts.IDLE, summaryCounts.totalTasks),
+          rejectedPct: pct(summaryCounts.REJECTED, summaryCounts.totalTasks),
         },
-        taskTypes,
-        approvalStats,
-        performanceHistory,
+        workingHours: {
+          totalSecs: summaryCounts.totalTrackedSecs,
+          total: formatHours(summaryCounts.totalTrackedSecs),
+          productiveSecs: summaryCounts.productiveSecs,
+          productive: formatHours(summaryCounts.productiveSecs),
+          idleSecs: idleSecsFromHold,
+          idle: formatHours(idleSecsFromHold),
+          avgDailySecs: Math.round(summaryCounts.totalTrackedSecs / expectedDays),
+          avgDaily: formatHours(Math.round(summaryCounts.totalTrackedSecs / expectedDays)),
+          avgTaskSecs: summaryCounts.totalTasks > 0 ? Math.round(summaryCounts.totalTrackedSecs / summaryCounts.totalTasks) : 0,
+          avgTask: formatHours(summaryCounts.totalTasks > 0 ? Math.round(summaryCounts.totalTrackedSecs / summaryCounts.totalTasks) : 0),
+          productivityPct: pct(summaryCounts.productiveSecs, summaryCounts.totalTrackedSecs || summaryCounts.productiveSecs),
+        },
+        managerReview: {
+          approved: review.approved,
+          rework: review.rework,
+          rejected: review.rejected,
+          pendingReview: review.pending,
+          approvalRatePct: pct(review.approved, reviewedTotal),
+        },
+        dayPlanner: {
+          expectedDays,
+          submittedDays: plannerSubmittedDays,
+          missedDays: Math.max(0, expectedDays - plannerSubmittedDays),
+          consistencyPct: pct(plannerSubmittedDays, expectedDays),
+          morningSubmittedCount,
+          eveningSubmittedCount,
+          days: plannerDays,
+        },
+        roles,
         clients,
         trend,
+        timeline: timeline.slice(0, 100),
       },
     });
   } catch (err) {
-    console.error('GET /performance ERROR:', err.message);
+    console.error('GET /performance/detail ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

@@ -57,6 +57,7 @@ function formatDuration(seconds) {
 
 router.get('/', async (req, res) => {
   try {
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
 
     // Create ACTION row automatically if it doesn't exist
     await db.query(`
@@ -77,9 +78,10 @@ router.get('/', async (req, res) => {
         ON mr.tracking_item_id = tti.id
       WHERE
         tti.status = 'COMPLETED'
+        AND DATE(COALESCE(tti.complete_time, tti.submit_date, tti.created_at)) = ?
         AND c.is_active = 1
         AND mr.tracking_item_id IS NULL
-    `);
+    `, [selectedDate]);
 
     const [rows] = await db.query(`
       SELECT
@@ -87,6 +89,7 @@ router.get('/', async (req, res) => {
         tl.client_name,
         tl.employee_name,
         tl.deliverables AS task,
+        tti.task_description AS task_description,
         tl.duration AS estimated_duration,
         tti.status,
         tti.duration_secs,
@@ -100,12 +103,14 @@ router.get('/', async (req, res) => {
       LEFT JOIN manager_review mr
         ON mr.tracking_item_id = tti.id
       WHERE tti.status = 'COMPLETED'
+        AND DATE(COALESCE(tti.complete_time, tti.submit_date, tti.created_at)) = ?
         AND c.is_active = 1
       ORDER BY tti.updated_at DESC
-    `);
+    `, [selectedDate]);
 
     const data = rows.map(r => ({
       ...r,
+      taskDescription: r.task_description || '', // 🟢 Mapped task description properly
       duration:
           r.status === 'COMPLETED'
               ? formatDuration(r.duration_secs)

@@ -454,28 +454,35 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                     if (!isMobile)
                       Container(
                         decoration: const BoxDecoration(
-                          color: Color(0xFFF7F9FC),
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                          color: Color(0xFF0759D4),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(20),
+                          ),
                         ),
                         height: 52,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        padding: EdgeInsets.zero,
                         child: Row(children: [
-                          const Expanded(flex: 1, child: Text('S.NO', style: _th)),
-                          const Expanded(flex: 3, child: Text('COMPANY', style: _th)),
-                          const Expanded(flex: 2, child: Text('CONTACT', style: _th)),
-                          const Expanded(flex: 2, child: Text('CREATED', style: _th)),
-                          const Expanded(flex: 3, child: Text('COMPLETION', style: _th)),
-                          const Expanded(flex: 2, child: Text('STATUS', style: _th)),
-                          const Expanded(flex: 2, child: Text('ACTIVE', style: _th)),
-                          
-                          // ✅ CREATED BY COLUMN PLACED BETWEEN ACTIVE AND ACTIONS (Only for Main Admin)
+                          _plannerHeaderCell(label: 'S.NO', flex: 1),
+                          _plannerHeaderCell(label: 'COMPANY', flex: 3),
+                          _plannerHeaderCell(label: 'CONTACT', flex: 2),
+                          _plannerHeaderCell(label: 'CREATED', flex: 2),
+                          _plannerHeaderCell(label: 'COMPLETION', flex: 3),
+                          _plannerHeaderCell(label: 'STATUS', flex: 2),
+                          _plannerHeaderCell(label: 'ACTIVE', flex: 2),
                           if (isMainAdmin)
-                            const Expanded(flex: 2, child: Text('CREATED BY', style: _th)),
-
-                          const Expanded(flex: 4, child: Align(alignment: Alignment.centerRight, child: Text('ACTIONS', style: _th))),
+                            _plannerHeaderCell(label: 'CREATED BY', flex: 2),
+                          _plannerHeaderCell(
+                            label: 'ACTIONS',
+                            flex: 4,
+                            alignment: Alignment.centerRight,
+                          ),
                         ]),
                       ),
-                    if (!isMobile) const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                    if (!isMobile)
+                      const SizedBox(
+                        height: 1,
+                        child: ColoredBox(color: Color(0xFFD7E2F2)),
+                      ),
 
                     SizedBox(
                       height: 500,
@@ -640,6 +647,67 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     );
   }
 
+
+
+  // Day-planner style desktop table:
+  // one strong blue header + clean light grid lines between every column.
+  Widget _plannerHeaderCell({
+    required String label,
+    required int flex,
+    Alignment alignment = Alignment.centerLeft,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        margin: EdgeInsets.zero,
+        alignment: alignment,
+        decoration: const BoxDecoration(
+          color: Color(0xFF0759D4),
+          border: Border(
+            left: BorderSide(color: Color(0xFF4B83E3), width: 1),
+            right: BorderSide(color: Color(0xFF4B83E3), width: 1),
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: 0.25,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _plannerBodyCell({
+    required int flex,
+    required Widget child,
+    Alignment alignment = Alignment.centerLeft,
+    EdgeInsetsGeometry padding = const EdgeInsets.symmetric(horizontal: 12),
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: double.infinity,
+        padding: padding,
+        alignment: alignment,
+        decoration: const BoxDecoration(
+          border: Border(
+            left: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+            right: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
+
   Widget _buildMobileClientCard(int serialNo, Map<String, dynamic> c, bool isMainAdmin) {
     final int id = c['id'];
     final String status = c['status'] ?? 'draft';
@@ -797,264 +865,432 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     );
   }
 
+
+
   Widget _buildRow(int index, Map<String, dynamic> c, bool isMainAdmin) {
-    final int    id      = c['id'];
-    final String status  = c['status'] ?? 'draft';
-    final int    percent = c['completion_percent'] ?? 0;
+    final int id = c['id'];
+    final String status = c['status'] ?? 'draft';
+    final int percent = c['completion_percent'] ?? 0;
     final colors = _statusColors(status);
     final bool active = c['is_active'] == 1 || c['is_active'] == true;
     final String createdByName = c['created_by_name'] ?? 'Main Admin';
 
     return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      color: Colors.white,
+      height: 76,
+      decoration: BoxDecoration(
+        color: index.isEven ? Colors.white : const Color(0xFFF8FBFF),
+        border: const Border(
+          bottom: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+        ),
+      ),
       child: Row(
         children: [
-          Expanded(
+          // S.NO
+          _plannerBodyCell(
             flex: 1,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                width: 40,
-                height: 30,
-                child: TextFormField(
-                  initialValue: index.toString(),
-                  textAlign: TextAlign.center,
-                  keyboardType: TextInputType.number,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: Colors.grey.shade100,
-                    contentPadding: EdgeInsets.zero,
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(
-                        color: Color(0xFFD1D5DB),
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF0052CC),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  onFieldSubmitted: (value) async {
-                    final newPosition = int.tryParse(value);
-                    if (newPosition == null) return;
-                    if (newPosition == index) return;
-
-                    final ok = await _confirmReorder(index, newPosition);
-                    if (!ok) {
-                      await _fetchClients();
-                      return;
-                    }
-
-                    await _updateOrder(id, newPosition);
-                  },
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: SizedBox(
+              width: 42,
+              height: 34,
+              child: TextFormField(
+                initialValue: index.toString(),
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF334155),
                 ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFFF3F7FD),
+                  contentPadding: EdgeInsets.zero,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(7),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFC7D7EA),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(7),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF2563EB),
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+                onFieldSubmitted: (value) async {
+                  final newPosition = int.tryParse(value);
+                  if (newPosition == null || newPosition == index) return;
+
+                  final ok = await _confirmReorder(index, newPosition);
+                  if (!ok) {
+                    await _fetchClients();
+                    return;
+                  }
+
+                  await _updateOrder(id, newPosition);
+                },
               ),
             ),
           ),
-          
-          // Company
-          Expanded(flex: 3, child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(c['company_name'] ?? '',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-              const SizedBox(height: 2),
-              Text(c['industry'] ?? '',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-            ],
-          )),
 
-          // Contact
-          Expanded(flex: 2, child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(c['contact_person']?.toString().isEmpty ?? true ? '—' : c['contact_person'],
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
-              const SizedBox(height: 2),
-              Text(c['email']?.toString().isEmpty ?? true ? '—' : c['email'],
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-            ],
-          )),
-
-          // Created date
-          Expanded(flex: 2, child: Text(_formatDate(c['created_at']?.toString()),
-              style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)))),
-
-          // Completion %
-          Expanded(flex: 3, child: Padding(
-            padding: const EdgeInsets.only(right: 16),
+          // COMPANY
+          _plannerBodyCell(
+            flex: 3,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text('$percent%',
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                const SizedBox(height: 4),
+                Text(
+                  c['company_name'] ?? '',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF25324A),
+                  ),
+                ),
+                if ((c['industry'] ?? '').toString().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    c['industry'],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFF8094B2),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // CONTACT
+          _plannerBodyCell(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  c['contact_person']?.toString().isEmpty ?? true
+                      ? '—'
+                      : c['contact_person'],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF3B4B63),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  c['email']?.toString().isEmpty ?? true
+                      ? '—'
+                      : c['email'],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF8BA0BD),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // CREATED
+          _plannerBodyCell(
+            flex: 2,
+            child: Text(
+              _formatDate(c['created_at']?.toString()),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFF49617F),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+
+          // COMPLETION
+          _plannerBodyCell(
+            flex: 3,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      '$percent%',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF29405F),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (percent == 100)
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 15,
+                        color: Color(0xFF16A34A),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
-                    value: percent / 100,
+                    value: (percent.clamp(0, 100)) / 100,
                     minHeight: 6,
-                    backgroundColor: const Color(0xFFE2E8F0),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      percent == 100 ? const Color(0xFF16A34A) : const Color(0xFF0052CC),
+                    backgroundColor: const Color(0xFFDCE7F5),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF16A34A),
                     ),
                   ),
                 ),
               ],
             ),
-          )),
+          ),
 
-          // Status badge
-          Expanded(flex: 2, child: Align(
-            alignment: Alignment.centerLeft,
+          // STATUS
+          _plannerBodyCell(
+            flex: 2,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: colors['bg'], borderRadius: BorderRadius.circular(4)),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: colors['bg'],
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(
+                  color: colors['fg']!.withValues(alpha: 0.18),
+                ),
+              ),
               child: Text(
                 status.toUpperCase(),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: colors['fg'], letterSpacing: 0.4),
-              ),
-            ),
-          )),
-
-          // Active Button
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _toggleClientStatus(id, active),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? const Color(0xFFDCFCE7)
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: active
-                              ? const Color(0xFFBBF7D0)
-                              : const Color(0xFFE2E8F0),
-                        ),
-                      ),
-                      child: Text(
-                        active ? 'ACTIVE' : 'IN-ACTIVE',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: active
-                              ? const Color(0xFF16A34A)
-                              : const Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
-                  ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  color: colors['fg'],
+                  letterSpacing: 0.3,
                 ),
               ),
             ),
           ),
 
-          // ✅ CREATED BY COLUMN PLACED BETWEEN ACTIVE AND ACTIONS (Only for Main Admin)
+          // ACTIVE
+          _plannerBodyCell(
+            flex: 2,
+            child: InkWell(
+              onTap: () => _toggleClientStatus(id, active),
+              borderRadius: BorderRadius.circular(7),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: active
+                      ? const Color(0xFFE8F8EF)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(
+                    color: active
+                        ? const Color(0xFF9BE3B8)
+                        : const Color(0xFFD3DCE7),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      active
+                          ? Icons.check_circle_rounded
+                          : Icons.pause_circle_outline_rounded,
+                      size: 13,
+                      color: active
+                          ? const Color(0xFF159447)
+                          : const Color(0xFF64748B),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      active ? 'ACTIVE' : 'IN-ACTIVE',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: active
+                            ? const Color(0xFF159447)
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // CREATED BY
           if (isMainAdmin)
-            Expanded(
+            _plannerBodyCell(
               flex: 2,
               child: Text(
                 createdByName,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0052CC)),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF31506F),
+                ),
               ),
             ),
 
-          // Actions
-          Expanded(flex: 4, child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _openOnboarding(clientId: id),
-                icon: const Icon(Icons.edit_outlined, size: 14, color: Color(0xFF475569)),
-                label: const Text('', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFCBD5E1)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          // ACTIONS
+          _plannerBodyCell(
+            flex: 4,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => _openOnboarding(clientId: id),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFC9D6E6)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    padding: const EdgeInsets.all(9),
+                    minimumSize: const Size(40, 36),
+                  ),
+                  child: const Icon(
+                    Icons.edit_outlined,
+                    size: 15,
+                    color: Color(0xFF4B6079),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
- 
-              if (status == 'draft' || status == 'pending')
-                ElevatedButton(
-                  onPressed: () => _updateStatus(id, status == 'draft' ? 'pending' : 'verified'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: status == 'draft' ? const Color(0xFFD97706) : const Color(0xFF2563EB),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    status == 'draft' ? 'Mark Pending' : 'Verify',
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
-                  ),
-                )
-              else if (status == 'verified')
-                ElevatedButton(
-                  onPressed: () => _updateStatus(id, 'complete'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF16A34A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    elevation: 0,
-                  ),
-                  child: const Text('Mark Complete',
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDCFCE7),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Row(children: [
-                    Icon(Icons.check_circle, size: 14, color: Color(0xFF16A34A)),
-                    SizedBox(width: 7),
-                    Text('Done', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
-                  ]),
-                ),
+                const SizedBox(width: 7),
 
-              const SizedBox(width: 8),
+                if (status == 'draft' || status == 'pending')
+                  ElevatedButton(
+                    onPressed: () => _updateStatus(
+                      id,
+                      status == 'draft' ? 'pending' : 'verified',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: status == 'draft'
+                          ? const Color(0xFFE88900)
+                          : const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 10,
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      status == 'draft' ? 'Mark Pending' : 'Verify',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else if (status == 'verified')
+                  ElevatedButton(
+                    onPressed: () => _updateStatus(id, 'complete'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF16A34A),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 10,
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Mark Complete',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE1F7E9),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: Color(0xFF159447),
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Done',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF159447),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
-              IconButton(
-                onPressed: () => _confirmDelete(id, c['company_name'] ?? 'this client'),
-                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFDC2626)),
-                tooltip: 'Delete client',
-                style: IconButton.styleFrom(
-                  backgroundColor: const Color(0xFFFEE2E2),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  padding: const EdgeInsets.all(10),
+                const SizedBox(width: 7),
+
+                IconButton(
+                  onPressed: () => _confirmDelete(
+                    id,
+                    c['company_name'] ?? 'this client',
+                  ),
+                  tooltip: 'Delete client',
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFE5E5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    padding: const EdgeInsets.all(9),
+                  ),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    size: 18,
+                    color: Color(0xFFDC2626),
+                  ),
                 ),
-              ),
-            ],
-          )),
+              ],
+            ),
+          ),
         ],
       ),
     );

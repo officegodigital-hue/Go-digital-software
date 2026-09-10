@@ -56,14 +56,16 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
   }
 
   // Fetch all clients for the first selection page
+  // Fetch all clients for the first selection page
   Future<void> _fetchClientsList() async {
     setState(() => _loadingData = true);
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final token = authService.token;
 
+      // 🟢 CHANGE URL HERE:
       final response = await http.get(
-        Uri.parse('$_baseUrl/clients'),
+        Uri.parse('$_baseUrl/clients/all-for-credentials'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -85,6 +87,7 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     }
   }
 
+  
   // Fetch credentials for a specific client
   Future<void> _fetchCredentialsForClient(int clientId) async {
     setState(() => _loadingData = true);

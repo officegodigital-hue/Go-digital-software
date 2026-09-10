@@ -32,6 +32,38 @@ function computePercent(client, credentialCount) {
 }
 
 
+// 🟢 GET /api/clients/all-for-credentials — Fetch all active clients for credentials directory
+router.get('/all-for-credentials', authenticateToken, async (req, res) => {
+  try {
+    const [clients] = await db.query(
+      `SELECT c.*, 
+              COALESCE(eu.full_name, 'Main Admin') AS created_by_name
+       FROM clients c
+       LEFT JOIN employee_users eu ON c.created_by = eu.id
+       WHERE c.is_active = 1 OR c.is_active IS NULL
+       ORDER BY c.company_name ASC`
+    );
+
+    const [credCounts] = await db.query(
+      `SELECT client_id, COUNT(*) as cnt FROM client_credentials
+       WHERE client_id IS NOT NULL GROUP BY client_id`
+    );
+    const countMap = {};
+    credCounts.forEach(c => { countMap[c.client_id] = c.cnt; });
+
+    const data = clients.map(c => ({
+      ...c,
+      credential_count: countMap[c.id] || 0,
+      completion_percent: computePercent(c, countMap[c.id] || 0),
+    }));
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /clients/all-for-credentials ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // 🟢 1. PUT /active-list ON TOP OF /:id to prevent route hijacking
 router.get('/active-list', async (req, res) => {
   try {
@@ -569,7 +601,6 @@ router.patch('/:id/order', async (req, res) => {
     conn.release();
   }
 });
-
 
 
 

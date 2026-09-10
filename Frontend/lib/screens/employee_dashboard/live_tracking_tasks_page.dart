@@ -456,39 +456,15 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
   // HERO
   // ─────────────────────────────────────────────────────────────
 
-  Widget _buildHero(
-    bool isMobile,
-    bool isTablet,
-  ) {
-    if (isMobile) {
-      return Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          _buildHeroTitle(),
-
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(
-                child: _buildWorkingTimeCard(
-                  compact: true,
-                ),
-              ),
-              const SizedBox(width: 10),
-              _buildDateButton(compact: true),
-            ],
-          ),
-        ],
-      );
-    }
-
+Widget _buildHero(
+  bool isMobile,
+  bool isTablet,
+) {
+  // 📱 MOBILE HERO
+  if (isMobile) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(
-        isTablet ? 20 : 26,
-      ),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -499,38 +475,96 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
             Color(0xFF2879EE),
           ],
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: _primary.withValues(alpha: .18),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
+            color: _primary.withValues(alpha: .22),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _buildHeroTitle(
-              light: true,
-            ),
+          // LIVE + RADAR ICON
+          _buildHeroTitle(
+            light: true,
           ),
 
-          const SizedBox(width: 20),
+          const SizedBox(height: 18),
 
-          _buildWorkingTimeCard(
-            dark: true,
-          ),
+          // WORKING TIME + DATE
+          Row(
+            children: [
+              Expanded(
+                child: _buildWorkingTimeCard(
+                  dark: true,
+                  compact: true,
+                ),
+              ),
 
-          const SizedBox(width: 12),
+              const SizedBox(width: 10),
 
-          _buildDateButton(
-            dark: true,
+              _buildDateButton(
+                dark: true,
+                compact: true,
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+
+  // 💻 TABLET / DESKTOP HERO
+  return Container(
+    width: double.infinity,
+    padding: EdgeInsets.all(
+      isTablet ? 20 : 26,
+    ),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          _primaryDark,
+          _primary,
+          Color(0xFF2879EE),
+        ],
+      ),
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: [
+        BoxShadow(
+          color: _primary.withValues(alpha: .18),
+          blurRadius: 28,
+          offset: const Offset(0, 12),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _buildHeroTitle(
+            light: true,
+          ),
+        ),
+
+        const SizedBox(width: 20),
+
+        _buildWorkingTimeCard(
+          dark: true,
+        ),
+
+        const SizedBox(width: 12),
+
+        _buildDateButton(
+          dark: true,
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildHeroTitle({
     bool light = false,
