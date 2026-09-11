@@ -25,8 +25,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _loadRememberedUser();
   }
 
-
-
   Future<void> _loadRememberedUser() async {
     final prefs = await SharedPreferences.getInstance();
     final rememberedUser = prefs.getString('remembered_login_user');
@@ -73,8 +71,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: Center(
                         child: Container(
-                          width: constraints.maxWidth >= 1000 ? 950 : double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                          width: constraints.maxWidth >= 1000
+                              ? 950
+                              : double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 24,
+                          ),
                           child: constraints.maxWidth >= 900
                               ? _buildDesktopLayout()
                               : _buildMobileLayout(),
@@ -98,7 +101,11 @@ class _LoginScreenState extends State<LoginScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
         children: [
-          const Icon(Icons.grid_view_rounded, size: 26, color: Color(0xFF1A1A2E)),
+          const Icon(
+            Icons.grid_view_rounded,
+            size: 26,
+            color: Color(0xFF1A1A2E),
+          ),
           const SizedBox(width: 8),
           const Text(
             'GoDigital Portal',
@@ -128,9 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(
-          child: Center(child: _buildLogo(logoWidth: 280)),
-        ),
+        Expanded(child: Center(child: _buildLogo(logoWidth: 280))),
         const SizedBox(width: 40),
         SizedBox(
           width: 400,
@@ -204,10 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       child: Row(
-        children: [
-          _buildTab('Employee Login', 0),
-          _buildTab('Admin Login', 1),
-        ],
+        children: [_buildTab('Employee Login', 0), _buildTab('Admin Login', 1)],
       ),
     );
   }
@@ -223,7 +225,9 @@ class _LoginScreenState extends State<LoginScreen> {
             color: isSelected ? const Color(0xFFF0F4FF) : Colors.white,
             border: Border(
               bottom: BorderSide(
-                color: isSelected ? const Color(0xFF2A52BE) : const Color(0xFFDDDDDD),
+                color: isSelected
+                    ? const Color(0xFF2A52BE)
+                    : const Color(0xFFDDDDDD),
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -234,7 +238,9 @@ class _LoginScreenState extends State<LoginScreen> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: isSelected ? const Color(0xFF1A3A8F) : const Color(0xFF666666),
+              color: isSelected
+                  ? const Color(0xFF1A3A8F)
+                  : const Color(0xFF666666),
             ),
           ),
         ),
@@ -329,7 +335,8 @@ class _LoginScreenState extends State<LoginScreen> {
               obscureText: _obscurePassword,
               enabled: !authService.isLoading,
               suffixIcon: GestureDetector(
-                onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+                onTap: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
                 child: Icon(
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
                   size: 18,
@@ -351,7 +358,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? null
                         : (v) => setState(() => _rememberDevice = v ?? false),
                     activeColor: const Color(0xFF2A52BE),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                     side: const BorderSide(color: Color(0xFFCCCCCC)),
                   ),
                 ),
@@ -373,7 +382,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1A3A8F),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                   elevation: 0,
                   disabledBackgroundColor: Colors.grey.shade400,
                 ),
@@ -382,14 +393,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                           strokeWidth: 2,
                         ),
                       )
                     : const Text(
                         'Sign In',
                         style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
                       ),
               ),
             ),
@@ -434,7 +450,10 @@ class _LoginScreenState extends State<LoginScreen> {
     return Text(
       text,
       style: const TextStyle(
-          fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF333333)),
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF333333),
+      ),
     );
   }
 
@@ -471,7 +490,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         filled: true,
         fillColor: const Color(0xFFFAFAFA),
-        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 14,
+          horizontal: 12,
+        ),
       ),
     );
   }
@@ -551,7 +573,7 @@ class _LoginScreenState extends State<LoginScreen> {
   //   Navigator.pushReplacementNamed(context, '/home');
   // }
 
-   Future<void> _handleLogin() async {
+  Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -590,8 +612,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // All authenticated users choose their workspace before opening a module.
-      Navigator.pushReplacementNamed(context, '/home');
+      // Start a clean signed-in navigation stack.  This prevents an older
+      // login route from appearing again when employees move between the
+      // workspace and HRMS screens.
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
     }
   }
 
@@ -599,7 +623,6 @@ class _LoginScreenState extends State<LoginScreen> {
     debugPrint('Create Admin Account tapped');
   }
 }
-
 
 // import 'package:flutter/material.dart';
 // import 'package:provider/provider.dart';

@@ -3,8 +3,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-
-
 import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
@@ -47,7 +45,9 @@ class _TrackingViewState extends State<_TrackingView> {
   Timer? _waitingAlertTimer;
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
+  Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
+  bool _officeLoading = true;
   bool _homeDialogOpen = false;
   String? _homeError;
 
@@ -62,27 +62,42 @@ class _TrackingViewState extends State<_TrackingView> {
     },
   ];
 
- @override
-void initState() {
-  super.initState();
+  @override
+  void initState() {
+    super.initState();
 
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    _loadFieldSession();
-    _checkWaitingAlert();
-    _loadHomeLocation();
-  });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFieldSession();
+      _checkWaitingAlert();
+      _loadHomeLocation();
+      _loadOfficeSettings();
+    });
 
-  _waitingAlertTimer = Timer.periodic(
-    const Duration(minutes: 1),
-    (_) => _checkWaitingAlert(),
-  );
-}
+    _waitingAlertTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkWaitingAlert(),
+    );
+  }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
     _waitingAlertTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadOfficeSettings() async {
+    try {
+      final settings = await HrmsTrackingApi.trackingSettings();
+      if (!mounted) return;
+      setState(() {
+        _officeSettings = settings;
+        _officeLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _officeLoading = false);
+    }
   }
 
   Future<Position> _getCurrentPosition() async {
@@ -104,9 +119,7 @@ void initState() {
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
   }
 
@@ -147,7 +160,8 @@ void initState() {
     try {
       final session = await HrmsTrackingApi.fieldSession();
 
-      final active = session['is_active'] == 1 ||
+      final active =
+          session['is_active'] == 1 ||
           session['is_active'] == true ||
           session['isActive'] == true;
 
@@ -174,17 +188,12 @@ void initState() {
   void _startLocationTimer() {
     _locationTimer?.cancel();
 
-    _locationTimer = Timer.periodic(
-      const Duration(minutes: 15),
-      (_) {
-        _sendLocationPing(showMessage: false);
-      },
-    );
+    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      _sendLocationPing(showMessage: false);
+    });
   }
 
-  Future<void> _sendLocationPing({
-    required bool showMessage,
-  }) async {
+  Future<void> _sendLocationPing({required bool showMessage}) async {
     if (!trackingActive) return;
 
     try {
@@ -221,9 +230,7 @@ void initState() {
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              error.toString().replaceFirst('Exception: ', ''),
-            ),
+            content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );
       }
@@ -258,9 +265,9 @@ void initState() {
 
         _startLocationTimer();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Live tracking started.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
       } else {
         await HrmsTrackingApi.stopFieldSession(
           latitude: position.latitude,
@@ -285,18 +292,16 @@ void initState() {
           ];
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Live tracking stopped.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Live tracking stopped.')));
       }
     } catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            error.toString().replaceFirst('Exception: ', ''),
-          ),
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
     }
@@ -307,20 +312,32 @@ void initState() {
   }
 
   String get modeLabel => switch (mode) {
-        _WorkMode.office => 'Office',
-        _WorkMode.home => 'Home',
-        _WorkMode.field => 'Field',
-      };
+    _WorkMode.office => 'Office',
+    _WorkMode.home => 'Home',
+    _WorkMode.field => 'Field',
+  };
 
   String get address {
     if (mode == _WorkMode.office) {
-      return 'No. 14, Udhayasuriyan Nagar\nGuduvancheri, Tamil Nadu 603202';
+      if (_officeLoading) return 'Loading office location...';
+      final officeName = '${_officeSettings?['office_name'] ?? ''}'.trim();
+      final officeAddress = '${_officeSettings?['office_address'] ?? ''}'
+          .trim();
+      if (officeName.isEmpty && officeAddress.isEmpty) {
+        return 'Office location has not been configured by admin.';
+      }
+      return [
+        officeName,
+        officeAddress,
+      ].where((value) => value.isNotEmpty).join('\n');
     }
 
     if (mode == _WorkMode.home) {
       if (_homeLoading) return 'Loading home location...';
       if (_homeError != null) return _homeError!;
-      if (_homeLocation == null) return 'Register your home location for admin approval';
+      if (_homeLocation == null) {
+        return 'Register your home location for admin approval';
+      }
       final status = _homeLocation!['approval_status'];
       final description = switch (status) {
         'approved' => 'Approved home location',
@@ -360,22 +377,30 @@ void initState() {
       mode: modeLabel,
       address: address,
       color: activeColor,
-      onRefresh: mode == _WorkMode.home ? _loadHomeLocation : refreshLocation,
+      onRefresh: mode == _WorkMode.office
+          ? _loadOfficeSettings
+          : mode == _WorkMode.home
+          ? _loadHomeLocation
+          : refreshLocation,
     );
 
     final map = _RouteMap(
-  mode: mode,
-  position: _lastPosition,
-  homeLocation: _homeLocation,);
+      mode: mode,
+      position: _lastPosition,
+      homeLocation: _homeLocation,
+      officeSettings: _officeSettings,
+    );
 
     final homeAction = Align(
       alignment: Alignment.centerLeft,
       child: OutlinedButton.icon(
         onPressed: _homeDialogOpen ? null : _openHomeLocation,
         icon: const Icon(Icons.add_home_outlined),
-        label: Text(_homeLocation == null
-            ? 'Register Home Location'
-            : 'Manage Home Location'),
+        label: Text(
+          _homeLocation == null
+              ? 'Register Home Location'
+              : 'Manage Home Location',
+        ),
       ),
     );
 
@@ -450,10 +475,7 @@ void initState() {
         modes,
         const SizedBox(height: 18),
         status,
-        if (mode == _WorkMode.home) ...[
-          const SizedBox(height: 12),
-          homeAction,
-        ],
+        if (mode == _WorkMode.home) ...[const SizedBox(height: 12), homeAction],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -477,11 +499,7 @@ void initState() {
             Expanded(
               flex: 7,
               child: Column(
-                children: [
-                  map,
-                  const SizedBox(height: 14),
-                  metrics,
-                ],
+                children: [map, const SizedBox(height: 14), metrics],
               ),
             ),
             const SizedBox(width: 20),
@@ -512,101 +530,99 @@ void initState() {
       ],
     );
   }
+
   Future<void> _checkWaitingAlert() async {
-  if (_homeDialogOpen) return;
-  try {
-    final alert = await HrmsTrackingApi.waitingAlert();
+    if (_homeDialogOpen) return;
+    try {
+      final alert = await HrmsTrackingApi.waitingAlert();
 
-    debugPrint('Waiting alert response: $alert');
+      debugPrint('Waiting alert response: $alert');
 
-    if (!mounted || _homeDialogOpen || alert == null) return;
+      if (!mounted || _homeDialogOpen || alert == null) return;
 
-    final reasonId = int.tryParse('${alert['id']}');
+      final reasonId = int.tryParse('${alert['id']}');
 
-    if (reasonId == null) {
-      debugPrint('Waiting alert has no valid ID');
-      return;
+      if (reasonId == null) {
+        debugPrint('Waiting alert has no valid ID');
+        return;
+      }
+
+      await _showWaitingReasonDialog(
+        reasonId: reasonId,
+        waitingMinutes: alert['waiting_minutes'] ?? 0,
+      );
+    } catch (error) {
+      debugPrint('Waiting alert check failed: $error');
     }
-
-    await _showWaitingReasonDialog(
-      reasonId: reasonId,
-      waitingMinutes: alert['waiting_minutes'] ?? 0,
-    );
-  } catch (error) {
-    debugPrint('Waiting alert check failed: $error');
   }
-}
 
-Future<void> _showWaitingReasonDialog({
-  required int reasonId,
-  required dynamic waitingMinutes,
-}) async {
-  final controller = TextEditingController();
+  Future<void> _showWaitingReasonDialog({
+    required int reasonId,
+    required dynamic waitingMinutes,
+  }) async {
+    final controller = TextEditingController();
 
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: const Text('Field waiting reason'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'You have been at this location for $waitingMinutes minutes. '
-              'Please enter the reason for waiting.',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Reason for waiting',
-                border: OutlineInputBorder(),
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Field waiting reason'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'You have been at this location for $waitingMinutes minutes. '
+                'Please enter the reason for waiting.',
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for waiting',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                final reason = controller.text.trim();
+
+                if (reason.isEmpty) return;
+
+                try {
+                  await HrmsTrackingApi.submitWaitingReason(
+                    reasonId: reasonId,
+                    reason: reason,
+                  );
+
+                  if (mounted) {
+                    Navigator.of(context, rootNavigator: true).pop();
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Waiting reason submitted')),
+                    );
+                  }
+                } catch (error) {
+                  debugPrint('Waiting reason submit failed: $error');
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                }
+              },
+              child: const Text('Submit'),
             ),
           ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () async {
-              final reason = controller.text.trim();
-
-              if (reason.isEmpty) return;
-
-              try {
-                await HrmsTrackingApi.submitWaitingReason(
-                  reasonId: reasonId,
-                  reason: reason,
-                );
-
-                if (mounted) {
-  Navigator.of(context, rootNavigator: true).pop();
-}
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Waiting reason submitted'),
-                    ),
-                  );
-                }
-              } catch (error) {
-                debugPrint('Waiting reason submit failed: $error');
-                if (mounted) {
-                  
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(error.toString())),
-                  );
-                }
-              }
-            },
-            child: const Text('Submit'),
-          ),
-        ],
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 }
 
 class _RouteHistoryView extends StatelessWidget {
@@ -615,28 +631,51 @@ class _RouteHistoryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final history = const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Recent Routes',
+    final history = const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recent Routes',
           style: TextStyle(
-              color: employeeNavy, fontSize: 20, fontWeight: FontWeight.w800)),
-      SizedBox(height: 12),
-      _RouteHistoryCard(
-          'Today', 'Sector 62 → Sector 63 → Sector 62', '18.6 km', '01h 48m'),
-      SizedBox(height: 12),
-      _RouteHistoryCard('22 Aug 2026',
-          'Noida Office → Sector 18 → Noida Office', '12.4 km', '01h 12m'),
-      SizedBox(height: 12),
-      _RouteHistoryCard(
-          '21 Aug 2026', 'Noida Office → Greater Noida', '24.1 km', '02h 06m'),
-    ]);
+            color: employeeNavy,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          'Today',
+          'Sector 62 → Sector 63 → Sector 62',
+          '18.6 km',
+          '01h 48m',
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          '22 Aug 2026',
+          'Noida Office → Sector 18 → Noida Office',
+          '12.4 km',
+          '01h 12m',
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          '21 Aug 2026',
+          'Noida Office → Greater Noida',
+          '24.1 km',
+          '02h 06m',
+        ),
+      ],
+    );
     return mobile
-        ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const MobileEmployeeHeader(),
-            const SizedBox(height: 14),
-            const EmployeePageTitle(title: 'Route History'),
-            const SizedBox(height: 20),
-            history
-          ])
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const MobileEmployeeHeader(),
+              const SizedBox(height: 14),
+              const EmployeePageTitle(title: 'Route History'),
+              const SizedBox(height: 20),
+              history,
+            ],
+          )
         : history;
   }
 }
@@ -647,40 +686,58 @@ class _RouteHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(18),
-        child: Row(children: [
-          Container(
-            width: 43,
-            height: 43,
-            decoration: BoxDecoration(
-                color: const Color(0xFFE9F7F7),
-                borderRadius: BorderRadius.circular(11)),
-            child: const Icon(Icons.route_outlined, color: Color(0xFF079B9B)),
+    padding: const EdgeInsets.all(18),
+    child: Row(
+      children: [
+        Container(
+          width: 43,
+          height: 43,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE9F7F7),
+            borderRadius: BorderRadius.circular(11),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(date,
-                    style: const TextStyle(
-                        color: employeeNavy, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 5),
-                Text(route,
-                    style: const TextStyle(color: employeeMuted, fontSize: 13)),
-              ],
-            ),
-          ),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(distance,
+          child: const Icon(Icons.route_outlined, color: Color(0xFF079B9B)),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                date,
                 style: const TextStyle(
-                    color: employeeNavy, fontWeight: FontWeight.w700)),
+                  color: employeeNavy,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                route,
+                style: const TextStyle(color: employeeMuted, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              distance,
+              style: const TextStyle(
+                color: employeeNavy,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 5),
-            Text(duration,
-                style: const TextStyle(color: employeeMuted, fontSize: 12)),
-          ]),
-        ]),
-      );
+            Text(
+              duration,
+              style: const TextStyle(color: employeeMuted, fontSize: 12),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _ModeTabs extends StatelessWidget {
@@ -689,28 +746,30 @@ class _ModeTabs extends StatelessWidget {
   final ValueChanged<_WorkMode> onChanged;
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-        _ModeTab(
-          icon: Icons.business_outlined,
-          label: 'Office',
-          active: selected == _WorkMode.office,
-          onTap: () => onChanged(_WorkMode.office),
-        ),
-        const SizedBox(width: 8),
-        _ModeTab(
-          icon: Icons.home_outlined,
-          label: 'Home',
-          active: selected == _WorkMode.home,
-          onTap: () => onChanged(_WorkMode.home),
-        ),
-        const SizedBox(width: 8),
-        _ModeTab(
-          icon: Icons.person_outline_rounded,
-          label: 'Field',
-          active: selected == _WorkMode.field,
-          onTap: () => onChanged(_WorkMode.field),
-        ),
-      ]);
+  Widget build(BuildContext context) => Row(
+    children: [
+      _ModeTab(
+        icon: Icons.business_outlined,
+        label: 'Office',
+        active: selected == _WorkMode.office,
+        onTap: () => onChanged(_WorkMode.office),
+      ),
+      const SizedBox(width: 8),
+      _ModeTab(
+        icon: Icons.home_outlined,
+        label: 'Home',
+        active: selected == _WorkMode.home,
+        onTap: () => onChanged(_WorkMode.home),
+      ),
+      const SizedBox(width: 8),
+      _ModeTab(
+        icon: Icons.person_outline_rounded,
+        label: 'Field',
+        active: selected == _WorkMode.field,
+        onTap: () => onChanged(_WorkMode.field),
+      ),
+    ],
+  );
 }
 
 class _ModeTab extends StatelessWidget {
@@ -727,32 +786,41 @@ class _ModeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-        child: Material(
-          color: active ? employeeGreen : Colors.white,
-          borderRadius: BorderRadius.circular(11),
-          child: InkWell(
-            onTap: onTap,
+    child: Material(
+      color: active ? employeeGreen : Colors.white,
+      borderRadius: BorderRadius.circular(11),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            border: Border.all(color: active ? employeeGreen : employeeLine),
             borderRadius: BorderRadius.circular(11),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                border: Border.all(color: active ? employeeGreen : employeeLine),
-                borderRadius: BorderRadius.circular(11),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: active ? Colors.white : employeeMuted,
+                size: 25,
               ),
-              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(icon,
-                    color: active ? Colors.white : employeeMuted, size: 25),
-                const SizedBox(width: 7),
-                Text(label,
-                    style: TextStyle(
-                        color: active ? Colors.white : employeeNavy,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700)),
-              ]),
-            ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: active ? Colors.white : employeeNavy,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class _CurrentStatusCard extends StatelessWidget {
@@ -769,48 +837,74 @@ class _CurrentStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(18),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Text('Current Status',
-                style: TextStyle(
-                    color: employeeNavy,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800)),
+    padding: const EdgeInsets.all(18),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Current Status',
+              style: TextStyle(
+                color: employeeNavy,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(width: 12),
             CircleAvatar(radius: 5, backgroundColor: color),
             const SizedBox(width: 7),
-            Text(mode,
-                style: TextStyle(
-                    color: color, fontSize: 18, fontWeight: FontWeight.w700)),
+            Text(
+              mode,
+              style: TextStyle(
+                color: color,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const Spacer(),
-            const Text('Since 09:20 AM',
-                style: TextStyle(color: employeeMuted, fontSize: 13)),
-          ]),
-          const SizedBox(height: 22),
-          Row(children: [
-            const Icon(Icons.location_on_outlined,
-                color: employeeMuted, size: 30),
+            const Text(
+              'Since 09:20 AM',
+              style: TextStyle(color: employeeMuted, fontSize: 13),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            const Icon(
+              Icons.location_on_outlined,
+              color: employeeMuted,
+              size: 30,
+            ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(address,
-                  style: const TextStyle(color: employeeMuted, height: 1.4)),
+              child: Text(
+                address,
+                style: const TextStyle(color: employeeMuted, height: 1.4),
+              ),
             ),
             IconButton.outlined(
               tooltip: 'Refresh live location',
               onPressed: onRefresh,
-              icon: const Icon(Icons.refresh_rounded,
-                  color: employeeBlue, size: 27),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                color: employeeBlue,
+                size: 27,
+              ),
               style: IconButton.styleFrom(
                 padding: const EdgeInsets.all(11),
                 side: const BorderSide(color: employeeLine),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
-          ]),
-        ]),
-      );
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _RouteMap extends StatelessWidget {
@@ -818,16 +912,13 @@ class _RouteMap extends StatelessWidget {
     required this.mode,
     required this.position,
     this.homeLocation,
+    this.officeSettings,
   });
 
   final _WorkMode mode;
   final Position? position;
   final Map<String, dynamic>? homeLocation;
-
-  static const _officePoint = LatLng(
-    12.8542438,
-    80.0699862,
-  );
+  final Map<String, dynamic>? officeSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -840,25 +931,33 @@ class _RouteMap extends StatelessWidget {
     final homePoint = homeLat != null && homeLng != null
         ? LatLng(homeLat, homeLng)
         : null;
+    final officeLat = double.tryParse('${officeSettings?['office_latitude']}');
+    final officeLng = double.tryParse('${officeSettings?['office_longitude']}');
+    final officePoint = officeLat != null && officeLng != null
+        ? LatLng(officeLat, officeLng)
+        : const LatLng(20.5937, 78.9629);
+    final officeName = '${officeSettings?['office_name'] ?? 'Office'}';
 
     final center = mode == _WorkMode.field && livePoint != null
         ? livePoint
         : mode == _WorkMode.home && homePoint != null
-            ? homePoint
-            : _officePoint;
+        ? homePoint
+        : officePoint;
 
     final markerColor = mode == _WorkMode.field
         ? BitmapDescriptor.hueRed
         : mode == _WorkMode.home
-            ? BitmapDescriptor.hueGreen
-            : BitmapDescriptor.hueAzure;
+        ? BitmapDescriptor.hueGreen
+        : BitmapDescriptor.hueAzure;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: AspectRatio(
         aspectRatio: 1.95,
         child: GoogleMap(
-          key: ValueKey('tracking-map-${mode.name}-${homePoint?.latitude}-${homePoint?.longitude}'),
+          key: ValueKey(
+            'tracking-map-${mode.name}-${officePoint.latitude}-${officePoint.longitude}-${homePoint?.latitude}-${homePoint?.longitude}',
+          ),
           initialCameraPosition: CameraPosition(
             target: center,
             zoom: mode == _WorkMode.field && livePoint != null ? 16 : 15,
@@ -867,8 +966,8 @@ class _RouteMap extends StatelessWidget {
           markers: {
             Marker(
               markerId: const MarkerId('office'),
-              position: _officePoint,
-              infoWindow: const InfoWindow(title: 'Go Digital Office'),
+              position: officePoint,
+              infoWindow: InfoWindow(title: officeName),
               icon: BitmapDescriptor.defaultMarkerWithHue(
                 BitmapDescriptor.hueAzure,
               ),
@@ -912,24 +1011,38 @@ class _TripMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
-        child: Row(children: [
-          Expanded(
-            child: _TripMetric(
-                Icons.route_outlined, 'Distance Travelled', distance, employeeGreen),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+    child: Row(
+      children: [
+        Expanded(
+          child: _TripMetric(
+            Icons.route_outlined,
+            'Distance Travelled',
+            distance,
+            employeeGreen,
           ),
-          const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
-          Expanded(
-            child: _TripMetric(
-                Icons.schedule_rounded, 'Duration', duration, employeeBlue),
+        ),
+        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
+        Expanded(
+          child: _TripMetric(
+            Icons.schedule_rounded,
+            'Duration',
+            duration,
+            employeeBlue,
           ),
-          const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
-          Expanded(
-            child: _TripMetric(
-                Icons.speed_rounded, 'Avg Speed', avgSpeed, employeeGreen),
+        ),
+        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
+        Expanded(
+          child: _TripMetric(
+            Icons.speed_rounded,
+            'Avg Speed',
+            avgSpeed,
+            employeeGreen,
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }
 
 class _TripMetric extends StatelessWidget {
@@ -940,21 +1053,28 @@ class _TripMetric extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        Icon(icon, color: color, size: 27),
-        const SizedBox(height: 7),
-        Text(label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: employeeMuted, fontSize: 10)),
-        const SizedBox(height: 4),
-        Text(value,
-            maxLines: 1,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                color: employeeNavy,
-                fontSize: 17,
-                fontWeight: FontWeight.w800)),
-      ]);
+  Widget build(BuildContext context) => Column(
+    children: [
+      Icon(icon, color: color, size: 27),
+      const SizedBox(height: 7),
+      Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: employeeMuted, fontSize: 10),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        value,
+        maxLines: 1,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: employeeNavy,
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ],
+  );
 }
 
 class _ActivityTimeline extends StatelessWidget {
@@ -963,24 +1083,24 @@ class _ActivityTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: activities.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final item = entry.value;
-            final timeStr = item['activity_time']?.toString() ?? '--:--';
-            final textStr = item['activity_text']?.toString() ?? '';
-            final isLast = idx == activities.length - 1;
+    padding: const EdgeInsets.all(18),
+    child: Column(
+      children: activities.asMap().entries.map((entry) {
+        final idx = entry.key;
+        final item = entry.value;
+        final timeStr = item['activity_time']?.toString() ?? '--:--';
+        final textStr = item['activity_text']?.toString() ?? '';
+        final isLast = idx == activities.length - 1;
 
-            return Column(
-              children: [
-                _TimelineRow(timeStr, textStr),
-                if (!isLast) const Divider(indent: 42, color: employeeLine),
-              ],
-            );
-          }).toList(),
-        ),
-      );
+        return Column(
+          children: [
+            _TimelineRow(timeStr, textStr),
+            if (!isLast) const Divider(indent: 42, color: employeeLine),
+          ],
+        );
+      }).toList(),
+    ),
+  );
 }
 
 class _TimelineRow extends StatelessWidget {
@@ -990,25 +1110,31 @@ class _TimelineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(children: [
-          const CircleAvatar(
-            radius: 14,
-            backgroundColor: employeeGreen,
-            child: Icon(Icons.check, color: Colors.white, size: 16),
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Row(
+      children: [
+        const CircleAvatar(
+          radius: 14,
+          backgroundColor: employeeGreen,
+          child: Icon(Icons.check, color: Colors.white, size: 16),
+        ),
+        const SizedBox(width: 14),
+        SizedBox(
+          width: 78,
+          child: Text(
+            time,
+            style: const TextStyle(
+              color: employeeNavy,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(width: 14),
-          SizedBox(
-            width: 78,
-            child: Text(time,
-                style: const TextStyle(
-                    color: employeeNavy, fontWeight: FontWeight.w700)),
-          ),
-          Expanded(
-            child: Text(label, style: const TextStyle(color: employeeMuted)),
-          ),
-        ]),
-      );
+        ),
+        Expanded(
+          child: Text(label, style: const TextStyle(color: employeeMuted)),
+        ),
+      ],
+    ),
+  );
 }
 
 class _LiveTrackingControl extends StatelessWidget {
@@ -1018,38 +1144,39 @@ class _LiveTrackingControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFFEAF9F4) : const Color(0xFFF5F7FB),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: active ? const Color(0xFFCAEDE1) : employeeLine,
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: active ? const Color(0xFFEAF9F4) : const Color(0xFFF5F7FB),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: active ? const Color(0xFFCAEDE1) : employeeLine,
+      ),
+    ),
+    child: Column(
+      children: [
+        Text(
+          active ? '●  Live tracking active' : 'Live tracking is off',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: active ? employeeGreen : employeeMuted,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        child: Column(children: [
-          Text(
-            active ? '●  Live tracking active' : 'Live tracking is off',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: active ? employeeGreen : employeeMuted,
-              fontWeight: FontWeight.w700,
-            ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: onToggle,
+          icon: Icon(
+            active ? Icons.stop_circle_outlined : Icons.play_circle_outline,
           ),
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: onToggle,
-            icon: Icon(
-              active ? Icons.stop_circle_outlined : Icons.play_circle_outline,
-            ),
-            label: Text(active ? 'Stop Live Tracking' : 'Start Live Tracking'),
-            style: FilledButton.styleFrom(
-              backgroundColor:
-                  active ? const Color(0xFFD84343) : employeeGreen,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            ),
+          label: Text(active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          style: FilledButton.styleFrom(
+            backgroundColor: active ? const Color(0xFFD84343) : employeeGreen,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }

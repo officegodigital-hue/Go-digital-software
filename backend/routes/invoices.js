@@ -605,6 +605,7 @@ router.get(
           i.id,
           i.invoice_no,
           i.client_name,
+          c.contact_person,
           i.invoice_date,
           i.maintenance_date,
           i.include_gst,
@@ -638,6 +639,9 @@ router.get(
 
         LEFT JOIN employee_users eu
           ON i.created_by = eu.id
+
+        LEFT JOIN clients c 
+          ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name)) 
 
         WHERE 1 = 1
       `;
@@ -801,6 +805,7 @@ router.get(
           i.id,
           i.invoice_no,
           i.client_name,
+          c.contact_person,
           i.invoice_date,
           i.maintenance_date,
           i.include_gst,
@@ -839,6 +844,9 @@ router.get(
 
         LEFT JOIN employee_users eu
           ON i.created_by = eu.id
+
+        LEFT JOIN clients c 
+          ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name)) 
 
         WHERE 1 = 1
       `;

@@ -22,7 +22,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   String activeFilter = "All Logs";
   bool _isFilterMenuOpen = false;
 
-  // 🟢 1. Default month set to 0 to show "All Months" data by default
   int _selectedMonth = 0; 
   final int _selectedYear = DateTime.now().year;
 
@@ -42,14 +41,14 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   static const int _invoicesPerPage = 999;
   int _currentPage = 1;
 
-static const Map<String, Color> _statusBg = {
+  static const Map<String, Color> _statusBg = {
     'DRAFT':   Color(0xFFF1F5F9),
-    'PENDING': Color(0xFFFEF3C7), // Replaced PARTIAL/OVERDUE key with PENDING
+    'PENDING': Color(0xFFFEF3C7),
     'PAID':    Color(0xFFDCFCE7),
   };
   static const Map<String, Color> _statusText = {
     'DRAFT':   Color(0xFF475569),
-    'PENDING': Color(0xFFD97706), // Replaced PARTIAL/OVERDUE key with PENDING
+    'PENDING': Color(0xFFD97706),
     'PAID':    Color(0xFF16A34A),
   };
 
@@ -211,7 +210,7 @@ static const Map<String, Color> _statusBg = {
   }
 
   bool _isInSelectedMonth(String invoiceDate) {
-    if (_selectedMonth == 0) return true; // Show all months when 0 is selected
+    if (_selectedMonth == 0) return true;
     try {
       final date = DateFormat('dd/MM/yyyy').parse(invoiceDate);
       return date.month == _selectedMonth && date.year == _selectedYear;
@@ -220,8 +219,7 @@ static const Map<String, Color> _statusBg = {
     }
   }
 
-  // 🟢 2. CUSTOM SORTING & FILTERING LOGIC (Draft -> Partial -> Paid, and Date-wise Newest First)
-List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
+  List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
         return false;
@@ -240,7 +238,6 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
       
-      // Normalize raw status from DB
       String rawStatus = (row["status"] ?? 'DRAFT').toString().toUpperCase();
       if (rawStatus == 'PARTIAL' || rawStatus == 'OVERDUE') {
         rawStatus = 'PENDING';
@@ -260,7 +257,6 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
       if (statusA == 'PARTIAL' || statusA == 'OVERDUE') statusA = 'PENDING';
       if (statusB == 'PARTIAL' || statusB == 'OVERDUE') statusB = 'PENDING';
       
-      // Priority: DRAFT (1) -> PENDING (2) -> PAID (3)
       int getPriority(String status) {
         if (status == 'DRAFT') return 1;
         if (status == 'PENDING') return 2;
@@ -275,7 +271,6 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
         return pA.compareTo(pB);
       }
       
-      // Date-wise: Newest data on top (Descending)
       try {
         final dateA = DateFormat('dd/MM/yyyy').parse(a['invoice_date'] ?? '');
         final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
@@ -290,7 +285,6 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
 
     return filtered;
   }
-
 
   String _formatCurrency(double v) {
     final isNegative = v < 0;
@@ -312,10 +306,6 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     return '${isNegative ? '-' : ''}₹$result.${parts[1]}';
   }
 
-  // ============================================================
-  // EXPORT TO CSV — exports every column shown in the table,
-  // S.No through Status, for the currently filtered invoice list.
-  // ============================================================
   Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
     final invoices = _getFilteredAndSortedInvoices();
 
@@ -339,6 +329,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
       'Invoice Date',
       'Invoice No',
       'Client Name',
+      'Phone No',
       'Package Details',
       'Maintenance Date',
       'Total Amount',
@@ -356,6 +347,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
 
       final invNo = (row['invoice_no'] ?? '').toString();
       final client = (row['client_name'] ?? '').toString();
+      final phone = (row['contact_person'] ?? '').toString();
       final type = (row['package_type'] ?? '-').toString();
       final invoiceDate = (row['invoice_date'] ?? '').toString();
       final maintenanceDate = (row['maintenance_date'] ?? '').toString();
@@ -374,6 +366,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
         invoiceDate,
         invNo,
         client,
+        phone,
         type,
         maintenanceDate,
         total.toStringAsFixed(2),
@@ -389,13 +382,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     final fileName = 'Invoices_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
 
     try {
-      // Prepend a UTF-8 BOM so Excel opens the file with correct encoding
-      // (important for the ₹ symbol / non-ASCII characters, if any).
       final csvBytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(buffer.toString())];
-
-      // ✅ Platform-aware save: on Flutter Web this triggers a real browser
-      // download straight into the PC's Downloads folder. On mobile/desktop
-      // it writes a temp file and opens the native share/save sheet.
       await saveAndShareCsv(csvBytes, fileName);
 
       if (mounted) {
@@ -1349,7 +1336,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
         if (_isFilterMenuOpen) ...[
           _buildFilterTab("All Logs"),
           _buildFilterTab("Draft"),
-          _buildFilterTab("Pending"), // 🟢 Replaced Partial/Overdue with Pending
+          _buildFilterTab("Pending"),
           _buildFilterTab("Paid"),
         ],
         InkWell(
@@ -1457,7 +1444,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     int startIndex,
     bool isMainAdmin,
   ) {
-    const double tableMinWidth = 1600;
+    const double tableMinWidth = 1750;
 
     return Scrollbar(
       controller: _horizontalController,
@@ -1474,33 +1461,32 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
             children: [
               Container(
                 height: 48,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                color: const Color(0xFFF8FAFC),
+                padding: EdgeInsets.zero,
+                color: const Color(0xFF0759D4),
                 child: Row(
                   children: [
-                    const Expanded(flex: 1, child: Text("S.NO", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("INVOICE DATE", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("INVOICE NO", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("CLIENT NAME", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("PACKAGE DETAILS", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("MAINTENANCE DATE", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("TOTAL AMOUNT", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("PAID AMOUNT", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("PENDING AMOUNT", style: _tableHeadingStyle)),
-                    const Expanded(flex: 2, child: Text("STATUS", style: _tableHeadingStyle)),
+                    _invoiceHeaderCell(label: "S.NO", flex: 1),
+                    _invoiceHeaderCell(label: "INVOICE DATE", flex: 2),
+                    _invoiceHeaderCell(label: "INVOICE NO", flex: 2),
+                    _invoiceHeaderCell(label: "CLIENT NAME", flex: 3),
+                    _invoiceHeaderCell(label: "PHONE NO", flex: 2),
+                    _invoiceHeaderCell(label: "PACKAGE DETAILS", flex: 3),
+                    _invoiceHeaderCell(label: "MAINTENANCE DATE", flex: 2),
+                    _invoiceHeaderCell(label: "TOTAL AMOUNT", flex: 2),
+                    _invoiceHeaderCell(label: "PAID AMOUNT", flex: 2),
+                    _invoiceHeaderCell(label: "PENDING AMOUNT", flex: 2),
+                    _invoiceHeaderCell(label: "STATUS", flex: 2),
                     if (isMainAdmin)
-                      const Expanded(flex: 2, child: Text("CREATED BY", style: _tableHeadingStyle)),
-                    const Expanded(
+                      _invoiceHeaderCell(label: "CREATED BY", flex: 2),
+                    _invoiceHeaderCell(
+                      label: "ACTION",
                       flex: 3,
-                      child: Align(
-                        alignment: Alignment.center,
-                        child: Text("ACTION", style: _tableHeadingStyle),
-                      ),
+                      alignment: Alignment.centerRight,
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              const Divider(height: 1, color: Color(0xFFD7E2F2)),
               SizedBox(
                 height: 460,
                 child: Scrollbar(
@@ -1513,7 +1499,7 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
                     primary: false,
                     physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                     itemCount: invoices.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                    separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFD7E2F2)),
                     itemBuilder: (context, index) => _buildInvoiceHistoryRow(invoices[index], isMainAdmin),
                   ),
                 ),
@@ -1521,6 +1507,61 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _invoiceHeaderCell({
+    required String label,
+    required int flex,
+    Alignment alignment = Alignment.centerLeft,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: alignment,
+        decoration: const BoxDecoration(
+          color: Color(0xFF0759D4),
+          border: Border(
+            left: BorderSide(color: Color(0xFF4B83E3), width: 1),
+            right: BorderSide(color: Color(0xFF4B83E3), width: 1),
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _invoiceBodyCell({
+    required int flex,
+    required Widget child,
+    Alignment alignment = Alignment.centerLeft,
+    EdgeInsetsGeometry padding = const EdgeInsets.symmetric(horizontal: 12),
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: double.infinity,
+        padding: padding,
+        alignment: alignment,
+        decoration: const BoxDecoration(
+          border: Border(
+            left: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+            right: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+          ),
+        ),
+        child: child,
       ),
     );
   }
@@ -1784,20 +1825,20 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
     final int id = row["id"];
     final String invNo = row["invoice_no"] ?? '';
     final String client = row["client_name"] ?? '';
+    final String phone = row["contact_person"] ?? '';
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
     final String maintenanceDate = row["maintenance_date"] ?? '';
     final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
     final String amount = _formatCurrency(total);
-    // 🟢 Changed from final String status to mutable String status
+
     String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
-    if (status == 'PARTIAL' || status == 'OVERDUE') {
-      status = 'PENDING';
-    }
+    if (status == 'PARTIAL' || status == 'OVERDUE') status = 'PENDING';
+
     final String linkedQuotNo = row["linked_quotation_no"] ?? '';
     final int? linkedQuotId = row["linked_quotation_id"];
     final String createdByName = row["created_by_name"] ?? 'Main Admin';
-    
+
     final double paid = double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
     final double pending = double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
 
@@ -1806,123 +1847,64 @@ List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
 
     return Container(
       height: 65,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Row(
         children: [
-          Expanded(
-            flex: 1,
-            child: Text(id.toString(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569))),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(invoiceDate, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
+          _invoiceBodyCell(flex: 1, child: Text(id.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
+          _invoiceBodyCell(flex: 2, child: Text(invoiceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+          _invoiceBodyCell(
             flex: 2,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(invNo, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0052CC))),
+                Text(invNo, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF0052CC))),
                 if (linkedQuotNo.isNotEmpty)
-                  GestureDetector(
-                    onTap: linkedQuotId != null
-                        ? () => Navigator.pushNamed(context, '/create-quotation', arguments: {'quotationId': linkedQuotId, 'viewOnly': true})
-                        : null,
-                    child: Text('↗ $linkedQuotNo', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
-                  ),
+                  Text('↗ $linkedQuotNo', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
               ],
             ),
           ),
-          Expanded(
+          _invoiceBodyCell(flex: 3, child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
+          _invoiceBodyCell(
             flex: 2,
-            child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+            child: Text(
+              phone.isEmpty ? '—' : phone,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+            ),
           ),
-          Expanded(
+          _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+          _invoiceBodyCell(flex: 2, child: Text(maintenanceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+          _invoiceBodyCell(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF172033)))),
+          _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(paid), style: const TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.w700))),
+          _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(pending), style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626), fontWeight: FontWeight.w700))),
+          _invoiceBodyCell(
             flex: 2,
-            child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(maintenanceDate, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(amount, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF172033))),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(_formatCurrency(paid), style: const TextStyle(fontSize: 10, color: Color(0xFF16A34A), fontWeight: FontWeight.w700)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(_formatCurrency(pending), style: const TextStyle(fontSize: 10, color: Color(0xFFDC2626), fontWeight: FontWeight.w700)),
-          ),
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
-                child: Text(status, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: statusText)),
-              ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
+              child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: statusText)),
             ),
           ),
           if (isMainAdmin)
-            Expanded(
-              flex: 2,
-              child: Text(createdByName, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
-            ),
-          Expanded(
+            _invoiceBodyCell(flex: 2, child: Text(createdByName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0052CC)))),
+          _invoiceBodyCell(
             flex: 3,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _desktopActionIcon(
-                    icon: Icons.picture_as_pdf_outlined,
-                    color: const Color(0xFFDC2626),
-                    tooltip: 'PDF Preview',
-                    onTap: () => _showPDFPreview(context, row),
-                  ),
-                  _desktopActionIcon(
-                    icon: Icons.visibility_outlined,
-                    color: const Color(0xFF475569),
-                    tooltip: 'View',
-                    onTap: () async {
-                      await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': true});
-                      _fetchInvoices();
-                      _fetchMetrics();
-                    },
-                  ),
-                  _desktopActionIcon(
-                    icon: Icons.edit_outlined,
-                    color: const Color(0xFF0052CC),
-                    tooltip: 'Edit',
-                    onTap: () async {
-                      await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': false});
-                      _fetchInvoices();
-                      _fetchMetrics();
-                    },
-                  ),
-                  _desktopActionIcon(
-                    icon: Icons.delete_outline_rounded,
-                    color: const Color(0xFFDC2626),
-                    tooltip: 'Delete',
-                    onTap: () => _deleteInvoice(id),
-                  ),
-                ],
-              ),
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _desktopActionIcon(icon: Icons.picture_as_pdf_outlined, color: const Color(0xFFDC2626), tooltip: 'PDF Preview', onTap: () => _showPDFPreview(context, row)),
+                _desktopActionIcon(icon: Icons.visibility_outlined, color: const Color(0xFF475569), tooltip: 'View', onTap: () async { await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': true}); _fetchInvoices(); _fetchMetrics(); }),
+                _desktopActionIcon(icon: Icons.edit_outlined, color: const Color(0xFF0052CC), tooltip: 'Edit', onTap: () async { await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': false}); _fetchInvoices(); _fetchMetrics(); }),
+                _desktopActionIcon(icon: Icons.delete_outline_rounded, color: const Color(0xFFDC2626), tooltip: 'Delete', onTap: () => _deleteInvoice(id)),
+              ],
             ),
           ),
         ],
       ),
     );
   }
-
-
 
   Widget _desktopActionIcon({required IconData icon, required Color color, required String tooltip, required VoidCallback onTap}) {
     return Tooltip(

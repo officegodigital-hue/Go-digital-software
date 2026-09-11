@@ -587,6 +587,10 @@ async function updateTrackingSettings(req, res) {
       !officeAddress ||
       !Number.isFinite(officeLatitude) ||
       !Number.isFinite(officeLongitude) ||
+      officeLatitude < -90 ||
+      officeLatitude > 90 ||
+      officeLongitude < -180 ||
+      officeLongitude > 180 ||
       officeRadiusMeters < 1 ||
       fieldPingIntervalMinutes < 1 ||
       fieldWaitingMinutes < 1 ||

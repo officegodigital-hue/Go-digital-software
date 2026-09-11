@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_config.dart';
 import '../../services/attendance_location.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_storage.dart';
 import '../shared/employee_ui.dart';
 
 /// Attendance on the employee home screen. Other modules retain their own state.
@@ -49,7 +50,13 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final token = context.watch<AuthService>().token;
+    final auth = context.watch<AuthService>();
+    // Wait for the persisted session to finish loading. Without this guard,
+    // the first attendance render could mistake a still-loading session for a
+    // logged-out employee.
+    if (!auth.isInitialized) return;
+
+    final token = auth.token;
     if (_token != token || (_loading && _request == 0)) {
       _token = token;
       _data = null;
@@ -85,7 +92,11 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     };
     final response =
         await (post
-                ? _client.post(url, headers: headers, body: jsonEncode(payload ?? {}))
+                ? _client.post(
+                    url,
+                    headers: headers,
+                    body: jsonEncode(payload ?? {}),
+                  )
                 : _client.get(url, headers: headers))
             .timeout(const Duration(seconds: 15));
     if (response.statusCode == 401) {
@@ -110,13 +121,22 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   String _message(Object error) => error is _AttendanceError
       ? error.message
       : error is AttendanceLocationError
-          ? error.message
-          : 'Could not reach attendance. Check your connection and retry.';
+      ? error.message
+      : 'Could not reach attendance. Check your connection and retry.';
 
   Future<void> _load() async {
-    final token = _token;
+    var token = _token;
     final request = ++_request;
     if (token == null || token.isEmpty) {
+      // The session token is written during login. Read the persisted value
+      // once as a fallback before showing a sign-in error.
+      token = await AuthStorage.getString('auth_token');
+      if (token != null && token.isNotEmpty) {
+        _token = token;
+      }
+    }
+    if (token == null || token.isEmpty) {
+      if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
         _data = null;
@@ -152,10 +172,19 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     setState(() => _punching = true);
     String message;
     try {
-      final payload = clockOut ? <String, dynamic>{}
-          : await AttendanceLocation.checkInPayload(client: _client, token: token);
+      final payload = clockOut
+          ? <String, dynamic>{}
+          : await AttendanceLocation.checkInPayload(
+              client: _client,
+              token: token,
+            );
       if (!mounted || token != _token) return;
-      await _call(clockOut ? 'clock-out' : 'clock-in', token, post: true, payload: payload);
+      await _call(
+        clockOut ? 'clock-out' : 'clock-in',
+        token,
+        post: true,
+        payload: payload,
+      );
       message = clockOut
           ? 'You have been clocked out.'
           : 'You are now checked in.';
@@ -218,8 +247,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final today = DateTime.parse(data['date'] as String);
     final overnight = session != null && session['work_date'] != data['date'];
 
-    final punchInDisplay = _formatPunchTime(session?['punch_in'] ?? session?['clock_in'] ?? session?['check_in']);
-    final punchOutDisplay = _formatPunchTime(session?['punch_out'] ?? session?['clock_out'] ?? session?['check_out']);
+    final punchInDisplay = _formatPunchTime(
+      session?['punch_in'] ?? session?['clock_in'] ?? session?['check_in'],
+    );
+    final punchOutDisplay = _formatPunchTime(
+      session?['punch_out'] ?? session?['clock_out'] ?? session?['check_out'],
+    );
 
     final workday = EmployeeCard(
       child: Column(
@@ -412,12 +445,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
               OutlinedButton(
                 onPressed:
                     _loading ||
-                            _punching ||
-                            _error != null ||
-                            !(actions['can_clock_in'] == true ||
-                                actions['can_clock_out'] == true)
-                        ? null
-                        : _punch,
+                        _punching ||
+                        _error != null ||
+                        !(actions['can_clock_in'] == true ||
+                            actions['can_clock_out'] == true)
+                    ? null
+                    : _punch,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   disabledForegroundColor: Colors.white70,

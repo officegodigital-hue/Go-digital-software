@@ -8,6 +8,23 @@ import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import '../shared/employee_ui.dart';
 
+List<String> _attendanceBaseUrls() {
+  final configured = ApiConfig.baseUrl;
+
+  // On a deployed web app, localhost points to the employee's computer, not
+  // the HRMS server. Use the same-origin API immediately in production.
+  if (configured.startsWith('/')) {
+    return ['$configured/attendance'];
+  }
+
+  final urls = <String>['$configured/attendance'];
+  if (configured.contains(':5000')) {
+    urls.add('${configured.replaceAll(':5000', ':3101')}/attendance');
+  }
+  urls.add('http://localhost:3101/attendance');
+  return urls.toSet().toList();
+}
+
 class EmployeeLeavePage extends StatefulWidget {
   const EmployeeLeavePage({super.key});
 
@@ -28,31 +45,35 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
   }
 
   List<String> _getBaseUrls() {
-    final configured = ApiConfig.baseUrl;
-    final fallbackPort = configured.contains(':5000')
-        ? configured.replaceAll(':5000', ':3101')
-        : 'http://localhost:3101/api';
-    return [
-      'http://localhost:3101/api/attendance',
-      'http://localhost:3101/attendance',
-      '$configured/attendance',
-      fallbackPort,
-    ];
+    return _attendanceBaseUrls();
   }
 
   Future<void> _fetchLeaveData() async {
     final token = context.read<AuthService>().token;
-    if (token == null || token.isEmpty) return;
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Your session is unavailable. Please sign in again.';
+        });
+      }
+      return;
+    }
 
     setState(() => _loading = true);
 
     for (final base in _getBaseUrls()) {
       try {
         final url = Uri.parse('$base/leave/dashboard');
-        final res = await http.get(url, headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        }).timeout(const Duration(seconds: 5));
+        final res = await http
+            .get(
+              url,
+              headers: {
+                'Authorization': 'Bearer $token',
+                'Accept': 'application/json',
+              },
+            )
+            .timeout(const Duration(seconds: 5));
 
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
@@ -109,7 +130,8 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
 
   @override
   Widget build(BuildContext context) {
-    final mode = ModalRoute.of(context)?.settings.arguments as String? ?? 'apply';
+    final mode =
+        ModalRoute.of(context)?.settings.arguments as String? ?? 'apply';
 
     return EmployeeScaffold(
       route: '/employee/leave',
@@ -118,6 +140,7 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
       desktop: _DesktopLeave(
         mode: mode,
         loading: _loading,
+        error: _error,
         balances: _balances,
         requests: _requests,
         onRefresh: _fetchLeaveData,
@@ -126,6 +149,7 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
       mobile: _MobileLeave(
         mode: mode,
         loading: _loading,
+        error: _error,
         balances: _balances,
         requests: _requests,
         onRefresh: _fetchLeaveData,
@@ -139,6 +163,7 @@ class _DesktopLeave extends StatelessWidget {
   const _DesktopLeave({
     required this.mode,
     required this.loading,
+    required this.error,
     required this.balances,
     required this.requests,
     required this.onRefresh,
@@ -147,6 +172,7 @@ class _DesktopLeave extends StatelessWidget {
 
   final String mode;
   final bool loading;
+  final String? error;
   final List<dynamic> balances;
   final List<dynamic> requests;
   final VoidCallback onRefresh;
@@ -155,6 +181,9 @@ class _DesktopLeave extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null) {
+      return _LeaveLoadError(message: error!, onRetry: onRefresh);
+    }
 
     if (mode == 'requests') {
       return _RequestList(requests: requests, onCancel: onCancel);
@@ -189,42 +218,70 @@ class _LeaveBalance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (balances.isEmpty)
-              const Text('No balance data available', style: TextStyle(color: employeeMuted))
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final boxWidth = constraints.maxWidth >= 900
-                      ? (constraints.maxWidth - 48) / 4
-                      : constraints.maxWidth >= 560
-                          ? (constraints.maxWidth - 16) / 2
-                          : constraints.maxWidth;
-                  return Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
-                    children: balances.map((b) {
-                      final total = (b['total'] as num?)?.toInt() ?? 0;
-                      final used = (b['used'] as num?)?.toInt() ?? 0;
-                      final type = b['type']?.toString() ?? 'Leave';
-                      return SizedBox(
-                        width: boxWidth,
-                        child: _BalanceBox(
-                          label: type,
-                          remaining: (total - used).clamp(0, total).toInt(),
-                          total: total,
-                          color: _colorFor(type),
-                        ),
-                      );
-                    }).toList(),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (balances.isEmpty)
+          const Text(
+            'No balance data available',
+            style: TextStyle(color: employeeMuted),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final boxWidth = constraints.maxWidth >= 900
+                  ? (constraints.maxWidth - 48) / 4
+                  : constraints.maxWidth >= 560
+                  ? (constraints.maxWidth - 16) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: balances.map((b) {
+                  final total = (b['total'] as num?)?.toInt() ?? 0;
+                  final used = (b['used'] as num?)?.toInt() ?? 0;
+                  final type = b['type']?.toString() ?? 'Leave';
+                  return SizedBox(
+                    width: boxWidth,
+                    child: _BalanceBox(
+                      label: type,
+                      remaining: (total - used).clamp(0, total).toInt(),
+                      total: total,
+                      color: _colorFor(type),
+                    ),
                   );
-                },
-              ),
-          ],
+                }).toList(),
+              );
+            },
+          ),
+      ],
+    ),
+  );
+}
+
+class _LeaveLoadError extends StatelessWidget {
+  const _LeaveLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => EmployeeCard(
+    child: Row(
+      children: [
+        const Icon(Icons.cloud_off_outlined, color: employeeOrange),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(message, style: const TextStyle(color: employeeMuted)),
         ),
-      );
+        TextButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Retry'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _BalanceBox extends StatelessWidget {
@@ -242,36 +299,40 @@ class _BalanceBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        height: 126,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.07),
-          border: Border.all(color: color.withValues(alpha: 0.22)),
-          borderRadius: BorderRadius.circular(12),
+    height: 126,
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.07),
+      border: Border.all(color: color.withValues(alpha: 0.22)),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const Spacer(),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: employeeMuted)),
-            const SizedBox(height: 4),
-            Text('$remaining / $total days',
-                style: TextStyle(
-                  color: color,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                )),
-          ],
+        const Spacer(),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: employeeMuted),
         ),
-      );
+        const SizedBox(height: 4),
+        Text(
+          '$remaining / $total days',
+          style: TextStyle(
+            color: color,
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RequestList extends StatelessWidget {
@@ -281,18 +342,29 @@ class _RequestList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SectionTitle('My Requests', subtitle: 'Recent and pending leave requests'),
-          const SizedBox(height: 14),
-          if (requests.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: Text('No leave requests found.', style: TextStyle(color: employeeMuted))),
-            )
-          else
-            ...requests.map((r) => _DesktopRequestRow(r: r, onCancel: onCancel)),
-        ]),
-      );
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionTitle(
+          'My Requests',
+          subtitle: 'Recent and pending leave requests',
+        ),
+        const SizedBox(height: 14),
+        if (requests.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Text(
+                'No leave requests found.',
+                style: TextStyle(color: employeeMuted),
+              ),
+            ),
+          )
+        else
+          ...requests.map((r) => _DesktopRequestRow(r: r, onCancel: onCancel)),
+      ],
+    ),
+  );
 }
 
 class _DesktopRequestRow extends StatelessWidget {
@@ -320,42 +392,77 @@ class _DesktopRequestRow extends StatelessWidget {
     } catch (_) {}
 
     final dayStr = fromDt != null ? DateFormat('dd').format(fromDt) : '--';
-    final monthStr = fromDt != null ? DateFormat('MMM').format(fromDt).toUpperCase() : '---';
+    final monthStr = fromDt != null
+        ? DateFormat('MMM').format(fromDt).toUpperCase()
+        : '---';
     final status = r['status']?.toString() ?? 'PENDING';
     final color = _statusColor(status);
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: employeeLine))),
-      child: Row(children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(color: const Color(0xFFF3F6FB), borderRadius: BorderRadius.circular(8)),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(dayStr, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w800)),
-            Text(monthStr, style: const TextStyle(color: employeeMuted, fontSize: 10)),
-          ]),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${r['leave_type']} · ${r['duration_type'] ?? 'Full Day'}',
-                style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700)),
-            Text('${r['reason'] ?? 'No reason provided'} · ${r['from_date']} to ${r['to_date']}',
-                style: const TextStyle(color: employeeMuted, fontSize: 12)),
-          ]),
-        ),
-        StatusPill(status, color),
-        if (status == 'PENDING') ...[
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.close_rounded, color: Color(0xFFF12B46), size: 18),
-            tooltip: 'Cancel Request',
-            onPressed: () => onCancel(r['id']),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: employeeLine)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F6FB),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  dayStr,
+                  style: const TextStyle(
+                    color: employeeNavy,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  monthStr,
+                  style: const TextStyle(color: employeeMuted, fontSize: 10),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${r['leave_type']} · ${r['duration_type'] ?? 'Full Day'}',
+                  style: const TextStyle(
+                    color: employeeNavy,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${r['reason'] ?? 'No reason provided'} · ${r['from_date']} to ${r['to_date']}',
+                  style: const TextStyle(color: employeeMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          StatusPill(status, color),
+          if (status == 'PENDING') ...[
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(
+                Icons.close_rounded,
+                color: Color(0xFFF12B46),
+                size: 18,
+              ),
+              tooltip: 'Cancel Request',
+              onPressed: () => onCancel(r['id']),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -417,11 +524,9 @@ class _LeaveFormState extends State<_LeaveForm> {
       'reason': _reasonCtrl.text.trim(),
     };
 
-    final candidateUrls = [
-      'http://localhost:3101/api/attendance/leave/apply',
-      'http://localhost:3101/attendance/leave/apply',
-      '${ApiConfig.baseUrl}/attendance/leave/apply',
-    ];
+    final candidateUrls = _attendanceBaseUrls()
+        .map((base) => '$base/leave/apply')
+        .toList();
 
     bool ok = false;
     for (final base in candidateUrls) {
@@ -446,12 +551,16 @@ class _LeaveFormState extends State<_LeaveForm> {
       if (ok) {
         _reasonCtrl.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Leave application submitted successfully!')),
+          const SnackBar(
+            content: Text('Leave application submitted successfully!'),
+          ),
         );
         widget.onSuccess();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to submit leave. Check connection.')),
+          const SnackBar(
+            content: Text('Failed to submit leave. Check connection.'),
+          ),
         );
       }
     }
@@ -463,112 +572,158 @@ class _LeaveFormState extends State<_LeaveForm> {
     final toStr = DateFormat('dd/MM/yyyy').format(toDate);
 
     return EmployeeCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SectionTitle('Apply for Leave', subtitle: 'Submit a new leave request for manager approval'),
-        const SizedBox(height: 18),
-        if (widget.desktop)
-          Row(children: [
-            Expanded(
-              child: _DropdownField(
-                'LEAVE TYPE',
-                type,
-                const ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Optional Holiday'],
-                (v) => setState(() => type = v!),
-              ),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: _DropdownField(
-                'DURATION',
-                duration,
-                const ['Full Day', 'Half Day'],
-                (v) => setState(() => duration = v!),
-              ),
-            ),
-          ])
-        else ...[
-          _DropdownField(
-            'Leave Type',
-            type,
-            const ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Optional Holiday'],
-            (v) => setState(() => type = v!),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionTitle(
+            'Apply for Leave',
+            subtitle: 'Submit a new leave request for manager approval',
           ),
+          const SizedBox(height: 18),
+          if (widget.desktop)
+            Row(
+              children: [
+                Expanded(
+                  child: _DropdownField('LEAVE TYPE', type, const [
+                    'Casual Leave',
+                    'Sick Leave',
+                    'Earned Leave',
+                    'Optional Holiday',
+                  ], (v) => setState(() => type = v!)),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _DropdownField('DURATION', duration, const [
+                    'Full Day',
+                    'Half Day',
+                  ], (v) => setState(() => duration = v!)),
+                ),
+              ],
+            )
+          else ...[
+            _DropdownField('Leave Type', type, const [
+              'Casual Leave',
+              'Sick Leave',
+              'Earned Leave',
+              'Optional Holiday',
+            ], (v) => setState(() => type = v!)),
+            const SizedBox(height: 14),
+            _DropdownField('Duration', duration, const [
+              'Full Day',
+              'Half Day',
+            ], (v) => setState(() => duration = v!)),
+          ],
           const SizedBox(height: 14),
-          _DropdownField(
-            'Duration',
-            duration,
-            const ['Full Day', 'Half Day'],
-            (v) => setState(() => duration = v!),
+          if (widget.desktop)
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _pickDate(true),
+                    child: _DateFieldShell('FROM DATE', fromStr),
+                  ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _pickDate(false),
+                    child: _DateFieldShell('TO DATE', toStr),
+                  ),
+                ),
+              ],
+            )
+          else ...[
+            InkWell(
+              onTap: () => _pickDate(true),
+              child: _DateFieldShell('From Date', fromStr),
+            ),
+            const SizedBox(height: 14),
+            InkWell(
+              onTap: () => _pickDate(false),
+              child: _DateFieldShell('To Date', toStr),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'REASON',
+                style: TextStyle(
+                  color: employeeNavy,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _reasonCtrl,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Briefly describe the reason for leave...',
+                  filled: true,
+                  fillColor: const Color(0xFFFBFCFE),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  border: OutlineInputBorder(
+                    borderSide: const BorderSide(color: employeeLine),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: employeeLine),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OutlinedButton(
+                  onPressed: () => setState(() {
+                    _reasonCtrl.clear();
+                    fromDate = DateTime.now();
+                    toDate = DateTime.now();
+                  }),
+                  child: const Text('Clear'),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: _submitting ? null : _submit,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_outlined, size: 16),
+                  label: Text(_submitting ? 'Submitting…' : 'Submit Request'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0B72F5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-        const SizedBox(height: 14),
-        if (widget.desktop)
-          Row(children: [
-            Expanded(
-              child: InkWell(
-                onTap: () => _pickDate(true),
-                child: _DateFieldShell('FROM DATE', fromStr),
-              ),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: InkWell(
-                onTap: () => _pickDate(false),
-                child: _DateFieldShell('TO DATE', toStr),
-              ),
-            ),
-          ])
-        else ...[
-          InkWell(onTap: () => _pickDate(true), child: _DateFieldShell('From Date', fromStr)),
-          const SizedBox(height: 14),
-          InkWell(onTap: () => _pickDate(false), child: _DateFieldShell('To Date', toStr)),
-        ],
-        const SizedBox(height: 14),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('REASON', style: TextStyle(color: employeeNavy, fontSize: 11, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _reasonCtrl,
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: 'Briefly describe the reason for leave...',
-              filled: true,
-              fillColor: const Color(0xFFFBFCFE),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              border: OutlineInputBorder(borderSide: const BorderSide(color: employeeLine), borderRadius: BorderRadius.circular(8)),
-              enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: employeeLine), borderRadius: BorderRadius.circular(8)),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 16),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            OutlinedButton(
-              onPressed: () => setState(() {
-                _reasonCtrl.clear();
-                fromDate = DateTime.now();
-                toDate = DateTime.now();
-              }),
-              child: const Text('Clear'),
-            ),
-            const SizedBox(width: 10),
-            ElevatedButton.icon(
-              onPressed: _submitting ? null : _submit,
-              icon: _submitting
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.send_outlined, size: 16),
-              label: Text(_submitting ? 'Submitting…' : 'Submit Request'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0B72F5),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ]),
-        ),
-      ]),
+      ),
     );
   }
 }
@@ -580,27 +735,44 @@ class _DateFieldShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: employeeNavy, fontSize: 11, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFBFCFE),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: employeeLine),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          color: employeeNavy,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFBFCFE),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: employeeLine),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_outlined,
+              size: 18,
+              color: employeeMuted,
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_today_outlined, size: 18, color: employeeMuted),
-                const SizedBox(width: 10),
-                Text(value, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w600)),
-              ],
+            const SizedBox(width: 10),
+            Text(
+              value,
+              style: const TextStyle(
+                color: employeeNavy,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
-      );
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 class _DropdownField extends StatelessWidget {
@@ -612,30 +784,49 @@ class _DropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: employeeNavy, fontSize: 11, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            value: value,
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: const Color(0xFFFBFCFE),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-              border: OutlineInputBorder(borderSide: const BorderSide(color: employeeLine), borderRadius: BorderRadius.circular(8)),
-              enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: employeeLine), borderRadius: BorderRadius.circular(8)),
-            ),
-            items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-            onChanged: onChanged,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          color: employeeNavy,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 6),
+      DropdownButtonFormField<String>(
+        value: value,
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: const Color(0xFFFBFCFE),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 13,
           ),
-        ],
-      );
+          border: OutlineInputBorder(
+            borderSide: const BorderSide(color: employeeLine),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderSide: const BorderSide(color: employeeLine),
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        items: items
+            .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+            .toList(),
+        onChanged: onChanged,
+      ),
+    ],
+  );
 }
 
 class _MobileLeave extends StatelessWidget {
   const _MobileLeave({
     required this.mode,
     required this.loading,
+    required this.error,
     required this.balances,
     required this.requests,
     required this.onRefresh,
@@ -644,6 +835,7 @@ class _MobileLeave extends StatelessWidget {
 
   final String mode;
   final bool loading;
+  final String? error;
   final List<dynamic> balances;
   final List<dynamic> requests;
   final VoidCallback onRefresh;
@@ -652,6 +844,16 @@ class _MobileLeave extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const MobileEmployeeHeader(),
+          const SizedBox(height: 20),
+          _LeaveLoadError(message: error!, onRetry: onRefresh),
+        ],
+      );
+    }
 
     if (mode == 'requests') {
       return Column(

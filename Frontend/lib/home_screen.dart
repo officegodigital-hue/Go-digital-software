@@ -95,7 +95,16 @@ class _HomeScreenState extends State<HomeScreen> {
   // ═══════════════════════════════════════════════════════════════
 
   void _openAttendance() {
-    Navigator.pushNamed(context, '/attendance');
+    final userType =
+        context.read<AuthService>().userType?.toLowerCase().trim() ?? '';
+
+    // Employee attendance stays on the main employee navigator.  Sending an
+    // employee through the shared entry route previously rebuilt a second
+    // navigation tree and could show Login again.
+    Navigator.pushNamed(
+      context,
+      userType == 'admin' ? '/attendance' : '/employee/dashboard',
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -249,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
       Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
     }
   }
+
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),

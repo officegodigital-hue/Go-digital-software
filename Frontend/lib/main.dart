@@ -4,10 +4,17 @@ import 'package:flutter/gestures.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
-import 'package:godigital_portal/hrms_employee/main.dart' as hrms_employee;
 import 'package:godigital_portal/home_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/attendance_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/clock_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/dashboard_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/extra_hours_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/leave_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/permission_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
 
@@ -138,6 +145,14 @@ class MyApp extends StatelessWidget {
           '/settings': (context) => const AdminGuard(child: SettingsPage()),
 
           '/attendance': (context) => const HrmsAttendanceEntry(),
+          '/employee/dashboard': (context) => const EmployeeDashboardPage(),
+          '/employee/attendance': (context) => const EmployeeAttendancePage(),
+          '/employee/clock-log': (context) => const EmployeeClockPage(),
+          '/employee/leave': (context) => const EmployeeLeavePage(),
+          '/employee/permission': (context) => const EmployeePermissionPage(),
+          '/employee/extra-hours': (context) => const EmployeeExtraHoursPage(),
+          '/employee/salary': (context) => const EmployeeSalaryPage(),
+          '/employee/tracking': (context) => const EmployeeTrackingPage(),
         },
       ),
     );
@@ -185,7 +200,10 @@ class HrmsAttendanceEntry extends StatelessWidget {
         if (auth.userType?.toLowerCase().trim() == 'admin') {
           return const AdminGuard(child: hrms_admin.AdminPortalApp());
         }
-        return const hrms_employee.EmployeePortal();
+        // Keep employee HRMS pages in the main MaterialApp.  Creating a
+        // second MaterialApp here created a second navigator and could send
+        // an already signed-in employee back to a duplicate login page.
+        return const EmployeeDashboardPage();
       },
     );
   }

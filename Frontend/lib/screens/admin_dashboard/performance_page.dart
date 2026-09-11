@@ -1,23 +1,6 @@
 // lib/screens/admin_dashboard/performance_screen.dart
 //
 // Employee Performance & Productivity Dashboard — v2.
-//
-// Two views in one screen:
-//   1) OVERVIEW  — loads automatically, shows every active employee as a
-//      compact performance card (ring, completion/pending/rejected %,
-//      tasks, clients, working hours). Sortable/filterable.
-//   2) DETAIL    — tap any card to open that employee's full A-to-Z
-//      dashboard: KPI grid, performance-score ring, working-hours &
-//      productivity analytics, task/role distribution, client & task
-//      tracking (expandable), Day Planner consistency heatmap, manager
-//      review productivity, timeline, and a performance trend graph.
-//
-// Every number comes from routes/performance.js, which itself is built
-// entirely from your existing tables (task_list, time_tracking_task_items,
-// task_master/task_roles, day_plan_rows, manager_review) — nothing here is
-// hardcoded or dummy.
-//
-// Needs `fl_chart` in pubspec.yaml:  fl_chart: ^0.68.0
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -29,11 +12,7 @@ import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 
-// ════════════════════════════════════════════════════════════════
-// Shared palette / small helpers
-// ════════════════════════════════════════════════════════════════
 class _Palette {
-  // Premium software palette: blue/white foundation with semantic accents.
   static const primary = Color(0xFF0759D4);
   static const primary2 = Color(0xFF1D74E8);
   static const primary3 = Color(0xFF0B3B91);
@@ -328,16 +307,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              if (detailMode)
-                Container(
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.22))),
-                  child: IconButton(onPressed: _refreshCurrentView, icon: const Icon(Icons.refresh_rounded, color: Colors.white), tooltip: 'Refresh'),
-                )
-              else
-                Container(
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.22))),
-                  child: IconButton(onPressed: _refreshCurrentView, icon: const Icon(Icons.refresh_rounded, color: Colors.white), tooltip: 'Refresh'),
-                ),
+              Container(
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.22))),
+                child: IconButton(onPressed: _refreshCurrentView, icon: const Icon(Icons.refresh_rounded, color: Colors.white), tooltip: 'Refresh'),
+              ),
             ],
           ),
         ],
@@ -412,73 +385,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               if (_selectedEmployeeName == null) _sortDropdown(),
             ],
           ),
-          if (custom) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: _Palette.sky.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(13), border: Border.all(color: const Color(0xFFCFE3FA))),
-              child: isMobile
-                  ? Column(children: [
-                      Row(children: [Expanded(child: _dateField('FROM DATE', _fromDate, () => _pickSingleDate(true))), const SizedBox(width: 8), Expanded(child: _dateField('TO DATE', _toDate, () => _pickSingleDate(false)))]),
-                      const SizedBox(height: 8),
-                      SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _pickCustomRange, icon: const Icon(Icons.calendar_month_rounded, size: 16), label: const Text('Change Date Range'), style: _rangeButtonStyle())),
-                    ])
-                  : Row(children: [
-                      _dateField('FROM DATE', _fromDate, () => _pickSingleDate(true)),
-                      const SizedBox(width: 10),
-                      _dateField('TO DATE', _toDate, () => _pickSingleDate(false)),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(onPressed: _pickCustomRange, icon: const Icon(Icons.calendar_month_rounded, size: 16), label: const Text('Change Range'), style: _rangeButtonStyle()),
-                      const Spacer(),
-                      Text('${DateFormat('dd MMM yyyy').format(_fromDate)}  →  ${DateFormat('dd MMM yyyy').format(_toDate)}', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: _Palette.primary)),
-                    ]),
-            ),
-          ],
         ],
       ),
     );
-  }
-
-  ButtonStyle _rangeButtonStyle() => ElevatedButton.styleFrom(
-    backgroundColor: _Palette.primary,
-    foregroundColor: Colors.white,
-    elevation: 0,
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    textStyle: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800),
-  );
-
-  Widget _dateField(String label, DateTime date, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: 155,
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFBFD5EE))),
-        child: Row(children: [
-          const Icon(Icons.event_rounded, size: 15, color: _Palette.primary),
-          const SizedBox(width: 7),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: _Palette.muted, letterSpacing: 0.5)), const SizedBox(height: 2), Text(DateFormat('dd MMM yyyy').format(date), style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: _Palette.ink))])),
-        ]),
-      ),
-    );
-  }
-
-  Future<void> _pickSingleDate(bool isFrom) async {
-    final initial = isFrom ? _fromDate : _toDate;
-    final picked = await showDatePicker(context: context, initialDate: initial, firstDate: DateTime(2020), lastDate: DateTime(2035), builder: (context, child) {
-      return Theme(data: Theme.of(context).copyWith(colorScheme: const ColorScheme.light(primary: _Palette.primary, surface: Colors.white)), child: child!);
-    });
-    if (picked == null) return;
-    if (isFrom && picked.isAfter(_toDate)) return;
-    if (!isFrom && picked.isBefore(_fromDate)) return;
-    setState(() {
-      _quickFilter = 'custom';
-      _mode = 'monthly';
-      if (isFrom) _fromDate = picked; else _toDate = picked;
-    });
-    _refreshCurrentView();
   }
 
   Widget _quickChip(String label, String key) {
@@ -696,10 +605,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         const SizedBox(height: 16),
         _kpiGrid(summary, isMobile, isTablet),
         const SizedBox(height: 16),
-        _sectionRow(isMobile, [
-          _card('Working Hours & Productivity', _workingHoursBody(hours)),
-          _card('Task Distribution by Role', _roleDistributionBody()),
-        ]),
+        _card('Working Hours & Productivity', _workingHoursBody(hours)),
         const SizedBox(height: 16),
         _card('Performance Trend', _trendBody(isMobile)),
         const SizedBox(height: 16),
@@ -858,94 +764,451 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _workingHoursBody(Map hours) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+ // ════════════════════════════════════════════════════════════════
+// Exact UI replacement code for Working Hours & Productivity card
+// matching the requested layout design (performance_screen.dart)
+// ════════════════════════════════════════════════════════════════
+
+Widget _workingHoursBody(Map hours) {
+  final double prodPct =
+      (hours['productivityPct'] as num?)?.toDouble()?.clamp(0.0, 100.0) ?? 0.0;
+  final double idlePct = (100.0 - prodPct).clamp(0.0, 100.0);
+  final double efficiencyPct =
+      (hours['efficiencyPct'] as num?)?.toDouble()?.clamp(0.0, 100.0) ??
+      prodPct;
+
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isCompact = constraints.maxWidth < 700;
+      final gaugeSize = isCompact ? 98.0 : 118.0;
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _productivityMetricGrid(hours: hours, isCompact: isCompact),
+          const SizedBox(height: 20),
+
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? 10 : 16,
+              vertical: isCompact ? 14 : 16,
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFF8FBFF), Color(0xFFF2F7FD)],
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Color(0xFFE2ECF7)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: Color(0xFFE8F1FF),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(
+                        Icons.speed_rounded,
+                        size: 16,
+                        color: _Palette.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Productivity Overview',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                              color: _Palette.ink,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Live working-time efficiency',
+                            style: TextStyle(
+                              fontSize: 8.8,
+                              fontWeight: FontWeight.w600,
+                              color: _Palette.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _livePill(),
+                  ],
+                ),
+                const SizedBox(height: 18),
+
+                if (isCompact)
+                  Column(
+                    children: [
+                      _premiumGauge(
+                        title: 'Productive Time',
+                        subtitle: 'Active Output',
+                        percent: prodPct,
+                        color: Color(0xFF14B8A6),
+                        size: gaugeSize,
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _premiumGauge(
+                            title: 'Idle Time',
+                            subtitle: 'Remaining',
+                            percent: idlePct,
+                            color: Color(0xFFF59E0B),
+                            size: 88,
+                            compact: true,
+                          ),
+                          _premiumGauge(
+                            title: 'Efficiency',
+                            subtitle: 'Overall Rate',
+                            percent: efficiencyPct,
+                            color: Color(0xFF8B5CF6),
+                            size: 88,
+                            compact: true,
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _premiumGauge(
+                        title: 'Productive Time',
+                        subtitle: 'Active Output',
+                        percent: prodPct,
+                        color: Color(0xFF14B8A6),
+                        size: gaugeSize,
+                      ),
+                      _premiumGauge(
+                        title: 'Idle Time',
+                        subtitle: 'Remaining',
+                        percent: idlePct,
+                        color: Color(0xFFF59E0B),
+                        size: gaugeSize,
+                      ),
+                      _premiumGauge(
+                        title: 'Efficiency Score',
+                        subtitle: 'Overall Rate',
+                        percent: efficiencyPct,
+                        color: Color(0xFF8B5CF6),
+                        size: gaugeSize,
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Widget _productivityMetricGrid({
+  required Map hours,
+  required bool isCompact,
+}) {
+  final items = [
+    _ProductivityMetric(
+      label: 'Total',
+      value: '${hours['total'] ?? '0m'}',
+      icon: Icons.timer_outlined,
+      color: _Palette.ink,
+      background: Color(0xFFF1F5F9),
+    ),
+    _ProductivityMetric(
+      label: 'Productive',
+      value: '${hours['productive'] ?? '0m'}',
+      icon: Icons.bolt_rounded,
+      color: _Palette.completed,
+      background: Color(0xFFEAFBF1),
+    ),
+    _ProductivityMetric(
+      label: 'Idle',
+      value: '${hours['idle'] ?? '0m'}',
+      icon: Icons.pause_circle_outline_rounded,
+      color: _Palette.onHold,
+      background: Color(0xFFFFF6E8),
+    ),
+    _ProductivityMetric(
+      label: 'Avg / Day',
+      value: '${hours['avgDaily'] ?? '0m'}',
+      icon: Icons.today_rounded,
+      color: _Palette.processing,
+      background: Color(0xFFEAF4FF),
+    ),
+    _ProductivityMetric(
+      label: 'Avg / Task',
+      value: '${hours['avgTask'] ?? '0m'}',
+      icon: Icons.task_alt_rounded,
+      color: _Palette.primary,
+      background: Color(0xFFEAF4FF),
+    ),
+    _ProductivityMetric(
+      label: 'Productivity',
+      value:
+          '${((hours['productivityPct'] as num?)?.toDouble() ?? 0).toInt()}%',
+      icon: Icons.trending_up_rounded,
+      color: _Palette.completed,
+      background: Color(0xFFEAFBF1),
+    ),
+  ];
+
+  return GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: items.length,
+    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: isCompact ? 2 : 3,
+      crossAxisSpacing: 9,
+      mainAxisSpacing: 9,
+      childAspectRatio: isCompact ? 2.45 : 3.15,
+    ),
+    itemBuilder: (context, index) {
+      final item = items[index];
+
+      return TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: Duration(milliseconds: 420 + (index * 70)),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) {
+          return Opacity(
+            opacity: value,
+            child: Transform.translate(
+              offset: Offset(0, (1 - value) * 8),
+              child: child,
+            ),
+          );
+        },
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 9 : 11,
+            vertical: isCompact ? 8 : 9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: Color(0xFFE2EAF4)),
+            boxShadow: [
+              BoxShadow(
+                color: _Palette.primary.withValues(alpha: 0.035),
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: isCompact ? 27 : 30,
+                height: isCompact ? 27 : 30,
+                decoration: BoxDecoration(
+                  color: item.background,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  item.icon,
+                  size: isCompact ? 14 : 15,
+                  color: item.color,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isCompact ? 12.5 : 14,
+                        fontWeight: FontWeight.w900,
+                        color: item.color,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isCompact ? 8 : 8.5,
+                        fontWeight: FontWeight.w700,
+                        color: _Palette.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Widget _livePill() {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: Color(0xFFEAFBF1),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Color(0xFFBBE8CC)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            _hourStat('Total', hours['total'], _Palette.ink),
-            _hourStat('Productive', hours['productive'], _Palette.completed),
-            _hourStat('Idle', hours['idle'], _Palette.onHold),
-          ],
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.35, end: 1),
+          duration: const Duration(milliseconds: 900),
+          curve: Curves.easeInOut,
+          builder: (context, value, child) =>
+              Opacity(opacity: value, child: child),
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: const BoxDecoration(
+              color: _Palette.completed,
+              shape: BoxShape.circle,
+            ),
+          ),
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            _hourStat('Avg / Day', hours['avgDaily'], _Palette.processing),
-            _hourStat('Avg / Task', hours['avgTask'], _Palette.primary),
-            _hourStat('Productivity', '${hours['productivityPct']}%', _Palette.completed),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: ((hours['productivityPct'] as num).toDouble() / 100).clamp(0, 1),
-            minHeight: 8,
-            backgroundColor: _Palette.bg,
-            valueColor: const AlwaysStoppedAnimation(_Palette.completed),
+        const SizedBox(width: 5),
+        const Text(
+          'ACTIVE',
+          style: TextStyle(
+            fontSize: 7.5,
+            fontWeight: FontWeight.w900,
+            color: _Palette.completed,
+            letterSpacing: 0.5,
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
-  Widget _hourStat(String label, String value, Color color) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+Widget _premiumGauge({
+  required String title,
+  required String subtitle,
+  required double percent,
+  required Color color,
+  required double size,
+  bool compact = false,
+}) {
+  final safePercent = percent.clamp(0.0, 100.0);
+
+  return TweenAnimationBuilder<double>(
+    tween: Tween(begin: 0, end: safePercent),
+    duration: const Duration(milliseconds: 1100),
+    curve: Curves.easeOutCubic,
+    builder: (context, animatedPercent, child) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: color)),
-          Text(label, style: const TextStyle(fontSize: 9.5, color: _Palette.muted, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
-  Widget _roleDistributionBody() {
-    final roles = List<Map<String, dynamic>>.from(_detail!['roles'] ?? []);
-    if (roles.isEmpty) {
-      return const SizedBox(height: 180, child: Center(child: Text('No task data in this period', style: TextStyle(fontSize: 12, color: _Palette.muted))));
-    }
-    final maxVal = roles.map((r) => r['totalTasks'] as int).fold<int>(0, (a, b) => a > b ? a : b);
-
-    return SizedBox(
-      height: 200,
-      child: BarChart(
-        BarChartData(
-          maxY: (maxVal + 1).toDouble(),
-          gridData: const FlGridData(show: false),
-          borderData: FlBorderData(show: false),
-          titlesData: FlTitlesData(
-            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 38,
-                getTitlesWidget: (value, meta) {
-                  final i = value.toInt();
-                  if (i < 0 || i >= roles.length) return const SizedBox.shrink();
-                  final name = roles[i]['roleName'].toString();
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(name.length > 10 ? '${name.substring(0, 10)}...' : name, style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w700, color: _Palette.muted)),
-                  );
-                },
-              ),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: compact ? 9 : 10.5,
+              fontWeight: FontWeight.w900,
+              color: _Palette.ink,
             ),
           ),
-          barGroups: List.generate(roles.length, (i) {
-            return BarChartGroupData(x: i, barRods: [
-              BarChartRodData(toY: (roles[i]['totalTasks'] as int).toDouble(), color: _Palette.primary, width: 16, borderRadius: BorderRadius.circular(4)),
-            ]);
-          }),
-        ),
-      ),
-    );
-  }
+          SizedBox(height: compact ? 7 : 9),
+          SizedBox(
+            width: size,
+            height: size * 0.62,
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              clipBehavior: Clip.none,
+              children: [
+                CustomPaint(
+                  size: Size(size, size * 0.62),
+                  painter: _PremiumGaugePainter(
+                    progress: animatedPercent / 100,
+                    color: color,
+                    trackColor: Color(0xFFE5ECF5),
+                    strokeWidth: compact ? 8 : 10,
+                  ),
+                ),
+                Positioned(
+                  bottom: compact ? 2 : 3,
+                  child: Text(
+                    '${animatedPercent.toInt()}%',
+                    style: TextStyle(
+                      fontSize: compact ? 14 : 17,
+                      fontWeight: FontWeight.w900,
+                      color: _Palette.ink,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: -1,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '0',
+                        style: TextStyle(
+                          fontSize: compact ? 6.5 : 7,
+                          fontWeight: FontWeight.w700,
+                          color: _Palette.muted,
+                        ),
+                      ),
+                      Text(
+                        '100',
+                        style: TextStyle(
+                          fontSize: compact ? 6.5 : 7,
+                          fontWeight: FontWeight.w700,
+                          color: _Palette.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: compact ? 5 : 7),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: compact ? 7.5 : 8.5,
+              color: _Palette.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
 
   Widget _trendBody(bool isMobile) {
     final trend = List<Map<String, dynamic>>.from(_detail!['trend'] ?? []);
@@ -1266,6 +1529,101 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   }
 }
 
+class _ProductivityMetric {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final Color background;
+
+  const _ProductivityMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.background,
+  });
+}
+
+class _PremiumGaugePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+
+  const _PremiumGaugePainter({
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height);
+    final radius = size.width / 2 - strokeWidth / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    final shadowPaint = Paint()
+      ..color = color.withValues(alpha: 0.10)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth + 5
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+    canvas.drawArc(
+      rect,
+      3.1415926535,
+      3.1415926535,
+      false,
+      shadowPaint,
+    );
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      rect,
+      3.1415926535,
+      3.1415926535,
+      false,
+      trackPaint,
+    );
+
+    final progressPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          color.withValues(alpha: 0.65),
+          color,
+          Color.lerp(color, Colors.white, 0.12) ?? color,
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      rect,
+      3.1415926535,
+      3.1415926535 * progress.clamp(0.0, 1.0),
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PremiumGaugePainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.color != color ||
+        oldDelegate.trackColor != trackColor ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
+}
+
+
 class _KpiItem {
   final String label;
   final String value;
@@ -1298,8 +1656,6 @@ Widget _segmentBar(List<_Seg> segments) {
   );
 }
 
-/// Animated circular "ring" progress indicator with a percentage/label in
-/// the center. Pure CustomPaint - no extra dependency needed.
 class _AnimatedRing extends StatelessWidget {
   final double percent;
   final Color color;
@@ -1371,4 +1727,59 @@ class _RingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RingPainter oldDelegate) => oldDelegate.progress != progress || oldDelegate.color != color;
+}
+class _SemiCirclePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+
+  const _SemiCirclePainter({
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height);
+    final radius = size.width / 2 - strokeWidth / 2;
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      3.14159,
+      3.14159,
+      false,
+      trackPaint,
+    );
+
+    final progressPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      3.14159,
+      3.14159 * progress,
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SemiCirclePainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.color != color ||
+        oldDelegate.trackColor != trackColor ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
 }
