@@ -1,0 +1,239 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter/gestures.dart';
+import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/screens/login_screen.dart';
+import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
+import 'package:godigital_portal/home_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
+import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/attendance_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/clock_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/dashboard_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/extra_hours_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/leave_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/permission_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
+
+// Replace client_onboarding_screen.dart import with:
+import 'package:godigital_portal/screens/admin_dashboard/client_details_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/client_credentials_screen.dart';
+
+import 'package:godigital_portal/screens/admin_dashboard/Package_Quotation_admin.dart';
+
+// Split panna 2 new screens import statements:
+import 'package:godigital_portal/screens/admin_dashboard/packages.dart';
+import 'package:godigital_portal/screens/admin_dashboard/quotations.dart';
+
+import 'package:godigital_portal/screens/admin_dashboard/create_quotation_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/invoice_admin_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/add_invoice_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/tasks_assign_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/employee_status_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/manager_review_screen.dart';
+import 'package:godigital_portal/screens/notifications_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
+import 'package:godigital_portal/screens/SettingsPage.dart';
+import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
+
+import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
+
+class MyCustomScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+  };
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        // ChangeNotifierProvider for AuthService
+        ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: "GoDigital Portal",
+        initialRoute: '/',
+        onUnknownRoute: (settings) {
+          debugPrint("ERROR: Route not found: ${settings.name}");
+          return MaterialPageRoute(
+            builder: (context) => Scaffold(
+              body: Center(child: Text("Route ${settings.name} not found")),
+            ),
+          );
+        },
+        routes: {
+          // Authentication
+          // '/': (context) => const LoginScreen(),
+          '/': (context) => const AuthGate(),
+
+          // Home Screen (After Login)
+          '/home': (context) => const HomeScreen(),
+
+          // Admin Dashboard
+          '/admin': (context) => const AdminGuard(child: AdminDashboard()),
+
+          // Employee Dashboard (General)
+          '/employee': (context) => const EmployeeLayoutPage(),
+
+          // Role-specific employee dashboards
+          // These can all use EmployeeLayoutPage since it dynamically loads
+          // the correct dashboard based on the user's role from AuthService
+          '/designer': (context) => const EmployeeLayoutPage(),
+          '/pageHandler': (context) => const EmployeeLayoutPage(),
+          '/adsHandler': (context) => const EmployeeLayoutPage(),
+          '/videographer': (context) => const EmployeeLayoutPage(),
+
+          // Admin Management Routes
+          '/client-details': (context) =>
+              const AdminGuard(child: ClientOnboardingScreen()),
+
+          '/client': (context) =>
+              const AdminGuard(child: ClientDetailsScreen()),
+          '/client-credentials': (context) {
+            final clientId = ModalRoute.of(context)!.settings.arguments as int?;
+            return AdminGuard(
+              child: ClientCredentialsScreen(clientId: clientId ?? 0),
+            );
+          },
+          '/client-history': (context) =>
+              const AdminGuard(child: ClientHistoryScreen()),
+          '/quotation': (context) =>
+              const AdminGuard(child: PackageQuotationAdmin()),
+          // Split routes for Packages and Quotations:
+          '/packages': (context) =>
+              const AdminGuard(child: PackagesAdminScreen()),
+          '/quotations': (context) =>
+              const AdminGuard(child: QuotationsScreen()),
+          '/create-quotation': (context) =>
+              const AdminGuard(child: CreateQuotationScreen()),
+          '/invoice': (context) =>
+              const AdminGuard(child: InvoiceAdminScreen()),
+          '/add-invoice': (context) =>
+              const AdminGuard(child: AddInvoiceScreen()),
+          '/tasks': (context) => const AdminGuard(child: TasksAssignScreen()),
+          '/daily-planner': (context) =>
+              const AdminGuard(child: AdminDayPlannerScreen()),
+          '/employee-status': (context) =>
+              const AdminGuard(child: EmployeeStatusScreen()),
+          '/manager-review': (context) =>
+              const AdminGuard(child: ManagerReviewScreen()),
+          '/notifications': (context) =>
+              const AdminGuard(child: NotificationsScreen()),
+          '/admin-panel': (context) =>
+              const AdminGuard(child: AdminPanelScreen()),
+          '/time-manager': (context) =>
+              const AdminGuard(child: TimeManagerScreen()),
+          '/performance': (context) =>
+              const AdminGuard(child: PerformanceScreen()),
+          '/settings': (context) => const AdminGuard(child: SettingsPage()),
+
+          '/attendance': (context) => const HrmsAttendanceEntry(),
+          '/employee/dashboard': (context) => const EmployeeDashboardPage(),
+          '/employee/attendance': (context) => const EmployeeAttendancePage(),
+          '/employee/clock-log': (context) => const EmployeeClockPage(),
+          '/employee/leave': (context) => const EmployeeLeavePage(),
+          '/employee/permission': (context) => const EmployeePermissionPage(),
+          '/employee/extra-hours': (context) => const EmployeeExtraHoursPage(),
+          '/employee/salary': (context) => const EmployeeSalaryPage(),
+          '/employee/tracking': (context) => const EmployeeTrackingPage(),
+        },
+      ),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, auth, _) {
+        // Wait until localStorage authentication is loaded
+        if (!auth.isInitialized) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // No saved login
+        if (!auth.isAuthenticated) {
+          return const LoginScreen();
+        }
+
+        // Every signed-in user first chooses a workspace.
+        return const HomeScreen();
+      },
+    );
+  }
+}
+
+/// Opens the new HRMS UI only from the Attendance workspace.
+class HrmsAttendanceEntry extends StatelessWidget {
+  const HrmsAttendanceEntry({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, auth, _) {
+        // Do not fall back to the employee portal after an admin logs out.
+        if (!auth.isAuthenticated) {
+          return const HomeScreen();
+        }
+        if (auth.userType?.toLowerCase().trim() == 'admin') {
+          return const AdminGuard(child: hrms_admin.AdminPortalApp());
+        }
+        // Keep employee HRMS pages in the main MaterialApp.  Creating a
+        // second MaterialApp here created a second navigator and could send
+        // an already signed-in employee back to a duplicate login page.
+        return const EmployeeDashboardPage();
+      },
+    );
+  }
+}
+
+class AdminGuard extends StatelessWidget {
+  final Widget child;
+
+  const AdminGuard({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, auth, _) {
+        if (!auth.isInitialized) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (!auth.isAuthenticated) {
+          return const LoginScreen();
+        }
+
+        if (auth.userType?.toLowerCase().trim() != 'admin') {
+          return const LoginScreen();
+        }
+
+        return child;
+      },
+    );
+  }
+}

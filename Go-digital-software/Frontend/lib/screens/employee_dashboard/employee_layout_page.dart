@@ -1,0 +1,264 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:convert';
+
+import 'package:godigital_portal/core/constants/employee_role.dart';
+import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
+import 'package:godigital_portal/core/widgets/employee_topbar.dart';
+import 'package:godigital_portal/services/auth_service.dart';
+
+import 'package:godigital_portal/screens/employee_dashboard/designer_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/ads_handler_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_dashboard_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/page_handler_dashboard_page.dart';
+
+import 'package:godigital_portal/screens/employee_dashboard/assigned_tasks_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/day_planner_screen.dart';
+import 'package:godigital_portal/screens/employee_dashboard/notification_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/daily_reports_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_planner_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/TaskStatusScreen.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_review.dart';
+import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
+import 'package:godigital_portal/screens/employee_dashboard/client_credentials_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
+import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
+import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart';
+import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
+
+class EmployeeLayoutPage extends StatefulWidget {
+  const EmployeeLayoutPage({super.key});
+
+  @override
+  State<EmployeeLayoutPage> createState() => _EmployeeLayoutPageState();
+}
+
+class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
+  String selectedMenu = 'Dashboard';
+  String searchQuery = '';
+
+  Future<void> loadMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      selectedMenu = prefs.getString('employeeMenu') ?? 'Dashboard';
+    });
+  }
+
+  Future<void> saveMenu(String menu) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('employeeMenu', menu);
+    setState(() {
+      selectedMenu = menu;
+      searchQuery = "";
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadMenu();
+  }
+
+  EmployeeRole _getRoleFromString(String? roleString) {
+    if (roleString == null) return EmployeeRole.designer;
+
+    final role = roleString.toLowerCase().trim();
+
+    if (role.contains('ads') || role.contains('marketing')) {
+      return EmployeeRole.adsHandler;
+    }
+    if (role.contains('video') || role.contains('editor')) {
+      return EmployeeRole.videographer;
+    }
+    if (role.contains('page') || role.contains('handler') || role.contains('gmb')) {
+      return EmployeeRole.pageHandler;
+    }
+    if (role.contains('ui') || role.contains('ux') || role.contains('graphic') ||
+        role.contains('designer') || role.contains('web')) {
+      return EmployeeRole.designer;
+    }
+    return EmployeeRole.designer;
+  }
+
+  Widget getDashboardByRole(EmployeeRole loggedInRole) {
+    switch (loggedInRole) {
+      case EmployeeRole.designer:
+        return DesignerDashboardPage(
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
+      case EmployeeRole.pageHandler:
+        return PageHandlerDashboardPage(
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
+      case EmployeeRole.adsHandler:
+        return AdsHandlerDashboardPage(
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
+      case EmployeeRole.videographer:
+        return VideographerDashboardPage(
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+        );
+    }
+  }
+
+  Widget getSelectedPage(EmployeeRole loggedInRole) {
+    switch (selectedMenu) {
+      case 'Dashboard':
+        return getDashboardByRole(loggedInRole);
+      case 'Day Planner':
+        return const DayPlannerScreen();
+      case 'Assigned Task':
+        return AssignedTasksContent(role: loggedInRole);
+      case 'History':
+        return EmployeeHistoryPage(role: loggedInRole);
+      case 'Additional Task':
+        return AdditionalTasksPage(role: loggedInRole);
+      case 'Live Tracking Tasks':
+        return LiveTrackingTasksPage(searchQuery: searchQuery);
+      case 'Daily Reports':
+        return const DailyReportsPage();
+      case 'Task Planner':
+        return const TaskPlannerPage();
+      case 'Task Planner History':
+        return const TaskPlannerHistoryWidget();
+      case 'Video Task Planner':
+        return const VideographerTaskPlannerPage();
+      case 'Video Task Planner History':
+        return const VideographerTaskPlannerHistoryPage();
+      case 'Task Review':
+        return ManagerReviewScreen(searchQuery: searchQuery);
+      case 'Task Status':
+        return const TaskStatusScreen();
+      case 'Chat':
+      // case 'Notifications':
+        return const NotificationsScreen();
+      case 'Client Credentials':
+        return const ClientCredentialsScreen();
+      case 'Feedback':
+        return const FeedbackPage();
+      case 'Feedback History':
+        return const FeedbackHistoryWidget();
+      default:
+        return Center(
+          child: Text(
+            '$selectedMenu Page Coming Soon',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          ),
+        );
+    }
+  }
+
+ @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, authService, _) {
+        if (!authService.isInitialized) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        
+        if (!authService.isAuthenticated) {
+          Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        final rawRole = authService.userRole;
+        final loggedInRole = _getRoleFromString(rawRole);
+        
+        // 🟢 1. Database-la irunthu antha employee-kku save aana allowed_pages-a edukrom
+        final user = authService.user;
+        List<String> employeeMenuPages = [];
+        
+        if (user?['allowed_pages'] != null) {
+          if (user?['allowed_pages'] is List) {
+            employeeMenuPages = (user?['allowed_pages'] as List).map((e) => e.toString()).toList();
+          } else if (user?['allowed_pages'] is String) {
+            try {
+              final decoded = jsonDecode(user?['allowed_pages']);
+              if (decoded is List) {
+                employeeMenuPages = decoded.map((e) => e.toString()).toList();
+              }
+            } catch (_) {}
+          }
+        }
+
+        // 🟢 2. Oru vela allowed_pages empty-ah iruntha fallback-ah default menu-vum, 
+        // illaina neenga Admin Panel-la select panniya items mattum varum.
+        if (employeeMenuPages.isEmpty) {
+          employeeMenuPages = loggedInRole.menuItems; 
+        }
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final bool isDesktop = constraints.maxWidth >= 900;
+
+            // 🟢 3. Hardcoded role menuItems-kku pathila database allowed_pages-a pass panrom!
+            final sidebarWidget = EmployeeSidebar(
+              selectedMenu: selectedMenu,
+              menuItems: employeeMenuPages, // Inga unga selected permission items pogum
+              onMenuTap: saveMenu,
+              isMobileDrawer: !isDesktop,
+            );
+
+            return Scaffold(
+              backgroundColor: const Color(0xFFF4F6FA),
+              drawer: isDesktop ? null : sidebarWidget,
+              body: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Desktop fixed sidebar
+                  if (isDesktop) sidebarWidget,
+
+                  // Main Content & Topbar Area
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          top: 64,
+                          child: getSelectedPage(loggedInRole),
+                        ),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: 64,
+                          child: EmployeeTopbar(
+                            role: loggedInRole,
+                            onOpenNotifications: () {
+                              setState(() {
+                                selectedMenu = 'Notifications';
+                              });
+                            },
+                            onOpenAssignedTasks: () {
+                              setState(() {
+                                selectedMenu = 'Assigned Task';
+                              });
+                            },
+                            onSearch: (value) {
+                              setState(() {
+                                searchQuery = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+}
