@@ -478,7 +478,80 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Login handler ───────────────────────────────────────────────────────────
 
-  Future<void> _handleLogin() async {
+  // Future<void> _handleLogin() async {
+  //   final email = _emailController.text.trim();
+  //   final password = _passwordController.text.trim();
+
+  //   if (email.isEmpty || password.isEmpty) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Please enter email and password.'),
+  //         backgroundColor: Colors.redAccent,
+  //       ),
+  //     );
+  //     return;
+  //   }
+
+  //   final authService = context.read<AuthService>();
+  //   final isAdmin = _selectedTab == 1;
+
+  //   final success = await authService.login(
+  //     email,
+  //     password,
+  //     isAdmin,
+  //     _rememberDevice,
+  //   );
+
+  //   if (!mounted) return;
+
+  //   if (success) {
+  //     final prefs = await SharedPreferences.getInstance();
+
+  //     if (_rememberDevice) {
+  //       await prefs.setString('remembered_login_user', email);
+  //       await prefs.setString('remembered_login_password', password);
+  //     } else {
+  //       await prefs.remove('remembered_login_user');
+  //       await prefs.remove('remembered_login_password');
+  //     }
+
+  //     _navigateBasedOnRole(authService.userRole, isAdmin);
+  //     // _navigateToHome();
+  //   }
+  // }
+
+  // void _navigateBasedOnRole(String? role, bool isAdmin) {
+  //   if (isAdmin) {
+  //     Navigator.pushReplacementNamed(context, '/admin');
+  //     return;
+  //   }
+
+  //   final roleStr = role?.toLowerCase().trim() ?? '';
+  //   String route = '/employee';
+
+  //   if (roleStr.contains('ui') ||
+  //       roleStr.contains('ux') ||
+  //       roleStr.contains('graphic') ||
+  //       roleStr.contains('designer') ||
+  //       roleStr.contains('web')) {
+  //     route = '/designer';
+  //   } else if (roleStr.contains('video') || roleStr.contains('editor')) {
+  //     route = '/videographer';
+  //   } else if (roleStr.contains('ads')) {
+  //     route = '/adsHandler';
+  //   } else if (roleStr.contains('page')) {
+  //     route = '/pageHandler';
+  //   }
+
+  //   Navigator.pushReplacementNamed(context, route);
+  // }
+
+  // void _navigateToHome() {
+  //   debugPrint('➡️ Navigating to: /home');
+  //   Navigator.pushReplacementNamed(context, '/home');
+  // }
+
+   Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -515,41 +588,12 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.remove('remembered_login_password');
       }
 
-      _navigateBasedOnRole(authService.userRole, isAdmin);
-      // _navigateToHome();
+      if (!mounted) return;
+
+      // All authenticated users choose their workspace before opening a module.
+      Navigator.pushReplacementNamed(context, '/home');
     }
   }
-
-  void _navigateBasedOnRole(String? role, bool isAdmin) {
-    if (isAdmin) {
-      Navigator.pushReplacementNamed(context, '/admin');
-      return;
-    }
-
-    final roleStr = role?.toLowerCase().trim() ?? '';
-    String route = '/employee';
-
-    if (roleStr.contains('ui') ||
-        roleStr.contains('ux') ||
-        roleStr.contains('graphic') ||
-        roleStr.contains('designer') ||
-        roleStr.contains('web')) {
-      route = '/designer';
-    } else if (roleStr.contains('video') || roleStr.contains('editor')) {
-      route = '/videographer';
-    } else if (roleStr.contains('ads')) {
-      route = '/adsHandler';
-    } else if (roleStr.contains('page')) {
-      route = '/pageHandler';
-    }
-
-    Navigator.pushReplacementNamed(context, route);
-  }
-
-  // void _navigateToHome() {
-  //   debugPrint('➡️ Navigating to: /home');
-  //   Navigator.pushReplacementNamed(context, '/home');
-  // }
 
   void _handleCreateAccount() {
     debugPrint('Create Admin Account tapped');

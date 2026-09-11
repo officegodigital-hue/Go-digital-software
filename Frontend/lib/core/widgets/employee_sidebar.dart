@@ -95,6 +95,39 @@ class EmployeeSidebar extends StatelessWidget {
             ),
           ),
           Container(height: 1, color: const Color(0xFF232D42)),
+          // 🟢 Home Button Added Here
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  if (isMobileDrawer) {
+                    Navigator.of(context).pop();
+                  }
+                  Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.home_rounded, size: 17, color: Color(0xFF8A94A6)),
+                      SizedBox(width: 12),
+                      Text(
+                        'Home',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF8A94A6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Material(

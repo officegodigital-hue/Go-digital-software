@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
+import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
+import 'package:godigital_portal/hrms_employee/main.dart' as hrms_employee;
+import 'package:godigital_portal/home_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
@@ -28,17 +31,16 @@ import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
- //import 'package:godigital_portal/screens/home_screen.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
 import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
+
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
@@ -46,6 +48,7 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
     PointerDeviceKind.mouse,
   };
 }
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -54,9 +57,7 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         // ChangeNotifierProvider for AuthService
-        ChangeNotifierProvider<AuthService>(
-          create: (_) => AuthService(),
-        ),
+        ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -66,9 +67,7 @@ class MyApp extends StatelessWidget {
           debugPrint("ERROR: Route not found: ${settings.name}");
           return MaterialPageRoute(
             builder: (context) => Scaffold(
-              body: Center(
-                child: Text("Route ${settings.name} not found"),
-              ),
+              body: Center(child: Text("Route ${settings.name} not found")),
             ),
           );
         },
@@ -78,14 +77,10 @@ class MyApp extends StatelessWidget {
           '/': (context) => const AuthGate(),
 
           // Home Screen (After Login)
-           //'/home': (context) => const HomeScreen(),
-
+          '/home': (context) => const HomeScreen(),
 
           // Admin Dashboard
-          // '/admin': (context) => const AdminDashboard(),
-          '/admin': (context) => const AdminGuard(
-  child: AdminDashboard(),
-),
+          '/admin': (context) => const AdminGuard(child: AdminDashboard()),
 
           // Employee Dashboard (General)
           '/employee': (context) => const EmployeeLayoutPage(),
@@ -99,60 +94,56 @@ class MyApp extends StatelessWidget {
           '/videographer': (context) => const EmployeeLayoutPage(),
 
           // Admin Management Routes
-          '/client-details': (context) => const AdminGuard(
-  child: ClientOnboardingScreen(),),
+          '/client-details': (context) =>
+              const AdminGuard(child: ClientOnboardingScreen()),
 
-  '/client': (context) => const AdminGuard(
-                child: ClientDetailsScreen(),
-              ),
+          '/client': (context) =>
+              const AdminGuard(child: ClientDetailsScreen()),
           '/client-credentials': (context) {
             final clientId = ModalRoute.of(context)!.settings.arguments as int?;
             return AdminGuard(
               child: ClientCredentialsScreen(clientId: clientId ?? 0),
             );
           },
-          '/client-history': (context) => const AdminGuard(
-  child: ClientHistoryScreen(),),
-          '/quotation': (context) => const AdminGuard(
-  child: PackageQuotationAdmin(),),
-  // Split routes for Packages and Quotations:
-          '/packages': (context) => const AdminGuard(
-                child: PackagesAdminScreen(),
-              ),
-          '/quotations': (context) => const AdminGuard(
-                child: QuotationsScreen(),
-              ),
-          '/create-quotation': (context) => const AdminGuard(
-  child: CreateQuotationScreen(),),
-          '/invoice': (context) => const AdminGuard(
-  child: InvoiceAdminScreen(),),
-          '/add-invoice': (context) => const AdminGuard(
-  child: AddInvoiceScreen(),),
-          '/tasks': (context) => const AdminGuard(
-  child: TasksAssignScreen(),),
-          '/daily-planner': (context) => const AdminGuard(
-  child: AdminDayPlannerScreen(),),
-          '/employee-status': (context) => const AdminGuard(
-  child: EmployeeStatusScreen(),),
-          '/manager-review': (context) => const AdminGuard(
-  child: ManagerReviewScreen(),),
-          '/notifications': (context) => const AdminGuard(
-  child: NotificationsScreen(),),
-          '/admin-panel': (context) => const AdminGuard(
-  child: AdminPanelScreen(),),
-          '/time-manager': (context) => const AdminGuard(
-  child: TimeManagerScreen(),),
-          '/performance': (context) => const AdminGuard(
-  child: PerformanceScreen(),),
-          '/settings':(context) => const AdminGuard(
-  child: SettingsPage(),),
+          '/client-history': (context) =>
+              const AdminGuard(child: ClientHistoryScreen()),
+          '/quotation': (context) =>
+              const AdminGuard(child: PackageQuotationAdmin()),
+          // Split routes for Packages and Quotations:
+          '/packages': (context) =>
+              const AdminGuard(child: PackagesAdminScreen()),
+          '/quotations': (context) =>
+              const AdminGuard(child: QuotationsScreen()),
+          '/create-quotation': (context) =>
+              const AdminGuard(child: CreateQuotationScreen()),
+          '/invoice': (context) =>
+              const AdminGuard(child: InvoiceAdminScreen()),
+          '/add-invoice': (context) =>
+              const AdminGuard(child: AddInvoiceScreen()),
+          '/tasks': (context) => const AdminGuard(child: TasksAssignScreen()),
+          '/daily-planner': (context) =>
+              const AdminGuard(child: AdminDayPlannerScreen()),
+          '/employee-status': (context) =>
+              const AdminGuard(child: EmployeeStatusScreen()),
+          '/manager-review': (context) =>
+              const AdminGuard(child: ManagerReviewScreen()),
+          '/notifications': (context) =>
+              const AdminGuard(child: NotificationsScreen()),
+          '/admin-panel': (context) =>
+              const AdminGuard(child: AdminPanelScreen()),
+          '/time-manager': (context) =>
+              const AdminGuard(child: TimeManagerScreen()),
+          '/performance': (context) =>
+              const AdminGuard(child: PerformanceScreen()),
+          '/settings': (context) => const AdminGuard(child: SettingsPage()),
 
-          '/attendance': (context) => const AttendanceDashboard(),
+          '/attendance': (context) => const HrmsAttendanceEntry(),
         },
       ),
     );
   }
 }
+
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -163,9 +154,7 @@ class AuthGate extends StatelessWidget {
         // Wait until localStorage authentication is loaded
         if (!auth.isInitialized) {
           return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 
@@ -174,28 +163,38 @@ class AuthGate extends StatelessWidget {
           return const LoginScreen();
         }
 
-        // Saved Admin login
-        if (auth.userType?.toLowerCase().trim() == 'admin') {
-          return const AdminGuard(
-            child: AdminDashboard(),
-          );
-        }
-
-        // Saved Employee login
-        return const EmployeeLayoutPage();
+        // Every signed-in user first chooses a workspace.
+        return const HomeScreen();
       },
     );
   }
 }
 
+/// Opens the new HRMS UI only from the Attendance workspace.
+class HrmsAttendanceEntry extends StatelessWidget {
+  const HrmsAttendanceEntry({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthService>(
+      builder: (context, auth, _) {
+        // Do not fall back to the employee portal after an admin logs out.
+        if (!auth.isAuthenticated) {
+          return const HomeScreen();
+        }
+        if (auth.userType?.toLowerCase().trim() == 'admin') {
+          return const AdminGuard(child: hrms_admin.AdminPortalApp());
+        }
+        return const hrms_employee.EmployeePortal();
+      },
+    );
+  }
+}
 
 class AdminGuard extends StatelessWidget {
   final Widget child;
 
-  const AdminGuard({
-    super.key,
-    required this.child,
-  });
+  const AdminGuard({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -203,9 +202,7 @@ class AdminGuard extends StatelessWidget {
       builder: (context, auth, _) {
         if (!auth.isInitialized) {
           return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 
@@ -222,5 +219,3 @@ class AdminGuard extends StatelessWidget {
     );
   }
 }
-
-

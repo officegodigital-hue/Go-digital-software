@@ -1,11 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+
 const http    = require('http');
 const path = require('path');
 const { Server } = require("socket.io");
 const cron = require('node-cron');
 const db = require('./config/db');
+
+const attendancePolicy = require('./lib/attendancePolicy');
+
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
 cron.schedule('0 0 * * *', async () => {
@@ -97,7 +101,6 @@ cron.schedule('0 0 * * *', async () => {
 
 
 
-
 const employeeRoutes = require('./routes/employees');
 const timingRoutes    = require('./routes/timings'); 
 const clientRoutes     = require('./routes/clients');        
@@ -123,6 +126,19 @@ const chatRoutes = require('./routes/chat');
 
 const DayPlannerRoutes = require('./routes/day-planner');
 const performanceRoutes = require('./routes/performance');
+
+const attendanceRoutes = require('./routes/attendance');
+const { ensureAttendanceTables } = require('./lib/ensureAttendanceTables');
+const hrmsEmployeesRoutes = require('./routes/hrmsEmployees');
+const { ensureHrmsEmployeeTables } = require('./lib/ensureHrmsEmployeeTables');
+const hrmsDashboardRoutes = require('./routes/hrmsDashboard');
+const hrmsApprovalsRoutes = require('./routes/hrmsApprovals');
+const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
+const hrmsTrackingRoutes = require('./routes/hrmsTracking');
+
+// near the other ensure imports
+const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -197,6 +213,14 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
 
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/hrms/employees', hrmsEmployeesRoutes);
+app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
+app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
+app.use('/api/hrms/payroll', hrmsPayrollRoutes);
+app.use('/api/hrms/tracking', hrmsTrackingRoutes);
+
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ message: 'GoDigital API is running', status: 'ok' });
@@ -213,7 +237,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`GoDigital API running at http://localhost:${PORT}`);
   console.log(`✅ Socket.io server is active and running`);
+  try {
+    await ensureAttendanceTables(db);
+    console.log('Attendance tables are ready');
+    await attendancePolicy.getTimeSettings(db);
+    console.log('Attendance time settings are ready');
+    await ensureHrmsEmployeeTables(db);
+    console.log('HRMS employee profiles are ready');
+    await ensureHrmsTrackingTables(db);
+    console.log('HRMS tracking tables are ready');
+  } catch (error) {
+    console.error('Could not ensure attendance tables:', error.message);
+  }
 });

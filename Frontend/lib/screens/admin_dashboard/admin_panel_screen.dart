@@ -1054,35 +1054,30 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         _emailCtrl.text.trim().isEmpty ||
         _usernameCtrl.text.trim().isEmpty) {
       setState(() {
-        _modalError =
-            'Please fill all required fields (*)';
+        _modalError = 'Please fill all required fields (*)';
       });
       return;
     }
 
     if (_selectedRole.trim().isEmpty) {
       setState(() {
-        _modalError =
-            'Please select a role. Add a role in User Role Master first.';
+        _modalError = 'Please select a role. Add a role in User Role Master first.';
       });
       return;
     }
 
     final isEditMode = _editingEmployee != null;
 
-    if (!isEditMode &&
-        _passwordCtrl.text.trim().isEmpty) {
+    if (!isEditMode && _passwordCtrl.text.trim().isEmpty) {
       setState(() {
         _modalError = 'Password is required';
       });
       return;
     }
 
-    if (_passwordCtrl.text.isNotEmpty &&
-        _passwordCtrl.text.length < 6) {
+    if (_passwordCtrl.text.isNotEmpty && _passwordCtrl.text.length < 6) {
       setState(() {
-        _modalError =
-            'Password must be at least 6 characters';
+        _modalError = 'Password must be at least 6 characters';
       });
       return;
     }
@@ -1093,11 +1088,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     });
 
     final finalPermissions =
-        (_selectedUserType == 'admin' &&
-                _isMainAdmin)
-            ? availablePages
-                .map((page) => page['route']!)
-                .toList()
+        (_selectedUserType == 'admin' && _isMainAdmin)
+            ? availablePages.map((page) => page['route']!).toList()
             : _selectedPermissions;
 
     final data = {
@@ -1111,8 +1103,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'userType': _selectedUserType,
       'isMainAdmin': _isMainAdmin ? 1 : 0,
       'allowedPages': finalPermissions,
-      if (_passwordCtrl.text.trim().isNotEmpty)
-        'password': _passwordCtrl.text,
+      if (_passwordCtrl.text.trim().isNotEmpty) 'password': _passwordCtrl.text,
     };
 
     String? error;
@@ -1135,9 +1126,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
     if (!mounted) return;
 
+     setState(() {
+      _isSubmitting = false;
+    });
+
     if (error == null) {
-      _closeForm();
       await _fetchEmployees();
+      _closeForm();
 
       _showSnack(
         isEditMode
@@ -1147,7 +1142,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       );
     } else {
       setState(() {
-        _isSubmitting = false;
         _modalError = error;
       });
     }

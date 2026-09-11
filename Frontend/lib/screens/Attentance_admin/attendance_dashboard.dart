@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../services/attendance_api.dart';
+
 class AttendanceDashboard extends StatefulWidget {
   const AttendanceDashboard({super.key});
 
@@ -9,69 +11,112 @@ class AttendanceDashboard extends StatefulWidget {
 }
 
 class _AttendanceDashboardState extends State<AttendanceDashboard> {
-  DateTime selectedDate = DateTime(2026, 6, 15);
+  DateTime selectedDate = DateTime.now();
+  bool loading = true;
+  String? error;
+  Map<String, dynamic> data = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await AttendanceApi.dashboard(selectedDate);
+      if (!mounted) return;
+      setState(() {
+        data = result;
+        loading = false;
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        error = err.toString().replaceFirst('Exception: ', '');
+        loading = false;
+      });
+    }
+  }
+
+  Map<String, dynamic> get _metrics =>
+      Map<String, dynamic>.from(data['metrics'] as Map? ?? {});
+
+  List<Map<String, dynamic>> _maps(String key) {
+    final raw = data[key];
+    if (raw is! List) return [];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      body: Row(
-        children: [
-          // ── Left Sidebar ────────────────────────────────────────────────────
-          _buildSidebar(),
-
-          // ── Main Content ────────────────────────────────────────────────────
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header with date and export
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-
-                  // Metric Cards
-                  _buildMetricCards(),
-                  const SizedBox(height: 32),
-
-                  // Charts and Activity Section
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Daily Attendance Chart
-                      Expanded(
-                        flex: 2,
-                        child: _buildDailyAttendanceChart(),
-                      ),
-                      const SizedBox(width: 24),
-
-                      // Department Status & Real-time Activity
-                      Expanded(
-                        child: Column(
-                          children: [
-                            _buildDepartmentStatus(),
-                            const SizedBox(height: 24),
-                            _buildRealTimeActivity(),
-                          ],
-                        ),
+                      Text(error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _load,
+                        child: const Text('Retry'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 32),
-
-                  // Pending Permissions
-                  _buildPendingPermissions(),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+                )
+              : Row(
+                  children: [
+                    _buildSidebar(),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildHeader(),
+                            const SizedBox(height: 24),
+                            _buildMetricCards(),
+                            const SizedBox(height: 32),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: _buildDailyAttendanceChart(),
+                                ),
+                                const SizedBox(width: 24),
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      _buildDepartmentStatus(),
+                                      const SizedBox(height: 24),
+                                      _buildRealTimeActivity(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 32),
+                            _buildPendingPermissions(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
-
-  // ── Sidebar Widget ──────────────────────────────────────────────────────────
 
   Widget _buildSidebar() {
     final menuItems = [
@@ -91,7 +136,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
       color: const Color(0xFF1A1F3A),
       child: Column(
         children: [
-          // Logo/Title
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -107,16 +151,11 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
                 ),
                 Text(
                   'Admin Panel',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ],
             ),
           ),
-
-          // Menu Items
           Expanded(
             child: ListView.builder(
               itemCount: menuItems.length,
@@ -139,16 +178,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
                             isActive ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
-                    onTap: () {
-                      debugPrint('Tapped: $label');
-                    },
+                    onTap: () {},
                   ),
                 );
               },
             ),
           ),
-
-          // Log Out Button
           Padding(
             padding: const EdgeInsets.all(16),
             child: SizedBox(
@@ -170,8 +205,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
     );
   }
 
-  // ── Header with Date and Export ─────────────────────────────────────────────
-
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -191,52 +224,72 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
             const SizedBox(height: 4),
             Text(
               'Real-time enterprise attendance monitoring and analytics',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
           ],
         ),
         Row(
           children: [
-            // Date Selector
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 8),
-                  Text(
-                    DateFormat('MMM dd, yyyy').format(selectedDate),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+            InkWell(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: selectedDate,
+                  firstDate: DateTime(2024),
+                  lastDate: DateTime(2030),
+                );
+                if (picked != null) {
+                  selectedDate = picked;
+                  await _load();
+                }
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Text(
+                      DateFormat('MMM dd, yyyy').format(selectedDate),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey[600]),
-                ],
+                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey[600]),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 12),
-
-            // Export Button
             ElevatedButton.icon(
-              onPressed: () {},
+              onPressed: () async {
+                try {
+                  await AttendanceApi.downloadExport(selectedDate);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Attendance report downloaded')),
+                  );
+                } catch (err) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(err.toString())),
+                  );
+                }
+              },
               icon: const Icon(Icons.download, size: 18),
               label: const Text('Export Report'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue[600],
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
             ),
           ],
@@ -245,43 +298,41 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
     );
   }
 
-  // ── Metric Cards Widget ─────────────────────────────────────────────────────
-
   Widget _buildMetricCards() {
     final metrics = [
       {
         'label': 'TOTAL EMPLOYEES',
-        'value': '100',
+        'value': '${_metrics['totalEmployees'] ?? 0}',
         'color': Colors.blue,
         'icon': Icons.people,
       },
       {
         'label': 'PRESENT TODAY',
-        'value': '90',
+        'value': '${_metrics['presentToday'] ?? 0}',
         'color': Colors.green,
         'icon': Icons.check_circle,
       },
       {
         'label': 'LATE LOGINS',
-        'value': '10',
+        'value': '${_metrics['lateLogins'] ?? 0}',
         'color': Colors.orange,
         'icon': Icons.schedule,
       },
       {
         'label': 'ABSENT',
-        'value': '5',
+        'value': '${_metrics['absent'] ?? 0}',
         'color': Colors.red,
         'icon': Icons.person_off,
       },
       {
         'label': 'WiFi',
-        'value': '10',
+        'value': '${_metrics['wifi'] ?? 0}',
         'color': Colors.purple,
         'icon': Icons.wifi,
       },
       {
         'label': 'PERMISSION PENDING',
-        'value': '5',
+        'value': '${_metrics['permissionPending'] ?? 0}',
         'color': Colors.grey,
         'icon': Icons.hourglass_empty,
       },
@@ -320,13 +371,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -365,16 +409,24 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
     );
   }
 
-  // ── Daily Attendance Chart ──────────────────────────────────────────────────
-
   Widget _buildDailyAttendanceChart() {
-    final data = [
-      {'day': 'Mon', 'height': 0.85},
-      {'day': 'Tue', 'height': 0.90},
-      {'day': 'Wed', 'height': 0.88},
-      {'day': 'Thu', 'height': 0.92},
-      {'day': 'Fri', 'height': 0.80},
-    ];
+    final weekly = _maps('weekly');
+    final chartData = weekly.isEmpty
+        ? [
+            {'day': 'Mon', 'height': 0.0},
+            {'day': 'Tue', 'height': 0.0},
+            {'day': 'Wed', 'height': 0.0},
+            {'day': 'Thu', 'height': 0.0},
+            {'day': 'Fri', 'height': 0.0},
+          ]
+        : weekly
+            .map(
+              (item) => {
+                'day': item['day'] ?? '',
+                'height': ((item['presentPercent'] as num?) ?? 0) / 100,
+              },
+            )
+            .toList();
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -394,22 +446,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
               color: Colors.black87,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Weekly attendance trends across all departments',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
           const SizedBox(height: 24),
-          // Chart
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: data.map((d) {
+            children: chartData.map((d) {
               return Column(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Container(
                     width: 40,
@@ -422,11 +464,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
                   const SizedBox(height: 12),
                   Text(
                     d['day'] as String,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               );
@@ -437,16 +475,21 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
     );
   }
 
-  // ── Department Status ───────────────────────────────────────────────────────
-
   Widget _buildDepartmentStatus() {
-    final departments = [
-      {'name': 'Graphic Designer', 'percentage': 95, 'color': Colors.green},
-      {'name': 'Sales & Marketing', 'percentage': 85, 'color': Colors.orange},
-      {'name': 'Digital Marketing', 'percentage': 92, 'color': Colors.green},
-      {'name': 'Videographer / Editor', 'percentage': 100, 'color': Colors.green},
-      {'name': 'Web Designer / Developer', 'percentage': 78, 'color': Colors.red},
-    ];
+    final departments = _maps('departments').map((item) {
+      final percent = (item['percentage'] as num?)?.toInt() ?? 0;
+      Color color = Colors.green;
+      if (percent < 80) {
+        color = Colors.red;
+      } else if (percent < 90) {
+        color = Colors.orange;
+      }
+      return {
+        'name': item['name'] ?? '',
+        'percentage': percent,
+        'color': color,
+      };
+    }).toList();
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -460,11 +503,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
         children: [
           const Text(
             'Department Status',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 16),
           ...departments.map((dept) {
@@ -476,99 +515,33 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        dept['name'] as String,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      Text(
-                        '${dept['percentage']}%',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
+                      Text(dept['name'] as String,
+                          style: const TextStyle(fontSize: 12)),
+                      Text('${dept['percentage']}%',
+                          style: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600)),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: (dept['percentage'] as int) / 100,
-                      minHeight: 6,
-                      backgroundColor: Colors.grey[200],
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        dept['color'] as Color,
-                      ),
+                  LinearProgressIndicator(
+                    value: (dept['percentage'] as int) / 100,
+                    minHeight: 6,
+                    backgroundColor: Colors.grey[200],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      dept['color'] as Color,
                     ),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
   }
 
-  // ── Real-time Activity ──────────────────────────────────────────────────────
-
   Widget _buildRealTimeActivity() {
-    final activities = [
-      {
-        'name': 'Sarah Smith',
-        'action': 'requested Risk Leave',
-        'time': '02:30 AM',
-        'status': 'Pending',
-        'icon': Icons.person,
-        'color': Colors.red,
-      },
-      {
-        'name': 'Michael Brown',
-        'action': 'logged in (Late)',
-        'time': '09:15 AM',
-        'status': 'Log In',
-        'icon': Icons.person,
-        'color': Colors.green,
-      },
-      {
-        'name': 'Rachel Miller',
-        'action': 'Early Logged Out',
-        'time': '06:15 AM',
-        'status': 'Log Out',
-        'icon': Icons.person,
-        'color': Colors.blue,
-      },
-      {
-        'name': 'John Davis',
-        'action': 'logged in (WIFI)',
-        'time': '01:50 AM',
-        'status': 'Log In',
-        'icon': Icons.person,
-        'color': Colors.blue,
-      },
-      {
-        'name': 'Sarah Smith',
-        'action': 'requested Risk Leave',
-        'time': '02:30 AM',
-        'status': 'Pending',
-        'icon': Icons.person,
-        'color': Colors.red,
-      },
-      {
-        'name': 'Michael Brown',
-        'action': 'logged Out',
-        'time': '06:45 PM',
-        'status': 'Log Out',
-        'icon': Icons.person,
-        'color': Colors.grey,
-      },
-    ];
-
+    final activities = _maps('activity');
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -579,29 +552,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Real-time Activity',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              GestureDetector(
-                onTap: () {},
-                child: Text(
-                  'Filter ↓',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blue[600],
-                  ),
-                ),
-              ),
-            ],
+          const Text(
+            'Real-time Activity',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
           ...activities.map((activity) {
@@ -609,73 +562,38 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: (activity['color'] as Color).withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      activity['icon'] as IconData,
-                      size: 16,
-                      color: activity['color'] as Color,
-                    ),
-                  ),
+                  const Icon(Icons.person, size: 16, color: Colors.blue),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          activity['name'] as String,
+                          '${activity['name'] ?? ''}',
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.black87,
                           ),
                         ),
                         Text(
-                          activity['action'] as String,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey[600],
-                          ),
+                          '${activity['action'] ?? ''}',
+                          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                         ),
                       ],
                     ),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        activity['time'] as String,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      Text(
-                        activity['status'] as String,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.blue[600],
-                        ),
-                      ),
-                    ],
+                  Text(
+                    '${activity['time'] ?? ''}  ${activity['status'] ?? ''}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
   }
-
-  // ── Pending Permissions ─────────────────────────────────────────────────────
 
   Widget _buildPendingPermissions() {
     return Container(
@@ -688,152 +606,24 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Pending Permissions',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              GestureDetector(
-                onTap: () {},
-                child: Text(
-                  'View All >',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blue[600],
-                  ),
-                ),
-              ),
-            ],
+          const Text(
+            'Pending Permissions',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 16),
-          // Table headers
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'Employee',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    'Type',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    'Date',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    'Status',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Table rows
-          Divider(color: Colors.grey[200]),
-          ...[
-            {'emp': 'John Doe', 'type': 'Leave', 'date': '2026-06-15', 'status': 'Approved'},
-            {'emp': 'Jane Smith', 'type': 'Late Entry', 'date': '2026-06-14', 'status': 'Pending'},
-            {'emp': 'Mike Johnson', 'type': 'Early Exit', 'date': '2026-06-13', 'status': 'Rejected'},
-          ].map((row) {
+          ..._maps('pendingPermissions').map((row) {
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
                 children: [
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      row['emp'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      row['type'] ?? '',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      row['date'] ?? '',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: row['status'] == 'Approved'
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : row['status'] == 'Pending'
-                                ? Colors.orange.withValues(alpha: 0.1)
-                                : Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        row['status'] ?? '',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: row['status'] == 'Approved'
-                              ? Colors.green[700]
-                              : row['status'] == 'Pending'
-                                  ? Colors.orange[700]
-                                  : Colors.red[700],
-                        ),
-                      ),
-                    ),
-                  ),
+                  Expanded(flex: 2, child: Text('${row['employee'] ?? ''}')),
+                  Expanded(child: Text('${row['type'] ?? ''}')),
+                  Expanded(child: Text('${row['date'] ?? ''}')),
+                  Expanded(child: Text('${row['status'] ?? ''}')),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
