@@ -22,6 +22,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   final ScrollController _horizontalController = ScrollController();
+  final ScrollController _verticalController = ScrollController();
 
   List<Map<String, dynamic>> taskRows = [];
   List<String> employees = [];
@@ -30,6 +31,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   List<Map<String, dynamic>> packagesList = [];
   bool _loadingPackages = true;
 
+  List<Map<String, dynamic>> allClientsData = []; // Store full client objects
+  
   Map<String, String> taskRoles = {};
   bool _loadingRoles = true;
 
@@ -62,7 +65,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   Future<void> _fetchAll() async {
     await Future.wait([
       _fetchEmployees(),
-      _fetchActiveClients(), 
+      _fetchClients(), 
       _fetchPackagesData(),  
       _fetchTaskMaster(),
       _fetchTasks(),
@@ -70,30 +73,58 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   // ✅ FIXED: Fetch active clients from /api/clients and filter company_name where is_active == 1
-  Future<void> _fetchActiveClients() async {
-    setState(() => _loadingClients = true);
-    try {
-      final r = await http.get(Uri.parse('$_baseUrl/clients'));
-      if (r.statusCode == 200) {
-        final body = jsonDecode(r.body);
-        final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
-        setState(() {
-          clients = data
-              .where((c) => c['is_active'] == 1 || c['is_active'] == true)
-              .map((c) => (c['company_name'] ?? '').toString().trim())
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
-          _loadingClients = false;
-        });
-      } else {
-        setState(() => _loadingClients = false);
-      }
-    } catch (e) {
+//   Future<void> _fetchClients() async {
+//   setState(() => _loadingClients = true);
+//   try {
+//     final r = await http.get(Uri.parse('$_baseUrl/clients'));
+//     if (r.statusCode == 200) {
+//       final body = jsonDecode(r.body);
+//       final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+//       setState(() {
+//         allClientsData = data; // Keep full client data to check status later
+        
+//         // Active clients for dropdowns
+//         clients = data
+//             .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+//             .map((c) => (c['company_name'] ?? '').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
+//         _loadingClients = false;
+//       });
+//     } else {
+//       setState(() => _loadingClients = false);
+//     }
+//   } catch (e) {
+//     setState(() => _loadingClients = false);
+//   }
+// }
+
+Future<void> _fetchClients() async {
+  setState(() => _loadingClients = true);
+  try {
+    final r = await http.get(Uri.parse('$_baseUrl/clients/active-list')); // 🟢 Updated route
+    if (r.statusCode == 200) {
+      final body = jsonDecode(r.body);
+      final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+      setState(() {
+        allClientsData = data; 
+        clients = data
+            .map((c) => (c['company_name'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        _loadingClients = false;
+      });
+    } else {
       setState(() => _loadingClients = false);
     }
+  } catch (e) {
+    setState(() => _loadingClients = false);
   }
+}
 
   Future<void> _fetchPackagesData() async {
     setState(() => _loadingPackages = true);
@@ -1132,42 +1163,42 @@ setState(() {
           // Ads Handler fields
           'adsHandling': _cleanRoleValue(row['ads_handling']),
           'adsPlatform': row['ads_platform'] ?? '',
-          'adsSubmitDate': row['ads_submit_date'] ?? '',
+          // 'adsSubmitDate': row['ads_submit_date'] ?? '',
           
           // Page Handler fields
           'pageHandling': _cleanRoleValue(row['page_handling']),
           'pagesPlatform': row['pages_platform'] ?? '',
-          'pageSubmitDate': row['page_submit_date'] ?? '',
+          // 'pageSubmitDate': row['page_submit_date'] ?? '',
           
           // Designer fields
           'designer': _cleanRoleValue(row['designer']),
           'designerTasks': row['designer_tasks'] ?? '',
-          'designerSubmitDate': row['designer_submit_date'] ?? '',
+          // 'designerSubmitDate': row['designer_submit_date'] ?? '',
           
           // Videographer fields
           'videographer': _cleanRoleValue(row['videographer']),
           'videographerTasks': row['videographer_tasks'] ?? '',
-          'videographerSubmitDate': row['videographer_submit_date'] ?? '',
+          // 'videographerSubmitDate': row['videographer_submit_date'] ?? '',
           
           // Video Editor fields
           'videoEditor': _cleanRoleValue(row['video_editor']),
           'videoEditorTask': row['video_editor_task'] ?? '',
-          'videoEditorSubmitDate': row['video_editor_submit_date'] ?? '',
+          // 'videoEditorSubmitDate': row['video_editor_submit_date'] ?? '',
           
           // UI/UX Designer fields
           'uiUxDesigner': _cleanRoleValue(row['ui_ux_designer']),
           'uiUxTasks': row['ui_ux_tasks'] ?? '',
-          'uiUxSubmitDate': row['ui_ux_submit_date'] ?? '',
+          // 'uiUxSubmitDate': row['ui_ux_submit_date'] ?? '',
           
           // Developer fields
           'developer': _cleanRoleValue(row['developer']),
           'developerTasks': row['developer_tasks'] ?? '',
-          'developerSubmitDate': row['developer_submit_date'] ?? '',
+          // 'developerSubmitDate': row['developer_submit_date'] ?? '',
           
           // Website Designer fields
           'websiteDesigner':_cleanRoleValue(row['website_designer']),
           'websiteDesignerTasks':row['website_designer_tasks'] ?? '',
-          'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
+          // 'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
           
           // Others
           'deadline': _cleanRoleValue(row['deadline']),
@@ -1270,36 +1301,122 @@ setState(() {
     //   final clientName = (r['client_name'] ?? '').toString().toLowerCase();
     //   return clientName.contains(query);
     // }).toList();
-    final visibleRows = taskRows.where((r) {
-      final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
-      if (_showAssigned != assigned) return false;
-      if (_searchQuery.trim().isEmpty) return true;
-      
-      final query = _searchQuery.trim().toLowerCase();
-      
-      // 🔍 Client Name check
-      final clientName = (r['client_name'] ?? '').toString().toLowerCase();
-      if (clientName.contains(query)) return true;
+    
+// final visibleRows = taskRows.where((r) {
+//   final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
+//   if (_showAssigned != assigned) return false;
 
-      // 🔍 Employee Names check across all role columns
-      final roleFields = [
-        'ads_handling',
-        'page_handling',
-        'designer',
-        'videographer',
-        'video_editor',
-        'ui_ux_designer',
-        'developer',
-        'website_designer'
-      ];
+//   // 🟢 OLD CYCLE HIDING LOGIC (Without changing backend):
+//   // Oru client-kku (e.g., JEYASRI HOSTAL) multiple rows irunthal, 
+//   // yethu mthandha/latest deadline or created_at date-ai konda row-o athu mattum thaan assigned tab-la irukkum.
+//   // Puthu task (NEXT CYCLE) create aanathaala, antha old row-oda deadline munnadi ulla date-ah irukkum.
+//   // Athanaal same client-ku athai vida oru future/latest deadline row iruntha, intha old row-ai hide pannidum!
+  
+//   if (_showAssigned && r['client_name'] != null && r['client_name'] != 'PENDING_SELECTION') {
+//     final currentClient = r['client_name'].toString().trim().toLowerCase();
+//     final currentId = r['id'] is int ? r['id'] : int.tryParse(r['id'].toString()) ?? 0;
 
-      for (final field in roleFields) {
-        final empValue = (r[field] ?? '').toString().toLowerCase();
-        if (empValue.contains(query)) return true;
-      }
+//     // TaskRows-la intha client-kkuavey innum oru mikkyaana (periya ID ulla or recent deadline ulla) task irukka nu paakrom
+//     bool hasNewerTaskForSameClient = taskRows.any((other) {
+//       final otherAssigned = other['is_assigned'] == 1 || other['is_assigned'] == true;
+//       if (!otherAssigned) return false;
 
+//       final otherClient = (other['client_name'] ?? '').toString().trim().toLowerCase();
+//       if (otherClient != currentClient) return false;
+
+//       final otherId = other['id'] is int ? other['id'] : int.tryParse(other['id'].toString()) ?? 0;
+
+//       // Puthusa create aana row-oda ID old row-oda ID-ai vida periyaatha irukkum (Because it's newly inserted)
+//       return otherId > currentId;
+//     });
+
+//     // Oru vela intha client-kku antha puthu task (newer row) iruntha, intha old row-ai hide panniru!
+//     if (hasNewerTaskForSameClient) {
+//       return false;
+//     }
+//   }
+
+//   // Client Active Status Verification
+//   final clientName = (r['client_name'] ?? '').toString().trim();
+//   if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
+//     return true; 
+//   }
+
+//   final clientMatch = allClientsData.firstWhere(
+//     (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
+//     orElse: () => {},
+//   );
+
+//   if (clientMatch.isNotEmpty) {
+//     final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
+//     if (!isActive) return false; 
+//   }
+
+//   if (_searchQuery.trim().isEmpty) return true;
+//   final query = _searchQuery.trim().toLowerCase();
+//   if (clientName.toLowerCase().contains(query)) return true;
+
+//   return false;
+// }).toList();
+
+final visibleRows = taskRows.where((r) {
+  final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
+  if (_showAssigned != assigned) return false;
+
+  final clientName = (r['client_name'] ?? '').toString().trim();
+
+  // 🟢 1. Puthusa create aana empty row (PENDING_SELECTION) -ai direct-ah allow pannungalo
+  if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
+    if (_searchQuery.trim().isNotEmpty) {
       return false;
-    }).toList();
+    }
+    return true;
+  }
+
+  // 2. Client Active Status Verification
+  final clientMatch = allClientsData.firstWhere(
+    (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
+    orElse: () => {},
+  );
+
+  if (clientMatch.isNotEmpty) {
+    final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
+    if (!isActive) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  // 3. Old Cycle Hiding Logic
+  if (_showAssigned) {
+    final currentClient = clientName.toLowerCase();
+    final currentId = r['id'] is int ? r['id'] : int.tryParse(r['id'].toString()) ?? 0;
+
+    final hasNewerTaskForSameClient = taskRows.any((other) {
+      final otherAssigned = other['is_assigned'] == 1 || other['is_assigned'] == true;
+      if (!otherAssigned) return false;
+
+      final otherClient = (other['client_name'] ?? '').toString().trim().toLowerCase();
+      if (otherClient != currentClient) return false;
+
+      final otherId = other['id'] is int ? other['id'] : int.tryParse(other['id'].toString()) ?? 0;
+      return otherId > currentId;
+    });
+
+    if (hasNewerTaskForSameClient) {
+      return false;
+    }
+  }
+
+  // 4. Search
+  if (_searchQuery.trim().isEmpty) {
+    return true;
+  }
+
+  final query = _searchQuery.trim().toLowerCase();
+  return clientName.toLowerCase().contains(query);
+}).toList();
 
     return AdminLayout(
       pageTitle: "Tasks Assign",
@@ -1320,7 +1437,7 @@ setState(() {
                 OutlinedButton.icon(
                   onPressed: () => setState(() => _showAssigned = !_showAssigned),
                   icon: Icon(_showAssigned ? Icons.pending_actions_rounded : Icons.check_circle_outline_rounded, size: 16, color: const Color(0xFF0052CC)),
-                  label: Text(_showAssigned ? "Show Pending" : "Show Assigned", style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 13)),
+                  label: Text(_showAssigned ? "New Assigned Tasks" : " Assigned Tasks", style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w600, fontSize: 13)),
                   style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF0052CC))),
                 ),
                 const SizedBox(width: 8),
@@ -1363,90 +1480,107 @@ setState(() {
             ),
           ]),
           const SizedBox(height: 16),
-          if (loading && taskRows.isEmpty)
+       if (loading && taskRows.isEmpty)
             const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 60), child: CircularProgressIndicator(color: Color(0xFF0052CC))))
           else
             Container(
+              height: 400, // Fixed height container for uniform scrolling
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE2E8F0))),
               child: Scrollbar(
-                controller: _horizontalController, 
+                controller: _verticalController,
                 thumbVisibility: true,
-                trackVisibility: true,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 200,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch, 
-                        children: [
-                          Container(
-                            height: 48,
-                            color: const Color(0xFF0052CC),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            alignment: Alignment.centerLeft,
-                            child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-                          ),
-                          ...visibleRows.map((row) => _buildClientCell(row)),
-                          ...List.generate(4, (_) => _buildClientCell(null)),
-                        ]
-                      ),
-                    ),
-                    const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _horizontalController, 
-                        scrollDirection: Axis.horizontal,
-                        physics: const AlwaysScrollableScrollPhysics(),
+                child: SingleChildScrollView(
+                  controller: _verticalController, // 🟢 Single Vertical Controller for the ENTIRE view (Both Client & Data rows)
+                  scrollDirection: Axis.vertical,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 1️⃣ FIXED WIDTH CLIENT NAME COLUMN (Scrolls naturally with vertical controller)
+                      SizedBox(
+                        width: 200,
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            SizedBox(
-                              width: 4400,
+                            Container(
                               height: 48,
-                              child: Row(children: const [
-                                 _HeaderCell(width: 200, label: "DELIVERABLES"),
-                                 _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
-                                 _HeaderCell(width: 140, label: "ADS HANDLER"),
-                                 _HeaderCell(width: 160, label: "ADS TASKS"),
-                                 _HeaderCell(width: 140, label: "ADS DATE"),
-                                 _HeaderCell(width: 140, label: "PAGE HANDLER"),
-                                 _HeaderCell(width: 160, label: "PAGE TASKS"),
-                                 _HeaderCell(width: 140, label: "PAGE DATE"),
-                                 _HeaderCell(width: 140, label: "DESIGNER"),
-                                 _HeaderCell(width: 160, label: "DESIGN TASKS"),
-                                 _HeaderCell(width: 140, label: "DESIGN DATE"),
-                                 _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
-                                 _HeaderCell(width: 160, label: "VIDEO TASKS"),
-                                 _HeaderCell(width: 140, label: "VIDEO DATE"),
-                                 _HeaderCell(width: 140, label: "VIDEO EDITOR"),
-                                 _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
-                                 _HeaderCell(width: 140, label: "VIDEO EDIT DATE"),
-                                 _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
-                                 _HeaderCell(width: 160, label: "UI/UX TASKS"),
-                                 _HeaderCell(width: 140, label: "UI/UX DATE"),
-                                 _HeaderCell(width: 140, label: "DEVELOPER"),
-                                 _HeaderCell(width: 160, label: "DEV TASKS"),
-                                 _HeaderCell(width: 140, label: "DEV DATE"),
-                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER",),
-                                 _HeaderCell(width: 160,label: "WEBSITE DESIGNER TASKS",),
-                                 _HeaderCell(width: 140,label: "WEBSITE DESIGNER DATE",),
-                                 _HeaderCell(width: 140, label: "DEADLINE"),
-                                 _HeaderCell(width: 160, label: "COMMENTS"),
-                                 _HeaderCell(width: 140, label: "ACTION"),
-                              ]),
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF0052CC),
+                                border: Border(right: BorderSide(color: Color(0xFF0044B3))),
+                              ),
+                              child: const Text("CLIENT NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
                             ),
                             const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                            ...visibleRows.map((row) => SizedBox(width: 4400, child: _buildDataRow(row))),
-                            ...List.generate(4, (_) => SizedBox(width: 4400, child: _buildEmptyRow())),
+                            ...visibleRows.map((row) => SizedBox(height: 54, child: _buildClientCell(row))),
+                            ...List.generate(4, (_) => SizedBox(height: 54, child: _buildClientCell(null))),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                      const VerticalDivider(width: 1, color: Color(0xFFCBD5E1)),
+
+                      // 2️⃣ RIGHT DATA COLUMNS (Horizontally scrollable, but shares the same vertical scroll flow)
+                      Expanded(
+                        child: Scrollbar(
+                          controller: _horizontalController,
+                          thumbVisibility: true,
+                          trackVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: _horizontalController,
+                            scrollDirection: Axis.horizontal,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: SizedBox(
+                              width: 4400,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // 🟦 BLUE TABLE HEADERS
+                                  Container(
+                                    height: 48,
+                                    color: const Color(0xFF0052CC),
+                                    child: Row(children: const [
+                                       _HeaderCell(width: 200, label: "DELIVERABLES"),
+                                       _HeaderCell(width: 200, label: "MAINTENANCE DATE"),
+                                       _HeaderCell(width: 140, label: "ADS HANDLER"),
+                                       _HeaderCell(width: 160, label: "ADS TASKS"),
+                                       _HeaderCell(width: 140, label: "PAGE HANDLER"),
+                                       _HeaderCell(width: 160, label: "PAGE TASKS"),
+                                       _HeaderCell(width: 140, label: "DESIGNER"),
+                                       _HeaderCell(width: 160, label: "DESIGN TASKS"),
+                                       _HeaderCell(width: 140, label: "VIDEOGRAPHER"),
+                                       _HeaderCell(width: 160, label: "VIDEO TASKS"),
+                                       _HeaderCell(width: 140, label: "VIDEO EDITOR"),
+                                       _HeaderCell(width: 160, label: "VIDEO EDIT TASKS"),
+                                       _HeaderCell(width: 140, label: "UI/UX DESIGNER"),
+                                       _HeaderCell(width: 160, label: "UI/UX TASKS"),
+                                       _HeaderCell(width: 140, label: "DEVELOPER"),
+                                       _HeaderCell(width: 160, label: "DEV TASKS"),
+                                       _HeaderCell(width: 140, label: "WEBSITE DESIGNER"),
+                                       _HeaderCell(width: 160, label: "WEBSITE DESIGNER TASKS"),
+                                       _HeaderCell(width: 140, label: "DEADLINE"),
+                                       _HeaderCell(width: 160, label: "COMMENTS"),
+                                       _HeaderCell(width: 140, label: "ACTION"),
+                                    ]),
+                                  ),
+                                  const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+                                  // DATA ROWS BODY
+                                  ...visibleRows.map((row) => SizedBox(width: 4400, height: 54, child: _buildDataRow(row))),
+                                  ...List.generate(4, (_) => SizedBox(width: 4400, height: 54, child: _buildEmptyRow())),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
+
+
         ],
       ),
     );
@@ -1563,6 +1697,27 @@ setState(() {
       if (upper == noneMarker) return noneMarker;
       return employees.contains(upper) ? upper : '';
     }
+    // 🟢 Date string-la irunthu day number mattum (e.g., "24") extract panra function
+  String _formatOnlyDay(dynamic rawDate) {
+    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
+    final val = rawDate.toString().trim();
+    
+    // If format is DD/MM/YYYY
+    if (val.contains('/')) {
+      final parts = val.split('/');
+      if (parts.isNotEmpty) {
+        return parts[0]; // Day part mattum return aagum (e.g., "24")
+      }
+    }
+    
+    // If format is ISO or something else, try parsing
+    try {
+      final parsed = DateTime.parse(val);
+      return parsed.day.toString().padLeft(2, '0');
+    } catch (_) {
+      return val;
+    }
+  }
 
     Widget taskCell(double width, String roleKey, String dbFieldKey) {
       return GestureDetector(
@@ -1594,7 +1749,36 @@ setState(() {
     return Row(
       children: [
         _buildDeliverablesCell(200, row), // ✅ Interactive deliverables package dropdown
-        SizedBox(
+        // SizedBox(
+        //   width: 200,
+        //   height: 54,
+        //   child: GestureDetector(
+        //     onTap: () => _pickDate(row, 'maintenance_date'),
+        //     child: Container(
+        //       padding: const EdgeInsets.symmetric(horizontal: 10),
+        //       decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+        //       alignment: Alignment.centerLeft,
+        //       child: Row(
+        //         children: [
+        //           Expanded(
+        //             child: Text(
+        //               row['maintenance_date']?.toString().isEmpty ?? true ? '—' : row['maintenance_date'].toString(),
+        //               style: TextStyle(
+        //                 fontSize: 11,
+        //                 fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
+        //                 color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+        //               ),
+        //             ),
+        //           ),
+        //           const SizedBox(width: 8),
+        //           Icon(Icons.calendar_today, size: 14, color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
+        //         ],
+        //       ),
+        //     ),
+        //   ),
+        // ),
+       
+       SizedBox(
           width: 200,
           height: 54,
           child: GestureDetector(
@@ -1607,7 +1791,8 @@ setState(() {
                 children: [
                   Expanded(
                     child: Text(
-                      row['maintenance_date']?.toString().isEmpty ?? true ? '—' : row['maintenance_date'].toString(),
+                      // 🟢 Day (Date) mattum eduthu kaattum (e.g. "24")
+                      _formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
@@ -1622,27 +1807,28 @@ setState(() {
             ),
           ),
         ),
+       
         SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ads_handler_task', 'ads_platform')),
-        SizedBox(width: 140, child: _dateCell(140, 'ads_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'ads_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
-        SizedBox(width: 140, child: _dateCell(140, 'page_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'page_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'designer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'designer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'videographer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'videographer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        SizedBox(width: 140, child: _dateCell(140, 'video_editor_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'video_editor_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'ui_ux_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'ui_ux_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
-        SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
+        // SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
         SizedBox(
   width: 140,
   child: _empDropCell(
@@ -1667,14 +1853,14 @@ SizedBox(
   ),
 ),
 
-SizedBox(
-  width: 140,
-  child: _dateCell(
-    140,
-    'website_designer_submit_date',
-    row,
-  ),
-),
+// SizedBox(
+//   width: 140,
+//   child: _dateCell(
+//     140,
+//     'website_designer_submit_date',
+//     row,
+//   ),
+// ),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),
@@ -1742,10 +1928,50 @@ SizedBox(
     );
   }
 
-  Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  // Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+  //   return Container(
+  //     width: width,
+  //     padding: const EdgeInsets.symmetric(horizontal: 8),
+  //     child: Row(
+  //       children: [
+  //         if (!assigned) ...[
+  //           Expanded(
+  //             child: SizedBox(
+  //               height: 32,
+  //               child: ElevatedButton(
+  //                 onPressed: () => _toggleAssign(row),
+  //                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
+  //                 child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
+  //               ),
+  //             ),
+  //           ),
+  //           const SizedBox(width: 4),
+  //         ],
+  //         GestureDetector(
+  //           onTap: () => _deleteRow(row['id']),
+  //           child: Container(width: 24, height: 24, decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(4)), child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626))),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
+
+Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
+    // 🟢 Deadline complete aayirukka (expired-ah) nu check panrathu
+    bool isDeadlinePassed = false;
+    if (row['deadline'] != null && row['deadline'].toString().trim().isNotEmpty) {
+      try {
+        DateTime deadlineDate = DateTime.parse(row['deadline'].toString());
+        if (deadlineDate.isBefore(DateTime.now())) {
+          isDeadlinePassed = true;
+        }
+      } catch (_) {}
+    }
+
     return Container(
       width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
         children: [
           if (!assigned) ...[
@@ -1756,6 +1982,32 @@ SizedBox(
                   onPressed: () => _toggleAssign(row),
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
                   child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ] else if (assigned && isDeadlinePassed) ...[
+            // 🟢 Assigned aagi, DEADLINE DATE COMPLETE AANATHU MATTUM "NEXT CYCLE" button show aagum
+            Expanded(
+              child: SizedBox(
+                height: 32,
+                child: ElevatedButton(
+                  onPressed: () async {
+  final res = await http.post(Uri.parse('$_baseUrl/tasks/${row['id']}/duplicate-next-month'));
+  if (res.statusCode == 200 || res.statusCode == 201) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ New task successfully added for next cycle!'), backgroundColor: Colors.green)
+    );
+    await _fetchTasks(); // 🟢 Table data-va fresh-ah backend-il irunthu eduthu state-ai update seiyum
+    setState(() {}); // 🟢 Screen-ai re-render seiyum
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('❌ Failed: ${res.body}'), backgroundColor: Colors.red)
+    );
+  }
+},
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16A34A), padding: EdgeInsets.zero),
+                  child: const FittedBox(child: Text("NEXT CYCLE", style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.w900))),
                 ),
               ),
             ),
@@ -1804,11 +2056,12 @@ class _HeaderCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFF0044B3)))),
       alignment: Alignment.centerLeft,
-      child: Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.3), maxLines: 2, overflow: TextOverflow.ellipsis),
+      child: Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3), maxLines: 2, overflow: TextOverflow.ellipsis),
     );
     if (width != null) return SizedBox(width: width, child: child);
     return Expanded(child: child);
   }
 }
+
