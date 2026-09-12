@@ -9,10 +9,12 @@ class HrmsTrackingApi {
   HrmsTrackingApi._();
 
   static Future<Map<String, dynamic>?> myHomeLocation() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-location'),
-      headers: await _headers(),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .get(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-location'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 15));
     final data = _decode(response);
     return data['employee_user_id'] == null ? null : data;
   }
@@ -24,27 +26,34 @@ class HrmsTrackingApi {
     required String capturedAt,
     String? address,
   }) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-location'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'latitude': latitude, 'longitude': longitude,
-        'accuracy': accuracy, 'capturedAt': capturedAt,
-        'address': address,
-      }),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-location'),
+          headers: await _headers(),
+          body: jsonEncode({
+            'latitude': latitude,
+            'longitude': longitude,
+            'accuracy': accuracy,
+            'capturedAt': capturedAt,
+            'address': address,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
     _decode(response);
   }
 
   static Future<List<Map<String, dynamic>>> homeLocations() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-locations'),
-      headers: await _headers(),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .get(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-locations'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 15));
     final data = _decode(response);
     return (data['items'] as List? ?? [])
         .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item)).toList();
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   static Future<void> reviewHomeLocation({
@@ -54,25 +63,55 @@ class HrmsTrackingApi {
     required double longitude,
     String? rejectionReason,
   }) async {
-    final response = await http.patch(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-locations/$employeeUserId'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'approvalStatus': approve ? 'approved' : 'rejected',
-        'latitude': latitude, 'longitude': longitude,
-        'rejectionReason': rejectionReason,
-      }),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .patch(
+          Uri.parse(
+            '${ApiConfig.baseUrl}/hrms/tracking/home-locations/$employeeUserId',
+          ),
+          headers: await _headers(),
+          body: jsonEncode({
+            'approvalStatus': approve ? 'approved' : 'rejected',
+            'latitude': latitude,
+            'longitude': longitude,
+            'rejectionReason': rejectionReason,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
     _decode(response);
   }
 
   static Future<void> updateOfficeRadius(int radiusMeters) async {
-    final response = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
-      headers: await _headers(),
-      body: jsonEncode({'officeRadiusMeters': radiusMeters}),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .put(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          headers: await _headers(),
+          body: jsonEncode({'officeRadiusMeters': radiusMeters}),
+        )
+        .timeout(const Duration(seconds: 15));
     _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> updateOfficeLocation({
+    required String officeName,
+    required String officeAddress,
+    required double officeLatitude,
+    required double officeLongitude,
+    required int officeRadiusMeters,
+  }) async {
+    final response = await http
+        .put(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          headers: await _headers(),
+          body: jsonEncode({
+            'officeName': officeName,
+            'officeAddress': officeAddress,
+            'officeLatitude': officeLatitude,
+            'officeLongitude': officeLongitude,
+            'officeRadiusMeters': officeRadiusMeters,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    return _decode(response);
   }
 
   static Future<Map<String, String>> _headers() async {
@@ -85,8 +124,9 @@ class HrmsTrackingApi {
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
-    final decoded =
-        response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body);
 
     if (decoded is! Map) {
       throw Exception('Unexpected response');
@@ -204,9 +244,7 @@ class HrmsTrackingApi {
 
   static Future<Map<String, dynamic>?> waitingAlert() async {
     final response = await http.get(
-      Uri.parse(
-        '${ApiConfig.baseUrl}/hrms/tracking/field-waiting-alert',
-      ),
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-waiting-alert'),
       headers: await _headers(),
     );
 
@@ -236,55 +274,55 @@ class HrmsTrackingApi {
   }
 
   static Future<Map<String, dynamic>> trackingSettings() async {
-  final response = await http.get(
-    Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
-    headers: await _headers(),
-  );
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+      headers: await _headers(),
+    );
 
-  return _decode(response);
-
+    return _decode(response);
   }
 
-static Future<Map<String, dynamic>> updateFieldWaitingSettings({
-  required int fieldWaitingMinutes,
-  required int stationaryRadiusMeters,
-  required int fieldPingIntervalMinutes,
-}) async {
-  final response = await http.put(
-    Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
-    headers: await _headers(),
-    body: jsonEncode({
-      'fieldWaitingMinutes': fieldWaitingMinutes,
-      'stationaryRadiusMeters': stationaryRadiusMeters,
-      'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
-    }),
-  );
+  static Future<Map<String, dynamic>> updateFieldWaitingSettings({
+    required int fieldWaitingMinutes,
+    required int stationaryRadiusMeters,
+    required int fieldPingIntervalMinutes,
+  }) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'fieldWaitingMinutes': fieldWaitingMinutes,
+        'stationaryRadiusMeters': stationaryRadiusMeters,
+        'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
+      }),
+    );
 
-  return _decode(response);
-}
-static Future<List<Map<String, dynamic>>> fieldWaitingReasons() async {
-  final response = await http.get(
-    Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-waiting-reasons'),
-    headers: await _headers(),
-  );
+    return _decode(response);
+  }
 
-  final data = _decode(response);
-  final items = data['items'] as List? ?? [];
+  static Future<List<Map<String, dynamic>>> fieldWaitingReasons() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-waiting-reasons'),
+      headers: await _headers(),
+    );
 
-  return items
-      .whereType<Map>()
-      .map((item) => Map<String, dynamic>.from(item))
-      .toList();
-}
+    final data = _decode(response);
+    final items = data['items'] as List? ?? [];
 
-static Future<void> reviewFieldWaitingReason(int reasonId) async {
-  final response = await http.patch(
-    Uri.parse(
-      '${ApiConfig.baseUrl}/hrms/tracking/field-waiting-reasons/$reasonId/review',
-    ),
-    headers: await _headers(),
-  );
+    return items
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
 
-  _decode(response);
-}
+  static Future<void> reviewFieldWaitingReason(int reasonId) async {
+    final response = await http.patch(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/hrms/tracking/field-waiting-reasons/$reasonId/review',
+      ),
+      headers: await _headers(),
+    );
+
+    _decode(response);
+  }
 }
