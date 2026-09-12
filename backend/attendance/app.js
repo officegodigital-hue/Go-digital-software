@@ -267,7 +267,10 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
                   DATE_FORMAT(work_date, '%Y-%m-%d') as work_date,
                   DATE_FORMAT(work_date, '%d %b') as date_str,
                   DATE_FORMAT(work_date, '%a') as day_str,
-                  regular_out, actual_out, hours_minutes, extra_minutes, reason, status
+                  TIME_FORMAT(regular_out_time, '%h:%i %p') AS regular_out,
+                  TIME_FORMAT(actual_out_time, '%h:%i %p') AS actual_out,
+                  CONCAT('+', FLOOR(extra_minutes / 60), 'h ', LPAD(MOD(extra_minutes, 60), 2, '0'), 'm') AS hours_minutes,
+                  extra_minutes, reason, status
            FROM employee_extra_hours 
            WHERE employee_id = ? 
            ORDER BY work_date DESC`,
@@ -345,18 +348,16 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           totalMinutes = isNaN(num) ? 60 : Math.round(num * 60);
         }
 
-        const formattedDuration = `+${Math.floor(totalMinutes / 60)}h ${(totalMinutes % 60).toString().padStart(2, '0')}m`;
-
         await pool.execute(
           `INSERT INTO employee_extra_hours 
-             (employee_id, work_date, regular_out, actual_out, hours_minutes, extra_minutes, reason, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+             (employee_id, work_date, regular_out_time, actual_out_time, extra_minutes, reason, status)
+           VALUES (?, ?, COALESCE(STR_TO_DATE(?, '%h:%i %p'), '18:00:00'),
+                   STR_TO_DATE(?, '%h:%i %p'), ?, ?, 'PENDING')`,
           [
             empId,
             work_date,
             regular_out || '06:00 PM',
-            actual_out || 'Overtime Session',
-            formattedDuration,
+            actual_out || null,
             totalMinutes,
             reason || '',
           ]

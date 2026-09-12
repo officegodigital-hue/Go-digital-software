@@ -9,20 +9,7 @@ import '../../services/auth_service.dart';
 import '../shared/employee_ui.dart';
 
 List<String> _attendanceBaseUrls() {
-  final configured = ApiConfig.baseUrl;
-
-  // On a deployed web app, localhost points to the employee's computer, not
-  // the HRMS server. Use the same-origin API immediately in production.
-  if (configured.startsWith('/')) {
-    return ['$configured/attendance'];
-  }
-
-  final urls = <String>['$configured/attendance'];
-  if (configured.contains(':5000')) {
-    urls.add('${configured.replaceAll(':5000', ':3101')}/attendance');
-  }
-  urls.add('http://localhost:3101/attendance');
-  return urls.toSet().toList();
+  return ['${ApiConfig.baseUrl}/attendance'];
 }
 
 class EmployeeLeavePage extends StatefulWidget {

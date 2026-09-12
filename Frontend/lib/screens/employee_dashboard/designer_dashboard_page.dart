@@ -1,4 +1,3 @@
-// lib/screens/employee_dashboard/designer_dashboard_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -286,88 +285,122 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
   }
 
   @override
-  @override
-Widget build(BuildContext context) {
-  final user = context.watch<AuthService>().user;
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user;
 
-  final String fullName =
-      user?['fullName'] ??
-      user?['name'] ??
-      user?['username'] ??
-      'Designer';
+    final String fullName =
+        user?['fullName'] ??
+        user?['name'] ??
+        user?['username'] ??
+        'Designer';
 
-  final String roleTitle =
-      user?['role'] ??
-      'Creative Specialist';
+    final String roleTitle =
+        user?['role'] ??
+        'Creative Specialist';
 
-  return FadeTransition(
-    opacity: _fadeAnimation,
-    child: SlideTransition(
-      position: _slideAnimation,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(38, 30, 38, 40),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _welcomeSection(fullName, roleTitle),
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            MediaQuery.sizeOf(context).width < 600 ? 16 : 38,
+            MediaQuery.sizeOf(context).width < 600 ? 18 : 30,
+            MediaQuery.sizeOf(context).width < 600 ? 16 : 38,
+            40,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _welcomeSection(fullName, roleTitle),
 
-            const SizedBox(height: 26),
+              const SizedBox(height: 26),
 
-            _summaryCards(),
+              _summaryCards(),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // -------------------------------------------------
-            // RECENT ALERTS + DAILY PRODUCTIVITY
-            // -------------------------------------------------
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 7,
-                  child: AlertsSection(
-                    notifications: recentNotifications,
-                    onViewAll: widget.onViewAllNotifications,
-                  ),
-                ),
+              // -------------------------------------------------
+              // RECENT ALERTS + DAILY PRODUCTIVITY
+              // -------------------------------------------------
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final stacked = constraints.maxWidth < 900;
 
-                const SizedBox(width: 20),
+                  if (stacked) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AlertsSection(
+                          notifications: recentNotifications,
+                          onViewAll: widget.onViewAllNotifications,
+                        ),
+                        const SizedBox(height: 18),
+                        ProductivityCard(
+                          approved: approved,
+                          rework: rework,
+                          rejected: rejected,
+                          review: review,
+                          others: others,
+                        ),
+                      ],
+                    );
+                  }
 
-                Expanded(
-                  flex: 3,
-                  child: ProductivityCard(
-                    approved: approved,
-                    rework: rework,
-                    rejected: rejected,
-                    review: review,
-                    others: others,
-                  ),
-                ),
-              ],
-            ),
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 7,
+                        child: AlertsSection(
+                          notifications: recentNotifications,
+                          onViewAll: widget.onViewAllNotifications,
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        flex: 3,
+                        child: ProductivityCard(
+                          approved: approved,
+                          rework: rework,
+                          rejected: rejected,
+                          review: review,
+                          others: others,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
 
-            const SizedBox(height: 26),
+              const SizedBox(height: 26),
 
-            // -------------------------------------------------
-            // MAIN TASK STATUS TABLE
-            // -------------------------------------------------
-            _taskStatusTable(),
-          ],
+              // -------------------------------------------------
+              // MAIN TASK STATUS TABLE
+              // -------------------------------------------------
+              _taskStatusTable(),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _welcomeSection(String name, String role) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(
+        MediaQuery.sizeOf(context).width < 600 ? 20 : 28,
+      ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF04296B), Color(0xFF0757D5), Color(0xFF1D74E8)],
+          colors: [
+            Color(0xFF04296B),
+            Color(0xFF0757D5),
+            Color(0xFF1D74E8),
+          ],
           stops: [0.0, 0.55, 1.0],
         ),
         borderRadius: BorderRadius.circular(24),
@@ -379,119 +412,132 @@ Widget build(BuildContext context) {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 650;
+
+          return compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.16),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.28)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.verified_rounded, size: 13, color: Color(0xFF4ADE80)),
-                          const SizedBox(width: 6),
-                          Text(
-                            role.toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: .9,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.20)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.timer_rounded, size: 13, color: Color(0xFF93C5FD)),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Active Time: $totalWorkingTimeFormatted',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _welcomeContent(name, role),
+                    const SizedBox(height: 18),
+                    _welcomeDate(),
                   ],
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Welcome back, $name! ✨',
-                  style: const TextStyle(
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: -.6,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  "Here is your live overview of today's GoDigital priorities, client tasks, and performance metrics.",
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    color: Colors.white.withOpacity(0.85),
-                    fontWeight: FontWeight.w500,
-                    height: 1.35,
-                  ),
-                ),
-              ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: _welcomeContent(name, role)),
+                    const SizedBox(width: 20),
+                    _welcomeDate(),
+                  ],
+                );
+        },
+      ),
+    );
+  }
+
+  Widget _welcomeContent(String name, String role) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            _heroChip(
+              icon: Icons.verified_rounded,
+              iconColor: const Color(0xFF4ADE80),
+              text: role.toUpperCase(),
+            ),
+            _heroChip(
+              icon: Icons.timer_rounded,
+              iconColor: const Color(0xFF93C5FD),
+              text: 'Active Time: $totalWorkingTimeFormatted',
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Welcome back, $name! ✨',
+          style: const TextStyle(
+            fontSize: 27,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: -.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          "Here is your live overview of today's GoDigital priorities, client tasks, and performance metrics.",
+          style: TextStyle(
+            fontSize: 13.5,
+            color: Colors.white.withOpacity(0.85),
+            fontWeight: FontWeight.w500,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _heroChip({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: .6,
             ),
           ),
-          const SizedBox(width: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.24)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.calendar_month_rounded,
-                  size: 19,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  getTodayDate(),
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
+        ],
+      ),
+    );
+  }
+
+  Widget _welcomeDate() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.calendar_month_rounded, size: 19, color: Colors.white),
+          const SizedBox(width: 10),
+          Text(
+            getTodayDate(),
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -500,602 +546,632 @@ Widget build(BuildContext context) {
   }
 
   Widget _summaryCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: MetricCard(
-            icon: Icons.groups_rounded,
-            title: 'Assigned Clients',
-            value: assignedClients.toString().padLeft(2, '0'),
-            label: 'Current',
-            color: AppColors.primary,
-          ),
-        ),
-        const SizedBox(width: 22),
-        Expanded(
-          child: MetricCard(
-            icon: Icons.account_tree_rounded,
-            title: 'Active Tasks',
-            value: activeTasks.toString().padLeft(2, '0'),
-            label: 'Current',
-            color: AppColors.green,
-          ),
-        ),
-        const SizedBox(width: 22),
-        Expanded(
-          child: MetricCard(
-            icon: Icons.pause_circle_rounded,
-            title: 'Hold Task',
-            value: holdTasks.toString().padLeft(2, '0'),
-            label: 'Action required',
-            color: AppColors.orange,
-          ),
-        ),
-        const SizedBox(width: 22),
-        Expanded(
-          child: MetricCard(
-            icon: Icons.cancel_rounded,
-            title: 'Rejected Task',
-            value: rejectedTasks.toString().padLeft(2, '0'),
-            label: 'High Risk',
-            color: AppColors.red,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1100 ? 4 : 2;
+        final gap = columns == 4 ? 22.0 : 14.0;
+        final cardWidth =
+            (constraints.maxWidth - (gap * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: 14,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.groups_rounded,
+                title: 'Assigned Clients',
+                value: assignedClients.toString().padLeft(2, '0'),
+                label: 'Current',
+                color: AppColors.primary,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.account_tree_rounded,
+                title: 'Active Tasks',
+                value: activeTasks.toString().padLeft(2, '0'),
+                label: 'Current',
+                color: AppColors.green,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.pause_circle_rounded,
+                title: 'Hold Task',
+                value: holdTasks.toString().padLeft(2, '0'),
+                label: 'Action required',
+                color: AppColors.orange,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.cancel_rounded,
+                title: 'Rejected Task',
+                value: rejectedTasks.toString().padLeft(2, '0'),
+                label: 'High Risk',
+                color: AppColors.red,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _taskStatusTable() {
-  return Container(
-    width: double.infinity,
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
-      border: Border.all(
-        color: const Color(0xFFE5ECF6),
-      ),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFF0B5ED7).withOpacity(0.06),
-          blurRadius: 28,
-          offset: const Offset(0, 12),
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xFFE5ECF6),
         ),
-      ],
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: Column(
-      children: [
-        // =====================================================
-        // PREMIUM TABLE HEADER
-        // =====================================================
-        Container(
-          padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFFF8FBFF),
-                Color(0xFFF1F6FD),
-              ],
-            ),
-            border: Border(
-              bottom: BorderSide(
-                color: Color(0xFFE4EBF5),
-              ),
-            ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0B5ED7).withOpacity(0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
           ),
-          child: Row(
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final mobile = constraints.maxWidth < 700;
+
+          return Column(
             children: [
               Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
+                padding: EdgeInsets.fromLTRB(
+                  mobile ? 16 : 22,
+                  mobile ? 16 : 20,
+                  mobile ? 16 : 22,
+                  mobile ? 16 : 18,
+                ),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Color(0xFF0757D5),
-                      Color(0xFF1D74E8),
+                      Color(0xFFF8FBFF),
+                      Color(0xFFF1F6FD),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(13),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0757D5)
-                          .withOpacity(0.20),
-                      blurRadius: 12,
-                      offset: const Offset(0, 5),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Color(0xFFE4EBF5),
                     ),
-                  ],
+                  ),
                 ),
-                child: const Icon(
-                  Icons.monitor_heart_rounded,
-                  color: Colors.white,
-                  size: 21,
-                ),
-              ),
-
-              const SizedBox(width: 13),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'Task Status & Live Monitoring',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF172033),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-
-                        const SizedBox(width: 9),
-
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFDCFCE7),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(0xFFBBF7D0),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                child: mobile
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              _LivePulse(),
-                              const SizedBox(width: 5),
-                              const Text(
-                                'LIVE',
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF15803D),
-                                  letterSpacing: 0.7,
+                              _taskHeaderIcon(),
+                              const SizedBox(width: 11),
+                              const Expanded(
+                                child: Text(
+                                  'Task Status',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF172033),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    Text(
-                      '${tasks.length} assigned task${tasks.length == 1 ? '' : 's'} currently being monitored',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF7B8798),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(width: 14),
-
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: widget.onOpenAssignedTask,
-                  borderRadius: BorderRadius.circular(11),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 13,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF3FF),
-                      borderRadius: BorderRadius.circular(11),
-                      border: Border.all(
-                        color: const Color(0xFFD4E6FF),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'View All Assigned',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF0757D5),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Text(
+                                '${tasks.length} assigned task${tasks.length == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF7B8798),
+                                ),
+                              ),
+                              const Spacer(),
+                              _liveBadge(),
+                              const SizedBox(width: 8),
+                              _viewAllButton(),
+                            ],
                           ),
-                        ),
-                        SizedBox(width: 6),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 15,
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          _taskHeaderIcon(),
+                          const SizedBox(width: 13),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Task Status',
+                                      style: TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF172033),
+                                        letterSpacing: -0.3,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 9),
+                                    _liveBadge(),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${tasks.length} assigned task${tasks.length == 1 ? '' : 's'} currently being monitored',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF7B8798),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          _viewAllButton(),
+                        ],
+                      ),
+              ),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 70),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
                           color: Color(0xFF0757D5),
                         ),
-                      ],
-                    ),
+                      ),
+                      SizedBox(height: 14),
+                      Text(
+                        'Loading live task activity...',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF7B8798),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 55),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF1F2),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.cloud_off_rounded,
+                          color: Color(0xFFDC2626),
+                          size: 25,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _fetchDashboardSummary,
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('Retry'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0757D5),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 11,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (tasks.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: const Icon(
+                          Icons.assignment_outlined,
+                          color: Color(0xFF3B82F6),
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(height: 13),
+                      const Text(
+                        'No tasks assigned yet',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Your assigned tasks will appear here.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (mobile)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: tasks.map(_mobileTaskCard).toList(),
+                  ),
+                )
+              else
+                _premiumTaskTableContent(),
             ],
-          ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _taskHeaderIcon() {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0757D5),
+            Color(0xFF1D74E8),
+          ],
         ),
-
-        // =====================================================
-        // TABLE
-        // =====================================================
-        if (_loading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 70),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: Color(0xFF0757D5),
-                  ),
-                ),
-                SizedBox(height: 14),
-                Text(
-                  'Loading live task activity...',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF7B8798),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else if (_error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 55),
-            child: Column(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF1F2),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.cloud_off_rounded,
-                    color: Color(0xFFDC2626),
-                    size: 25,
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                ElevatedButton.icon(
-                  onPressed: _fetchDashboardSummary,
-                  icon: const Icon(
-                    Icons.refresh_rounded,
-                    size: 16,
-                  ),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0757D5),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 11,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else if (tasks.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 60),
-            child: Column(
-              children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Icon(
-                    Icons.assignment_outlined,
-                    color: Color(0xFF3B82F6),
-                    size: 28,
-                  ),
-                ),
-
-                const SizedBox(height: 13),
-
-                const Text(
-                  'No tasks assigned yet',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF334155),
-                  ),
-                ),
-
-                const SizedBox(height: 4),
-
-                const Text(
-                  'Your assigned tasks will appear here.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF94A3B8),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          _premiumTaskTableContent(),
-      ],
-    ),
-  );
-}
-
-Widget _premiumTaskTableContent() {
-  return SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: SizedBox(
-      width: 1100,
-      child: Column(
-        children: [
-          _premiumTableHeader(),
-
-          ...tasks.asMap().entries.map(
-            (entry) => _premiumTaskRow(
-              entry.value,
-              entry.key,
-            ),
+        borderRadius: BorderRadius.circular(13),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0757D5).withOpacity(0.20),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-    ),
-  );
-}
-
-Widget _premiumTableHeader() {
-  return Container(
-    height: 50,
-    padding: const EdgeInsets.symmetric(horizontal: 22),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF8FAFD),
-      border: Border(
-        bottom: BorderSide(
-          color: Color(0xFFE6ECF4),
-        ),
+      child: const Icon(
+        Icons.monitor_heart_rounded,
+        color: Colors.white,
+        size: 21,
       ),
-    ),
-    child: Row(
-      children: [
-        _headerCell(
-          icon: Icons.business_rounded,
-          title: 'CLIENT',
-          flex: 20,
-        ),
-        _headerCell(
-          icon: Icons.assignment_rounded,
-          title: 'TASK',
-          flex: 22,
-        ),
-        _headerCell(
-          icon: Icons.schedule_rounded,
-          title: 'TIME / DURATION',
-          flex: 17,
-        ),
-        _headerCell(
-          icon: Icons.event_available_rounded,
-          title: 'DUE DATE',
-          flex: 18,
-        ),
-        _headerCell(
-          icon: Icons.flash_on_rounded,
-          title: 'ACTION',
-          flex: 14,
-        ),
-        _headerCell(
-          icon: Icons.track_changes_rounded,
-          title: 'STATUS',
-          flex: 14,
-        ),
-        _headerCell(
-          icon: Icons.task_alt_rounded,
-          title: 'COMPLETION',
-          flex: 15,
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
-Widget _headerCell({
-  required IconData icon,
-  required String title,
-  required int flex,
-}) {
-  return Expanded(
-    flex: flex,
-    child: Row(
-      children: [
-        Icon(
-          icon,
-          size: 13,
-          color: const Color(0xFF94A3B8),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 9.5,
-            fontWeight: FontWeight.w900,
-            color: Color(0xFF64748B),
-            letterSpacing: 0.55,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _premiumTaskRow(
-  DesignerTaskModel task,
-  int index,
-) {
-  return _PremiumTaskRow(
-    task: task,
-    index: index,
-  );
-}
-
-  Widget _tableHeader() {
+  Widget _liveBadge() {
     return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8FAFC),
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFBBF7D0),
         ),
       ),
-      child: const Row(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            flex: 2,
-            child: Text('CLIENT', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('TASKS', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('TIME/DURATION', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 3,
-            child: Text('DUE DATE', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('ACTION', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text('STATUS', style: AppTextStyles.tableHeader),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text("COMPLETED TASK", style: AppTextStyles.tableHeader),
+          const _LivePulse(),
+          const SizedBox(width: 5),
+          const Text(
+            'LIVE',
+            style: TextStyle(
+              fontSize: 8.5,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF15803D),
+              letterSpacing: 0.7,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _taskRow(DesignerTaskModel task) {
-    return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(task.clientName, style: AppTextStyles.tableText, maxLines: 1, overflow: TextOverflow.ellipsis),
+  Widget _viewAllButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: widget.onOpenAssignedTask,
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 13,
+            vertical: 10,
           ),
-          Expanded(
-            flex: 2,
-            child: Text(task.task, style: AppTextStyles.tableText, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              task.duration,
-              style: AppTextStyles.tableText,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF3FF),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: const Color(0xFFD4E6FF),
             ),
           ),
-          Expanded(
-            flex: 3,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(task.submissionDate, style: AppTextStyles.tableText),
-                if (task.dateLabel != null)
-                  Text(
-                    task.dateLabel!,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      color: task.dateLabel!.contains('1') || task.dateLabel!.contains('Overdue')
-                          ? AppColors.orange
-                          : AppColors.green,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: StatusBadge(text: task.action),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: StatusBadge(text: task.status),
-          ),
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                task.completedLabel,
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'View All Assigned',
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: task.completedAllDone ? const Color(0xFF16A34A) : const Color(0xFF334155),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0757D5),
                 ),
               ),
+              SizedBox(width: 6),
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 15,
+                color: Color(0xFF0757D5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileTaskCard(DesignerTaskModel task) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBFDFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5ECF6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  task.clientName.isEmpty ? 'Client' : task.clientName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              StatusBadge(text: task.status),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            task.task,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.tableText,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _mobileInfo(Icons.timer_outlined, task.duration),
+              _mobileInfo(Icons.calendar_month_outlined, task.submissionDate),
+              _mobileInfo(Icons.check_circle_outline, task.completedLabel),
+            ],
+          ),
+          if (task.dateLabel != null || task.action.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (task.dateLabel != null)
+                  Expanded(
+                    child: Text(
+                      task.dateLabel!,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: task.dateLabel!.contains('1')
+                            ? AppColors.orange
+                            : AppColors.green,
+                      ),
+                    ),
+                  ),
+                if (task.action.isNotEmpty) StatusBadge(text: task.action),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _mobileInfo(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5ECF6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.primary),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _premiumTaskTableContent() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(
+        width: 1100,
+        child: Column(
+          children: [
+            _premiumTableHeader(),
+            ...tasks.asMap().entries.map(
+              (entry) => _premiumTaskRow(entry.value, entry.key),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _premiumTableHeader() {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFD),
+        border: Border(
+          bottom: BorderSide(
+            color: Color(0xFFE6ECF4),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          _headerCell(
+            icon: Icons.business_rounded,
+            title: 'CLIENT',
+            flex: 20,
+          ),
+          _headerCell(
+            icon: Icons.assignment_rounded,
+            title: 'TASK',
+            flex: 22,
+          ),
+          _headerCell(
+            icon: Icons.schedule_rounded,
+            title: 'TIME / DURATION',
+            flex: 17,
+          ),
+          _headerCell(
+            icon: Icons.event_available_rounded,
+            title: 'DUE DATE',
+            flex: 18,
+          ),
+          _headerCell(
+            icon: Icons.flash_on_rounded,
+            title: 'ACTION',
+            flex: 14,
+          ),
+          _headerCell(
+            icon: Icons.track_changes_rounded,
+            title: 'STATUS',
+            flex: 14,
+          ),
+          _headerCell(
+            icon: Icons.task_alt_rounded,
+            title: 'COMPLETION',
+            flex: 15,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerCell({
+    required IconData icon,
+    required String title,
+    required int flex,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 13,
+            color: const Color(0xFF94A3B8),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF64748B),
+              letterSpacing: 0.55,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _premiumTaskRow(
+    DesignerTaskModel task,
+    int index,
+  ) {
+    return _PremiumTaskRow(
+      task: task,
+      index: index,
     );
   }
 }
@@ -1131,7 +1207,6 @@ num _parseNum(dynamic val) {
   if (val is num) return val;
   return num.tryParse(val.toString()) ?? 0;
 }
-
 
 class _PremiumTaskRow extends StatefulWidget {
   final DesignerTaskModel task;

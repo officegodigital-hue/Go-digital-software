@@ -24,13 +24,11 @@ class ProductivityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 235,
+      width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.card,
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        border: Border.all(color: AppColors.border),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -40,155 +38,154 @@ class ProductivityCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ==================================================
-          // HEADER
-          // ==================================================
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 330;
 
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF0757D5),
-                      Color(0xFF3B82F6),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0757D5)
-                          .withValues(alpha: 0.18),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.insights_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
+          Widget liveBadge() {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: const Color(0xFFDCFCE7)),
               ),
-
-              const SizedBox(width: 10),
-
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Daily Productivity',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-
-                    SizedBox(height: 2),
-
-                    Text(
-                      'Today\'s performance overview',
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textGrey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                    color: const Color(0xFFDCFCE7),
-                  ),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.trending_up_rounded,
-                      size: 11,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.trending_up_rounded, size: 11, color: Color(0xFF16A34A)),
+                  SizedBox(width: 3),
+                  Text(
+                    'LIVE',
+                    style: TextStyle(
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w900,
                       color: Color(0xFF16A34A),
+                      letterSpacing: .4,
                     ),
-                    SizedBox(width: 3),
-                    Text(
-                      'LIVE',
-                      style: TextStyle(
-                        fontSize: 7.5,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF16A34A),
-                        letterSpacing: .4,
-                      ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          Widget titleBlock() {
+            return Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Daily Productivity',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textDark,
+                      letterSpacing: -0.2,
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Today\'s performance overview',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textGrey,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          Widget iconBox() {
+            return Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF0757D5), Color(0xFF3B82F6)],
                 ),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0757D5).withValues(alpha: 0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.insights_rounded, color: Colors.white, size: 18),
+            );
+          }
+
+          Widget header() {
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [iconBox(), const SizedBox(width: 10), titleBlock()]),
+                  const SizedBox(height: 8),
+                  liveBadge(),
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                iconBox(),
+                const SizedBox(width: 10),
+                titleBlock(),
+                const SizedBox(width: 8),
+                liveBadge(),
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              header(),
+              const SizedBox(height: 12),
+              _ProductivityItem(
+                title: 'Approved',
+                value: approved.toString(),
+                color: AppColors.green,
+                icon: Icons.check_circle_rounded,
+              ),
+              _ProductivityItem(
+                title: 'Rejected',
+                value: rejected.toString(),
+                color: AppColors.red,
+                icon: Icons.cancel_rounded,
+              ),
+              _ProductivityItem(
+                title: 'Reworks',
+                value: rework.toString(),
+                color: Colors.orange,
+                icon: Icons.replay_circle_filled_rounded,
+              ),
+              _ProductivityItem(
+                title: 'Review',
+                value: review.toString(),
+                color: Colors.purple,
+                icon: Icons.rate_review_rounded,
+              ),
+              _ProductivityItem(
+                title: 'Others',
+                value: others.toString(),
+                color: AppColors.textGrey,
+                icon: Icons.more_horiz_rounded,
               ),
             ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // ==================================================
-          // PRODUCTIVITY ITEMS
-          // ==================================================
-
-          _ProductivityItem(
-            title: 'Approved',
-            value: approved.toString(),
-            color: AppColors.green,
-            icon: Icons.check_circle_rounded,
-          ),
-
-          _ProductivityItem(
-            title: 'Rejected',
-            value: rejected.toString(),
-            color: AppColors.red,
-            icon: Icons.cancel_rounded,
-          ),
-
-          _ProductivityItem(
-            title: 'Reworks',
-            value: rework.toString(),
-            color: Colors.orange,
-            icon: Icons.replay_circle_filled_rounded,
-          ),
-
-          _ProductivityItem(
-            title: 'Review',
-            value: review.toString(),
-            color: Colors.purple,
-            icon: Icons.rate_review_rounded,
-          ),
-
-          _ProductivityItem(
-            title: 'Others',
-            value: others.toString(),
-            color: AppColors.textGrey,
-            icon: Icons.more_horiz_rounded,
-          ),
-        ],
+          );
+        },
       ),
     );
-  }
-}
+  }}
 
 
 // ============================================================
@@ -213,7 +210,7 @@ class _ProductivityItem extends StatelessWidget {
     final number = int.tryParse(value) ?? 0;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.only(bottom: 4),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Builder(
@@ -285,8 +282,8 @@ class _HoverProductivityItemState
         ),
 
         padding: const EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: 4,
+          horizontal: 7,
+          vertical: 2,
         ),
 
         decoration: BoxDecoration(
@@ -324,8 +321,8 @@ class _HoverProductivityItemState
 
             AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              width: 27,
-              height: 27,
+              width: 25,
+              height: 25,
 
               decoration: BoxDecoration(
                 color: colorWithAlpha(

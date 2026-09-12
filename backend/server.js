@@ -9,6 +9,7 @@ const cron = require('node-cron');
 const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
+const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
@@ -128,6 +129,7 @@ const DayPlannerRoutes = require('./routes/day-planner');
 const performanceRoutes = require('./routes/performance');
 
 const attendanceRoutes = require('./routes/attendance');
+const { createApp: createEmployeeAttendanceApp } = require('./attendance/app');
 const { ensureAttendanceTables } = require('./lib/ensureAttendanceTables');
 const hrmsEmployeesRoutes = require('./routes/hrmsEmployees');
 const { ensureHrmsEmployeeTables } = require('./lib/ensureHrmsEmployeeTables');
@@ -141,6 +143,12 @@ const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const employeeAttendanceApp = createEmployeeAttendanceApp({
+  pool: db,
+  jwtSecret: process.env.JWT_SECRET || 'your_fallback_secret_key_here',
+  timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata',
+  basePath: '',
+});
 
 // ── 1. Create HTTP Server & Initialize Socket.io ─────────────────────────────
 const server = http.createServer(app);
@@ -214,6 +222,10 @@ app.use('/api/day-planner', DayPlannerRoutes);
 app.use('/api/performance', performanceRoutes);
 
 app.use('/api/attendance', attendanceRoutes);
+// Keep every attendance feature on the main API server. Existing clock and
+// calendar routes above remain authoritative; this app supplies the employee
+// leave, break, extra-hours, permission dashboard, header, and tracking routes.
+app.use('/api/attendance', employeeAttendanceApp);
 app.use('/api/hrms/employees', hrmsEmployeesRoutes);
 app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
 app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
@@ -242,6 +254,8 @@ server.listen(PORT, async () => {
   console.log(`✅ Socket.io server is active and running`);
   try {
     await ensureAttendanceTables(db);
+    await ensureAuthSchema(db);
+    console.log('Login schema is ready');
     console.log('Attendance tables are ready');
     await attendancePolicy.getTimeSettings(db);
     console.log('Attendance time settings are ready');

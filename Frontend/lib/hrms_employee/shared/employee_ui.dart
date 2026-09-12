@@ -100,10 +100,23 @@ class EmployeeSidebar extends StatelessWidget {
 
   static const items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
+    _NavItem(
+      '/employee/attendance',
+      'Attendance',
+      Icons.calendar_month_outlined,
+    ),
     _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
-    _NavItem('/employee/leave', 'Leave', Icons.description_outlined, badge: '2'),
-    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem(
+      '/employee/leave',
+      'Leave',
+      Icons.description_outlined,
+      badge: '2',
+    ),
+    _NavItem(
+      '/employee/permission',
+      'Permission',
+      Icons.verified_user_outlined,
+    ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
@@ -111,73 +124,83 @@ class EmployeeSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        width: 264,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(right: BorderSide(color: employeeLine)),
+    width: 264,
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(right: BorderSide(color: employeeLine)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Image.asset(
+            'assets/images/godigital_logo.png',
+            height: 67,
+            alignment: Alignment.centerLeft,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-              child: Image.asset(
-                'assets/images/godigital_logo.png',
-                height: 67,
-                alignment: Alignment.centerLeft,
-              ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF4FF),
+              borderRadius: BorderRadius.circular(12),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Container(
-                padding: const EdgeInsets.all(11),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEF4FF),
-                  borderRadius: BorderRadius.circular(12),
+            child: const Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: employeeBlue,
+                  child: Text('AK', style: TextStyle(color: Colors.white)),
                 ),
-                child: const Row(children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: employeeBlue,
-                    child: Text('AK', style: TextStyle(color: Colors.white)),
-                  ),
-                  SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Arul Kumar', style: TextStyle(fontWeight: FontWeight.w700)),
-                      Text('EMP1001', style: TextStyle(color: employeeBlue, fontSize: 12)),
-                    ],
-                  ),
-                ]),
-              ),
+                SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Arul Kumar',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      'EMP1001',
+                      style: TextStyle(color: employeeBlue, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            const _SectionLabel('MAIN'),
-            ...items.take(6).map((item) => _SidebarTile(item: item, route: route)),
-            const SizedBox(height: 8),
-            const _SectionLabel('FINANCE'),
-            _SidebarTile(item: items[6], route: route),
-            const SizedBox(height: 8),
-            const _SectionLabel('TOOLS'),
-            _SidebarTile(item: items[7], route: route),
-            const Spacer(),
-            InkWell(
-              onTap: () async {
-                Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
-              },
-              child: const Padding(
-                padding: EdgeInsets.all(24),
-                child: Row(children: [
-                  Icon(Icons.grid_view_rounded, size: 17, color: employeeMuted),
-                  SizedBox(width: 8),
-                  Text('Workspace', style: TextStyle(color: employeeMuted)),
-                ]),
-              ),
-            ),
-          ],
+          ),
         ),
-      );
+        const SizedBox(height: 20),
+        const _SectionLabel('MAIN'),
+        ...items.take(6).map((item) => _SidebarTile(item: item, route: route)),
+        const SizedBox(height: 8),
+        const _SectionLabel('FINANCE'),
+        _SidebarTile(item: items[6], route: route),
+        const SizedBox(height: 8),
+        const _SectionLabel('TOOLS'),
+        _SidebarTile(item: items[7], route: route),
+        const Spacer(),
+        InkWell(
+          onTap: () async {
+            Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+          },
+          child: const Padding(
+            padding: EdgeInsets.all(24),
+            child: Row(
+              children: [
+                Icon(Icons.grid_view_rounded, size: 17, color: employeeMuted),
+                SizedBox(width: 8),
+                Text('Workspace', style: TextStyle(color: employeeMuted)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -186,17 +209,17 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(22, 4, 22, 6),
-        child: Text(
-          text,
-          style: const TextStyle(
-            color: Color(0xFF8390AA),
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: .5,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(22, 4, 22, 6),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: Color(0xFF8390AA),
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: .5,
+      ),
+    ),
+  );
 }
 
 class _SidebarTile extends StatelessWidget {
@@ -222,25 +245,34 @@ class _SidebarTile extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(children: [
-          Icon(item.icon, size: 19, color: active ? employeeBlue : const Color(0xFF50617F)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              item.label,
-              style: TextStyle(
-                color: active ? employeeBlue : const Color(0xFF34435E),
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+        child: Row(
+          children: [
+            Icon(
+              item.icon,
+              size: 19,
+              color: active ? employeeBlue : const Color(0xFF50617F),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                item.label,
+                style: TextStyle(
+                  color: active ? employeeBlue : const Color(0xFF34435E),
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
             ),
-          ),
-          if (item.badge != null)
-            CircleAvatar(
-              radius: 11,
-              backgroundColor: const Color(0xFFFFA000),
-              child: Text(item.badge!, style: const TextStyle(color: Colors.white, fontSize: 11)),
-            ),
-        ]),
+            if (item.badge != null)
+              CircleAvatar(
+                radius: 11,
+                backgroundColor: const Color(0xFFFFA000),
+                child: Text(
+                  item.badge!,
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -277,8 +309,14 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
   void initState() {
     super.initState();
     _updateClock();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateClock());
-    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchHeaderStatus());
+    _clockTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateClock(),
+    );
+    _pollingTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _fetchHeaderStatus(),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _fetchHeaderStatus());
   }
 
@@ -302,23 +340,19 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
-    final fallback = configured.contains(':5000')
-        ? configured.replaceAll(':5000', ':3101')
-        : 'http://localhost:3101/api';
-
-    final urls = [
-      'http://localhost:3101/api/attendance/header-status',
-      'http://localhost:3101/attendance/header-status',
-      '$configured/attendance/header-status',
-      '$fallback/attendance/header-status',
-    ];
+    final urls = ['$configured/attendance/header-status'];
 
     for (final raw in urls) {
       try {
-        final res = await http.get(Uri.parse(raw), headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        }).timeout(const Duration(seconds: 3));
+        final res = await http
+            .get(
+              Uri.parse(raw),
+              headers: {
+                'Authorization': 'Bearer $token',
+                'Accept': 'application/json',
+              },
+            )
+            .timeout(const Duration(seconds: 3));
 
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
@@ -333,14 +367,18 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
               final parts = _fullName.trim().split(RegExp(r'\s+'));
               _staffInitials = parts.length > 1
                   ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
-                  : _fullName.substring(0, _fullName.length >= 2 ? 2 : 1).toUpperCase();
+                  : _fullName
+                        .substring(0, _fullName.length >= 2 ? 2 : 1)
+                        .toUpperCase();
 
               if (data['notifications'] is List) {
                 _notifications = (data['notifications'] as List)
-                    .map((item) => {
-                          'title': item['title']?.toString() ?? '',
-                          'subtitle': item['subtitle']?.toString() ?? '',
-                        })
+                    .map(
+                      (item) => {
+                        'title': item['title']?.toString() ?? '',
+                        'subtitle': item['subtitle']?.toString() ?? '',
+                      },
+                    )
                     .toList();
               }
             });
@@ -353,101 +391,108 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 1120;
-          return Container(
-            height: 88,
-            padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 28),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: employeeLine)),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x0A07143F),
-                  blurRadius: 16,
-                  offset: Offset(0, 5),
-                ),
-              ],
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 1120;
+      return Container(
+        height: 88,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 28),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(bottom: BorderSide(color: employeeLine)),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x0A07143F),
+              blurRadius: 16,
+              offset: Offset(0, 5),
             ),
-            child: Row(children: [
-              Image.asset(
-                'assets/images/godigital_logo.png',
-                height: compact ? 50 : 60,
-                width: compact ? 145 : 185,
-                fit: BoxFit.contain,
-                alignment: Alignment.centerLeft,
-              ),
-              SizedBox(width: compact ? 12 : 28),
-              Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Container(
-                      padding: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F7FB),
-                        borderRadius: BorderRadius.circular(32),
-                        border: Border.all(color: const Color(0xFFE7ECF4)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: EmployeeSidebar.items
-                            .map((item) => _TopNavigationItem(
-                                  item: item,
-                                  active: widget.route == item.route,
-                                  compact: compact,
-                                ))
-                            .toList(),
-                      ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Image.asset(
+              'assets/images/godigital_logo.png',
+              height: compact ? 50 : 60,
+              width: compact ? 145 : 185,
+              fit: BoxFit.contain,
+              alignment: Alignment.centerLeft,
+            ),
+            SizedBox(width: compact ? 12 : 28),
+            Expanded(
+              child: Center(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F7FB),
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(color: const Color(0xFFE7ECF4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: EmployeeSidebar.items
+                          .map(
+                            (item) => _TopNavigationItem(
+                              item: item,
+                              active: widget.route == item.route,
+                              compact: compact,
+                            ),
+                          )
+                          .toList(),
                     ),
                   ),
                 ),
               ),
-              SizedBox(width: compact ? 12 : 24),
-              if (!compact) ...[
-                HeaderPill(_currentTime.isEmpty ? '08:46 AM' : _currentTime),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF2FF),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        radius: 5,
-                        backgroundColor: employeeBlue,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isCheckedIn ? 'Checked In' : 'Checked Out',
-                        style: const TextStyle(
-                          color: employeeBlue,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
+            ),
+            SizedBox(width: compact ? 12 : 24),
+            if (!compact) ...[
+              HeaderPill(_currentTime.isEmpty ? '08:46 AM' : _currentTime),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 9,
                 ),
-                const SizedBox(width: 14),
-              ],
-              EmployeeNotificationButton(
-                unreadCount: _unreadNotifications,
-                notifications: _notifications,
-                onOpened: () => setState(() => _unreadNotifications = 0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 5,
+                      backgroundColor: employeeBlue,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isCheckedIn ? 'Checked In' : 'Checked Out',
+                      style: const TextStyle(
+                        color: employeeBlue,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 10),
-              EmployeeProfileMenu(
-                radius: 21,
-                initials: _staffInitials,
-                fullName: _fullName,
-                staffId: _staffId,
-              ),
-            ]),
-          );
-        },
+              const SizedBox(width: 14),
+            ],
+            EmployeeNotificationButton(
+              unreadCount: _unreadNotifications,
+              notifications: _notifications,
+              onOpened: () => setState(() => _unreadNotifications = 0),
+            ),
+            const SizedBox(width: 10),
+            EmployeeProfileMenu(
+              radius: 21,
+              initials: _staffInitials,
+              fullName: _fullName,
+              staffId: _staffId,
+            ),
+          ],
+        ),
       );
+    },
+  );
 }
 
 class _TopNavigationItem extends StatelessWidget {
@@ -463,30 +508,30 @@ class _TopNavigationItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Material(
-          color: active ? employeeBlue : Colors.transparent,
-          borderRadius: BorderRadius.circular(26),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(26),
-            onTap: active ? null : () => Navigator.pushNamed(context, item.route),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 13 : 18,
-                vertical: 12,
-              ),
-              child: Text(
-                item.label,
-                style: TextStyle(
-                  color: active ? Colors.white : employeeMuted,
-                  fontSize: compact ? 12 : 13,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Material(
+      color: active ? employeeBlue : Colors.transparent,
+      borderRadius: BorderRadius.circular(26),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(26),
+        onTap: active ? null : () => Navigator.pushNamed(context, item.route),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 13 : 18,
+            vertical: 12,
+          ),
+          child: Text(
+            item.label,
+            style: TextStyle(
+              color: active ? Colors.white : employeeMuted,
+              fontSize: compact ? 12 : 13,
+              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class HeaderPill extends StatelessWidget {
@@ -495,13 +540,16 @@ class HeaderPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 9),
-        decoration: BoxDecoration(
-          color: const Color(0xFFEAF2FF),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(text, style: const TextStyle(color: employeeBlue, fontWeight: FontWeight.w700)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 9),
+    decoration: BoxDecoration(
+      color: const Color(0xFFEAF2FF),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(color: employeeBlue, fontWeight: FontWeight.w700),
+    ),
+  );
 }
 
 class EmployeeNotificationButton extends StatelessWidget {
@@ -520,85 +568,110 @@ class EmployeeNotificationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Stack(
-        clipBehavior: Clip.none,
-        children: [
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {
-              onOpened?.call();
-              showModalBottomSheet<void>(
-                context: context,
-                showDragHandle: true,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                builder: (_) => SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 4, 22, 28),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notifications',
-                          style: TextStyle(color: employeeNavy, fontSize: 20, fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 18),
-                        if (notifications.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 14),
-                            child: Text('No new notifications', style: TextStyle(color: employeeMuted)),
-                          )
-                        else
-                          ...notifications.map((n) => Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(children: [
-                                  const CircleAvatar(
-                                    backgroundColor: Color(0xFFEAF2FF),
-                                    child: Icon(Icons.notifications_active_outlined, color: employeeBlue, size: 20),
-                                  ),
-                                  const SizedBox(width: 13),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(n['title'] ?? '',
-                                            style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700)),
-                                        Text(n['subtitle'] ?? '',
-                                            style: const TextStyle(color: employeeMuted, fontSize: 12)),
-                                      ],
-                                    ),
-                                  ),
-                                ]),
-                              )),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFFF3F6FB),
-              fixedSize: Size.square(compact ? 44 : 46),
-              shape: const CircleBorder(),
+    clipBehavior: Clip.none,
+    children: [
+      IconButton(
+        tooltip: 'Notifications',
+        onPressed: () {
+          onOpened?.call();
+          showModalBottomSheet<void>(
+            context: context,
+            showDragHandle: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            icon: const Icon(Icons.notifications_none_rounded, color: employeeNavy),
-          ),
-          if (unreadCount > 0)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 9,
-                height: 9,
-                decoration: const BoxDecoration(
-                  color: employeeBlue,
-                  shape: BoxShape.circle,
+            builder: (_) => SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 4, 22, 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notifications',
+                      style: TextStyle(
+                        color: employeeNavy,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    if (notifications.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 14),
+                        child: Text(
+                          'No new notifications',
+                          style: TextStyle(color: employeeMuted),
+                        ),
+                      )
+                    else
+                      ...notifications.map(
+                        (n) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              const CircleAvatar(
+                                backgroundColor: Color(0xFFEAF2FF),
+                                child: Icon(
+                                  Icons.notifications_active_outlined,
+                                  color: employeeBlue,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      n['title'] ?? '',
+                                      style: const TextStyle(
+                                        color: employeeNavy,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    Text(
+                                      n['subtitle'] ?? '',
+                                      style: const TextStyle(
+                                        color: employeeMuted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
-        ],
-      );
+          );
+        },
+        style: IconButton.styleFrom(
+          backgroundColor: const Color(0xFFF3F6FB),
+          fixedSize: Size.square(compact ? 44 : 46),
+          shape: const CircleBorder(),
+        ),
+        icon: const Icon(Icons.notifications_none_rounded, color: employeeNavy),
+      ),
+      if (unreadCount > 0)
+        Positioned(
+          top: 4,
+          right: 4,
+          child: Container(
+            width: 9,
+            height: 9,
+            decoration: const BoxDecoration(
+              color: employeeBlue,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+    ],
+  );
 }
 
 class EmployeeProfileMenu extends StatelessWidget {
@@ -617,50 +690,67 @@ class EmployeeProfileMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => PopupMenuButton<String>(
-        tooltip: 'Profile menu',
-        offset: const Offset(0, 52),
-        elevation: 8,
-        color: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        onSelected: (value) async {
-          if (value == 'workspace') {
-            Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
-          }
-        },
-        itemBuilder: (_) => [
-          PopupMenuItem<String>(
-            enabled: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(fullName, style: const TextStyle(fontWeight: FontWeight.w800, color: employeeNavy)),
-                Text(staffId, style: const TextStyle(color: employeeBlue, fontSize: 12)),
-              ],
+    tooltip: 'Profile menu',
+    offset: const Offset(0, 52),
+    elevation: 8,
+    color: Colors.white,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    onSelected: (value) async {
+      if (value == 'workspace') {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      }
+    },
+    itemBuilder: (_) => [
+      PopupMenuItem<String>(
+        enabled: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              fullName,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: employeeNavy,
+              ),
             ),
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem<String>(
-            value: 'workspace',
-            child: Row(children: [
-              Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
-              SizedBox(width: 10),
-              Text('Workspace', style: TextStyle(color: employeeBlue, fontWeight: FontWeight.w600)),
-            ]),
-          ),
-        ],
-        child: CircleAvatar(
-          radius: radius,
-          backgroundColor: const Color(0xFFE8F0FF),
-          child: Text(
-            initials,
-            style: TextStyle(
-              color: employeeBlue,
-              fontSize: radius * .72,
-              fontWeight: FontWeight.w800,
+            Text(
+              staffId,
+              style: const TextStyle(color: employeeBlue, fontSize: 12),
             ),
-          ),
+          ],
         ),
-      );
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'workspace',
+        child: Row(
+          children: [
+            Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
+            SizedBox(width: 10),
+            Text(
+              'Workspace',
+              style: TextStyle(
+                color: employeeBlue,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+    child: CircleAvatar(
+      radius: radius,
+      backgroundColor: const Color(0xFFE8F0FF),
+      child: Text(
+        initials,
+        style: TextStyle(
+          color: employeeBlue,
+          fontSize: radius * .72,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
 }
 
 class EmployeeCard extends StatelessWidget {
@@ -679,21 +769,21 @@ class EmployeeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: color,
-          border: Border.all(color: borderColor),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0D193B75),
-              blurRadius: 22,
-              offset: Offset(0, 9),
-            ),
-          ],
+    padding: padding,
+    decoration: BoxDecoration(
+      color: color,
+      border: Border.all(color: borderColor),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0D193B75),
+          blurRadius: 22,
+          offset: Offset(0, 9),
         ),
-        child: child,
-      );
+      ],
+    ),
+    child: child,
+  );
 }
 
 class SectionTitle extends StatelessWidget {
@@ -704,30 +794,33 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: employeeNavy,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 3),
-                  Text(subtitle!, style: const TextStyle(color: employeeMuted, fontSize: 13)),
-                ],
-              ],
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: employeeNavy,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          if (trailing != null) trailing!,
-        ],
-      );
+            if (subtitle != null) ...[
+              const SizedBox(height: 3),
+              Text(
+                subtitle!,
+                style: const TextStyle(color: employeeMuted, fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+      if (trailing != null) trailing!,
+    ],
+  );
 }
 
 class PrimaryButton extends StatelessWidget {
@@ -746,16 +839,16 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FilledButton.icon(
-        style: FilledButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-        onPressed: onPressed ?? () {},
-        icon: Icon(icon, size: 20),
-        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-      );
+    style: FilledButton.styleFrom(
+      backgroundColor: color,
+      foregroundColor: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    onPressed: onPressed ?? () {},
+    icon: Icon(icon, size: 20),
+    label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+  );
 }
 
 class StatusPill extends StatelessWidget {
@@ -765,13 +858,16 @@ class StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withOpacity(.11),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: color.withOpacity(.11),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800),
+    ),
+  );
 }
 
 class MetricCard extends StatelessWidget {
@@ -792,21 +888,28 @@ class MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(20),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: color.withOpacity(.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color),
+    padding: const EdgeInsets.all(20),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: color.withOpacity(.1),
+            borderRadius: BorderRadius.circular(12),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: const TextStyle(color: employeeMuted, fontSize: 12)),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(color: employeeMuted, fontSize: 12),
+              ),
               const SizedBox(height: 5),
               Text(
                 value,
@@ -818,12 +921,17 @@ class MetricCard extends StatelessWidget {
               ),
               if (caption != null) ...[
                 const SizedBox(height: 4),
-                Text(caption!, style: const TextStyle(color: employeeMuted, fontSize: 12)),
+                Text(
+                  caption!,
+                  style: const TextStyle(color: employeeMuted, fontSize: 12),
+                ),
               ],
-            ]),
+            ],
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }
 
 class LabeledValue extends StatelessWidget {
@@ -840,12 +948,19 @@ class LabeledValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 11),
-        child: Row(children: [
-          Expanded(child: Text(label, style: const TextStyle(color: employeeMuted))),
-          Text(value, style: TextStyle(color: valueColor, fontWeight: FontWeight.w700)),
-        ]),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 11),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(color: employeeMuted)),
+        ),
+        Text(
+          value,
+          style: TextStyle(color: valueColor, fontWeight: FontWeight.w700),
+        ),
+      ],
+    ),
+  );
 }
 
 class ResponsiveGrid extends StatelessWidget {
@@ -872,8 +987,8 @@ class ResponsiveGrid extends StatelessWidget {
     final columns = width < 600
         ? mobileColumns
         : width < 1024
-            ? tabletColumns
-            : desktopColumns;
+        ? tabletColumns
+        : desktopColumns;
     return GridView.count(
       crossAxisCount: columns,
       shrinkWrap: true,
@@ -900,45 +1015,47 @@ class SimpleTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: minWidth,
-          child: Table(
-            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-            border: const TableBorder(
-              horizontalInside: BorderSide(color: employeeLine),
-            ),
-            children: [
-              TableRow(
-                decoration: const BoxDecoration(color: Color(0xFFF8FAFD)),
-                children: columns
-                    .map((c) => Padding(
-                          padding: const EdgeInsets.all(13),
-                          child: Text(
-                            c,
-                            style: const TextStyle(
-                              color: employeeMuted,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ))
-                    .toList(),
-              ),
-              ...rows.map(
-                (row) => TableRow(
-                  children: row
-                      .map((cell) => Padding(
-                            padding: const EdgeInsets.all(13),
-                            child: cell,
-                          ))
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
+    scrollDirection: Axis.horizontal,
+    child: SizedBox(
+      width: minWidth,
+      child: Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        border: const TableBorder(
+          horizontalInside: BorderSide(color: employeeLine),
         ),
-      );
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(color: Color(0xFFF8FAFD)),
+            children: columns
+                .map(
+                  (c) => Padding(
+                    padding: const EdgeInsets.all(13),
+                    child: Text(
+                      c,
+                      style: const TextStyle(
+                        color: employeeMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+          ...rows.map(
+            (row) => TableRow(
+              children: row
+                  .map(
+                    (cell) =>
+                        Padding(padding: const EdgeInsets.all(13), child: cell),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class InfoBanner extends StatelessWidget {
@@ -948,44 +1065,46 @@ class InfoBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withOpacity(.08),
-          borderRadius: BorderRadius.circular(10),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: color.withOpacity(.08),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.info_outline_rounded, color: color, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: TextStyle(color: color, height: 1.4)),
         ),
-        child: Row(children: [
-          Icon(Icons.info_outline_rounded, color: color, size: 20),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: TextStyle(color: color, height: 1.4))),
-        ]),
-      );
+      ],
+    ),
+  );
 }
 
 class EmployeePageTitle extends StatelessWidget {
-  const EmployeePageTitle({
-    super.key,
-    required this.title,
-    this.trailing,
-  });
+  const EmployeePageTitle({super.key, required this.title, this.trailing});
 
   final String title;
   final Widget? trailing;
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              color: employeeNavy,
-              fontSize: 34,
-              height: 1,
-              fontWeight: FontWeight.w800,
-            ),
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          title,
+          style: const TextStyle(
+            color: employeeNavy,
+            fontSize: 34,
+            height: 1,
+            fontWeight: FontWeight.w800,
           ),
         ),
-        if (trailing != null) trailing!,
-      ]);
+      ),
+      if (trailing != null) trailing!,
+    ],
+  );
 }
 
 class MobileEmployeeHeader extends StatelessWidget {
@@ -994,19 +1113,24 @@ class MobileEmployeeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
         children: [
-          Row(children: [
-            Image.asset('assets/images/godigital_logo.png', height: 68),
-            const Spacer(),
-            const EmployeeNotificationButton(compact: true),
-            const SizedBox(width: 12),
-            const EmployeeProfileMenu(radius: 25),
-          ]),
-          if (showGreeting) ...[
-            const SizedBox(height: 22),
-            const Text('Hello, Arul 👋', style: TextStyle(color: Color(0xFF495572), fontSize: 19)),
-          ],
+          Image.asset('assets/images/godigital_logo.png', height: 68),
+          const Spacer(),
+          const EmployeeNotificationButton(compact: true),
+          const SizedBox(width: 12),
+          const EmployeeProfileMenu(radius: 25),
         ],
-      );
+      ),
+      if (showGreeting) ...[
+        const SizedBox(height: 22),
+        const Text(
+          'Hello, Arul 👋',
+          style: TextStyle(color: Color(0xFF495572), fontSize: 19),
+        ),
+      ],
+    ],
+  );
 }

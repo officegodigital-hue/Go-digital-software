@@ -292,11 +292,10 @@ async function myHistory(req, res) {
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
     const employeeId = req.user.id;
     const start = month + '-01';
-    const end = month + '-31';
 
     const [rows] = await db.query(
-      'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date >= ? AND attendance_date <= ? ORDER BY attendance_date DESC',
-      [employeeId, start, end]
+      'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH) ORDER BY attendance_date DESC',
+      [employeeId, start, start]
     );
 
     let present = 0;
@@ -313,8 +312,8 @@ async function myHistory(req, res) {
     });
 
     const [permissions] = await db.query(
-      'SELECT * FROM attendance_permission_requests WHERE employee_id = ? AND request_date >= ? AND request_date <= ? ORDER BY created_at DESC',
-      [employeeId, start, end]
+      'SELECT * FROM attendance_permission_requests WHERE employee_id = ? AND request_date >= ? AND request_date < DATE_ADD(?, INTERVAL 1 MONTH) ORDER BY created_at DESC',
+      [employeeId, start, start]
     );
 
     return ok(res, {
@@ -656,8 +655,8 @@ async function myExport(req, res) {
     const month = parseMonthParam(req.query.month);
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
     const [rows] = await db.query(
-      'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date >= ? AND attendance_date <= ? ORDER BY attendance_date ASC',
-      [req.user.id, month + '-01', month + '-31']
+      'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH) ORDER BY attendance_date ASC',
+      [req.user.id, month + '-01', month + '-01']
     );
     const lines = ['Date,Check In,Check Out,Status'];
     rows.forEach(function (row) {
