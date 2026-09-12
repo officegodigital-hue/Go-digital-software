@@ -1,8 +1,0 @@
-
-# Backend
-backend/node_modules/
-backend/.env
-
-# Flutter
-.dart_tool/
-build/
