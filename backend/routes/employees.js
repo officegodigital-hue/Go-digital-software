@@ -215,6 +215,164 @@ router.post('/', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// PUT /api/employees/:id/profile — SELF-SERVICE profile update.
+// Used by the logged-in user's own Settings page. Deliberately does
+// NOT accept staffId, role, userType, isMainAdmin or allowedPages —
+// those stay admin-only (via PUT /api/employees/:id in Admin Panel).
+// A user can change: name, username, email, password, avatar color,
+// and profile photo (base64 data URL, or null to remove it).
+// ═══════════════════════════════════════════════════════════════
+router.put('/:id/profile', async (req, res) => {
+  const {
+    firstName, middleName = '', lastName,
+    username, email, password,
+    avatarColor,   // e.g. '#4F46E5' — used when there's no photo
+    profilePhoto,  // base64 data URL string, or null to remove the photo
+  } = req.body;
+
+  const empId = req.params.id;
+
+  if (!firstName || !lastName || !username || !email) {
+    return res.status(400).json({
+      success: false,
+      message: 'First name, last name, username and email are required',
+    });
+  }
+
+  const fullName = [firstName, middleName, lastName]
+    .filter((n) => n && n.trim() !== '')
+    .join(' ');
+  const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+
+  try {
+    const [oldEmpRows] = await db.query(
+      'SELECT full_name FROM employee_users WHERE id = ?',
+      [empId]
+    );
+    if (oldEmpRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+    const oldFullName = oldEmpRows[0].full_name;
+
+    // Make sure the new username/email isn't already used by someone else.
+    const [dupRows] = await db.query(
+      `SELECT id FROM employee_users
+       WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?))
+         AND id != ?`,
+      [username, email, empId]
+    );
+    if (dupRows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'That username or email is already in use',
+      });
+    }
+
+    const fields = [
+      'first_name=?', 'middle_name=?', 'last_name=?', 'full_name=?',
+      'initials=?', 'username=?', 'email=?',
+    ];
+    const values = [firstName, middleName, lastName, fullName, initials, username, email];
+
+    if (password && password.trim() !== '') {
+      fields.push('password=?');
+      values.push(password);
+    }
+    if (avatarColor !== undefined) {
+      fields.push('avatar_color=?');
+      values.push(avatarColor);
+    }
+    if (profilePhoto !== undefined) {
+      fields.push('profile_photo=?');
+      values.push(profilePhoto); // null clears the photo
+    }
+    values.push(empId);
+
+    await db.query(
+      `UPDATE employee_users SET ${fields.join(', ')} WHERE id=?`,
+      values
+    );
+
+    // Same name-change cascade as the admin-side PUT /:id, so a self-service
+    // rename stays consistent everywhere else in the app too.
+    if (oldFullName && oldFullName.trim().toUpperCase() !== fullName.trim().toUpperCase()) {
+      const targetOldName = oldFullName.trim();
+      const targetNewName = fullName.trim();
+
+      await db.query(
+        `UPDATE task_list SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE day_plan_rows SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE notifications SET sender_name = ? WHERE UPPER(TRIM(sender_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE notifications SET recipient_name = ? WHERE UPPER(TRIM(recipient_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE task_planner SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE task_planner_shares SET sender_employee_name = ? WHERE UPPER(TRIM(sender_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE task_planner_shares SET receiver_employee_name = ? WHERE UPPER(TRIM(receiver_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+      await db.query(
+        `UPDATE videographer_planner SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE videographer_planner_shares SET sender_employee_name = ? WHERE UPPER(TRIM(sender_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName.toUpperCase(), targetOldName.toUpperCase()]
+      );
+      await db.query(
+        `UPDATE videographer_planner_shares SET receiver_employee_name = ? WHERE UPPER(TRIM(receiver_employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      const roleColumns = [
+        'designer', 'videographer', 'video_editor',
+        'ui_ux_designer', 'developer', 'ads_handling',
+        'page_handling', 'website_designer',
+      ];
+      for (const col of roleColumns) {
+        await db.query(
+          `UPDATE task_assignments SET ${col} = ? WHERE UPPER(TRIM(${col})) = UPPER(TRIM(?))`,
+          [targetNewName, targetOldName]
+        );
+      }
+    }
+
+    const [rows] = await db.query(
+      `SELECT id, first_name, middle_name, last_name, full_name, initials,
+              staff_id, email, username, role, user_type, is_main_admin,
+              avatar_color, profile_photo
+       FROM employee_users WHERE id = ?`,
+      [empId]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: rows[0],
+    });
+  } catch (err) {
+    console.error('PUT /employees/:id/profile ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // PUT /api/employees/:id — Update Employee & Cascade Name Changes to Task Assignments, Task List, Day Planner & Notifications
 router.put('/:id', async (req, res) => {
   const { 

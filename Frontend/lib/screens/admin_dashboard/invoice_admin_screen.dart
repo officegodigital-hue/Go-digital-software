@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import 'helpers/csv_export.dart';
+import 'package:excel/excel.dart' as excel_lib;
 
 class InvoiceAdminScreen extends StatefulWidget {
   const InvoiceAdminScreen({super.key});
@@ -286,6 +288,53 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return filtered;
   }
 
+  // ============================================================
+  // CALL & WHATSAPP — tap-to-call / tap-to-chat using the client's
+  // saved phone number. Both silently no-op with a snackbar if the
+  // client has no phone number on file.
+  // ============================================================
+  String _cleanPhoneForWhatsApp(String phone) {
+    // Keep digits only (wa.me needs country code + number, no symbols).
+    return phone.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  Future<void> _callPhone(String phone) async {
+    if (phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No phone number available for this client'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    final uri = Uri(scheme: 'tel', path: phone.trim());
+    final launched = await launchUrl(uri);
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the phone dialer'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  Future<void> _openWhatsApp(String phone) async {
+    if (phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No phone number available for this client'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    final digits = _cleanPhoneForWhatsApp(phone);
+    final uri = Uri.parse('https://wa.me/$digits');
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open WhatsApp'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
   String _formatCurrency(double v) {
     final isNegative = v < 0;
     v = v.abs();
@@ -306,7 +355,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return '${isNegative ? '-' : ''}₹$result.${parts[1]}';
   }
 
-  Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
+ Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
     final invoices = _getFilteredAndSortedInvoices();
 
     if (invoices.isEmpty) {
@@ -317,30 +366,48 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       return;
     }
 
-    String csvEscape(String value) {
-      if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-        return '"${value.replaceAll('"', '""')}"';
-      }
-      return value;
-    }
-
-    final headers = [
-      'S.No',
-      'Invoice Date',
-      'Invoice No',
-      'Client Name',
-      'Phone No',
-      'Package Details',
-      'Maintenance Date',
-      'Total Amount',
-      'Paid Amount',
-      'Pending Amount',
-      'Status',
-      if (isMainAdmin) 'Created By',
-    ];
-
-    final buffer = StringBuffer();
-    buffer.writeln(headers.map(csvEscape).join(','));
+    // HTML Table டெம்ப்ளேட் உருவாக்கம் (Excel-ல் திறக்கும்போது கலர்ஃபுல்லாக பிரமாதமாக காட்டும்)
+    final htmlBuffer = StringBuffer();
+    htmlBuffer.writeln('''
+      <html>
+      <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; }
+        .header-title { font-size: 16px; font-weight: bold; color: #FFFFFF; background-color: #0052CC; text-align: center; padding: 12px; }
+        .header-sub { font-size: 11px; color: #475569; text-align: center; background-color: #F8FAFC; padding: 6px; font-weight: bold; margin-bottom: 15px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+        th { background-color: #0052CC; color: #FFFFFF; font-weight: bold; font-size: 11px; padding: 10px; border: 1px solid #4B83E3; text-align: center; }
+        td { font-size: 11px; padding: 8px 10px; border: 1px solid #D7E2F2; color: #172033; }
+        .center { text-align: center; }
+        .right { text-align: right; }
+        .bold { font-weight: bold; }
+        .status-draft { background-color: #F1F5F9; color: #475569; font-weight: bold; text-align: center; }
+        .status-pending { background-color: #FEF3C7; color: #D97706; font-weight: bold; text-align: center; }
+        .status-paid { background-color: #DCFCE7; color: #16A34A; font-weight: bold; text-align: center; }
+      </style>
+      </head>
+      <body>
+      <table>
+        <tr>
+          <td colspan="10" class="header-title">GO DIGITAL - INVOICE MANAGEMENT LEDGER</td>
+        </tr>
+        <tr>
+          <td colspan="10" class="header-sub">Generated On: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}</td>
+        </tr>
+        <tr>
+          <th>S.No</th>
+          <th>Invoice Date</th>
+          <th>Invoice No</th>
+          <th>Client Name</th>
+          <th>Phone No</th>
+          <th>Maintenance Date</th>
+          <th>Total Amount</th>
+          <th>Paid Amount</th>
+          <th>Pending Amount</th>
+          <th>Status</th>
+        </tr>
+    ''');
 
     for (int i = 0; i < invoices.length; i++) {
       final row = invoices[i];
@@ -348,46 +415,54 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       final invNo = (row['invoice_no'] ?? '').toString();
       final client = (row['client_name'] ?? '').toString();
       final phone = (row['client_phone'] ?? '').toString();
-      final type = (row['package_type'] ?? '-').toString();
       final invoiceDate = (row['invoice_date'] ?? '').toString();
       final maintenanceDate = (row['maintenance_date'] ?? '').toString();
+      
       final total = _parseAmount(row['total_amount']);
       final paid = _parseAmount(row['paid_amount']);
       final pending = _parseAmount(row['balance_amount']);
-      final createdByName = (row['created_by_name'] ?? 'Main Admin').toString();
 
       String status = (row['status'] ?? 'DRAFT').toString().toUpperCase();
       if (status == 'PARTIAL' || status == 'OVERDUE') {
         status = 'PENDING';
       }
 
-      final line = [
-        (i + 1).toString(),
-        invoiceDate,
-        invNo,
-        client,
-        phone,
-        type,
-        maintenanceDate,
-        total.toStringAsFixed(2),
-        paid.toStringAsFixed(2),
-        pending.toStringAsFixed(2),
-        status,
-        if (isMainAdmin) createdByName,
-      ];
+      String statusClass = 'status-draft';
+      if (status == 'PENDING') statusClass = 'status-pending';
+      if (status == 'PAID') statusClass = 'status-paid';
 
-      buffer.writeln(line.map(csvEscape).join(','));
+      htmlBuffer.writeln('''
+        <tr>
+          <td class="center bold">${i + 1}</td>
+          <td class="center">$invoiceDate</td>
+          <td class="center bold" style="color: #0052CC;">$invNo</td>
+          <td>$client</td>
+          <td class="center">${phone.isEmpty ? '-' : phone}</td>
+          <td class="center">${maintenanceDate.isEmpty ? '-' : maintenanceDate}</td>
+          <td class="right bold">₹${total.toStringAsFixed(2)}</td>
+          <td class="right" style="color: #16A34A;">₹${paid.toStringAsFixed(2)}</td>
+          <td class="right" style="color: #DC2626;">₹${pending.toStringAsFixed(2)}</td>
+          <td class="$statusClass">$status</td>
+        </tr>
+      ''');
     }
 
-    final fileName = 'Invoices_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
+    htmlBuffer.writeln('''
+      </table>
+      </body>
+      </html>
+    ''');
+
+    // .xls எக்ஸ்டென்ஷனில் சேமித்தால் எக்செல் அதை கலர்ஃபுல் டெம்ப்ளேட்டாக திறக்கும்
+    final fileName = 'GoDigital_Invoice_Template_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
 
     try {
-      final csvBytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(buffer.toString())];
-      await saveAndShareCsv(csvBytes, fileName);
+      final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(htmlBuffer.toString())];
+      await saveAndShareCsv(bytes, fileName); // (இதே பங்கஷன் பைட்டை சேமிக்கப் பயன்படும்)
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('✓ CSV exported successfully!'),
+          content: Text('✓ Professional Colorful Template exported successfully!'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ));
@@ -395,13 +470,13 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error exporting CSV: $e'),
+          content: Text('Error exporting: $e'),
           backgroundColor: Colors.redAccent,
         ));
       }
     }
   }
-
+  
   Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice) async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -1589,6 +1664,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final int id = row["id"];
     final String invNo = row["invoice_no"] ?? '';
     final String client = row["client_name"] ?? '';
+    final String phone = row["client_phone"] ?? '';
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
     final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
@@ -1642,6 +1718,31 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ),
           const SizedBox(height: 12),
           Text(client, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+          if (phone.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(phone, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63))),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () => _callPhone(phone),
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF16A34A)),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _openWhatsApp(phone),
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child: Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 4),
           Text('Package: $type', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
           if (isMainAdmin) ...[
@@ -1866,11 +1967,37 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           _invoiceBodyCell(flex: 3, child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
           _invoiceBodyCell(
             flex: 2,
-            child: Text(
-              phone.isEmpty ? '—' : phone,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    phone.isEmpty ? '—' : phone,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+                  ),
+                ),
+                if (phone.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: () => _callPhone(phone),
+                    borderRadius: BorderRadius.circular(6),
+                    child: const Padding(
+                      padding: EdgeInsets.all(3),
+                      child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF16A34A)),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => _openWhatsApp(phone),
+                    borderRadius: BorderRadius.circular(6),
+                    child: const Padding(
+                      padding: EdgeInsets.all(3),
+                      child: Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
