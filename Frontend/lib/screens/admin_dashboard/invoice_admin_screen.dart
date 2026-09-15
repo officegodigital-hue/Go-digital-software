@@ -347,7 +347,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
       final invNo = (row['invoice_no'] ?? '').toString();
       final client = (row['client_name'] ?? '').toString();
-      final phone = (row['contact_person'] ?? '').toString();
+      final phone = (row['client_phone'] ?? '').toString();
       final type = (row['package_type'] ?? '-').toString();
       final invoiceDate = (row['invoice_date'] ?? '').toString();
       final maintenanceDate = (row['maintenance_date'] ?? '').toString();
@@ -1825,7 +1825,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final int id = row["id"];
     final String invNo = row["invoice_no"] ?? '';
     final String client = row["client_name"] ?? '';
-    final String phone = row["contact_person"] ?? '';
+    final String phone = row["client_phone"] ?? '';
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
     final String maintenanceDate = row["maintenance_date"] ?? '';
