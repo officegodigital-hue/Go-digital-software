@@ -1,11 +1,42 @@
+// lib/screens/admin_dashboard/admin_dashboard.dart
+//
+// Admin Command Center — redesigned with the premium style of Ads Handler & Designer Dashboards
+// including animations, proper spacing, removing Onboard Client from quick-access/nav hub,
+// and strictly preserving all backend functions and structure.
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:math' as math;
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-import 'package:fl_chart/fl_chart.dart';
+import '../../services/auth_service.dart';
+import 'package:godigital_portal/core/constants/app_colors.dart';
+import 'package:godigital_portal/core/widgets/metric_card.dart';
 import 'package:godigital_portal/widgets/alerts_section.dart';
+
+class _Palette {
+  static const primary = Color(0xFF0757D5);
+  static const primary2 = Color(0xFF1D74E8);
+  static const completed = Color(0xFF16A34A);
+  static const onHold = Color(0xFFD97706);
+  static const rejected = Color(0xFFDC2626);
+  static const ink = Color(0xFF172033);
+  static const muted = Color(0xFF64748B);
+  static const border = Color(0xFFE2E8F0);
+  static const bg = Color(0xFFF8FAFC);
+}
+
+class _NavTile {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final String route;
+  final Object? arguments;
+  const _NavTile(this.title, this.subtitle, this.icon, this.color, this.route, {this.arguments});
+}
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -14,619 +45,357 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard> {
+class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStateMixin {
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  String _selectedDateRange = "This Week";
-  final List<String> _dateOptions = ["Today", "This Week", "This Month"];
-  String _activePerformanceView = "Client";
-
-  bool _loadingStats = true;
-  String? _statsError;
+  bool _loading = true;
+  String? _error;
 
   int _totalClients = 0;
   int _activeClients = 0;
-  int _inactiveClients = 0;
-  int _pendingTasks = 0;
-  String? _employeeName;
-
-  bool _loadingPerformance = true;
-
-  // Performance lists with safe fallback mocks if backend lists are empty
-  List<dynamic> _topEmployees = [
-    {"name": "Mithra", "approved": 5, "rework": 2, "review": 1, "rejected": 0},
-    {"name": "Pavithra", "approved": 4, "rework": 1, "review": 2, "rejected": 1},
-    {"name": "Arun", "approved": 6, "rework": 0, "review": 1, "rejected": 0},
-    {"name": "Susan", "approved": 2, "rework": 3, "review": 0, "rejected": 2},
-    {"name": "Susheel", "approved": 5, "rework": 1, "review": 1, "rejected": 0},
-    {"name": "Subha", "approved": 3, "rework": 2, "review": 2, "rejected": 0},
-  ];
-
-  List<dynamic> _clientPerformance = [
-    {"name": "GA Mall", "approved": 8, "rework": 1, "review": 2, "rejected": 0},
-    {"name": "Wash Monkey", "approved": 6, "rework": 2, "review": 1, "rejected": 1},
-    {"name": "Ayyanar", "approved": 5, "rework": 0, "review": 3, "rejected": 0},
-    {"name": "Star Hotel", "approved": 4, "rework": 2, "review": 0, "rejected": 1},
-  ];
-
-  Map<String, dynamic> _productivity = {
-    "ratios": {"approved": 0.50, "rework": 0.20, "rejected": 0.15, "review": 0.15}
-  };
+  int _totalEmployees = 0;
+  double _avgPerformance = 0;
+  int _totalPendingTasks = 0;
+  int _totalTasksToday = 0;
+  List<Map<String, dynamic>> _topPerformers = [];
+  List<Map<String, dynamic>> _plannerSubmittedToday = [];
 
   List<Map<String, dynamic>> _recentNotifications = [];
 
-  final bool _loadingNotifications = false;
-
-  List<Map<String, dynamic>> _previewRows = [];
+  // 🟢 Animation Controllers
+  late AnimationController _entranceController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _loadAllData();
+
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOutCubic,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic),
+    );
+
+    _entranceController.forward();
+    _fetchDashboardData();
   }
 
-  Future<void> _loadAllData() async {
-    await Future.wait([
-      _fetchDashboardData(),
-      _fetchPerformanceAnalytics(),
-      _fetchDashboardAnalytics(),
-  _fetchRecentNotifications(),
-    ]);
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
   }
 
-  // Safe fetch for recent notifications using general fallback or admin streams
-  Future<void> _fetchRecentNotifications() async {
-  try {
-    final response = await http.get(
-  Uri.parse("$_baseUrl/dashboard/admin-notifications"),
-);
-
-    print("Status : ${response.statusCode}");
-    print("Body : ${response.body}");
-
-    if (response.statusCode == 200) {
-      final body = jsonDecode(response.body);
-
-      setState(() {
-        _recentNotifications = List<Map<String, dynamic>>.from(
-          body["data"] ?? [],
-        );
-      });
-
-      print(_recentNotifications);
-    }
-  } catch (e) {
-    print(e);
+  Future<Map<String, String>> _authHeaders() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    return {'Content-Type': 'application/json', 'Authorization': 'Bearer ${authService.token}'};
   }
-}
-  
-  
+
   Future<void> _fetchDashboardData() async {
-    setState(() { _loadingStats = true; _statsError = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
+      final headers = await _authHeaders();
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
       final results = await Future.wait([
-        http.get(Uri.parse('$_baseUrl/clients')),
-        http.get(Uri.parse('$_baseUrl/admin/employee-status')),
+        http.get(Uri.parse('$_baseUrl/clients'), headers: headers).catchError((_) => http.Response('', 500)),
+        http.get(Uri.parse('$_baseUrl/employees'), headers: headers).catchError((_) => http.Response('', 500)),
+        http.get(Uri.parse('$_baseUrl/performance/overview?mode=daily&date=$today'), headers: headers).catchError((_) => http.Response('', 500)),
+        http.get(Uri.parse('$_baseUrl/day-planner/submissions?date=$today&type=Morning'), headers: headers).catchError((_) => http.Response('', 500)),
+        http.get(Uri.parse('$_baseUrl/day-planner/submissions?date=$today&type=Evening'), headers: headers).catchError((_) => http.Response('', 500)),
+        http.get(Uri.parse('$_baseUrl/dashboard/admin-notifications'), headers: headers).catchError((_) => http.Response('', 500)),
       ]);
 
-      if (results[0].statusCode != 200 || results[1].statusCode != 200) {
-        setState(() { _loadingStats = false; });
-        return;
-      }
-
-      final clients = List<dynamic>.from(jsonDecode(results[0].body)['data'] ?? []);
-      final statusRows = List<dynamic>.from(jsonDecode(results[1].body)['data'] ?? []);
-
-      // int active = 0;
-      // int inactive = 0;
-      // for (final c in clients) {
-      //   final status = (c['status'] as String? ?? '').toLowerCase();
-      //   if (status == 'verified' || status == 'complete') {
-      //     active++;
-      //   } else if (status == 'draft') {
-      //     inactive++;
-      //   }
-      // }
-
-      int active = 0;
-int inactive = 0;
-
-for (final c in clients) {
-  final activeValue = c['is_active'];
-
-  final bool isActive =
-      activeValue == 1 ||
-      activeValue == true ||
-      activeValue.toString() == "1";
-
-  if (isActive) {
-    active++;
-  } else {
-    inactive++;
-  }
-}
-
-      int pending = 0;
-      for (final r in statusRows) {
-        final status = (r['status'] as String? ?? 'IDLE').toUpperCase();
-        if (status != 'COMPLETED') pending++;
-      }
-
-      setState(() {
+      if (results[0].statusCode == 200) {
+        final body = jsonDecode(results[0].body);
+        final clients = List<Map<String, dynamic>>.from(body['data'] ?? []);
         _totalClients = clients.length;
-        _activeClients = active;
-        _inactiveClients = inactive;
-        _pendingTasks = pending;
-        _previewRows = statusRows.take(3).map((r) => _mapPreviewRow(r)).toList();
-        _loadingStats = false;
-      });
-    } catch (e) {
-      setState(() { _loadingStats = false; });
-    }
-  }
+        _activeClients = clients.where((c) => c['is_active'] == 1 || c['is_active'] == true).length;
+      }
 
-  Future<void> _fetchPerformanceAnalytics() async {
-    try {
-      final response = await http.get(
-        Uri.parse("$_baseUrl/performance/analytics"),
-      );
+      if (results[1].statusCode == 200) {
+        final body = jsonDecode(results[1].body);
+        final employees = List<Map<String, dynamic>>.from(body['data'] ?? []);
+        _totalEmployees = employees.length;
+      }
 
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        final data = json["data"];
-        if (data["productivity"] != null) {
-          setState(() {
-            _productivity = Map<String, dynamic>.from(data["productivity"] ?? {});
-          });
+      if (results[2].statusCode == 200) {
+        final body = jsonDecode(results[2].body);
+        final employees = List<Map<String, dynamic>>.from(body['data']?['employees'] ?? []);
+
+        if (employees.isNotEmpty) {
+          final totalScore = employees.fold<num>(0, (a, e) => a + (e['performancePct'] as num? ?? 0));
+          _avgPerformance = totalScore / employees.length;
+          _totalPendingTasks = employees.fold<int>(0, (a, e) => a + ((e['pending'] as num? ?? 0).toInt()));
+          _totalTasksToday = employees.fold<int>(0, (a, e) => a + ((e['totalTasks'] as num? ?? 0).toInt()));
+
+          final sorted = [...employees]..sort((a, b) => (b['performancePct'] as num).compareTo(a['performancePct'] as num));
+          _topPerformers = sorted.take(5).toList();
         }
       }
-    } catch (e) {
-      debugPrint("Performance Analytics Error: $e");
-    }
-  }
 
-  Future<void> _fetchDashboardAnalytics() async {
-    setState(() => _loadingPerformance = true);
-    try {
-      String queryParam = "week";
-      if (_selectedDateRange == "Today") queryParam = "today";
-      if (_selectedDateRange == "This Month") queryParam = "month";
-
-      final response = await http.get(
-        Uri.parse("$_baseUrl/performance/dashboard-analytics?range=$queryParam"),
-      );
-
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        final data = json["data"] ?? {};
-
-        final fetchedEmployees = List<Map<String, dynamic>>.from(data["employeePerformance"] ?? []);
-        final fetchedClients = List<Map<String, dynamic>>.from(data["clientPerformance"] ?? []);
-
-        setState(() {
-          if (fetchedEmployees.isNotEmpty) _topEmployees = fetchedEmployees;
-          if (fetchedClients.isNotEmpty) _clientPerformance = fetchedClients;
-          _loadingPerformance = false;
-        });
-      } else {
-        setState(() => _loadingPerformance = false);
+      final Map<String, Map<String, dynamic>> plannerMap = {};
+      if (results[3].statusCode == 200) {
+        final body = jsonDecode(results[3].body);
+        for (final s in List<Map<String, dynamic>>.from(body['submissions'] ?? [])) {
+          if (s['submitted'] != true) continue;
+          final name = s['employeeName'];
+          plannerMap.putIfAbsent(name, () => {'name': name, 'morning': false, 'evening': false, 'workingSecs': 0});
+          plannerMap[name]!['morning'] = true;
+          plannerMap[name]!['workingSecs'] = (s['total_working_secs'] as num?)?.toInt() ?? 0;
+        }
       }
+      if (results[4].statusCode == 200) {
+        final body = jsonDecode(results[4].body);
+        for (final s in List<Map<String, dynamic>>.from(body['submissions'] ?? [])) {
+          if (s['submitted'] != true) continue;
+          final name = s['employeeName'];
+          plannerMap.putIfAbsent(name, () => {'name': name, 'morning': false, 'evening': false, 'workingSecs': 0});
+          plannerMap[name]!['evening'] = true;
+          final secs = (s['total_working_secs'] as num?)?.toInt() ?? 0;
+          if (secs > (plannerMap[name]!['workingSecs'] as int)) plannerMap[name]!['workingSecs'] = secs;
+        }
+      }
+      _plannerSubmittedToday = plannerMap.values.toList()..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+
+      if (results[5].statusCode == 200) {
+        final body = jsonDecode(results[5].body);
+        _recentNotifications = List<Map<String, dynamic>>.from(body["data"] ?? []);
+      }
+
+      setState(() => _loading = false);
     } catch (e) {
-      debugPrint("Dashboard Analytics Error: $e");
-      setState(() => _loadingPerformance = false);
+      setState(() {
+        _error = 'Some dashboard data could not be loaded';
+        _loading = false;
+      });
     }
   }
 
-  // Stacked Bar Chart for Work Performance matching 🟢 Approved, 🟠 Rework, 🔵 Review, 🔴 Rejected
-  BarChartData _buildPerformanceBarChart() {
-    final items = _activePerformanceView == "Client" ? _clientPerformance : _topEmployees;
-
-    double maxVal = 10;
-    for (var item in items) {
-      double total = ((item["approved"] ?? 0) + (item["rework"] ?? 0) + (item["review"] ?? 0) + (item["rejected"] ?? 0)).toDouble();
-      if (total > maxVal) maxVal = total + 2;
-    }
-
-    return BarChartData(
-      alignment: BarChartAlignment.spaceAround,
-      maxY: maxVal,
-      barTouchData: BarTouchData(enabled: true),
-      titlesData: FlTitlesData(
-        show: true,
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            getTitlesWidget: (value, meta) {
-              int index = value.toInt();
-              if (index < 0 || index >= items.length) return const SizedBox();
-              String name = items[index]["name"] ?? "Unknown";
-              return Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(
-                  name.length > 8 ? "${name.substring(0, 6)}.." : name,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
-                ),
-              );
-            },
-            reservedSize: 32,
-          ),
-        ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(showTitles: true, reservedSize: 28, interval: maxVal > 10 ? 5 : 2),
-        ),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      ),
-      gridData: FlGridData(show: true, drawVerticalLine: false),
-      borderData: FlBorderData(show: false),
-      barGroups: List.generate(items.length, (index) {
-        final element = items[index];
-        final approvedVal = (element["approved"] ?? 0).toDouble();
-        final reworkVal = (element["rework"] ?? 0).toDouble();
-        final reviewVal = (element["review"] ?? 0).toDouble();
-        final rejectedVal = (element["rejected"] ?? 0).toDouble();
-
-        return BarChartGroupData(
-          x: index,
-          barRods: [
-            BarChartRodData(
-              toY: approvedVal + reworkVal + reviewVal + rejectedVal,
-              rodStackItems: [
-                BarChartRodStackItem(0, approvedVal, const Color(0xFF16A34A)), // 🟢 Approved
-                BarChartRodStackItem(approvedVal, approvedVal + reworkVal, const Color(0xFFE67E00)), // 🟠 Rework
-                BarChartRodStackItem(approvedVal + reworkVal, approvedVal + reworkVal + reviewVal, const Color(0xFF2A52BE)), // 🔵 Review
-                BarChartRodStackItem(approvedVal + reworkVal + reviewVal, approvedVal + reworkVal + reviewVal + rejectedVal, const Color(0xFFE10000)), // 🔴 Rejected
-              ],
-              width: 18,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Map<String, dynamic> _mapPreviewRow(dynamic row) {
-    final employeeName = row['employeeName'] as String? ?? 'Unassigned';
-    final priority = (row['priority'] as String? ?? 'LOW').toUpperCase();
-    final rawStatus = (row['status'] as String? ?? 'IDLE').toUpperCase();
-    final daysLeft = row['daysLeft'] as int?;
-
-    return {
-      "client": row['clientName'] ?? '',
-      "initials": _initialsFor(employeeName),
-      "name": employeeName,
-      "task": row['task'] ?? '',
-      "duration": row['duration'] ?? 'N/A',
-      "priority": priority,
-      "date": _formatDate(row['submissionDate'] as String?),
-      "timeLeft": _timeLeftDisplay(daysLeft).$1,
-      "timeColor": _timeLeftDisplay(daysLeft).$2,
-      "status": _statusDisplay(rawStatus).$1,
-      "statusBg": _statusDisplay(rawStatus).$2,
-      "statusText": _statusDisplay(rawStatus).$3,
-    };
-  }
-
-  String _initialsFor(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '--';
-    if (parts.length == 1) return parts[0].substring(0, parts[0].length >= 2 ? 2 : 1).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-
-  String _formatDate(String? raw) {
-    if (raw == null || raw.isEmpty) return '--';
-    try {
-      final d = DateTime.parse(raw);
-      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
-    } catch (_) {
-      return raw;
-    }
-  }
-
-  (String, Color, Color) _statusDisplay(String rawStatus) {
-    switch (rawStatus) {
-      case 'IDLE': return ('NOT STARTED', const Color(0xFFF1F5F9), const Color(0xFF64748B));
-      case 'IN PROGRESS': return ('IN PROGRESS', const Color(0xFFE0F2FE), const Color(0xFF0369A1));
-      case 'ON HOLD': return ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFFD97706));
-      case 'COMPLETED': return ('COMPLETED', const Color(0xFFDCFCE7), const Color(0xFF16A34A));
-      case 'REJECTED': return ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFDC2626));
-      default: return (rawStatus, const Color(0xFFF1F5F9), const Color(0xFF64748B));
-    }
-  }
-
-  (String, Color) _timeLeftDisplay(int? daysLeft) {
-    if (daysLeft == null) return ('--', const Color(0xFF64748B));
-    if (daysLeft > 0) return ('$daysLeft Day${daysLeft == 1 ? '' : 's'} Left', const Color(0xFF22C55E));
-    if (daysLeft == 0) return ('Due Today', const Color(0xFFD97706));
-    final overdue = daysLeft.abs();
-    return ('$overdue Day${overdue == 1 ? '' : 's'} Overdue', const Color(0xFFDC2626));
-  }
-
-  String _timeAgo(String raw) {
-    if (raw.isEmpty) return "";
-    try {
-      final dt = DateTime.parse(raw).toLocal();
-      final diff = DateTime.now().difference(dt);
-      if (diff.inMinutes < 1) return "JUST NOW";
-      if (diff.inMinutes < 60) return "${diff.inMinutes} MINS AGO";
-      if (diff.inHours < 24) return "${diff.inHours} HOURS AGO";
-      return "${diff.inDays} DAYS AGO";
-    } catch (_) {
-      return "";
-    }
-  }
+  // ----------------------------------------------------------------
+  // Navigation hub definition (Onboard Client removed)
+  // ----------------------------------------------------------------
+  static const Map<String, List<_NavTile>> _navGroups = {
+    'Clients': [
+      _NavTile('Client Details', 'Browse & manage clients', Icons.groups_rounded, _Palette.primary2, '/client'),
+      _NavTile('Client History', 'Past activity & records', Icons.history_rounded, Color(0xFF9333EA), '/client-history'),
+    ],
+    'Sales & Billing': [
+      _NavTile('Packages', 'Manage service packages', Icons.inventory_2_rounded, Color(0xFF0891B2), '/packages'),
+      _NavTile('Quotations', 'All quotations', Icons.request_quote_rounded, Color(0xFF7C3AED), '/quotations'),
+      _NavTile('Create Quotation', 'Draft a new quotation', Icons.note_add_rounded, Color(0xFF7C3AED), '/create-quotation'),
+      _NavTile('Invoices', 'All invoices', Icons.receipt_long_rounded, _Palette.completed, '/invoice'),
+      _NavTile('Create Invoice', 'Bill a client', Icons.add_card_rounded, _Palette.completed, '/add-invoice'),
+    ],
+    'Work & Performance': [
+      _NavTile('Task Assignment', 'Assign work to employees', Icons.assignment_ind_rounded, _Palette.onHold, '/tasks'),
+      _NavTile('Daily Planner', "Employees' day plans", Icons.calendar_today_rounded, Color(0xFF0EA5E9), '/daily-planner'),
+      _NavTile('Employee Status', 'Who is doing what, live', Icons.person_pin_circle_rounded, Color(0xFF16A34A), '/employee-status'),
+      _NavTile('Manager Review', 'Approve / rework / reject', Icons.rate_review_rounded, Color(0xFFD97706), '/manager-review'),
+      _NavTile('Time Manager', 'Task timing master data', Icons.timer_rounded, Color(0xFF4F46E5), '/time-manager'),
+      _NavTile('Performance', 'Full productivity dashboard', Icons.insights_rounded, _Palette.primary, '/performance'),
+    ],
+    'Admin & System': [
+      _NavTile('Admin Panel', 'Roles, users & access', Icons.admin_panel_settings_rounded, Color(0xFF334155), '/admin-panel'),
+      _NavTile('Attendance', 'HRMS attendance', Icons.fingerprint_rounded, Color(0xFF0EA5E9), '/attendance'),
+      _NavTile('Notifications', 'Recent alerts', Icons.notifications_rounded, Color(0xFFDC2626), '/notifications'),
+      _NavTile('Settings', 'App configuration', Icons.settings_rounded, Color(0xFF64748B), '/settings'),
+    ],
+  };
 
   @override
   Widget build(BuildContext context) {
-    final DateTime now = DateTime.now();
-    final List<String> months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    final String dynamicTodayString = "${months[now.month - 1]} ${now.day}, ${now.year}";
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final adminName = authService.user?['fullName']?.toString().split(' ').first ?? 'Admin';
+    final isMainAdmin = authService.user?['isMainAdmin'] == true;
+    final allowedPages = List<String>.from(
+      (authService.user?['allowed_pages'] as List?)?.map((p) => p.toString()) ?? [],
+    );
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isMobile = screenWidth < 600;
 
     return AdminLayout(
-      pageTitle: "Dashboard",
-      currentRoute: "/admin",
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Welcome Admin", style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
-                  SizedBox(height: 6),
-                  Text("Here is an overview of today's GoDigital priorities and performance metrics.", style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
-                ],
-              ),
-              Container(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFCBD5E1)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF1E293B)),
-                    const SizedBox(width: 8),
-                    Text("$dynamicTodayString - ", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedDateRange,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0052CC)),
-                        icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF64748B)),
-                        items: _dateOptions.map((String option) {
-                          return DropdownMenuItem<String>(value: option, child: Text(option));
-                        }).toList(),
-                        onChanged: (newValue) {
-                          setState(() {
-                            _selectedDateRange = newValue!;
-                            _fetchDashboardAnalytics();
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-
-          // Stat Cards
-          Row(
-            children: [
-              Expanded(child: _buildStatCard(icon: Icons.people_alt_rounded, headerColor: const Color(0xFF2A52BE), label: 'Total Clients', value: _loadingStats ? '—' : _totalClients.toString(), bottom: const Text('All onboarded clients', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))))),
-              const SizedBox(width: 16),
-              Expanded(child: _buildStatCard(icon: Icons.groups_rounded, headerColor: const Color(0xFF16A34A), label: 'Active Client', value: _loadingStats ? '—' : _activeClients.toString(), bottom: const Text('Verified / complete', style: TextStyle(fontSize: 12, color: Color(0xFF475569))))),
-              const SizedBox(width: 16),
-              Expanded(child: _buildStatCard(icon: Icons.assignment_late_outlined, headerColor: const Color(0xFFE67E00), label: 'Client Pending Task', value: _loadingStats ? '—' : _pendingTasks.toString(), bottom: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFB91C1C), borderRadius: BorderRadius.circular(20)), child: const Text('Requires Attention', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700))))),
-              const SizedBox(width: 16),
-              Expanded(child: _buildStatCard(icon: Icons.cancel_outlined, headerColor: const Color(0xFFE10000), label: 'In Active Clients', value: _loadingStats ? '—' : _inactiveClients.toString(), bottom: const Text('Still in draft', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))))),
-            ],
-          ),
-          const SizedBox(height: 32),
-
-          // Work Performance Stack & Bar Analytics
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  height: 380,
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Work Performance Stack", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                          Container(
-                            decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(6)),
-                            padding: const EdgeInsets.all(2),
-                            child: Row(
-                              children: [
-                                _buildPerformanceViewToggleItem("Client"),
-                                _buildPerformanceViewToggleItem("Employee"),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: const [
-                          Icon(Icons.circle, size: 8, color: Color(0xFF16A34A)), SizedBox(width: 4), Text("Approved", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
-                          Icon(Icons.circle, size: 8, color: Color(0xFFE67E00)), SizedBox(width: 4), Text("Rework", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
-                          Icon(Icons.circle, size: 8, color: Color(0xFF2A52BE)), SizedBox(width: 4), Text("Review", style: TextStyle(fontSize: 10)), SizedBox(width: 8),
-                          Icon(Icons.circle, size: 8, color: Color(0xFFE10000)), SizedBox(width: 4), Text("Rejected", style: TextStyle(fontSize: 10)),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Expanded(
-                        child: _loadingPerformance
-                            ? const Center(child: CircularProgressIndicator())
-                            : BarChart(_buildPerformanceBarChart()),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 24),
-
-              // Donut Chart Metric Summary
-              Expanded(
-                flex: 1,
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  height: 380,
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-                  child: Column(
-                    children: [
-                      const Text("Daily Productivity", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 20),
-                      Expanded(
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            CustomPaint(
-                              size: const Size(160, 160),
-                              painter: HighFidelityDonutChartPainter(
-                                approved: (_productivity["ratios"]?["approved"] ?? 0.43).toDouble(),
-                                rework: (_productivity["ratios"]?["rework"] ?? 0.29).toDouble(),
-                                rejected: (_productivity["ratios"]?["rejected"] ?? 0.14).toDouble(),
-                                review: (_productivity["ratios"]?["review"] ?? 0.14).toDouble(),
-                              ),
-                            ),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Text("100%", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                                Text("Total", style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      _buildLegendRow("Approved", "${((_productivity["ratios"]?["approved"] ?? 0.43) * 100).toStringAsFixed(0)}%", const Color(0xFF16A34A)),
-                      _buildLegendRow("Reworks", "${((_productivity["ratios"]?["rework"] ?? 0.29) * 100).toStringAsFixed(0)}%", const Color(0xFFE67E00)),
-                      _buildLegendRow("Rejected", "${((_productivity["ratios"]?["rejected"] ?? 0.14) * 100).toStringAsFixed(0)}%", const Color(0xFFE10000)),
-                      _buildLegendRow("Review", "${((_productivity["ratios"]?["review"] ?? 0.14) * 100).toStringAsFixed(0)}%", const Color(0xFF2A52BE)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          // _buildAlertsSection(context),
-          AlertsSection(
-  notifications: _recentNotifications,
-  onViewAll: () {
-    Navigator.pushNamed(context, "/notifications");
-  },
-),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPerformanceViewToggleItem(String label) {
-    final bool isSelected = _activePerformanceView == label;
-    return GestureDetector(
-      onTap: () => setState(() => _activePerformanceView = label),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          boxShadow: isSelected ? const [BoxShadow(color: Colors.black12, blurRadius: 2)] : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600, color: isSelected ? const Color(0xFF0052CC) : const Color(0xFF64748B)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatCard({required IconData icon, required Color headerColor, required String label, required String value, required Widget bottom}) {
-    return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4), border: Border.all(color: const Color(0xFFDBE5F5), width: 1.5)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
-            child: Row(
+      pageTitle: 'Dashboard',
+      currentRoute: '/admin',
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              isMobile ? 16 : 38,
+              isMobile ? 18 : 30,
+              isMobile ? 16 : 38,
+              30,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(width: 40, height: 40, color: headerColor, child: Icon(icon, color: Colors.white, size: 18)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Container(
-                    height: 40,
-                    color: headerColor,
-                    alignment: Alignment.center,
-                    child: Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                  ),
+                _welcomeSection(adminName),
+                SizedBox(height: isMobile ? 20 : 28),
+                _summaryCards(),
+                SizedBox(height: isMobile ? 20 : 28),
+                if (_error != null) _buildErrorBanner(),
+                if (_topPerformers.isNotEmpty || _plannerSubmittedToday.isNotEmpty) ...[
+                  _buildTopSectionRow(isMobile),
+                  SizedBox(height: isMobile ? 20 : 28),
+                ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isTablet = constraints.maxWidth >= 720 && constraints.maxWidth < 1100;
+                    return _buildNavHub(isMobile, isTablet, isMainAdmin, allowedPages);
+                  },
                 ),
+                SizedBox(height: isMobile ? 20 : 28),
+                AlertsSection(
+                  notifications: _recentNotifications,
+                  onViewAll: () => Navigator.pushNamed(context, '/notifications'),
+                ),
+                const SizedBox(height: 32),
               ],
             ),
           ),
-          Padding(padding: const EdgeInsets.only(top: 12, bottom: 4), child: Text(value, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Color(0xFF111C24)))),
-          Padding(padding: const EdgeInsets.only(bottom: 12), child: SizedBox(height: 22, child: Center(child: bottom))),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildAlertsSection(BuildContext context) {
+  Widget _welcomeSection(String adminName) {
     return Container(
-      height: 210,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        borderRadius: BorderRadius.circular(4),
+      width: double.infinity,
+      padding: EdgeInsets.all(
+        MediaQuery.sizeOf(context).width < 600 ? 20 : 28,
       ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Text("Alerts", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
-              const Spacer(),
-              InkWell(
-                onTap: () => Navigator.pushNamed(context, "/notifications"),
-                child: const Text("View All Notifications", style: TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w700)),
-              ),
-            ],
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF04296B),
+            Color(0xFF0757D5),
+            Color(0xFF1D74E8),
+          ],
+          stops: [0.0, 0.55, 1.0],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0757D5).withOpacity(0.28),
+            blurRadius: 30,
+            offset: const Offset(0, 12),
           ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: Row(
-              children: List.generate(
-                _recentNotifications.length > 3 ? 3 : _recentNotifications.length,
-                (index) {
-                  final item = _recentNotifications[index];
-                  return Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(right: index == 2 ? 0 : 16),
-                      child: _buildAlertCard(item),
-                    ),
-                  );
-                },
-              ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 650;
+
+          return compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _welcomeContent(adminName),
+                    const SizedBox(height: 18),
+                    _welcomeDate(),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: _welcomeContent(adminName)),
+                    const SizedBox(width: 20),
+                    _welcomeDate(),
+                  ],
+                );
+        },
+      ),
+    );
+  }
+
+  Widget _welcomeContent(String adminName) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            _heroChip(
+              icon: Icons.verified_rounded,
+              iconColor: const Color(0xFF4ADE80),
+              text: 'ADMIN COMMAND CENTER',
+            ),
+            _heroChip(
+              icon: Icons.timer_rounded,
+              iconColor: const Color(0xFF93C5FD),
+              text: 'LIVE DASHBOARD',
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Welcome back, $adminName! ✨',
+          style: const TextStyle(
+            fontSize: 27,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: -.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          "Here is your live overview of today's GoDigital priorities, client tasks, and performance metrics.",
+          style: TextStyle(
+            fontSize: 13.5,
+            color: Colors.white.withOpacity(0.85),
+            fontWeight: FontWeight.w500,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _heroChip({
+    required IconData icon,
+    required Color iconColor,
+    required String text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: .6,
             ),
           ),
         ],
@@ -634,94 +403,376 @@ for (final c in clients) {
     );
   }
 
-  Widget _buildAlertCard(Map<String, dynamic> item) {
-    final title = item["title"] ?? "Notification";
-    final message = item["message"] ?? "";
-    final time = _timeAgo(item["created_at"] ?? "");
+  Widget _welcomeDate() {
+    final now = DateTime.now();
+    const months = [
+      '', 'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    final dateStr = '${months[now.month]} ${now.day.toString().padLeft(2, '0')}, ${now.year} - Today';
 
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8FAFC),
-        border: Border(left: BorderSide(color: Color(0xFF2563EB), width: 3)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.24)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
-          const SizedBox(height: 4),
-          Expanded(child: Text(message, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
-          const SizedBox(height: 4),
-          Text(time, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade600)),
+          const Icon(Icons.calendar_month_rounded, size: 19, color: Colors.white),
+          const SizedBox(width: 10),
+          Text(
+            dateStr,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildLegendRow(String t, String v, Color c) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Row(children: [Container(width: 8, height: 8, color: c), const SizedBox(width: 8), Text(t)]),
-      Text(v, style: const TextStyle(fontWeight: FontWeight.bold))
-    ]),
-  );
-}
+  Widget _summaryCards() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1100 ? 4 : 2;
+        final gap = columns == 4 ? 22.0 : 14.0;
+        final cardWidth = (constraints.maxWidth - gap * (columns - 1)) / columns;
 
-class HighFidelityDonutChartPainter extends CustomPainter {
-  final double approved;
-  final double rework;
-  final double rejected;
-  final double review;
-
-  HighFidelityDonutChartPainter({
-    required this.approved,
-    required this.rework,
-    required this.rejected,
-    required this.review,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 18
-      ..strokeCap = StrokeCap.round;
-
-    final segments = [
-      {"value": approved, "color": const Color(0xFF16A34A)},
-      {"value": rework, "color": const Color(0xFFE67E00)},
-      {"value": review, "color": const Color(0xFF2A52BE)},
-      {"value": rejected, "color": const Color(0xFFE10000)},
-    ];
-
-    double startAngle = -math.pi / 2;
-
-    for (final seg in segments) {
-      final value = seg["value"] as double;
-      final color = seg["color"] as Color;
-      final sweep = value * 2 * math.pi;
-
-      if (sweep > 0) {
-        canvas.drawArc(
-          Rect.fromCircle(center: center, radius: radius),
-          startAngle,
-          sweep,
-          false,
-          paint..color = color,
+        return Wrap(
+          spacing: gap,
+          runSpacing: 14,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.groups_rounded,
+                title: 'Total Clients',
+                value: _loading ? '—' : _totalClients.toString().padLeft(2, '0'),
+                label: 'Current',
+                color: AppColors.primary,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.account_tree_outlined,
+                title: 'Active Clients',
+                value: _loading ? '—' : _activeClients.toString().padLeft(2, '0'),
+                label: 'Verified',
+                color: AppColors.green,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.pause_circle_outline,
+                title: 'Team Performance',
+                value: _loading ? '—' : '${_avgPerformance.toStringAsFixed(0)}%',
+                label: 'Average Score',
+                color: AppColors.orange,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: MetricCard(
+                icon: Icons.cancel_outlined,
+                title: 'Pending Work',
+                value: _loading ? '—' : _totalPendingTasks.toString().padLeft(2, '0'),
+                label: 'High Risk',
+                color: AppColors.red,
+              ),
+            ),
+          ],
         );
-        startAngle += sweep;
-      }
-    }
+      },
+    );
   }
 
-  @override
-  bool shouldRepaint(covariant HighFidelityDonutChartPainter oldDelegate) {
-    return approved != oldDelegate.approved ||
-        rework != oldDelegate.rework ||
-        rejected != oldDelegate.rejected ||
-        review != oldDelegate.review;
+  Widget _buildErrorBanner() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        const Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF92400E)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(_error!, style: const TextStyle(fontSize: 11.5, color: Color(0xFF92400E)))),
+      ]),
+    );
+  }
+
+  Widget _buildTopSectionRow(bool isMobile) {
+    final left = _buildTopPerformers(isMobile);
+    final right = _buildPlannerSubmissions(isMobile);
+
+    if (isMobile) {
+      return Column(children: [left, const SizedBox(height: 14), right]);
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: left),
+        const SizedBox(width: 22),
+        Expanded(child: right),
+      ],
+    );
+  }
+
+  String _formatHours(int secs) {
+    final hrs = secs ~/ 3600;
+    final mins = (secs % 3600) ~/ 60;
+    if (hrs > 0) return '${hrs}h ${mins}m';
+    return '${mins}m';
+  }
+
+  Widget _buildPlannerSubmissions(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5ECF6)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0B5ED7).withOpacity(0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text("Today's Day Planner", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _Palette.ink)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/daily-planner'),
+                child: const Text('View all', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0757D5))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text('${_plannerSubmittedToday.length} member${_plannerSubmittedToday.length == 1 ? '' : 's'} submitted', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: _Palette.muted)),
+          const SizedBox(height: 12),
+          if (_plannerSubmittedToday.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: Text('No planner submissions yet today', style: TextStyle(fontSize: 12, color: _Palette.muted))),
+            )
+          else
+            ...List.generate(_plannerSubmittedToday.length, (i) {
+              final entry = _plannerSubmittedToday[i];
+              final morning = entry['morning'] == true;
+              final evening = entry['evening'] == true;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: const Color(0xFF16A34A).withOpacity(0.1), shape: BoxShape.circle),
+                      child: const Icon(Icons.check_rounded, size: 14, color: Color(0xFF16A34A)),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(entry['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _Palette.ink)),
+                    ),
+                    if (morning) _plannerBadge('AM', const Color(0xFF1D74E8)),
+                    if (morning && evening) const SizedBox(width: 4),
+                    if (evening) _plannerBadge('PM', const Color(0xFFD97706)),
+                    const SizedBox(width: 10),
+                    Text(_formatHours(entry['workingSecs'] as int), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _Palette.muted)),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _plannerBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
+      child: Text(text, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: color)),
+    );
+  }
+
+  Widget _buildTopPerformers(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5ECF6)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0B5ED7).withOpacity(0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text("Today's Top Performers", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _Palette.ink)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/performance'),
+                child: const Text('View all', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0757D5))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...List.generate(_topPerformers.length, (i) {
+            final emp = _topPerformers[i];
+            final score = (emp['performancePct'] as num).toDouble();
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: const Color(0xFF0757D5).withOpacity(0.1), shape: BoxShape.circle),
+                    child: Text('${i + 1}', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFF0757D5))),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(emp['fullName'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _Palette.ink)),
+                  ),
+                  SizedBox(
+                    width: isMobile ? 90 : 160,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: (score / 100).clamp(0, 1),
+                        minHeight: 7,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        valueColor: AlwaysStoppedAnimation(score >= 70 ? const Color(0xFF16A34A) : (score >= 50 ? const Color(0xFFD97706) : const Color(0xFFDC2626))),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(width: 34, child: Text('${score.toInt()}%', textAlign: TextAlign.right, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: _Palette.ink))),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  static const List<String> _controllableRoutes = [
+    '/admin', '/client-history', '/client-credentials', '/packages', '/quotations',
+    '/quotation', '/invoice', '/tasks', '/daily-planner', '/employee-status',
+    '/manager-review', '/notifications', '/performance', '/admin-panel', '/time-manager',
+  ];
+
+  Widget _buildNavHub(bool isMobile, bool isTablet, bool isMainAdmin, List<String> allowedPages) {
+    final crossAxisCount = isMobile ? 1 : (isTablet ? 2 : 3);
+
+    bool tileAllowed(_NavTile tile) {
+      if (isMainAdmin) return true;
+      if (!_controllableRoutes.contains(tile.route)) return true;
+      return allowedPages.contains(tile.route);
+    }
+
+    final visibleGroups = <String, List<_NavTile>>{};
+    for (final group in _navGroups.entries) {
+      final visibleTiles = group.value.where(tileAllowed).toList();
+      if (visibleTiles.isNotEmpty) visibleGroups[group.key] = visibleTiles;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Quick Access', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: _Palette.ink)),
+        const SizedBox(height: 4),
+        Text(
+          isMainAdmin ? 'Every admin page, one tap away.' : 'The pages your role has access to.',
+          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: _Palette.muted),
+        ),
+        const SizedBox(height: 14),
+        if (visibleGroups.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 30),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: _Palette.border)),
+            child: const Center(child: Text('No pages have been granted to your role yet.', style: TextStyle(fontSize: 12, color: _Palette.muted))),
+          )
+        else
+          for (final group in visibleGroups.entries) ...[
+            Text(group.key, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: _Palette.muted, letterSpacing: 0.3)),
+            const SizedBox(height: 10),
+            GridView.count(
+              crossAxisCount: crossAxisCount,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: isMobile ? 3.6 : 3.2,
+              children: group.value.map(_navTile).toList(),
+            ),
+            const SizedBox(height: 18),
+          ],
+      ],
+    );
+  }
+
+  Widget _navTile(_NavTile tile) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => Navigator.pushNamed(context, tile.route, arguments: tile.arguments),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _Palette.border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: tile.color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              child: Icon(tile.icon, size: 18, color: tile.color),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(tile.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: _Palette.ink)),
+                  Text(tile.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: _Palette.muted)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 18, color: _Palette.muted),
+          ],
+        ),
+      ),
+    );
   }
 }

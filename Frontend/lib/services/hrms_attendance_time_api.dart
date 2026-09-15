@@ -27,7 +27,7 @@ class HrmsAttendanceTimeApi {
     return _decode(response);
   }
 
-  static Future<void> save({required String checkIn, required String checkOut, required String lateAfter}) async {
+  static Future<void> save({required String checkIn, required String checkOut, required String lateAfter, required String absentAfter,}) async {
     final response = await http.put(Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard/time-settings'), headers: await _headers(), body: jsonEncode({'shiftStart': checkIn, 'shiftEnd': checkOut, 'lateAfter': lateAfter}));
     _decode(response);
   }

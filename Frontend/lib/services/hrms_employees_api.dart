@@ -16,6 +16,16 @@ class HrmsEmployeesApi {
     };
   }
 
+  static Future<Map<String, dynamic>> createRole(String role) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/roles'),
+      headers: await _headers(),
+      body: jsonEncode({'role': role}),
+    );
+    return _decode(response);
+  }
+
+
   static Map<String, dynamic> _decode(http.Response response) {
     final decoded =
         response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
