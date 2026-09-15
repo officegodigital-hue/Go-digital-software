@@ -114,12 +114,17 @@ async function list(req, res) {
     // Roles are managed in the main admin area while older HRMS records keep
     // their designation in `department`.  Combining both sources keeps this
     // filter current as soon as an admin creates a role or employee.
-    const [departmentRows] = await db.query(
-      "SELECT DISTINCT role_name AS name FROM user_roles WHERE TRIM(COALESCE(role_name, '')) <> '' " +
-      "UNION SELECT DISTINCT role AS name FROM employee_users WHERE TRIM(COALESCE(role, '')) <> '' " +
-      "UNION SELECT DISTINCT department AS name FROM hrms_employee_profiles WHERE TRIM(COALESCE(department, '')) <> '' " +
-      'ORDER BY name ASC'
-    );
+   const [departmentRows] = await db.query(
+  "SELECT DISTINCT CONVERT(role_name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name " +
+  "FROM user_roles WHERE TRIM(COALESCE(role_name, '')) <> '' " +
+  "UNION " +
+  "SELECT DISTINCT CONVERT(role USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name " +
+  "FROM employee_users WHERE TRIM(COALESCE(role, '')) <> '' " +
+  "UNION " +
+  "SELECT DISTINCT CONVERT(department USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name " +
+  "FROM hrms_employee_profiles WHERE TRIM(COALESCE(department, '')) <> '' " +
+  "ORDER BY name ASC"
+);
 
     return ok(res, {
       items: rows.map(toUi),
