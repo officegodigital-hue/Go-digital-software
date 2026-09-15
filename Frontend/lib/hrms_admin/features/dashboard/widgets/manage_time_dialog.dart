@@ -8,12 +8,13 @@ const _line = Color(0xFFD9E2F1);
 const _softBlue = Color(0xFFF1F6FF);
 const _muted = Color(0xFF63718F);
 const _orange = Color(0xFFFF6A00);
+const _red = Color(0xFFD7193F);
 
 Future<void> showManageTimeDialog(BuildContext context) => showDialog<void>(
-      context: context,
-      barrierColor: const Color(0x9907163E),
-      builder: (_) => const ManageTimeDialog(),
-    );
+  context: context,
+  barrierColor: const Color(0x9907163E),
+  builder: (_) => const ManageTimeDialog(),
+);
 
 class ManageTimeDialog extends StatefulWidget {
   const ManageTimeDialog({super.key});
@@ -26,6 +27,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
   String _checkIn = '09:30';
   String _checkOut = '18:30';
   String _lateAfter = '10:00';
+  String _absentAfter = '12:00';
   bool _loading = true;
   bool _saving = false;
 
@@ -43,6 +45,10 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
         _checkIn = _shortTime(values['shiftStart'], fallback: _checkIn);
         _checkOut = _shortTime(values['shiftEnd'], fallback: _checkOut);
         _lateAfter = _shortTime(values['lateAfter'], fallback: _lateAfter);
+        _absentAfter = _shortTime(
+          values['absentAfter'],
+          fallback: _absentAfter,
+        );
       });
     } catch (error) {
       if (mounted) {
@@ -94,6 +100,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
         checkIn: _checkIn,
         checkOut: _checkOut,
         lateAfter: _lateAfter,
+        absentAfter: _absentAfter,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -124,81 +131,212 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(26, 22, 26, 20),
           child: _loading
-              ? const SizedBox(height: 250, child: Center(child: CircularProgressIndicator()))
-              : Column(mainAxisSize: MainAxisSize.min, children: [
-                  Row(children: [
-                    const DecoratedBox(
-                      decoration: BoxDecoration(color: _softBlue, shape: BoxShape.circle),
-                      child: Padding(
-                        padding: EdgeInsets.all(10),
-                        child: Icon(Icons.schedule_rounded, color: _blue),
+              ? const SizedBox(
+                  height: 250,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: _softBlue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.all(10),
+                            child: Icon(Icons.schedule_rounded, color: _blue),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Manage attendance time',
+                                style: TextStyle(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w700,
+                                  color: _navy,
+                                ),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                'Set the office schedule, late and absent rules.',
+                                style: TextStyle(color: _muted, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Close',
+                          onPressed: _saving
+                              ? null
+                              : () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded, color: _muted),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _softBlue,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFCFE0FC)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'WORKING HOURS',
+                            style: TextStyle(
+                              fontSize: 11,
+                              letterSpacing: .8,
+                              color: _muted,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          compact
+                              ? Column(
+                                  children: [
+                                    _timeTile(
+                                      icon: Icons.login_rounded,
+                                      label: 'Check in',
+                                      value: _checkIn,
+                                      onTap: () => _pickTime(
+                                        current: _checkIn,
+                                        onPicked: (value) =>
+                                            setState(() => _checkIn = value),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _timeTile(
+                                      icon: Icons.logout_rounded,
+                                      label: 'Check out',
+                                      value: _checkOut,
+                                      onTap: () => _pickTime(
+                                        current: _checkOut,
+                                        onPicked: (value) =>
+                                            setState(() => _checkOut = value),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  children: [
+                                    Expanded(
+                                      child: _timeTile(
+                                        icon: Icons.login_rounded,
+                                        label: 'Check in',
+                                        value: _checkIn,
+                                        onTap: () => _pickTime(
+                                          current: _checkIn,
+                                          onPicked: (value) =>
+                                              setState(() => _checkIn = value),
+                                        ),
+                                      ),
+                                    ),
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: Icon(
+                                        Icons.arrow_forward_rounded,
+                                        color: _muted,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: _timeTile(
+                                        icon: Icons.logout_rounded,
+                                        label: 'Check out',
+                                        value: _checkOut,
+                                        onTap: () => _pickTime(
+                                          current: _checkOut,
+                                          onPicked: (value) =>
+                                              setState(() => _checkOut = value),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Manage attendance time', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: _navy)),
-                        SizedBox(height: 3),
-                        Text('Set the office schedule and late rule.', style: TextStyle(color: _muted, fontSize: 13)),
-                      ]),
+                    const SizedBox(height: 14),
+                    _timeTile(
+                      icon: Icons.notifications_active_outlined,
+                      iconColor: _orange,
+                      label: 'Late check-in rule',
+                      value: _lateAfter,
+                      trailing: 'Mark late after',
+                      onTap: () => _pickTime(
+                        current: _lateAfter,
+                        onPicked: (value) => setState(() => _lateAfter = value),
+                      ),
                     ),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: _saving ? null : () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded, color: _muted),
+                    const SizedBox(height: 10),
+                    _timeTile(
+                      icon: Icons.person_off_outlined,
+                      iconColor: _red,
+                      label: 'Absent check-in rule',
+                      value: _absentAfter,
+                      trailing: 'Mark absent after',
+                      onTap: () => _pickTime(
+                        current: _absentAfter,
+                        onPicked: (value) =>
+                            setState(() => _absentAfter = value),
+                      ),
                     ),
-                  ]),
-                  const SizedBox(height: 22),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _softBlue,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFCFE0FC)),
+                    const SizedBox(height: 14),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Changes apply to future employee check-ins only.',
+                        style: TextStyle(color: _muted, fontSize: 12),
+                      ),
                     ),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('WORKING HOURS', style: TextStyle(fontSize: 11, letterSpacing: .8, color: _muted, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 12),
-                      compact
-                          ? Column(children: [
-                              _timeTile(icon: Icons.login_rounded, label: 'Check in', value: _checkIn, onTap: () => _pickTime(current: _checkIn, onPicked: (value) => setState(() => _checkIn = value))),
-                              const SizedBox(height: 10),
-                              _timeTile(icon: Icons.logout_rounded, label: 'Check out', value: _checkOut, onTap: () => _pickTime(current: _checkOut, onPicked: (value) => setState(() => _checkOut = value))),
-                            ])
-                          : Row(children: [
-                              Expanded(child: _timeTile(icon: Icons.login_rounded, label: 'Check in', value: _checkIn, onTap: () => _pickTime(current: _checkIn, onPicked: (value) => setState(() => _checkIn = value)))),
-                              const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Icon(Icons.arrow_forward_rounded, color: _muted)),
-                              Expanded(child: _timeTile(icon: Icons.logout_rounded, label: 'Check out', value: _checkOut, onTap: () => _pickTime(current: _checkOut, onPicked: (value) => setState(() => _checkOut = value)))),
-                            ]),
-                    ]),
-                  ),
-                  const SizedBox(height: 14),
-                  _timeTile(
-                    icon: Icons.notifications_active_outlined,
-                    iconColor: _orange,
-                    label: 'Late check-in rule',
-                    value: _lateAfter,
-                    trailing: 'Mark late after',
-                    onTap: () => _pickTime(current: _lateAfter, onPicked: (value) => setState(() => _lateAfter = value)),
-                  ),
-                  const SizedBox(height: 14),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Changes apply to future employee check-ins only.', style: TextStyle(color: _muted, fontSize: 12)),
-                  ),
-                  const SizedBox(height: 22),
-                  Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                    TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
-                    const SizedBox(width: 10),
-                    FilledButton.icon(
-                      onPressed: _saving ? null : _save,
-                      style: FilledButton.styleFrom(backgroundColor: _blue, padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
-                      icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check_rounded),
-                      label: Text(_saving ? 'Saving...' : 'Save changes'),
+                    const SizedBox(height: 22),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton.icon(
+                          onPressed: _saving ? null : _save,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _blue,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 14,
+                            ),
+                          ),
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check_rounded),
+                          label: Text(_saving ? 'Saving...' : 'Save changes'),
+                        ),
+                      ],
                     ),
-                  ]),
-                ]),
+                  ],
+                ),
         ),
       ),
     );
@@ -212,28 +350,52 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
     Color iconColor = _blue,
     String? trailing,
   }) => Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: onTap,
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(10),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: _line)),
-            child: Row(children: [
-              Icon(icon, color: iconColor, size: 21),
-              const SizedBox(width: 10),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(label, style: const TextStyle(fontSize: 12, color: _muted)),
-                const SizedBox(height: 2),
-                Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: _navy)),
-              ])),
-              if (trailing != null) Text(trailing, style: const TextStyle(fontSize: 12, color: _muted)),
-              const SizedBox(width: 4),
-              const Icon(Icons.edit_outlined, size: 18, color: _blue),
-            ]),
-          ),
+          border: Border.all(color: _line),
         ),
-      );
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 21),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 12, color: _muted),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: _navy,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null)
+              Text(
+                trailing,
+                style: const TextStyle(fontSize: 12, color: _muted),
+              ),
+            const SizedBox(width: 4),
+            const Icon(Icons.edit_outlined, size: 18, color: _blue),
+          ],
+        ),
+      ),
+    ),
+  );
 }

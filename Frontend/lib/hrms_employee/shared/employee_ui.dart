@@ -299,9 +299,9 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
   Timer? _pollingTimer;
   String _currentTime = '';
   bool _isCheckedIn = false;
-  String _staffInitials = 'AK';
+  String _staffInitials = 'E';
   String _fullName = 'Employee';
-  String _staffId = 'EMP1001';
+  String _staffId = '';
   int _unreadNotifications = 1;
   List<Map<String, String>> _notifications = [];
 
@@ -678,9 +678,9 @@ class EmployeeProfileMenu extends StatelessWidget {
   const EmployeeProfileMenu({
     super.key,
     required this.radius,
-    this.initials = 'AK',
-    this.fullName = 'Arul Kumar',
-    this.staffId = 'EMP1001',
+    this.initials = 'E',
+    this.fullName = 'Employee',
+    this.staffId = '',
   });
 
   final double radius;

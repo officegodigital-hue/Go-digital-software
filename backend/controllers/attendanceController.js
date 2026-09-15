@@ -87,6 +87,7 @@ function computeStatus(record) {
   if (!record || !record.check_in_at) {
     return record && record.attendance_status === 'on_leave' ? 'on_leave' : 'absent';
   }
+  if (record.attendance_status === 'absent') return 'absent';
   const worked = Number(record.working_minutes || 0);
   if (record.check_out_at && policy.isEarlyExit(worked)) return 'early_exit';
   if (record.is_late) return 'late';
@@ -159,9 +160,12 @@ async function dashboard(req, res) {
 
       const record = recordByEmployee.get(person.id);
       const checkedIn = Boolean(record && record.check_in_at);
+      const markedAbsent = Boolean(record && record.attendance_status === 'absent');
       if (record && record.check_in_method === 'wifi') wifi += 1;
-      if (checkedIn && Number(record.is_late)) lateLogins += 1;
-      if (checkedIn && !Number(record.is_late)) {
+      if (checkedIn && Number(record.is_late) && !markedAbsent) lateLogins += 1;
+      if (markedAbsent) {
+        absent += 1;
+      } else if (checkedIn && !Number(record.is_late)) {
         presentToday += 1;
         bucket.present += 1;
       } else if (checkedIn && Number(record.is_late)) {
@@ -191,7 +195,7 @@ async function dashboard(req, res) {
     }
 
     const [activityPunches] = await db.query(
-      'SELECT r.employee_id, s.' + staff.quote(staff.STAFF.name) + ' AS full_name, r.check_in_at, r.check_out_at, r.is_late, r.check_in_method FROM attendance_records r JOIN ' +
+      'SELECT r.employee_id, s.' + staff.quote(staff.STAFF.name) + ' AS full_name, r.check_in_at, r.check_out_at, r.is_late, r.attendance_status, r.check_in_method FROM attendance_records r JOIN ' +
       staff.staffFrom() + ' s ON s.' + staff.quote(staff.STAFF.id) + ' = r.employee_id WHERE r.attendance_date = ? ORDER BY COALESCE(r.check_out_at, r.check_in_at) DESC LIMIT 20',
       [date]
     );
@@ -208,7 +212,7 @@ async function dashboard(req, res) {
       }
       if (row.check_in_at) {
         const wifiLabel = row.check_in_method === 'wifi' ? ' (WIFI)' : '';
-        const lateLabel = Number(row.is_late) ? ' (Late)' : wifiLabel;
+        const lateLabel = row.attendance_status === 'absent' ? ' (Absent)' : (Number(row.is_late) ? ' (Late)' : wifiLabel);
         activity.push({
           name: row.full_name,
           action: 'logged in' + lateLabel,
@@ -254,7 +258,8 @@ async function dashboard(req, res) {
         start: policy.SHIFT_START,
         end: policy.SHIFT_END,
         requiredHours: policy.REQUIRED_MINUTES / 60,
-        lateAfter: policy.LATE_AFTER
+        lateAfter: policy.LATE_AFTER,
+        absentAfter: policy.ABSENT_AFTER
       },
       metrics: {
         totalEmployees: totalEmployees,
@@ -363,10 +368,10 @@ async function employeeDashboard(req, res) {
      AND attendance_date <= LAST_DAY(?)`,
     [employeeId, month + '-01', month + '-01']
     );
-    const presentDays = monthRows.filter(function (row) { return Boolean(row.check_in_at); }).length;
-    const lateDays = monthRows.filter(function (row) { return Boolean(Number(row.is_late)); }).length;
+    const presentDays = monthRows.filter(function (row) { return Boolean(row.check_in_at) && String(row.attendance_status) !== 'absent'; }).length;
+    const lateDays = monthRows.filter(function (row) { return Boolean(Number(row.is_late)) && String(row.attendance_status) !== 'absent'; }).length;
     const absentDays = monthRows.filter(function (row) {
-      return !row.check_in_at && String(row.attendance_status) === 'absent';
+      return String(row.attendance_status) === 'absent';
     }).length;
 
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
@@ -426,6 +431,7 @@ async function checkIn(req, res) {
     const at = policy.nowIstDateTime();
     const method = normalizeMethod((req.body && (req.body.method || req.body.check_in_method)));
     const late = policy.isLateCheckIn(at);
+    const absent = policy.isAbsentCheckIn(at);
     connection = await db.getConnection();
     await connection.beginTransaction();
     // Profile first: registration, approval and clock-in use the same lock order.
@@ -437,7 +443,7 @@ async function checkIn(req, res) {
       throw new locationPolicy.LocationPolicyError(409, 'Already checked in today');
     }
 
-    const status = late ? 'late' : 'present';
+    const status = absent ? 'absent' : (late ? 'late' : 'present');
     if (existing) {
       await connection.query(
         "UPDATE attendance_records SET check_in_at = ?, check_in_method = ?, is_late = ?, attendance_status = ?, session_status = 'active' WHERE id = ?",

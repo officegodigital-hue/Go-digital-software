@@ -111,6 +111,15 @@ async function list(req, res) {
       params.concat([limit, offset])
     );
     const [allRows] = await db.query('SELECT employment_status FROM hrms_employee_profiles');
+    // Roles are managed in the main admin area while older HRMS records keep
+    // their designation in `department`.  Combining both sources keeps this
+    // filter current as soon as an admin creates a role or employee.
+    const [departmentRows] = await db.query(
+      "SELECT DISTINCT role_name AS name FROM user_roles WHERE TRIM(COALESCE(role_name, '')) <> '' " +
+      "UNION SELECT DISTINCT role AS name FROM employee_users WHERE TRIM(COALESCE(role, '')) <> '' " +
+      "UNION SELECT DISTINCT department AS name FROM hrms_employee_profiles WHERE TRIM(COALESCE(department, '')) <> '' " +
+      'ORDER BY name ASC'
+    );
 
     return ok(res, {
       items: rows.map(toUi),
@@ -118,6 +127,7 @@ async function list(req, res) {
       limit: limit,
       total: total,
       totalPages: totalPages,
+      departments: departmentRows.map(function (row) { return row.name; }),
       kpis: {
         total: allRows.length,
         active: allRows.filter(function (r) { return r.employment_status === 'Active'; }).length,

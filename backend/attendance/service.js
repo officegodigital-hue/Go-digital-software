@@ -55,6 +55,7 @@ function sessionView(row, now) {
     clock_out: clockOut,
     worked_seconds: workedSeconds,
     is_late: Boolean(row.is_late),
+    status: row.attendance_status || (row.is_late ? 'late' : 'present'),
   };
 }
 
@@ -83,7 +84,7 @@ function createService(
 
     // 1. Fetch entire month history for the calendar
     const [monthRecords] = await pool.execute(
-      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late
+      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late, attendance_status
        FROM attendance_records
        WHERE employee_id = ? AND attendance_date >= ? AND attendance_date < ?
        ORDER BY work_date ASC`,
@@ -103,7 +104,7 @@ function createService(
 
     // 2. Fetch today's session
     const [sessions] = await pool.execute(
-      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late
+      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late, attendance_status
        FROM attendance_records
        WHERE employee_id = ? AND (attendance_date = ? OR (check_out_at IS NULL AND attendance_date >= ?))
        ORDER BY check_out_at IS NULL DESC, attendance_date DESC LIMIT 1`,
@@ -113,8 +114,9 @@ function createService(
     // 3. Count present and late days
     const [counts] = await pool.execute(
       `SELECT 
-         SUM(CASE WHEN is_late = 0 THEN 1 ELSE 0 END) AS present_days,
-         SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END) AS late_days
+         SUM(CASE WHEN attendance_status <> 'absent' AND is_late = 0 THEN 1 ELSE 0 END) AS present_days,
+         SUM(CASE WHEN attendance_status <> 'absent' AND is_late = 1 THEN 1 ELSE 0 END) AS late_days,
+         SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent_days
        FROM attendance_records
        WHERE employee_id = ? AND attendance_date >= ? AND attendance_date < ?`,
       [employee.id, start, end],
@@ -176,7 +178,7 @@ function createService(
       month_overview: {
         month,
         present_days: Number(counts[0].present_days || 0),
-        absent_days: approvedLeaveDates.size,
+        absent_days: Number(counts[0].absent_days || 0),
         late_days: Number(counts[0].late_days || 0),
         working_days: 26,
       },
@@ -188,7 +190,7 @@ function createService(
     const today = localDate(now, timeZone);
 
     const [sessions] = await pool.execute(
-      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late FROM attendance_records
+      `SELECT id, attendance_date AS work_date, check_in_at AS clock_in_at, check_out_at AS clock_out_at, is_late, attendance_status FROM attendance_records
        WHERE employee_id = ? AND (attendance_date = ? OR check_out_at IS NULL)
        ORDER BY id DESC LIMIT 1`,
       [employeeId, today],
@@ -280,6 +282,7 @@ function createService(
         }
 
         const isLate = isLateCheck(now, timeZone) ? 1 : 0;
+        const isAbsent = attendancePolicy.isAbsentAt(now, timeZone);
 
         const [insert] = await connection.execute(
           'INSERT INTO hrms_attendance_sessions (employee_id, work_date, clock_in_at, is_late) VALUES (?, ?, ?, ?)',
@@ -291,6 +294,7 @@ function createService(
           clock_in_at: sqlTime(now),
           clock_out_at: null,
           is_late: isLate,
+          attendance_status: isAbsent ? 'absent' : (isLate ? 'late' : 'present'),
         };
       } else {
         if (!open.length) fail(409, 'Clock in before clocking out');
@@ -316,11 +320,14 @@ function createService(
       const workingMinutes = row.clock_out_at
         ? Math.max(0, Math.floor((new Date(row.clock_out_at).getTime() - new Date(row.clock_in_at).getTime()) / 60000))
         : 0;
+      const attendanceStatus = attendancePolicy.isAbsentCheckIn(row.clock_in_at)
+        ? 'absent'
+        : (Number(row.is_late) ? 'late' : 'present');
       await connection.execute(
         `INSERT INTO attendance_records
           (employee_id, attendance_date, check_in_at, check_out_at, attendance_status,
            session_status, check_in_method, is_late, working_minutes)
-         VALUES (?, ?, ?, ?, 'present', ?, 'employee_portal', ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, 'employee_portal', ?, ?)
          ON DUPLICATE KEY UPDATE
            check_in_at = VALUES(check_in_at),
            check_out_at = VALUES(check_out_at),
@@ -334,6 +341,7 @@ function createService(
           row.work_date,
           row.clock_in_at,
           row.clock_out_at,
+          attendanceStatus,
           row.clock_out_at ? 'completed' : 'active',
           Number(row.is_late) ? 1 : 0,
           workingMinutes,
@@ -489,5 +497,3 @@ module.exports = {
   sessionView,
   monthBounds,
 };
-
-

@@ -1,7 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
 import '../attendance/attendance_dashboard_section.dart';
 import '../shared/employee_ui.dart';
+import '../../services/api_config.dart';
+import '../../services/auth_service.dart';
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -57,15 +63,73 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   }
 }
 
-class _Header extends StatelessWidget {
+class _Header extends StatefulWidget {
   const _Header(
       {required this.mobile, required this.open, required this.onMenu});
   final bool mobile, open;
   final VoidCallback onMenu;
+
+  @override
+  State<_Header> createState() => _HeaderState();
+}
+
+class _HeaderState extends State<_Header> {
+  String _fullName = 'Employee';
+  String _staffId = '';
+  String _initials = 'E';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEmployee());
+  }
+
+  Future<void> _loadEmployee() async {
+    final auth = context.read<AuthService>();
+    final token = auth.token;
+    if (token == null || token.isEmpty) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/header-status'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode != 200) return;
+      final body = jsonDecode(response.body);
+      if (body is! Map || body['success'] != true || body['data'] is! Map) {
+        return;
+      }
+
+      final data = Map<String, dynamic>.from(body['data'] as Map);
+      final name = (data['full_name']?.toString() ?? '').trim();
+      final staffId = (data['staff_id']?.toString() ?? '').trim();
+      if (!mounted || name.isEmpty) return;
+
+      final words = name.split(RegExp(r'\s+'));
+      final initials = words
+          .take(2)
+          .where((word) => word.isNotEmpty)
+          .map((word) => word[0].toUpperCase())
+          .join();
+
+      setState(() {
+        _fullName = name;
+        _staffId = staffId;
+        _initials = initials.isEmpty ? 'E' : initials;
+      });
+    } catch (_) {
+      // Keep the neutral placeholder if the profile endpoint is unavailable.
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Container(
-        height: mobile ? 78 : 88,
-        padding: EdgeInsets.symmetric(horizontal: mobile ? 18 : 36),
+        height: widget.mobile ? 78 : 88,
+        padding: EdgeInsets.symmetric(horizontal: widget.mobile ? 18 : 36),
         decoration: const BoxDecoration(
             color: Colors.white,
             border: Border(bottom: BorderSide(color: Color(0xFFE7EDF7))),
@@ -77,19 +141,24 @@ class _Header extends StatelessWidget {
             ]),
         child: Row(children: [
           Image.asset('assets/images/godigital_logo.png',
-              height: mobile ? 45 : 53,
-              width: mobile ? 136 : 164,
+              height: widget.mobile ? 45 : 53,
+              width: widget.mobile ? 136 : 164,
               fit: BoxFit.contain,
               alignment: Alignment.centerLeft),
           const Spacer(),
-          if (!mobile) ...[
+          if (!widget.mobile) ...[
             const Text('Employee Portal',
                 style: TextStyle(color: employeeMuted)),
             const SizedBox(width: 24)
           ],
           const EmployeeNotificationButton(),
           const SizedBox(width: 18),
-          const EmployeeProfileMenu(radius: 25),
+          EmployeeProfileMenu(
+            radius: 25,
+            initials: _initials,
+            fullName: _fullName,
+            staffId: _staffId,
+          ),
         ]),
       );
 }

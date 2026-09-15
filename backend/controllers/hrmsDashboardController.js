@@ -181,7 +181,11 @@ async function monthView(req, res) {
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
         if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+          if (String(record.attendance_status) === 'absent') {
+            days.push('A');
+            unexcused += 1;
+            absentDays += 1;
+          } else if (Number(record.is_late)) {
             days.push('L');
             late += 1;
             lateDays += 1;
@@ -252,4 +256,3 @@ module.exports = {
   timeSettings,
   updateTimeSettings,
 };
-
