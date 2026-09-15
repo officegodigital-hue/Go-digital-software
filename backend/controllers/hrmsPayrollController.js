@@ -102,7 +102,7 @@ async function computeRows(year, month, today) {
   const [records] = userIds.length
     ? await db.query(
         `SELECT employee_id, DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
-                check_in_at, is_late
+                check_in_at, is_late, attendance_status
          FROM attendance_records
          WHERE attendance_date BETWEEN ? AND ?
            AND employee_id IN (?)`,
@@ -157,7 +157,8 @@ async function computeRows(year, month, today) {
       const key = userId ? userId + '|' + date : '';
       const record = key ? recordMap.get(key) : null;
       if (record && record.check_in_at) {
-        if (Number(record.is_late)) late += 1;
+        if (String(record.attendance_status) === 'absent') absent += 1;
+        else if (Number(record.is_late)) late += 1;
         else present += 1;
       } else if (key && leaveSet.has(key)) {
         leaveDays += 1;

@@ -119,6 +119,7 @@ async function list(req, res) {
       const checkIn = record && record.check_in_at;
       const checkOut = record && record.check_out_at;
       const isLate = Boolean(record && Number(record.is_late));
+      const markedAbsent = Boolean(record && record.attendance_status === 'absent');
       let status = 'Absent';
       let minutes = Number((record && record.working_minutes) || 0);
 
@@ -126,6 +127,9 @@ async function list(req, res) {
         status = 'Upcoming';
       } else if (isSunday) {
         status = 'Weekly off';
+      } else if (markedAbsent) {
+        status = 'Absent';
+        absent += 1;
       } else if (checkIn) {
         if (checkOut) {
           status = isLate ? 'Late · out' : 'Checked out';
@@ -174,6 +178,7 @@ async function list(req, res) {
       today: today,
       timezone: policy.TIME_ZONE,
       lateAfter: policy.LATE_AFTER,
+      absentAfter: policy.ABSENT_AFTER,
       shiftStart: policy.SHIFT_START,
       requiredHours: policy.REQUIRED_MINUTES / 60,
       employees: names,
