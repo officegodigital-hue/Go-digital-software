@@ -140,6 +140,39 @@ class _AttendanceViewState extends State<_AttendanceView> {
             });
           }
 
+          // Older backend instances return only the dashboard totals. Load the
+          // employee's month history in that case so historical check-ins are
+          // still read from attendance_records and shown in the calendar.
+          if (daysMap.isEmpty) {
+            final historyUrl = Uri.parse(
+                '${ApiConfig.baseUrl}/attendance/me?month=$monthQuery');
+            final historyResponse = await http.get(historyUrl, headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            }).timeout(const Duration(seconds: 15));
+
+            if (historyResponse.statusCode == 200) {
+              final historyBody = jsonDecode(historyResponse.body);
+              final history = historyBody['data'];
+              final historyRecords = history is Map ? history['records'] as List? : null;
+              if (historyRecords != null) {
+                for (final item in historyRecords) {
+                  final dayNum = _extractDay(item['date'] ?? item['work_date']);
+                  if (dayNum == null) continue;
+                  final statusStr =
+                      (item['status']?.toString() ?? '').toLowerCase();
+                  final isLate = item['isLate'] == true || statusStr == 'late';
+                  daysMap[dayNum] = {
+                    'status': statusStr == 'absent'
+                        ? 'A'
+                        : (isLate ? 'L' : 'P'),
+                    'clock_in': item['checkInAt'] ?? item['clock_in_at'],
+                  };
+                }
+              }
+            }
+          }
+
           if (mounted) {
             setState(() {
               _presentCount = (overview?['present_days'] as num?)?.toInt() ?? 0;
