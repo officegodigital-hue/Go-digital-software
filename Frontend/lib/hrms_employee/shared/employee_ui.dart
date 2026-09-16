@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_storage.dart';
 
 const employeeBlue = Color(0xFF0767F2);
 const employeeNavy = Color(0xFF07143F);
@@ -68,7 +69,7 @@ class EmployeeScaffold extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (desktopHeaderAction != null) desktopHeaderAction!,
+                      ?desktopHeaderAction,
                     ],
                   ),
                   if (subtitle.isNotEmpty) ...[
@@ -309,6 +310,7 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
   void initState() {
     super.initState();
     _updateClock();
+    _loadStoredIdentity();
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => _updateClock(),
@@ -335,8 +337,33 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     }
   }
 
+  void _applyIdentity(String? name, String? id) {
+    final resolvedName = (name ?? '').trim();
+    if (resolvedName.isEmpty) return;
+    _fullName = resolvedName;
+    _staffId = (id ?? '').trim().isEmpty ? 'EMP' : (id ?? '').trim();
+    final parts = _fullName.split(RegExp(r'\s+'));
+    _staffInitials = parts.length > 1
+        ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
+        : _fullName.substring(0, _fullName.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
+  Future<void> _loadStoredIdentity() async {
+    try {
+      final raw = await AuthStorage.getString('user_data');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw);
+      if (data is Map && mounted) {
+        setState(() => _applyIdentity(
+          data['fullName']?.toString() ?? data['full_name']?.toString(),
+          data['staffId']?.toString() ?? data['staff_id']?.toString(),
+        ));
+      }
+    } catch (_) {}
+  }
+
   Future<void> _fetchHeaderStatus() async {
-    final token = context.read<AuthService>().token;
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
@@ -360,16 +387,8 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
             final data = body['data'];
             setState(() {
               _isCheckedIn = data['is_checked_in'] == true;
-              _fullName = data['full_name']?.toString() ?? 'Employee';
-              _staffId = data['staff_id']?.toString() ?? 'EMP';
+              _applyIdentity(data['full_name']?.toString(), data['staff_id']?.toString());
               _unreadNotifications = data['unread_count'] ?? 0;
-
-              final parts = _fullName.trim().split(RegExp(r'\s+'));
-              _staffInitials = parts.length > 1
-                  ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
-                  : _fullName
-                        .substring(0, _fullName.length >= 2 ? 2 : 1)
-                        .toUpperCase();
 
               if (data['notifications'] is List) {
                 _notifications = (data['notifications'] as List)
@@ -818,7 +837,7 @@ class SectionTitle extends StatelessWidget {
           ],
         ),
       ),
-      if (trailing != null) trailing!,
+      ?trailing,
     ],
   );
 }
@@ -860,7 +879,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     decoration: BoxDecoration(
-      color: color.withOpacity(.11),
+      color: color.withValues(alpha: .11),
       borderRadius: BorderRadius.circular(20),
     ),
     child: Text(
@@ -896,7 +915,7 @@ class MetricCard extends StatelessWidget {
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: color.withOpacity(.1),
+            color: color.withValues(alpha: .1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color),
@@ -1067,7 +1086,7 @@ class InfoBanner extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: color.withOpacity(.08),
+      color: color.withValues(alpha: .08),
       borderRadius: BorderRadius.circular(10),
     ),
     child: Row(
@@ -1102,7 +1121,7 @@ class EmployeePageTitle extends StatelessWidget {
           ),
         ),
       ),
-      if (trailing != null) trailing!,
+      ?trailing,
     ],
   );
 }

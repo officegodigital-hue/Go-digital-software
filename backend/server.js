@@ -137,6 +137,8 @@ const hrmsDashboardRoutes = require('./routes/hrmsDashboard');
 const hrmsApprovalsRoutes = require('./routes/hrmsApprovals');
 const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
+const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
+const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
 
 // near the other ensure imports
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
@@ -149,6 +151,19 @@ const employeeAttendanceApp = createEmployeeAttendanceApp({
   timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata',
   basePath: '',
 });
+
+// On the first day of each month, create a pending payroll snapshot for every
+// active employee with an effective compensation record. Payment remains an
+// explicit admin action.
+cron.schedule('15 0 1 * *', async () => {
+  try {
+    const [year, month] = attendancePolicy.todayIstDate().split('-').map(Number);
+    const result = await generatePayrollRun(year, month, attendancePolicy.todayIstDate());
+    console.log(`Monthly payroll draft created: ${result.generatedCount} included, ${result.skippedCount} need compensation.`);
+  } catch (err) {
+    console.error('Automatic monthly payroll generation error:', err.message);
+  }
+}, { timezone: 'Asia/Kolkata' });
 
 // ── 1. Create HTTP Server & Initialize Socket.io ─────────────────────────────
 const server = http.createServer(app);
@@ -231,6 +246,7 @@ app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
 app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
 app.use('/api/hrms/payroll', hrmsPayrollRoutes);
 app.use('/api/hrms/tracking', hrmsTrackingRoutes);
+app.use('/api/hrms/payslips', hrmsPayslipRoutes);
 
 
 // Health check
@@ -261,6 +277,9 @@ server.listen(PORT, async () => {
     console.log('Attendance time settings are ready');
     await ensureHrmsEmployeeTables(db);
     console.log('HRMS employee profiles are ready');
+    const [currentYear, currentMonth] = attendancePolicy.todayIstDate().split('-').map(Number);
+    const payrollRun = await generatePayrollRun(currentYear, currentMonth, attendancePolicy.todayIstDate());
+    console.log(`Current payroll draft ready: ${payrollRun.generatedCount} included, ${payrollRun.skippedCount} need compensation.`);
     await ensureHrmsTrackingTables(db);
     console.log('HRMS tracking tables are ready');
   } catch (error) {

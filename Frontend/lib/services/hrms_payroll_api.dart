@@ -63,6 +63,16 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> policy() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers());
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> policy) async {
+    final response = await http.put(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers(), body: jsonEncode(policy));
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> markPaid(int id) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$id'),

@@ -199,7 +199,7 @@ function authenticateToken(req, res, next) {
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, async (err, user) => {
     if (err) {
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({
@@ -213,8 +213,17 @@ function authenticateToken(req, res, next) {
       });
     }
 
-    req.user = user;
-    next();
+    try {
+      const [[account]] = await db.query('SELECT id, full_name, staff_id, email, role, user_type, is_active FROM employee_users WHERE id = ?', [user.id]);
+      if (!account || !Number(account.is_active)) {
+        return res.status(401).json({ success: false, message: 'Employee account is unavailable. Please sign in again.' });
+      }
+      req.user = { ...user, id: account.id, fullName: account.full_name, staffId: account.staff_id,
+        email: account.email, role: account.role, userType: account.user_type };
+      next();
+    } catch (error) {
+      return res.status(503).json({ success: false, message: 'Unable to verify employee account' });
+    }
   });
 }
 
