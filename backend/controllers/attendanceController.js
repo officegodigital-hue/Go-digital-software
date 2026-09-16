@@ -47,6 +47,29 @@ function parseMonthParam(value) {
   return String(value);
 }
 
+function shiftDurationMinutes(shiftStart, shiftEnd) {
+  const toMinutes = function (value) {
+    const parts = String(value || '').split(':').map(Number);
+    return Number(parts[0] || 0) * 60 + Number(parts[1] || 0);
+  };
+  const start = toMinutes(shiftStart);
+  let end = toMinutes(shiftEnd);
+  if (end <= start) end += 24 * 60;
+  return Math.max(0, end - start);
+}
+
+function workingDaysInMonth(month) {
+  const parts = String(month).split('-').map(Number);
+  const year = parts[0];
+  const monthIndex = parts[1] - 1;
+  const days = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  let count = 0;
+  for (let day = 1; day <= days; day += 1) {
+    if (new Date(Date.UTC(year, monthIndex, day)).getUTCDay() !== 0) count += 1;
+  }
+  return count;
+}
+
 function normalizeMethod(value) {
   const method = String(value || 'mobile').toLowerCase();
   if (method === 'wifi' || method === 'office_wifi') return 'wifi';
@@ -392,6 +415,14 @@ async function employeeDashboard(req, res) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
+    const timeSettings = await policy.getTimeSettings(db);
+    const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
+    const monthlyWorkingDays = workingDaysInMonth(month);
+    const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
+    let actualMinutes = monthRows.reduce(function (sum, row) {
+      return sum + Number(row.working_minutes || 0);
+    }, 0);
+
     // Keep a date-keyed representation as well as the list. Older employee
     // clients use the keyed form, while newer ones use month_records.
     const calendarData = {};
@@ -410,7 +441,11 @@ async function employeeDashboard(req, res) {
 
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
     if (checkedIn) {
-      workedSeconds = Math.max(0, policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime())) * 60;
+      const completedBreakMinutes = await breakMinutes(record.id);
+      const liveMinutes = Math.max(0,
+        policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+      workedSeconds = liveMinutes * 60;
+      if (month === date.slice(0, 7)) actualMinutes += liveMinutes;
     }
 
     return ok(res, {
@@ -432,7 +467,18 @@ async function employeeDashboard(req, res) {
         month: month,
         present_days: presentDays,
         absent_days: absentDays,
-        late_days: lateDays
+        late_days: lateDays,
+        work_time: {
+          actual_minutes: actualMinutes,
+          target_minutes: targetMinutes,
+          daily_target_minutes: dailyTargetMinutes,
+          working_days: monthlyWorkingDays,
+          overtime_minutes: Math.max(0, actualMinutes - targetMinutes),
+          remaining_minutes: Math.max(0, targetMinutes - actualMinutes),
+          shift_start: timeSettings.shiftStart,
+          shift_end: timeSettings.shiftEnd,
+          is_live: checkedIn && month === date.slice(0, 7)
+        }
       },
       month_records: monthRecords,
       calendarData: calendarData

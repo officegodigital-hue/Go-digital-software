@@ -124,6 +124,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       ? error.message
       : 'Could not reach attendance. Check your connection and retry.';
 
+  String _durationLabel(int minutes) =>
+      '${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m';
+
   Future<void> _load() async {
     var token = _token;
     final request = ++_request;
@@ -239,6 +242,13 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final employee = data['employee'] as Map;
     final session = data['session'] as Map?;
     final overview = data['month_overview'] as Map;
+    final workTime = overview['work_time'] as Map? ?? const {};
+    final actualMinutes = (workTime['actual_minutes'] as num?)?.toInt() ?? 0;
+    final targetMinutes = (workTime['target_minutes'] as num?)?.toInt() ?? 0;
+    final overtimeMinutes = (workTime['overtime_minutes'] as num?)?.toInt() ?? 0;
+    final progress = targetMinutes == 0
+        ? 0.0
+        : (actualMinutes / targetMinutes).clamp(0.0, 1.0);
     final actions = data['actions'] as Map;
     final checkedIn = data['status'] == 'checked_in';
     final checkedOut = data['status'] == 'checked_out';
@@ -350,6 +360,36 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 13),
+          const Text('Monthly Work Time',
+              style: TextStyle(color: employeeMuted, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(_durationLabel(actualMinutes),
+              style: const TextStyle(
+                  color: employeeNavy, fontSize: 27, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 650),
+            curve: Curves.easeOutCubic,
+            tween: Tween(begin: 0, end: progress),
+            builder: (context, value, child) => ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: value,
+                minHeight: 7,
+                backgroundColor: employeeLine,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    overtimeMinutes > 0 ? const Color(0xFF11A55B) : employeeBlue),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            targetMinutes > 0
+                ? 'Target ${_durationLabel(targetMinutes)}${overtimeMinutes > 0 ? '  +${_durationLabel(overtimeMinutes)} extra' : ''}'
+                : 'Attendance target is not configured',
+            style: const TextStyle(color: employeeMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 13),
           _count('Present', overview['present_days'], const Color(0xFF11A55B)),
           const Divider(color: employeeLine),
           _count('Absent', overview['absent_days'], const Color(0xFFE34646)),
@@ -432,7 +472,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                       Text(
                         'Since $punchInDisplay',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
