@@ -322,86 +322,6 @@ async function dashboard(req, res) {
   }
 }
 
-// Admin clock logs deliberately read the same attendance_records rows used by
-// employee clock-in/out and the dashboard.  Employee identity is joined by the
-// employee user ID, never by a display name or a hard-coded staff value.
-async function adminClockLogs(req, res) {
-  try {
-    const view = String(req.query.view || 'day').toLowerCase();
-    if (view !== 'day' && view !== 'month') {
-      return fail(res, 400, 'view must be day or month');
-    }
-
-    const date = parseDateParam(req.query.date);
-    const month = parseMonthParam(req.query.month);
-    if (!date || !month) {
-      return fail(res, 400, 'date must be YYYY-MM-DD and month must be YYYY-MM');
-    }
-
-    const requestedEmployeeId = req.query.employee_id;
-    const employeeId = requestedEmployeeId == null || requestedEmployeeId === ''
-      ? null
-      : Number(requestedEmployeeId);
-    if (employeeId !== null && (!Number.isInteger(employeeId) || employeeId <= 0)) {
-      return fail(res, 400, 'employee_id must be a positive integer');
-    }
-
-    const start = view === 'day' ? date : month + '-01';
-    const end = view === 'day' ? date : month + '-01';
-    const rangeSql = view === 'day'
-      ? 'r.attendance_date = ?'
-      : 'r.attendance_date >= ? AND r.attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)';
-    const params = view === 'day' ? [start] : [start, end];
-    let employeeSql = '';
-    if (employeeId !== null) {
-      employeeSql = ' AND r.employee_id = ?';
-      params.push(employeeId);
-    }
-
-    const [rows] = await db.query(
-      'SELECT r.*, s.' + staff.quote(staff.STAFF.name) + ' AS full_name, s.' +
-      staff.quote(staff.STAFF.role) + ' AS role, s.' + staff.quote(staff.STAFF.staffCode) +
-      ' AS staff_id FROM attendance_records r LEFT JOIN ' + staff.staffFrom() +
-      ' s ON s.' + staff.quote(staff.STAFF.id) +
-      ' = r.employee_id WHERE ' + rangeSql + employeeSql +
-      ' ORDER BY r.attendance_date DESC, COALESCE(r.check_in_at, r.check_out_at) DESC',
-      params
-    );
-
-    const items = await Promise.all(rows.map(async function (row) {
-      const item = serializeRecord(row, {
-        full_name: row.full_name || 'Former employee',
-        role: row.role || 'Unassigned'
-      });
-      item.staffId = row.staff_id || null;
-      item.workingMinutes = await persistedWorkedMinutes(row);
-      return item;
-    }));
-
-    const employees = await staff.listActiveStaff(db);
-    return ok(res, {
-      filters: {
-        view: view,
-        date: date,
-        month: month,
-        employeeId: employeeId
-      },
-      employees: employees.map(function (person) {
-        return {
-          id: person.id,
-          name: person.full_name,
-          staffId: person.staff_id || null,
-          role: person.role || null
-        };
-      }),
-      items: items
-    });
-  } catch (error) {
-    console.error('GET /attendance/clock-logs', error);
-    return fail(res, 500, error.message);
-  }
-}
-
 async function myHistory(req, res) {
   try {
     const month = parseMonthParam(req.query.month);
@@ -871,7 +791,6 @@ async function myExport(req, res) {
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
-  adminClockLogs: adminClockLogs,
   employeeDashboard: employeeDashboard,
   myHistory: myHistory,
   checkInPolicy: checkInPolicy,

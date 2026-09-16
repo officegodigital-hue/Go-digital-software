@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../features/dashboard/dashboard_page.dart';
 import '../features/employees/employees_page.dart';
-import '../features/clock_logs/clock_logs_page.dart';
 import '../features/approvals/approvals_page.dart';
 import '../features/payroll/payroll_page.dart';
 import '../features/tracking/tracking_page.dart';
@@ -16,7 +15,6 @@ class AppRouter {
   static final Map<String, WidgetBuilder> routes = {
     '/admin/dashboard': DashboardPage.builder,
     '/admin/employees': EmployeesPage.builder,
-    '/admin/clock-logs': ClockLogsPage.builder,
     '/admin/approvals': ApprovalsPage.builder,
     '/admin/payroll': PayrollPage.builder,
     '/admin/tracking': TrackingPage.builder,
