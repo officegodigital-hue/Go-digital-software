@@ -276,6 +276,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
 
     final workday = EmployeeCard(
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             overnight ? 'Current Work Session' : "Today's Workday",
@@ -363,6 +364,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
 
     final month = EmployeeCard(
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
