@@ -98,6 +98,14 @@ async function breakMinutes(attendanceId) {
   }
 }
 
+async function persistedWorkedMinutes(record) {
+  const stored = Number(record && record.working_minutes || 0);
+  if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
+  const completedBreakMinutes = await breakMinutes(record.id);
+  return Math.max(0,
+    policy.minutesBetween(sqlDateTime(record.check_in_at), sqlDateTime(record.check_out_at)) - completedBreakMinutes);
+}
+
 async function getRecord(employeeId, date, executor = db, lock = false) {
   const [rows] = await executor.query(
     'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date = ? LIMIT 1' + (lock ? ' FOR UPDATE' : ''),
@@ -419,8 +427,9 @@ async function employeeDashboard(req, res) {
     const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
     const monthlyWorkingDays = workingDaysInMonth(month);
     const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
-    let actualMinutes = monthRows.reduce(function (sum, row) {
-      return sum + Number(row.working_minutes || 0);
+    const completedMinutes = await Promise.all(monthRows.map(persistedWorkedMinutes));
+    let actualMinutes = completedMinutes.reduce(function (sum, minutes) {
+      return sum + minutes;
     }, 0);
 
     // Keep a date-keyed representation as well as the list. Older employee
@@ -599,6 +608,27 @@ async function checkOut(req, res) {
   }
 }
 
+async function heartbeat(req, res) {
+  try {
+    const employeeId = req.user.id;
+    const record = await getRecord(employeeId, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'There is no active work session.');
+    }
+    const completedBreakMinutes = await breakMinutes(record.id);
+    const workingMinutes = Math.max(0,
+      policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+    await db.query(
+      "UPDATE attendance_records SET working_minutes = ? WHERE id = ? AND check_out_at IS NULL",
+      [workingMinutes, record.id]
+    );
+    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes });
+  } catch (error) {
+    console.error('POST /attendance/heartbeat', error);
+    return fail(res, 500, 'Unable to save current work time.');
+  }
+}
+
 async function myPermissions(req, res) {
   try {
     const [rows] = await db.query(
@@ -766,6 +796,7 @@ module.exports = {
   checkInPolicy: checkInPolicy,
   checkIn: checkIn,
   checkOut: checkOut,
+  heartbeat: heartbeat,
   myPermissions: myPermissions,
   createPermission: createPermission,
   adminPermissions: adminPermissions,

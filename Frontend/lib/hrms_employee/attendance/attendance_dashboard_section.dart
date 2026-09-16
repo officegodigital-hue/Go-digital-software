@@ -40,10 +40,20 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     super.initState();
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (!mounted) return;
       if (_data?['status'] == 'checked_in') setState(() {});
-      if (++_ticks % 60 == 0 && !_loading && !_punching) _load();
+      if (++_ticks % 60 == 0 && !_loading && !_punching) {
+        final token = _token;
+        if (_data?['status'] == 'checked_in' && token != null) {
+          try {
+            await _call('heartbeat', token, post: true);
+          } catch (_) {
+            // The live display still runs; the next dashboard refresh retries.
+          }
+        }
+        if (mounted) _load();
+      }
     });
   }
 
