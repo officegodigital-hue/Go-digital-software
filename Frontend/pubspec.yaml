@@ -118,6 +118,7 @@ flutter:
   assets:
     - assets/images/
     - assets/sounds/
+    - assets/images/whatsapp_logo.png
 
 
     

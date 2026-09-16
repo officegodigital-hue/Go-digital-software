@@ -1544,7 +1544,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     _invoiceHeaderCell(label: "INVOICE DATE", flex: 2),
                     _invoiceHeaderCell(label: "INVOICE NO", flex: 2),
                     _invoiceHeaderCell(label: "CLIENT NAME", flex: 3),
-                    _invoiceHeaderCell(label: "PHONE NO", flex: 2),
+                    _invoiceHeaderCell(label: "PHONE NO", flex: 3),
                     _invoiceHeaderCell(label: "PACKAGE DETAILS", flex: 3),
                     _invoiceHeaderCell(label: "MAINTENANCE DATE", flex: 2),
                     _invoiceHeaderCell(label: "TOTAL AMOUNT", flex: 2),
@@ -1729,15 +1729,19 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                   borderRadius: BorderRadius.circular(6),
                   child: const Padding(
                     padding: EdgeInsets.all(3),
-                    child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF16A34A)),
+                    child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
                   ),
                 ),
                 InkWell(
                   onTap: () => _openWhatsApp(phone),
                   borderRadius: BorderRadius.circular(6),
-                  child: const Padding(
-                    padding: EdgeInsets.all(3),
-                    child: Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: Image.asset(
+                      'assets/images/whatsapp_logo.png',
+                      width: 15,
+                      height: 15,
+                    ),
                   ),
                 ),
               ],
@@ -1965,42 +1969,48 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             ),
           ),
           _invoiceBodyCell(flex: 3, child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
-          _invoiceBodyCell(
-            flex: 2,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    phone.isEmpty ? '—' : phone,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+         _invoiceBodyCell(
+        flex: 3,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                phone.isEmpty ? '—' : phone,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+              ),
+            ),
+            if (phone.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              // Call Icon (Blue Color)
+              InkWell(
+                onTap: () => _callPhone(phone),
+                borderRadius: BorderRadius.circular(6),
+                child: const Padding(
+                  padding: EdgeInsets.all(3),
+                  child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
+                ),
+              ),
+              // WhatsApp Icon (Green Color - Replaced chat bubble)
+              InkWell(
+                onTap: () => _openWhatsApp(phone),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: Image.asset(
+                    'assets/images/whatsapp_logo.png',
+                    width: 15,
+                    height: 15,
                   ),
                 ),
-                if (phone.isNotEmpty) ...[
-                  const SizedBox(width: 4),
-                  InkWell(
-                    onTap: () => _callPhone(phone),
-                    borderRadius: BorderRadius.circular(6),
-                    child: const Padding(
-                      padding: EdgeInsets.all(3),
-                      child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF16A34A)),
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () => _openWhatsApp(phone),
-                    borderRadius: BorderRadius.circular(6),
-                    child: const Padding(
-                      padding: EdgeInsets.all(3),
-                      child: Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+              ),
+            ],
+          ],
+        ),
+      ),
+       _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
           _invoiceBodyCell(flex: 2, child: Text(maintenanceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
           _invoiceBodyCell(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF172033)))),
           _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(paid), style: const TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.w700))),
