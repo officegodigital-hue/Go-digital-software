@@ -36,6 +36,26 @@ function parseSalary(value) {
   return Number(digits);
 }
 
+async function recordCompensation(profile, salary, adminId) {
+  if (salary === null || salary === undefined) return;
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_compensation (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    profile_id BIGINT UNSIGNED NULL,
+    employee_user_id BIGINT UNSIGNED NULL,
+    monthly_salary DECIMAL(12,2) NOT NULL,
+    effective_from DATE NOT NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY profile_effective (profile_id, effective_from),
+    KEY user_effective (employee_user_id, effective_from)
+  )`);
+  try { await db.query('ALTER TABLE hrms_employee_compensation ADD COLUMN profile_id BIGINT UNSIGNED NULL AFTER id'); } catch (_) {}
+  const [latest] = await db.query(`SELECT monthly_salary FROM hrms_employee_compensation WHERE profile_id = ? ORDER BY effective_from DESC, id DESC LIMIT 1`, [profile.id]);
+  if (latest[0] && Number(latest[0].monthly_salary) === Number(salary)) return;
+  await db.query(`INSERT INTO hrms_employee_compensation (profile_id, employee_user_id, monthly_salary, effective_from, created_by)
+    VALUES (?, ?, ?, CURDATE(), ?)`, [profile.id, profile.employee_user_id || null, salary, adminId || null]);
+}
+
 function toUi(row) {
   return {
     id: row.id,
@@ -162,6 +182,7 @@ async function create(req, res) {
       [code, name, email, department, workMode, status, salary]
     );
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [result.insertId]);
+    await recordCompensation(rows[0], salary, req.user && req.user.id);
     return ok(res, toUi(rows[0]), 'Employee added');
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return fail(res, 409, 'Employee ID already exists');
@@ -187,6 +208,7 @@ async function update(req, res) {
     );
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);
+    await recordCompensation(rows[0], salary, req.user && req.user.id);
     return ok(res, toUi(rows[0]), 'Employee updated');
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return fail(res, 409, 'Employee ID already exists');
@@ -213,9 +235,9 @@ async function updateStatus(req, res) {
 async function remove(req, res) {
   try {
     const id = Number(req.params.id);
-    const [result] = await db.query('DELETE FROM hrms_employee_profiles WHERE id = ?', [id]);
+    const [result] = await db.query("UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE id = ?", [id]);
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
-    return ok(res, { id: id }, 'Employee deleted');
+    return ok(res, { id: id }, 'Employee deactivated; history retained');
   } catch (error) {
     return fail(res, 500, error.message);
   }

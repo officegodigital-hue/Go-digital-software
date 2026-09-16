@@ -53,6 +53,22 @@ function nextDate(date) {
   return ymd(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
 }
 
+async function getPayrollPolicy() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
+    id TINYINT UNSIGNED NOT NULL PRIMARY KEY, weekly_off_days JSON NOT NULL,
+    deduct_approved_leave TINYINT(1) NOT NULL DEFAULT 1,
+    deduct_explicit_absence TINYINT(1) NOT NULL DEFAULT 1,
+    missing_attendance_is_absent TINYINT(1) NOT NULL DEFAULT 0
+  )`);
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26'); } catch (_) {}
+  await db.query(`INSERT IGNORE INTO hrms_payroll_policy (id, weekly_off_days) VALUES (1, '[0]')`);
+  const [rows] = await db.query('SELECT * FROM hrms_payroll_policy WHERE id = 1');
+  const row = rows[0] || {};
+  let days = [0];
+  try { days = JSON.parse(row.weekly_off_days || '[0]'); } catch (_) {}
+  return { weeklyOffDays: new Set(Array.isArray(days) ? days.map(Number) : [0]), deductLeave: Boolean(Number(row.deduct_approved_leave ?? 1)), deductAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)), missingIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)), salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)) };
+}
+
 async function timeSettings(req, res) {
   try {
     return ok(res, await policy.getTimeSettings(db));
@@ -77,7 +93,8 @@ async function monthView(req, res) {
       return fail(res, 400, 'year and month (1-12) are required');
     }
 
-    const weeklyOff = jsWeeklyOff(req.query.weeklyOff || 7);
+    const payrollRules = await getPayrollPolicy();
+    const weeklyOff = req.query.weeklyOff ? new Set([jsWeeklyOff(req.query.weeklyOff)]) : payrollRules.weeklyOffDays;
     const totalDays = daysInMonth(year, month);
     const start = ymd(year, month, 1);
     const end = ymd(year, month, totalDays);
@@ -161,7 +178,7 @@ async function monthView(req, res) {
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
         const weekday = utcWeekday(year, month, day);
-        if (weekday === weeklyOff) {
+        if (weeklyOff.has(weekday)) {
           days.push('OFF');
           continue;
         }
@@ -181,7 +198,7 @@ async function monthView(req, res) {
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
         if (record && record.check_in_at) {
-          if (String(record.attendance_status) === 'absent') {
+          if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
             days.push('A');
             unexcused += 1;
             absentDays += 1;
@@ -197,21 +214,19 @@ async function monthView(req, res) {
         } else if (leaveType) {
           days.push(leaveType);
           if (leaveType === 'HL') halfLeave += 1;
-          if (date <= today) {
-            unexcused += 1;
-            absentDays += 1;
-          }
+          if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing record is unrecorded during development, not absent.
           days.push('–');
+          if (date <= today && payrollRules.missingIsAbsent) { unexcused += 1; absentDays += 1; }
         }
       }
 
       const salaryNumber = Number(profile.monthly_salary || 0);
-      const paidDays = present + late;
-      const afterLeaves = workingDays
-        ? Math.round((paidDays / workingDays) * (salaryNumber || 0))
-        : 0;
+      const lopDays = Math.min(workingDays, unexcused);
+      const paidDays = Math.max(0, workingDays - lopDays);
+      const deduction = salaryNumber ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / payrollRules.salaryDayDivisor))) : 0;
+      const afterLeaves = Math.max(0, salaryNumber - deduction);
 
       return {
         id: profile.id,
@@ -225,9 +240,9 @@ async function monthView(req, res) {
         unexcused: unexcused,
         halfLeave: halfLeave,
         salary: formatSalary(profile.monthly_salary),
-        daysPaid: String(paidDays),
-        afterLeaves: salaryNumber ? formatSalary(afterLeaves) : '–',
-        updatedSalary: formatSalary(profile.monthly_salary),
+        daysPaid: String(lopDays),
+        afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
+        updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
       };
     });
 
@@ -236,6 +251,7 @@ async function monthView(req, res) {
       month: month,
       daysInMonth: totalDays,
       timezone: policy.TIME_ZONE,
+      payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {
         totalEmployees: profiles.length,
         present: presentDays,

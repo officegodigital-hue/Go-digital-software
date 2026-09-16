@@ -209,7 +209,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
   }
 
   Widget _summaryColumns() {
-    const labels = ['Present', 'Late', 'Half\nLeave', 'Salary\nPer\nMonth', 'Total Salary\nAfter Leaves', 'Updated\nSalary'];
+    const labels = ['Present', 'Late', 'Half\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
     const colors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
     const width = 281.0;
     return Container(

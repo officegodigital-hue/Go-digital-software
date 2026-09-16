@@ -8,6 +8,7 @@ import '../attendance/attendance_dashboard_section.dart';
 import '../shared/employee_ui.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_storage.dart';
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -29,11 +30,12 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   };
   void go(String route) {
     setState(() => menuOpen = false);
-    if (routes.contains(route))
+    if (routes.contains(route)) {
       Navigator.pushNamed(context, route);
-    else
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('This page is not available yet.')));
+    }
   }
 
   @override
@@ -81,12 +83,34 @@ class _HeaderState extends State<_Header> {
   @override
   void initState() {
     super.initState();
+    _loadStoredIdentity();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadEmployee());
+  }
+
+  void _setIdentity(String? name, String? staffId) {
+    final resolved = (name ?? '').trim();
+    if (resolved.isEmpty) return;
+    final words = resolved.split(RegExp(r'\s+'));
+    setState(() {
+      _fullName = resolved;
+      _staffId = (staffId ?? '').trim();
+      _initials = words.take(2).where((word) => word.isNotEmpty).map((word) => word[0].toUpperCase()).join();
+      if (_initials.isEmpty) _initials = 'E';
+    });
+  }
+
+  Future<void> _loadStoredIdentity() async {
+    try {
+      final raw = await AuthStorage.getString('user_data');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw);
+      if (data is Map && mounted) _setIdentity(data['fullName']?.toString() ?? data['full_name']?.toString(), data['staffId']?.toString() ?? data['staff_id']?.toString());
+    } catch (_) {}
   }
 
   Future<void> _loadEmployee() async {
     final auth = context.read<AuthService>();
-    final token = auth.token;
+    final token = auth.token ?? await AuthStorage.getString('auth_token');
     if (token == null || token.isEmpty) return;
 
     try {
@@ -109,18 +133,7 @@ class _HeaderState extends State<_Header> {
       final staffId = (data['staff_id']?.toString() ?? '').trim();
       if (!mounted || name.isEmpty) return;
 
-      final words = name.split(RegExp(r'\s+'));
-      final initials = words
-          .take(2)
-          .where((word) => word.isNotEmpty)
-          .map((word) => word[0].toUpperCase())
-          .join();
-
-      setState(() {
-        _fullName = name;
-        _staffId = staffId;
-        _initials = initials.isEmpty ? 'E' : initials;
-      });
+      _setIdentity(name, staffId);
     } catch (_) {
       // Keep the neutral placeholder if the profile endpoint is unavailable.
     }
@@ -145,7 +158,11 @@ class _HeaderState extends State<_Header> {
               width: widget.mobile ? 136 : 164,
               fit: BoxFit.contain,
               alignment: Alignment.centerLeft),
-          const Spacer(),
+          if (!widget.mobile) ...[
+            const SizedBox(width: 24),
+            const Expanded(child: Center(child: _DashboardTopNav())),
+          ] else
+            const Spacer(),
           if (!widget.mobile) ...[
             const Text('Employee Portal',
                 style: TextStyle(color: employeeMuted)),
@@ -160,6 +177,55 @@ class _HeaderState extends State<_Header> {
             staffId: _staffId,
           ),
         ]),
+      );
+}
+
+class _DashboardTopNav extends StatelessWidget {
+  const _DashboardTopNav();
+
+  static const _items = <(String, String)>[
+    ('Dashboard', '/employee/dashboard'),
+    ('Attendance', '/employee/attendance'),
+    ('Clock In / Out', '/employee/clock-log'),
+    ('Leave', '/employee/leave'),
+    ('Permission', '/employee/permission'),
+    ('Extra Hours', '/employee/extra-hours'),
+    ('Salary', '/employee/salary'),
+    ('Tracking', '/employee/tracking'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F7FB),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: const Color(0xFFE7ECF4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: _items.map((item) {
+              final active = item.$2 == '/employee/dashboard';
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Material(
+                  color: active ? employeeBlue : Colors.transparent,
+                  borderRadius: BorderRadius.circular(26),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(26),
+                    onTap: active ? null : () => Navigator.pushNamed(context, item.$2),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Text(item.$1, style: TextStyle(color: active ? Colors.white : employeeMuted, fontSize: 13, fontWeight: active ? FontWeight.w700 : FontWeight.w500)),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       );
 }
 
