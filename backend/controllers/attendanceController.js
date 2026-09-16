@@ -392,8 +392,11 @@ async function employeeDashboard(req, res) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
+    // Keep a date-keyed representation as well as the list. Older employee
+    // clients use the keyed form, while newer ones use month_records.
+    const calendarData = {};
     const monthRecords = monthRows.map(function (row) {
-      return {
+      const item = {
         id: row.id,
         work_date: sqlDate(row.attendance_date),
         clock_in_at: row.check_in_at ? sqlDateTime(row.check_in_at) : null,
@@ -401,6 +404,8 @@ async function employeeDashboard(req, res) {
         is_late: Boolean(Number(row.is_late)),
         attendance_status: row.attendance_status || (row.check_in_at ? 'present' : 'absent'),
       };
+      calendarData[item.work_date] = item;
+      return item;
     });
 
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
@@ -429,7 +434,8 @@ async function employeeDashboard(req, res) {
         absent_days: absentDays,
         late_days: lateDays
       },
-      month_records: monthRecords
+      month_records: monthRecords,
+      calendarData: calendarData
     });
   } catch (error) {
     console.error('GET /attendance/dashboard (employee)', error);

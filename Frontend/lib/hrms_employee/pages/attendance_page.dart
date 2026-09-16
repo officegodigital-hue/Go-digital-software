@@ -75,24 +75,18 @@ class _AttendanceViewState extends State<_AttendanceView> {
   int? _extractDay(dynamic rawWorkDate) {
     if (rawWorkDate == null) return null;
     final str = rawWorkDate.toString().trim();
-    try {
-      final dateOnly = str.split('T').first;
-      final parts = dateOnly.split('-');
-      if (parts.length >= 3) {
-        // Handle "YYYY-MM-DD" or "DD-MM-YYYY" from backend securely
-        final p0 = int.tryParse(parts[0]) ?? 0;
-        final p1 = int.tryParse(parts[1]) ?? 0;
-        final p2 = int.tryParse(parts[2]) ?? 0;
+    final match = RegExp(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})').firstMatch(str);
+    if (match != null) {
+      final recordYear = int.tryParse(match.group(1)!);
+      final recordMonth = int.tryParse(match.group(2)!);
+      final recordDay = int.tryParse(match.group(3)!);
+      if (recordYear == year && recordMonth == month) return recordDay;
+    }
 
-        int parsedYear = p0 > 1000 ? p0 : p2;
-        int parsedMonth = p1;
-        int parsedDay = p0 > 1000 ? p2 : p0;
-
-        if (parsedYear == year && parsedMonth == month) {
-          return parsedDay;
-        }
-      }
-    } catch (_) {}
+    final parsed = DateTime.tryParse(str.replaceFirst(' ', 'T'));
+    if (parsed != null && parsed.year == year && parsed.month == month) {
+      return parsed.day;
+    }
     return null;
   }
 
@@ -115,22 +109,35 @@ class _AttendanceViewState extends State<_AttendanceView> {
           final overview = data['month_overview'] as Map?;
           final Map<int, Map<String, dynamic>> daysMap = {};
 
-          // Loop through the month_records array sent by our backend
-          final records = data['month_records'] as List?;
+          final records = data['month_records'] as List? ?? data['records'] as List?;
           if (records != null) {
             for (final item in records) {
-              final dayNum = _extractDay(item['work_date']);
+              final dayNum = _extractDay(item['work_date'] ?? item['date']);
               if (dayNum != null) {
-                final isLate = item['is_late'] == 1 || item['is_late'] == true;
-                final statusStr = (item['attendance_status']?.toString() ?? '').toLowerCase();
+                final isLate = item['is_late'] == 1 || item['is_late'] == true || item['isLate'] == true;
+                final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
-
                 daysMap[dayNum] = {
                   'status': isAbsent ? 'A' : (isLate ? 'L' : 'P'),
-                  'clock_in': item['clock_in_at'],
+                  'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
             }
+          }
+
+          final calendarData = data['calendarData'] as Map?;
+          if (calendarData != null) {
+            calendarData.forEach((rawDate, rawRecord) {
+              if (rawRecord is! Map) return;
+              final dayNum = _extractDay(rawDate);
+              if (dayNum == null || daysMap.containsKey(dayNum)) return;
+              final statusStr = (rawRecord['status']?.toString() ?? '').toLowerCase();
+              final isLate = rawRecord['isLate'] == true || statusStr == 'late';
+              daysMap[dayNum] = {
+                'status': statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'),
+                'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
+              };
+            });
           }
 
           if (mounted) {
