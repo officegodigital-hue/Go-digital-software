@@ -733,6 +733,7 @@ class _DashboardTopBar extends StatelessWidget {
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
     ('Employees', '/admin/employees'),
+    ('Clock Logs', '/admin/clock-logs'),
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),

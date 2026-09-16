@@ -5,6 +5,7 @@
 enum AdminNavItem {
   dashboard('Dashboard', '/admin/dashboard'),
   employees('Employees', '/admin/employees'),
+  clockLogs('Clock Logs', '/admin/clock-logs'),
   approvals('Approvals', '/admin/approvals'),
   payroll('Payroll', '/admin/payroll'),
   tracking('Tracking', '/admin/tracking');

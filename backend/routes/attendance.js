@@ -13,6 +13,7 @@ router.get('/dashboard', function (req, res, next) {
   return attendance.employeeDashboard(req, res, next);
 });
 router.get('/export', attendance.requireAdmin, attendance.exportCsv);
+router.get('/clock-logs', attendance.requireAdmin, attendance.adminClockLogs);
 router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions);
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
 
