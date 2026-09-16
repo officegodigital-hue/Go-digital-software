@@ -315,7 +315,6 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             ),
           ),
           const SizedBox(height: 18),
-          if (MediaQuery.sizeOf(context).width >= 520) const Spacer(),
           const Divider(color: employeeLine),
           const SizedBox(height: 10),
           Row(
@@ -406,7 +405,6 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           _count('Absent', overview['absent_days'], const Color(0xFFE34646)),
           const Divider(color: employeeLine),
           _count('Late', overview['late_days'], const Color(0xFFFF8B17)),
-          if (MediaQuery.sizeOf(context).width >= 520) const Spacer(),
           if (overview['absent_days'] == null ||
               overview['late_days'] == null) ...[
             const SizedBox(height: 10),
@@ -526,7 +524,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           builder: (context, constraints) => constraints.maxWidth < 520
               ? Column(children: [workday, const SizedBox(height: 14), month])
               : SizedBox(
-                  height: 396,
+                  height: 340,
                   child: Row(
                     children: [
                       Expanded(child: workday),
