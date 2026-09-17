@@ -1,4 +1,3 @@
-
 // name=admin_panel_screen.dart
 import 'dart:convert';
 
@@ -37,6 +36,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _loadingRoles = false;
   bool _isFormView = false;
   bool _isSubmitting = false;
+  bool _obscurePassword = true; // 🟢 Added for password visibility toggle
 
   String? _error;
   String? _modalError;
@@ -235,7 +235,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         .length;
   }
 
-  void _openForm({Map<String, dynamic>? employee}) async {
+void _openForm({Map<String, dynamic>? employee}) async {
     await _fetchUserRolesMaster();
     if (!mounted) return;
 
@@ -254,7 +254,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           employee?['email']?.toString() ?? '';
       _usernameCtrl.text =
           employee?['username']?.toString() ?? '';
-      _passwordCtrl.clear();
+      
+      // 🟢 Admin-kku edit panrom pothu old password-ai text field-il show seiyum
+      _passwordCtrl.text =
+          employee?['password']?.toString() ?? '';
 
       _selectedUserType =
           _normalizeUserType(employee?['user_type']);
@@ -284,7 +287,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       _isFormView = true;
     });
   }
-
+  
   void _closeForm() {
     setState(() {
       _isFormView = false;
@@ -2976,7 +2979,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           controller:
                               _passwordCtrl,
                           label: isEditMode
-                              ? 'New Password'
+                              ? 'Password'
                               : 'Password *',
                           hint: isEditMode
                               ? 'Leave blank to keep current'
@@ -3756,7 +3759,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: isPassword ? _obscurePassword : false, // 🟢 Toggle password visibility
           style: const TextStyle(
             fontSize: 13,
             color: _ink,
@@ -3773,6 +3776,23 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               size: 19,
               color: _primary,
             ),
+            // 🟢 Add eye icon suffix to toggle visibility if it's a password field
+            suffixIcon: isPassword
+                ? IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: _muted,
+                      size: 19,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  )
+                : null,
             filled: true,
             fillColor: _surface,
             contentPadding:

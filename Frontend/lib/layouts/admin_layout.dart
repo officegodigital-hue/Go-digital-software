@@ -1,3 +1,4 @@
+// name=admin_layout.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
@@ -26,6 +27,7 @@ class AdminLayout extends StatefulWidget {
 }
 
 class _AdminLayoutState extends State<AdminLayout> {
+  bool _sidebarCollapsed = false;
   Timer? _pollingTimer;
   Timer? _popupTimer;
 
@@ -164,6 +166,25 @@ class _AdminLayoutState extends State<AdminLayout> {
     final String userType = user?['user_type']?.toString() ?? 'Administrator';
     final String userRole = user?['role']?.toString() ?? 'Administrator';
 
+    // 🟢 Read profile photo and avatar color from user session
+    final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
+    final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
+
+    Color avatarColor = const Color(0xFF2A52BE);
+    if (avatarColorHex.isNotEmpty) {
+      try {
+        final s = avatarColorHex.replaceAll('#', '');
+        avatarColor = Color(int.parse('FF$s', radix: 16));
+      } catch (_) {}
+    }
+
+    ImageProvider? profileImage;
+    if (profilePhoto != null && profilePhoto.isNotEmpty) {
+      try {
+        profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
+      } catch (_) {}
+    }
+
     final bool isMainAdmin = user?['is_main_admin'] == true || 
                              user?['is_main_admin'] == 1 || 
                              user?['is_main_admin'].toString() == '1';
@@ -194,7 +215,6 @@ class _AdminLayoutState extends State<AdminLayout> {
       {'icon': Icons.assignment_outlined, 'title': 'Daily Planner', 'route': '/daily-planner'},
       {'icon': Icons.people_outline_rounded, 'title': 'Employee Status', 'route': '/employee-status'},
       {'icon': Icons.rate_review_outlined, 'title': 'Manager Review', 'route': '/manager-review'},
-      // {'icon': Icons.notifications_none_rounded, 'title': 'Notifications', 'route': '/notifications'},
       {'icon': Icons.chat_bubble_rounded, 'title': 'Chat', 'route': '/notifications'},
       {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
       {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
@@ -203,7 +223,6 @@ class _AdminLayoutState extends State<AdminLayout> {
 
     final filteredNavItems = allNavItems.where((item) {
       if (isMainAdmin || userType.toLowerCase() == 'admin' && user?['is_main_admin'] == 1) return true;
-      // If regular admin/employee, check if the route exists in allowedPages
       return allowedPages.contains(item['route']);
     }).toList();
 
@@ -219,10 +238,19 @@ class _AdminLayoutState extends State<AdminLayout> {
         final bool isDesktop = constraints.maxWidth >= 900;
         final bool isSmallMobile = constraints.maxWidth < 450;
 
-        // Reusable Sidebar Widget with Close Button for Mobile
         final Widget sidebarWidget = Container(
-          width: 230,
-          color: const Color(0xFF151D2E),
+          width: _sidebarCollapsed && isDesktop ? 76 : 230,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF06152F),
+                Color(0xFF0A2B62),
+                Color(0xFF071B3B),
+              ],
+            ),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -254,7 +282,18 @@ class _AdminLayoutState extends State<AdminLayout> {
                   ],
                 ),
               ),
-              Container(height: 1, color: const Color(0xFF232D42)),
+              Container(
+                height: 1,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      const Color(0xFF35A8FF).withValues(alpha: 0.55),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 10),
               Expanded(
                 child: SingleChildScrollView(
@@ -339,14 +378,13 @@ class _AdminLayoutState extends State<AdminLayout> {
         );
 
         return Scaffold(
-          backgroundColor: const Color(0xFFF4F6FA),
+          backgroundColor: const Color(0xFFF5F8FD),
           drawer: isDesktop ? null : Drawer(child: sidebarWidget),
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (isDesktop) sidebarWidget,
 
-              // ── RIGHT PANEL ───────────────────────────────────────────────────────
               Expanded(
                 child: Stack(
                   clipBehavior: Clip.none,
@@ -379,23 +417,36 @@ class _AdminLayoutState extends State<AdminLayout> {
                       ),
                     ),
 
-                    // ── FIXED TOP BAR ──────────────────────────────────────────
                     Positioned(
                       top: 0,
                       left: 0,
                       right: 0,
                       child: Material(
                         color: Colors.white,
-                        elevation: 4,
-                        shadowColor: Colors.black.withValues(alpha: 0.12),
+                        elevation: 8,
+                        shadowColor: const Color(0xFF0759D4).withValues(alpha: 0.10),
                         child: Container(
                           height: 64,
-                          color: Colors.white,
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Colors.white,
+                                Color(0xFFF7FAFF),
+                                Colors.white,
+                              ],
+                            ),
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Color(0xFFE3ECFA),
+                              ),
+                            ),
+                          ),
                           padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 8 : 20),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              // 3-Dash Menu Icon (Only for mobile/tablet screens)
                               if (!isDesktop)
                                 Builder(
                                   builder: (ctx) => IconButton(
@@ -407,7 +458,6 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 ),
                               if (!isDesktop) SizedBox(width: isSmallMobile ? 4 : 12),
 
-                              // SEARCH BAR (Adjusted size for small mobile screens)
                               Expanded(
                                 child: ConstrainedBox(
                                   constraints: const BoxConstraints(maxWidth: 440),
@@ -459,7 +509,6 @@ class _AdminLayoutState extends State<AdminLayout> {
 
                               const SizedBox(width: 6),
 
-                              // QUICK ADD (Hidden on very small mobile screens to prevent overflow, shown as icon or compact button)
                               if (!isSmallMobile) ...[
                                 ElevatedButton.icon(
                                   onPressed: () {
@@ -480,7 +529,6 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 const SizedBox(width: 6),
                               ],
 
-                              // NOTIFICATION
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
@@ -510,7 +558,6 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 ],
                               ),
 
-                              // HELP & SETTINGS (Hidden on small mobile to save space, available inside sidebar/settings menu)
                               if (!isSmallMobile) ...[
                                 const SizedBox(width: 2),
                                 IconButton(
@@ -547,14 +594,17 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 const SizedBox(width: 10),
                               ],
 
-                              // MOBILE VIEW: Profile Icon with Popup Menu
+                              // 🟢 MOBILE VIEW: Profile Icon with custom photo or color
                               if (!isDesktop)
                                 PopupMenuButton<int>(
                                   offset: const Offset(0, 45),
-                                  icon: const CircleAvatar(
+                                  icon: CircleAvatar(
                                     radius: 15,
-                                    backgroundColor: Color(0xFF2A52BE),
-                                    child: Icon(Icons.person, size: 16, color: Colors.white),
+                                    backgroundColor: avatarColor,
+                                    backgroundImage: profileImage,
+                                    child: profileImage == null
+                                        ? const Icon(Icons.person, size: 16, color: Colors.white)
+                                        : null,
                                   ),
                                   itemBuilder: (context) => [
                                     PopupMenuItem(
@@ -571,7 +621,7 @@ class _AdminLayoutState extends State<AdminLayout> {
                                   ],
                                 ),
 
-                              // DESKTOP VIEW: Admin Name & Details
+                              // 🟢 DESKTOP VIEW: Admin Name & Details with custom photo or avatar color
                               if (isDesktop) ...[
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -585,8 +635,11 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 const SizedBox(width: 10),
                                 CircleAvatar(
                                   radius: 18,
-                                  backgroundColor: const Color(0xFF2A52BE),
-                                  child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                                  backgroundColor: avatarColor,
+                                  backgroundImage: profileImage,
+                                  child: profileImage == null
+                                      ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700))
+                                      : null,
                                 ),
                               ],
                             ],
@@ -595,7 +648,6 @@ class _AdminLayoutState extends State<AdminLayout> {
                       ),
                     ),
 
-                    // ── NOTIFICATION POPUP ────────────────────────────────────
                     if (_showPopup)
                       Positioned(
                         top: 70,
@@ -608,9 +660,16 @@ class _AdminLayoutState extends State<AdminLayout> {
                             width: 320,
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFF2A52BE)),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white,
+                                  Color(0xFFF4F8FF),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFBFD8FA)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withValues(alpha: 0.15),
@@ -653,8 +712,24 @@ class _AdminLayoutState extends State<AdminLayout> {
     );
   }
 
+  bool _navHover(String route) => false;
+
+  Widget _sidebarToggle() {
+    return IconButton(
+      tooltip: _sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      onPressed: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+      icon: AnimatedRotation(
+        turns: _sidebarCollapsed ? 0.5 : 0,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutBack,
+        child: const Icon(Icons.chevron_left_rounded, color: Color(0xFFB9D6FF)),
+      ),
+    );
+  }
+
   Widget _navItem(IconData icon, String title, String route, BuildContext context) {
     final bool isActive = widget.currentRoute == route;
+    final bool collapsed = _sidebarCollapsed && MediaQuery.of(context).size.width >= 900;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Material(
@@ -665,16 +740,16 @@ class _AdminLayoutState extends State<AdminLayout> {
           },
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12, vertical: 11),
             decoration: BoxDecoration(
-              color: isActive ? const Color(0xFF2A52BE) : Colors.transparent,
+              color: isActive ? const Color(0xFF0E63D7) : (_navHover(route) ? const Color(0xFF111E33) : Colors.transparent),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
                 Icon(icon, size: 17, color: isActive ? Colors.white : const Color(0xFF8A94A6)),
-                const SizedBox(width: 12),
-                Text(
+                if (!collapsed) const SizedBox(width: 12),
+                if (!collapsed) Text(
                   title,
                   style: TextStyle(
                     fontSize: 13,

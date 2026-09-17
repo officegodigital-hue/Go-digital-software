@@ -149,35 +149,110 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _changePassword(){
     final cur=TextEditingController(),neu=TextEditingController(),con=TextEditingController();
-    showDialog(context:context,builder:(dc)=>AlertDialog(
-      shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(22)),
-      title:Row(children:[
-        _iconBox(Icons.lock_reset_rounded,primary),
-        const SizedBox(width:12),const Expanded(child:Text('Change Password',
-          style:TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:text))),
-      ]),
-      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        _password(cur,'Current Password',Icons.lock_outline_rounded),
-        const SizedBox(height:12),_password(neu,'New Password',Icons.password_rounded),
-        const SizedBox(height:12),_password(con,'Confirm New Password',Icons.verified_user_outlined),
-      ])),
-      actions:[
-        TextButton(onPressed:()=>Navigator.pop(dc),child:const Text('Cancel',
-          style:TextStyle(color:muted,fontWeight:FontWeight.w700))),
-        ElevatedButton(
-          onPressed:()async{
-            if(neu.text.trim().isEmpty){
-              ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
-                content:Text('Enter a new password'),backgroundColor:Colors.redAccent));return;
-            }
-            if(neu.text!=con.text){
-              ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
-                content:Text('Passwords do not match'),backgroundColor:Colors.redAccent));return;
-            }
-            Navigator.pop(dc);await _saveProfile(passwordOverride:neu.text);
-          },
-          style:_buttonStyle(),child:const Text('Change Password')),
-      ],
+    bool obscureCur = true;
+    bool obscureNeu = true;
+    bool obscureCon = true;
+
+    final a = context.read<AuthService>(); 
+    final id = a.userId;
+
+    showDialog(context: context, builder: (dc) => StatefulBuilder(
+      builder: (context, setStateDialog) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: Row(children:[
+            _iconBox(Icons.lock_reset_rounded, primary),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Change Password',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: text))),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: cur,
+                  obscureText: obscureCur,
+                  decoration: _input('Current Password', Icons.lock_outline_rounded).copyWith(
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureCur ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 19, color: muted),
+                      onPressed: () => setStateDialog(() => obscureCur = !obscureCur),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: neu,
+                  obscureText: obscureNeu,
+                  decoration: _input('New Password', Icons.password_rounded).copyWith(
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureNeu ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 19, color: muted),
+                      onPressed: () => setStateDialog(() => obscureNeu = !obscureNeu),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: con,
+                  obscureText: obscureCon,
+                  decoration: _input('Confirm New Password', Icons.verified_user_outlined).copyWith(
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureCon ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 19, color: muted),
+                      onPressed: () => setStateDialog(() => obscureCon = !obscureCon),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dc),
+              child: const Text('Cancel', style: TextStyle(color: muted, fontWeight: FontWeight.w700)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (cur.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                    content: Text('Enter your current password'), backgroundColor: Colors.redAccent));
+                  return;
+                }
+                if (neu.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                    content: Text('Enter a new password'), backgroundColor: Colors.redAccent));
+                  return;
+                }
+                if (neu.text != con.text) {
+                  ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                    content: Text('Passwords do not match'), backgroundColor: Colors.redAccent));
+                  return;
+                }
+
+                try {
+                  final r = await http.get(Uri.parse('$_baseUrl/employees/$id'),
+                    headers: {'Authorization': 'Bearer ${a.token}'});
+                  if (r.statusCode == 200) {
+                    final b = jsonDecode(r.body);
+                    final d = Map<String, dynamic>.from(b['data'] ?? {});
+                    final serverPassword = d['password']?.toString() ?? '';
+
+                    if (cur.text.trim() != serverPassword) {
+                      if (mounted) ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                        content: Text('Incorrect current password!'), backgroundColor: Colors.redAccent));
+                      return;
+                    }
+                  }
+                } catch (_) {}
+
+                Navigator.pop(dc);
+                await _saveProfile(passwordOverride: neu.text);
+              },
+              style: _buttonStyle(),
+              child: const Text('Change Password'),
+            ),
+          ],
+        );
+      }
     ));
   }
 
@@ -192,9 +267,6 @@ class _SettingsPageState extends State<SettingsPage> {
       borderSide:const BorderSide(color:border)),
     focusedBorder:OutlineInputBorder(borderRadius:BorderRadius.circular(13),
       borderSide:const BorderSide(color:primary,width:1.5)));
-
-  Widget _password(TextEditingController c,String l,IconData i)=>TextField(
-    controller:c,obscureText:true,decoration:_input(l,i));
 
   ButtonStyle _buttonStyle()=>ElevatedButton.styleFrom(
     backgroundColor:primary,foregroundColor:Colors.white,elevation:0,

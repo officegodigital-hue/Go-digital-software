@@ -202,7 +202,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     {'field': 'website_designer', 'label': 'Website Dev'},
   ];
 
-  Future<void> _fetchEmployeeSummaryList() async {
+Future<void> _fetchEmployeeSummaryList() async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
@@ -220,9 +220,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
 
         rawTasksList = tasks;
 
-        // Which clients are active vs inactive (so "Total Clients" can
-        // explicitly include inactive ones instead of silently dropping
-        // them, and the view list can call them out separately).
         final Map<String, bool> clientActiveMap = {};
         if (clientsRes.statusCode == 200) {
           final clientsBody = jsonDecode(clientsRes.body);
@@ -233,14 +230,29 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
           }
         }
 
-        // employeeName -> ALL clients assigned to them, any role (active + inactive)
         final Map<String, Set<String>> empClients = {};
-        // employeeName -> roleField -> distinct clients assigned under that role
         final Map<String, Map<String, Set<String>>> empRoleClients = {};
+
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
 
         for (var t in tasks) {
           final client = (t['client_name'] ?? '').toString().trim();
           if (client.isEmpty) continue;
+
+          // 🟢 Exclude inactive clients
+          final isActive = clientActiveMap[client.toUpperCase()] ?? true;
+          if (!isActive) continue;
+
+          // 🟢 Exclude tasks whose submit date (deadline) has passed
+          final rawDeadline = t['deadline'] ?? '';
+          if (rawDeadline.toString().isNotEmpty) {
+            try {
+              final parsedDate = DateTime.parse(rawDeadline.toString());
+              final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+              if (target.isBefore(today)) continue;
+            } catch (_) {}
+          }
 
           for (final role in _roleColumns) {
             final field = role['field']!;
@@ -265,14 +277,11 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
           final clientsAssigned = empClients[name] ?? {};
           final roleClients = empRoleClients[name] ?? {};
 
-          // split into active / inactive using the clients table; a client
-          // not found in clientActiveMap is treated as active (matches the
-          // rest of the app's "active unless explicitly inactive" default).
           final activeClients = <String>[];
           final inactiveClients = <String>[];
           for (final c in clientsAssigned) {
-            final isActive = clientActiveMap[c.trim().toUpperCase()] ?? true;
-            if (isActive) {
+            final isClientActive = clientActiveMap[c.trim().toUpperCase()] ?? true;
+            if (isClientActive) {
               activeClients.add(c);
             } else {
               inactiveClients.add(c);
@@ -287,8 +296,8 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
           summaryList.add({
             "sNo": index++,
             "employeeName": name,
-            "totalClients": clientsAssigned.length, // active + inactive, on purpose
-            "clientsList": clientsAssigned.toList(),
+            "totalClients": activeClients.length, 
+            "clientsList": activeClients,
             "activeClientsList": activeClients,
             "inactiveClientsList": inactiveClients,
             "roleCounts": roleCounts,
@@ -306,69 +315,29 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     }
   }
 
-  Map<String, dynamic> _mapRow(dynamic row) {
-    String status = row['status'] ?? 'Processing';
-    if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
-      status = 'Processing';
-    }
-    return {
-      "taskListId": row['taskListId'],
-      "client": row['clientName'] ?? '',
-      "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
-      "task": row['task'] ?? '',
-      "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
-      "date": row['submissionDate'] ?? '',
-      "formattedDate": _formatDate(row['submissionDate'] as String?),
-      "month": _extractMonth(row['submissionDate'] as String?),
-      "status": status,
-    };
-  }
-
-  String _formatOnlyDay(dynamic rawDate) {
-    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
-    final val = rawDate.toString().trim();
-    if (val.contains('/')) {
-      final parts = val.split('/');
-      if (parts.isNotEmpty) return parts[0];
-    }
-    try {
-      final parsed = DateTime.parse(val);
-      return parsed.day.toString().padLeft(2, '0');
-    } catch (_) {
-      return val;
-    }
-  }
-
-  String _formatDate(String? raw) {
-    if (raw == null || raw.isEmpty) return '--';
-    try {
-      final d = DateTime.parse(raw);
-      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
-    } catch (_) {
-      return raw;
-    }
-  }
-
-  String _extractMonth(String? raw) {
-    if (raw == null || raw.isEmpty) return '';
-    try {
-      final d = DateTime.parse(raw);
-      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return months[d.month];
-    } catch (_) {
-      return '';
-    }
-  }
-
- // 🟢 Fixed Employee Detail View to fetch tracking progress securely by matching task list assignment & deliverables
-  void _navigateToEmployeeDetailView(String employeeName) async {
+void _navigateToEmployeeDetailView(String employeeName) async {
     List<Map<String, dynamic>> employeeAssignments = [];
     Map<String, int> dbTaskProgressCounts = {};
 
     try {
-      final Map<String, Map<String, dynamic>> latestClientAssignmentsMap = {};
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
+      final clientsRes = await http.get(Uri.parse('$_baseUrl/clients'), headers: authHeaders);
+      
+      final Map<String, bool> clientActiveMap = {};
+      if (clientsRes.statusCode == 200) {
+        final clientsBody = jsonDecode(clientsRes.body);
+        for (var c in List<Map<String, dynamic>>.from(clientsBody['data'] ?? [])) {
+          final name = (c['company_name'] ?? '').toString().trim().toUpperCase();
+          if (name.isEmpty) continue;
+          clientActiveMap[name] = (c['is_active'] == 1 || c['is_active'] == true);
+        }
+      }
 
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      // 🟢 1. Collect ALL active, non-expired task assignments matching this employee
       for (var row in rawTasksList) {
         bool matches = false;
         final roles = [
@@ -384,33 +353,41 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
         }
 
         if (matches) {
-          final clientName = (row['client_name'] ?? '').toString().trim().toLowerCase();
-          final rowId = row['id'] is int ? row['id'] : int.tryParse(row['id'].toString()) ?? 0;
+          final clientNameRaw = (row['client_name'] ?? '').toString().trim();
+          final clientNameUpper = clientNameRaw.toUpperCase();
+          
+          final isActive = clientActiveMap[clientNameUpper] ?? true;
+          if (!isActive) continue;
 
-          if (!latestClientAssignmentsMap.containsKey(clientName) || 
-              rowId > (latestClientAssignmentsMap[clientName]!['id'] is int ? latestClientAssignmentsMap[clientName]!['id'] : 0)) {
-            latestClientAssignmentsMap[clientName] = row;
+          final rawDeadline = row['deadline'] ?? '';
+          if (rawDeadline.toString().isNotEmpty) {
+            try {
+              final parsedDate = DateTime.parse(rawDeadline.toString());
+              final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+              if (target.isBefore(today)) continue;
+            } catch (_) {}
           }
+
+          employeeAssignments.add(row);
         }
       }
 
-      employeeAssignments = latestClientAssignmentsMap.values.toList();
-
+      // 🟢 2. Fetch tracking progress using exact task_assignment_id and task description mapping
       for (var assignment in employeeAssignments) {
         final clientName = assignment['client_name'] ?? '';
         final assignmentId = assignment['id'];
         if (clientName.isEmpty) continue;
 
-        // 🟢 Fetch task lists specifically matching this task_assignment_id
         final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
         if (trRes.statusCode == 200) {
           final trBody = jsonDecode(trRes.body);
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
           for (var tl in taskLists) {
-            // Match exact task_assignment_id to avoid cross-cycle count mismatch
-            if (tl['task_assignment_id'] != null && tl['task_assignment_id'].toString() != assignmentId.toString()) {
-              continue;
+            if (tl['task_assignment_id'] != null && assignmentId != null) {
+              if (tl['task_assignment_id'].toString() != assignmentId.toString()) {
+                continue;
+              }
             }
 
             final tListId = tl['id'];
@@ -426,7 +403,19 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              dbTaskProgressCounts[deliverables] = completedRows;
+              dbTaskProgressCounts['${assignmentId}_$deliverables'] = completedRows;
+
+              for (var item in items) {
+                final desc = (item['task_description'] ?? '').toString().trim().toLowerCase();
+                if (desc.isNotEmpty) {
+                  final completedSubCount = items.where((i) {
+                    final iDesc = (i['task_description'] ?? '').toString().trim().toLowerCase();
+                    final iSt = (i['status'] ?? '').toString().toUpperCase();
+                    return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
+                  }).length;
+                  dbTaskProgressCounts['${assignmentId}_$desc'] = completedSubCount;
+                }
+              }
             }
           }
         }
@@ -520,6 +509,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                           itemBuilder: (context, index) {
                             final assignment = employeeAssignments[index];
                             final clientName = assignment['client_name'] ?? 'Unknown Client';
+                            final assignmentId = assignment['id'];
                             final packageTitle = assignment['deliverables'] ?? 'Standard Package';
                             final submitDateStr = _formatDate(assignment['deadline'] ?? assignment['created_at']?.toString());
 
@@ -591,27 +581,58 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                                               final tName = match != null ? match.group(1)!.trim() : tClean;
                                               final totalR = match != null ? int.parse(match.group(2)!) : 1;
 
-                                              int compR = dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
-                                              final isCompleted = compR > 0;
-                                              final progressText = 'Total Complete: $compR / Total Task: $totalR';
+                                              // 🟢 Fetch exact count using assignmentId and task name
+                                              int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
+                                                          dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
+
+                                              // Color coding rules: 
+                                              // 0/12 -> Grey, 1 to N-1 -> Blue, 12/12 (Complete) -> Green
+                                              final bool isFullyCompleted = totalR > 0 && compR >= totalR;
+                                              final bool isInProgress = compR > 0 && compR < totalR;
+
+                                              final Color cardBg = isFullyCompleted 
+                                                  ? const Color(0xFFF0FDF4) 
+                                                  : isInProgress 
+                                                      ? const Color(0xFFEFF6FF) 
+                                                      : Colors.white;
+
+                                              final Color borderColor = isFullyCompleted 
+                                                  ? const Color(0xFF16A34A) 
+                                                  : isInProgress 
+                                                      ? const Color(0xFF3B82F6) 
+                                                      : const Color(0xFFCBD5E1);
+
+                                              final Color badgeBg = isFullyCompleted 
+                                                  ? const Color(0xFFDCFCE7) 
+                                                  : isInProgress 
+                                                      ? const Color(0xFFDBEAFE) 
+                                                      : const Color(0xFFE2E8F0);
+
+                                              final Color badgeTextColor = isFullyCompleted 
+                                                  ? const Color(0xFF15803D) 
+                                                  : isInProgress 
+                                                      ? const Color(0xFF1D4ED8) 
+                                                      : const Color(0xFF475569);
+
+                                              final progressText = '$compR/$totalR';
 
                                               return Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                 decoration: BoxDecoration(
-                                                  color: isCompleted ? const Color(0xFFF0FDF4) : Colors.white,
+                                                  color: cardBg,
                                                   borderRadius: BorderRadius.circular(8),
                                                   border: Border.all(
-                                                    color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFFCBD5E1),
-                                                    width: isCompleted ? 1.2 : 1,
+                                                    color: borderColor,
+                                                    width: (isFullyCompleted || isInProgress) ? 1.2 : 1,
                                                   ),
                                                 ),
                                                 child: Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: [
                                                     Icon(
-                                                      isCompleted ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                                                      isFullyCompleted ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
                                                       size: 13,
-                                                      color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF64748B),
+                                                      color: isFullyCompleted ? const Color(0xFF16A34A) : (isInProgress ? const Color(0xFF3B82F6) : const Color(0xFF64748B)),
                                                     ),
                                                     const SizedBox(width: 6),
                                                     Text(
@@ -619,14 +640,14 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                                                       style: TextStyle(
                                                         fontSize: 10.5,
                                                         fontWeight: FontWeight.w700,
-                                                        color: isCompleted ? const Color(0xFF166534) : const Color(0xFF334155),
+                                                        color: isFullyCompleted ? const Color(0xFF166534) : (isInProgress ? const Color(0xFF1E40AF) : const Color(0xFF334155)),
                                                       ),
                                                     ),
                                                     const SizedBox(width: 8),
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                       decoration: BoxDecoration(
-                                                        color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
+                                                        color: badgeBg,
                                                         borderRadius: BorderRadius.circular(5),
                                                       ),
                                                       child: Text(
@@ -634,7 +655,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                                                         style: TextStyle(
                                                           fontSize: 9,
                                                           fontWeight: FontWeight.w800,
-                                                          color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF475569),
+                                                          color: badgeTextColor,
                                                         ),
                                                       ),
                                                     ),
@@ -687,7 +708,65 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
       },
     );
   }
-  
+
+  Map<String, dynamic> _mapRow(dynamic row) {
+    String status = row['status'] ?? 'Processing';
+    if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
+      status = 'Processing';
+    }
+    return {
+      "taskListId": row['taskListId'],
+      "client": row['clientName'] ?? '',
+      "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
+      "task": row['task'] ?? '',
+      "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
+      "date": row['submissionDate'] ?? '',
+      "formattedDate": _formatDate(row['submissionDate'] as String?),
+      "month": _extractMonth(row['submissionDate'] as String?),
+      "status": status,
+    };
+  }
+
+  String _formatOnlyDay(dynamic rawDate) {
+    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
+    final val = rawDate.toString().trim();
+    if (val.contains('/')) {
+      final parts = val.split('/');
+      if (parts.isNotEmpty) return parts[0];
+    }
+    try {
+      final parsed = DateTime.parse(val);
+      return parsed.day.toString().padLeft(2, '0');
+    } catch (_) {
+      return val;
+    }
+  }
+
+  String _formatDate(String? raw) {
+    if (raw == null || raw.isEmpty) return '--';
+    try {
+      final d = DateTime.parse(raw);
+      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  String _extractMonth(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    try {
+      final d = DateTime.parse(raw);
+      const months = ['', 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[d.month];
+    } catch (_) {
+      return '';
+    }
+  }
+
+
+
+
   void _navigateToTaskDetailViewForSpecificRow(String clientName, Map<String, dynamic> targetRow) async {
     List<Map<String, dynamic>> clientAssignments = [];
     Map<String, int> dbTaskProgressCounts = {};
@@ -1477,7 +1556,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
                                                             text: TextSpan(
                                                               children: [
                                                                 TextSpan(
-                                                                  text: '${empRow["totalClients"]} Clients',
+                                                                  text: '${(empRow["activeClientsList"] as List).length} Clients',
                                                                   style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
                                                                 ),
                                                                 if (inactiveCount > 0)

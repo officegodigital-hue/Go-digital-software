@@ -1204,8 +1204,9 @@ List<int> get _visibleTabIndices {
     return completed;
   }
 
-  void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) async {
+void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) async {
     final clientName = task['client_name'] ?? 'N/A';
+    final targetAssignmentId = task['taskAssignmentId']; // 🟢 Target the exact task cycle/row ID
     List<Map<String, dynamic>> clientAssignments = [];
     Map<String, int> dbTaskProgressCounts = {}; 
 
@@ -1215,9 +1216,16 @@ List<int> get _visibleTabIndices {
         final body = jsonDecode(r.body);
         final allRows = List<Map<String, dynamic>>.from(body['data'] ?? []);
 
+        // 🟢 Filter strictly by client name AND the exact taskAssignmentId to match the specific submit date/cycle
         clientAssignments = allRows.where((row) {
-          return (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+          final matchesClient = (row['client_name'] ?? '').toString().trim().toLowerCase() ==
               clientName.toString().trim().toLowerCase();
+          if (!matchesClient) return false;
+          
+          if (targetAssignmentId != null) {
+            return row['id'].toString() == targetAssignmentId.toString();
+          }
+          return true;
         }).toList();
       }
 
@@ -1227,6 +1235,13 @@ List<int> get _visibleTabIndices {
         final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
         for (var tl in taskLists) {
+          // 🟢 Ensure task list matches the exact task_assignment_id
+          if (targetAssignmentId != null && tl['task_assignment_id'] != null) {
+            if (tl['task_assignment_id'].toString() != targetAssignmentId.toString()) {
+              continue;
+            }
+          }
+
           final tListId = tl['id'];
           final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
 
@@ -1525,6 +1540,7 @@ List<int> get _visibleTabIndices {
       },
     );
   }
+
 
   Future<void> _loadTrackingItemsForTask(String taskId, int taskListId, Map<String, dynamic> task) async {
     try {

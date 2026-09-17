@@ -15,7 +15,9 @@ function formatDuration(seconds) {
     return `${mins} mins`;
 }
 
-// 🟢 Intha function-ai mattum unga file-oda mela add pannikonga (or replace pannikonga)
+// routes/admin-employee-status.js
+// Update fetchAssignedTaskAssignments function:
+
 async function fetchAssignedTaskAssignments() {
     const [rows] = await db.query(`
       SELECT

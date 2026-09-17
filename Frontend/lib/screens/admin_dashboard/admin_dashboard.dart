@@ -862,8 +862,10 @@ class _AdminDashboardState extends State<AdminDashboard>
                     const SizedBox(height: 14),
                   ],
 
-                  if (_topPerformers.isNotEmpty ||
-                      _plannerSubmittedToday.isNotEmpty) ...[
+                  // 🟢 Show Top Performers and Day Planner ONLY for Main Admin
+                  if (isMainAdmin &&
+                      (_topPerformers.isNotEmpty ||
+                          _plannerSubmittedToday.isNotEmpty)) ...[
                     _buildTopSectionRow(isMobile),
                     SizedBox(
                       height: isMobile ? 22 : 30,
@@ -1242,35 +1244,38 @@ class _AdminDashboardState extends State<AdminDashboard>
   // SIX KPI CARDS
   // ---------------------------------------------------------------------
 
+// ---------------------------------------------------------------------
+  // SUMMARY KPI CARDS (Filtered by Role & Responsive 3-Column Layout)
+  // ---------------------------------------------------------------------
+
   Widget _summaryCards() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isMainAdmin = authService.user?['isMainAdmin'] == true;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
 
         int columns;
 
-        if (width >= 1250) {
+        if (width >= 720) {
           columns = 3;
-        } else if (width >= 720) {
-          columns = 2;
+        } else if (width >= 600) {
+          columns = 3;
         } else {
-          columns = 1;
+          columns = 1; // 1 item per row on mobile
         }
 
         final gap = width >= 720 ? 15.0 : 12.0;
+        final cardWidth = (width - gap * (columns - 1)) / columns;
 
-        final cardWidth =
-            (width - gap * (columns - 1)) /
-                columns;
-
-        final cards = [
+        // Base list of all 6 KPI cards
+        final allCards = [
           _KpiData(
             title: 'Total Active Clients',
             value: _loading
                 ? '—'
-                : _activeClients
-                    .toString()
-                    .padLeft(2, '0'),
+                : _activeClients.toString().padLeft(2, '0'),
             label: 'Currently active',
             icon: Icons.groups_rounded,
             color: _Palette.primary,
@@ -1280,9 +1285,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             title: 'Total Employees',
             value: _loading
                 ? '—'
-                : _totalEmployees
-                    .toString()
-                    .padLeft(2, '0'),
+                : _totalEmployees.toString().padLeft(2, '0'),
             label: 'Team members',
             icon: Icons.badge_rounded,
             color: _Palette.purple,
@@ -1290,11 +1293,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           ),
           _KpiData(
             title: 'Invoice Collected',
-            value: _loading
-                ? '—'
-                : _formatCurrency(
-                    _invoiceCollected,
-                  ),
+            value: _loading ? '—' : _formatCurrency(_invoiceCollected),
             label: 'Paid / collected',
             icon: Icons.payments_rounded,
             color: _Palette.completed,
@@ -1302,11 +1301,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           ),
           _KpiData(
             title: 'Invoice Pending',
-            value: _loading
-                ? '—'
-                : _formatCurrency(
-                    _invoicePending,
-                  ),
+            value: _loading ? '—' : _formatCurrency(_invoicePending),
             label: 'Outstanding amount',
             icon: Icons.account_balance_wallet_rounded,
             color: _Palette.onHold,
@@ -1316,9 +1311,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             title: 'Pending Tasks',
             value: _loading
                 ? '—'
-                : _totalPendingTasks
-                    .toString()
-                    .padLeft(2, '0'),
+                : _totalPendingTasks.toString().padLeft(2, '0'),
             label: 'Needs attention',
             icon: Icons.pending_actions_rounded,
             color: _Palette.rejected,
@@ -1335,6 +1328,18 @@ class _AdminDashboardState extends State<AdminDashboard>
             route: '/performance',
           ),
         ];
+
+        // Filter cards based on whether the user is the Main Admin
+        final cards = allCards.where((card) {
+          if (isMainAdmin) return true;
+          // For non-main admins, exclude Total Employees, Pending Tasks, and Team Productivity
+          if (card.title == 'Total Employees' ||
+              card.title == 'Pending Tasks' ||
+              card.title == 'Team Productivity') {
+            return false;
+          }
+          return true;
+        }).toList();
 
         return Wrap(
           spacing: gap,
@@ -1886,46 +1891,57 @@ class _AdminDashboardState extends State<AdminDashboard>
   // QUICK ACCESS
   // ---------------------------------------------------------------------
 
-  Widget _buildNavHub(
+ Widget _buildNavHub(
     bool isMobile,
     bool isTablet,
     bool isMainAdmin,
     List<String> allowedPages,
   ) {
-    final crossAxisCount =
-        isMobile ? 1 : (isTablet ? 2 : 3);
+    // 🟢 Responsive columns: 1 for mobile, 2 for tablet, and 4 to 6 for desktop based on screen width
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    
+    int crossAxisCount;
+    double childAspectRatio;
+
+    if (screenWidth >= 1600) {
+      crossAxisCount = 6; // Ultra-wide desktop
+      childAspectRatio = 3.2;
+    } else if (screenWidth >= 1300) {
+      crossAxisCount = 5; // Large desktop
+      childAspectRatio = 3.1;
+    } else if (screenWidth >= 1100) {
+      crossAxisCount = 4; // Standard desktop
+      childAspectRatio = 3.0;
+    } else if (screenWidth >= 720) {
+      crossAxisCount = 2; // Tablet (keeps your preferred layout size)
+      childAspectRatio = 2.9;
+    } else {
+      crossAxisCount = 1; // Mobile single column
+      childAspectRatio = 3.55;
+    }
 
     bool tileAllowed(_NavTile tile) {
       if (isMainAdmin) return true;
 
-      if (!_controllableRoutes
-          .contains(tile.route)) {
+      if (!_controllableRoutes.contains(tile.route)) {
         return true;
       }
 
-      return allowedPages.contains(
-        tile.route,
-      );
+      return allowedPages.contains(tile.route);
     }
 
-    final visibleGroups =
-        <String, List<_NavTile>>{};
+    final visibleGroups = <String, List<_NavTile>>{};
 
-    for (final group
-        in _navGroups.entries) {
-      final visibleTiles = group.value
-          .where(tileAllowed)
-          .toList();
+    for (final group in _navGroups.entries) {
+      final visibleTiles = group.value.where(tileAllowed).toList();
 
       if (visibleTiles.isNotEmpty) {
-        visibleGroups[group.key] =
-            visibleTiles;
+        visibleGroups[group.key] = visibleTiles;
       }
     }
 
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
@@ -1941,20 +1957,16 @@ class _AdminDashboardState extends State<AdminDashboard>
               ),
             ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(
+              padding: const EdgeInsets.symmetric(
                 horizontal: 9,
                 vertical: 5,
               ),
               decoration: BoxDecoration(
-                color: _Palette.primary
-                    .withOpacity(0.07),
-                borderRadius:
-                    BorderRadius.circular(9),
+                color: _Palette.primary.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(9),
               ),
               child: Row(
-                mainAxisSize:
-                    MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min,
                 children: const [
                   Icon(
                     Icons.touch_app_rounded,
@@ -1966,10 +1978,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                     'Interactive',
                     style: TextStyle(
                       fontSize: 9.5,
-                      fontWeight:
-                          FontWeight.w900,
-                      color:
-                          _Palette.primary,
+                      fontWeight: FontWeight.w900,
+                      color: _Palette.primary,
                     ),
                   ),
                 ],
@@ -1996,14 +2006,12 @@ class _AdminDashboardState extends State<AdminDashboard>
         if (visibleGroups.isEmpty)
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(
+            padding: const EdgeInsets.symmetric(
               vertical: 30,
             ),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: _Palette.border,
               ),
@@ -2019,8 +2027,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             ),
           )
         else
-          for (final group
-              in visibleGroups.entries) ...[
+          for (final group in visibleGroups.entries) ...[
             Row(
               children: [
                 Container(
@@ -2028,20 +2035,15 @@ class _AdminDashboardState extends State<AdminDashboard>
                   height: 15,
                   decoration: BoxDecoration(
                     color: _Palette.primary,
-                    borderRadius:
-                        BorderRadius.circular(
-                      5,
-                    ),
+                    borderRadius: BorderRadius.circular(5),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   group.key,
-                  style:
-                      const TextStyle(
+                  style: const TextStyle(
                     fontSize: 11.5,
-                    fontWeight:
-                        FontWeight.w900,
+                    fontWeight: FontWeight.w900,
                     color: _Palette.muted,
                     letterSpacing: 0.4,
                   ),
@@ -2054,21 +2056,14 @@ class _AdminDashboardState extends State<AdminDashboard>
             GridView.builder(
               itemCount: group.value.length,
               shrinkWrap: true,
-              physics:
-                  const NeverScrollableScrollPhysics(),
-              gridDelegate:
-                  SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount:
-                    crossAxisCount,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio:
-                    isMobile ? 3.55 : 2.9,
+                childAspectRatio: childAspectRatio,
               ),
-              itemBuilder: (
-                context,
-                index,
-              ) {
+              itemBuilder: (context, index) {
                 return _navTile(
                   group.value[index],
                 );
@@ -2080,7 +2075,7 @@ class _AdminDashboardState extends State<AdminDashboard>
       ],
     );
   }
-
+  
   Widget _navTile(_NavTile tile) {
     return _AnimatedNavCard(
       tile: tile,

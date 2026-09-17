@@ -31,6 +31,8 @@ import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_
 import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
+import 'package:godigital_portal/screens/employee_dashboard/employee_settings_page.dart';
+
 class EmployeeLayoutPage extends StatefulWidget {
   const EmployeeLayoutPage({super.key});
 
@@ -143,6 +145,8 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return const NotificationsScreen();
       case 'Client Credentials':
         return const ClientCredentialsScreen();
+        case 'Settings':
+        return const EmployeeSettingsPage();
       case 'Feedback':
         return const FeedbackPage();
       case 'Feedback History':

@@ -31,12 +31,13 @@ router.get('/user-roles', async (req, res) => {
   }
 });
 
-// GET /api/employees
+// routes/employees.js
+
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, full_name, initials, staff_id, email, username,
-              role, user_type, is_main_admin, is_active, created_at
+              password, role, user_type, is_main_admin, is_active, created_at
        FROM employee_users ORDER BY created_at DESC`
     );
     return res.json({ success: true, data: rows });
@@ -46,12 +47,14 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/employees/:id
+// routes/employees.js — Update GET /:id route:
+
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, first_name, middle_name, last_name, full_name, initials,
-              staff_id, email, username, role, user_type, is_main_admin, is_active, created_at
+              staff_id, email, username, password, role, user_type, is_main_admin, is_active, 
+              avatar_color, profile_photo, created_at
        FROM employee_users WHERE id = ?`,
       [req.params.id]
     );
@@ -415,7 +418,43 @@ router.patch('/:id', async (req, res) => {
 });
 
 
+// PUT /api/employees/:id/profile — Update user profile and password securely
+router.put('/:id/profile', async (req, res) => {
+  const empId = req.params.id;
+  const { firstName, middleName = '', lastName, username, email, avatarColor, password, profilePhoto } = req.body;
 
+  try {
+    const fullName = [firstName, middleName, lastName]
+      .filter(name => name && name.trim() !== '')
+      .join(' ');
+
+    const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+
+    // Check if password override is passed
+    if (password && password.trim() !== '') {
+      await db.query(
+        `UPDATE employee_users SET
+           first_name = ?, middle_name = ?, last_name = ?, full_name = ?, initials = ?,
+           username = ?, email = ?, avatar_color = ?, profile_photo = ?, password = ?
+         WHERE id = ?`,
+        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto || null, password, empId]
+      );
+    } else {
+      await db.query(
+        `UPDATE employee_users SET
+           first_name = ?, middle_name = ?, last_name = ?, full_name = ?, initials = ?,
+           username = ?, email = ?, avatar_color = ?, profile_photo = ?
+         WHERE id = ?`,
+        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto || null, empId]
+      );
+    }
+
+    return res.json({ success: true, message: 'Profile updated successfully' });
+  } catch (err) {
+    console.error('PUT /employees/:id/profile ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 
 
