@@ -139,6 +139,7 @@ class _PayrollPageState extends State<PayrollPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: _PayrollColors.page,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/payroll') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/payroll'),
@@ -354,15 +355,19 @@ class _PayrollKpis extends StatelessWidget {
           Icons.pending_actions_outlined, const Color(0xFFFF6500)),
     ];
     return LayoutBuilder(builder: (_, constraints) {
-      final columns = constraints.maxWidth < 700
+      final mobile = constraints.maxWidth < 600;
+      final columns = mobile
+          ? 4
+          : constraints.maxWidth < 700
           ? 1
           : constraints.maxWidth < 1100
               ? 2
               : 4;
-      final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
+      final spacing = mobile ? 8.0 : 16.0;
+      final width = (constraints.maxWidth - (columns - 1) * spacing) / columns;
       return Wrap(
-        spacing: 16,
-        runSpacing: 16,
+        spacing: spacing,
+        runSpacing: mobile ? 8 : 16,
         children: cards
             .map((card) => SizedBox(width: width, child: card))
             .toList(),
@@ -379,7 +384,21 @@ class _PayrollKpi extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    if (compact) {
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return Container(
         height: 116,
         padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
         decoration: BoxDecoration(
@@ -444,6 +463,7 @@ class _PayrollKpi extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _PayrollPanel extends StatelessWidget {

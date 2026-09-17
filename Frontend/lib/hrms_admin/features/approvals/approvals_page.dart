@@ -117,6 +117,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: _ApprovalsColors.page,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/approvals') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/approvals'),
@@ -235,15 +236,19 @@ class _ApprovalKpis extends StatelessWidget {
           Icons.highlight_off_rounded, Color(0xFFF0182A)),
     ];
     return LayoutBuilder(builder: (_, constraints) {
-      final columns = constraints.maxWidth < 700
+      final mobile = constraints.maxWidth < 600;
+      final columns = mobile
+          ? 3
+          : constraints.maxWidth < 700
           ? 1
           : constraints.maxWidth < 1050
               ? 2
               : 3;
-      final width = (constraints.maxWidth - (columns - 1) * 20) / columns;
+      final spacing = mobile ? 8.0 : 20.0;
+      final width = (constraints.maxWidth - (columns - 1) * spacing) / columns;
       return Wrap(
-        spacing: 20,
-        runSpacing: 16,
+        spacing: spacing,
+        runSpacing: mobile ? 8 : 16,
         children: cards
             .map((card) => SizedBox(width: width, child: card))
             .toList(),
@@ -260,7 +265,21 @@ class _ApprovalKpi extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    if (compact) {
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return Container(
         height: 116,
         padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
         decoration: BoxDecoration(
@@ -321,6 +340,7 @@ class _ApprovalKpi extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _RequestsPanel extends StatelessWidget {
