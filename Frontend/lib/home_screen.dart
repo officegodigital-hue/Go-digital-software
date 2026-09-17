@@ -260,8 +260,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTopBar() {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 24, vertical: 14),
       child: Row(
         children: [
           Container(
@@ -294,26 +295,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const Spacer(),
 
-          TextButton(
-            onPressed: () {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('Support clicked')));
-            },
-            child: const Text(
-              'Support',
-              style: TextStyle(fontSize: 14, color: Color(0xFF555555)),
+          if (!compact) ...[
+            TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Support clicked')));
+              },
+              child: const Text(
+                'Support',
+                style: TextStyle(fontSize: 14, color: Color(0xFF555555)),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ],
 
           OutlinedButton.icon(
             onPressed: _logout,
             icon: const Icon(Icons.logout_rounded, size: 18),
-            label: const Text('Logout'),
+            label: compact ? const SizedBox.shrink() : const Text('Logout'),
             style: OutlinedButton.styleFrom(
               foregroundColor: primaryColor,
               side: const BorderSide(color: Color(0xFFD5DDED)),
+              minimumSize: Size(compact ? 48 : 0, 44),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16),
             ),
           ),
         ],

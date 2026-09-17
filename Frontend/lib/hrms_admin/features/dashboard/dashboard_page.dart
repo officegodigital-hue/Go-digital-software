@@ -17,6 +17,22 @@ const _purple = Color(0xFF7E20E8);
 const _line = Color(0xFFD9E2F1);
 const _muted = Color(0xFF52638E);
 
+String _fullMonthName(String month) => const {
+      'Jan': 'January',
+      'Feb': 'February',
+      'Mar': 'March',
+      'Apr': 'April',
+      'May': 'May',
+      'Jun': 'June',
+      'Jul': 'July',
+      'Aug': 'August',
+      'Sep': 'September',
+      'Oct': 'October',
+      'Nov': 'November',
+      'Dec': 'December',
+    }[month] ??
+    month;
+
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -137,7 +153,10 @@ class _DashboardPageState extends State<DashboardPage> {
           setState(() => _year = value);
           _loadDashboard();
         },
+        onManageTime: _openManageTime,
         onManageCalendar: _openManageCalendar,
+        month: _month,
+        employees: _employees,
         total: _kpiTotal,
         present: _kpiPresent,
         absent: _kpiAbsent,
@@ -151,7 +170,7 @@ class _DashboardPageState extends State<DashboardPage> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          const _DashboardTopBar(),
+          const AdminTopNav(activeRoute: '/admin/dashboard'),
           Expanded(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
@@ -604,7 +623,10 @@ class _MobileDashboard extends StatelessWidget {
     required this.onMonthlyChanged,
     required this.year,
     required this.onYearChanged,
+    required this.onManageTime,
     required this.onManageCalendar,
+    required this.month,
+    required this.employees,
     required this.total,
     required this.present,
     required this.absent,
@@ -617,7 +639,10 @@ class _MobileDashboard extends StatelessWidget {
   final ValueChanged<bool> onMonthlyChanged;
   final int year;
   final ValueChanged<int> onYearChanged;
+  final VoidCallback onManageTime;
   final VoidCallback onManageCalendar;
+  final String month;
+  final List<_EmployeeAttendance> employees;
   final int total, present, absent, late;
   final bool loading;
   final String? error;
@@ -626,12 +651,36 @@ class _MobileDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: const Color(0xFFF8FAFF),
+        bottomNavigationBar: const AdminMobileBottomNav(activeRoute: '/admin/dashboard'),
         appBar: AppBar(
           backgroundColor: Colors.white,
-          title: Image.asset('assets/images/godigital_logo.png', height: 44),
-          actions: const [
-            Icon(Icons.notifications_none_rounded, color: _navy),
-            SizedBox(width: 12)
+          elevation: 0,
+          title: Image.asset('assets/images/godigital_logo.png', height: 38),
+          actions: [
+            const Icon(Icons.notifications_none_rounded, color: _navy),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              tooltip: 'Workspace',
+              onSelected: (value) {
+                if (value == 'workspace') {
+                  Navigator.of(context, rootNavigator: true)
+                      .pushNamedAndRemoveUntil('/home', (route) => false);
+                } else {
+                  Navigator.of(context, rootNavigator: true)
+                      .pushNamedAndRemoveUntil('/home', (route) => false);
+                }
+              },
+              icon: const CircleAvatar(
+                radius: 16,
+                backgroundColor: Color(0xFFEAF0FA),
+                child: Icon(Icons.grid_view_rounded, color: _navy, size: 20),
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'workspace', child: ListTile(leading: Icon(Icons.grid_view_rounded), title: Text('Workspace'))),
+                PopupMenuItem(value: 'logout', child: ListTile(leading: Icon(Icons.logout_rounded, color: _red), title: Text('Logout', style: TextStyle(color: _red)))),
+              ],
+            ),
+            const SizedBox(width: 6),
           ],
         ),
         body: loading
@@ -661,65 +710,45 @@ class _MobileDashboard extends StatelessWidget {
                                 fontSize: 25,
                                 fontWeight: FontWeight.w800)),
                         const SizedBox(height: 4),
-                        const Text('Employee attendance and payroll overview',
-                            style: TextStyle(color: _muted)),
+                        const Text('Employee attendance and payroll overview', style: TextStyle(color: _muted)),
                         const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            _PeriodToggle(
+                        Row(children: [
+                          Expanded(
+                            flex: 3,
+                            child: _PeriodToggle(
+                              width: null,
                               monthly: monthly,
                               onChanged: onMonthlyChanged,
                             ),
-                            _YearSelector(
-                                value: year, onChanged: onYearChanged),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: _YearSelector(
+                              compact: true,
+                              value: year,
+                              onChanged: onYearChanged,
+                            ),
+                          ),
+                        ]),
                         const SizedBox(height: 14),
-                        SizedBox(
-                          height: 480,
-                          child: GridView.count(
-                            crossAxisCount: 2,
-                            physics: const NeverScrollableScrollPhysics(),
-                            childAspectRatio: 1.15,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            children: [
-                              _KpiCard(
-                                  label: 'Total Employees',
-                                  value: '$total',
-                                  subtitle: 'Current',
-                                  color: _blue,
-                                  icon: Icons.groups_2_outlined),
-                              _KpiCard(
-                                  label: 'Present',
-                                  value: '$present',
-                                  subtitle: monthly ? 'This Month' : 'This Year',
-                                  color: _green,
-                                  icon: Icons.check_rounded),
-                              _KpiCard(
-                                  label: 'Absent',
-                                  value: '$absent',
-                                  subtitle: monthly ? 'This Month' : 'This Year',
-                                  color: _red,
-                                  icon: Icons.person_off_outlined),
-                              _KpiCard(
-                                  label: 'Late',
-                                  value: '$late',
-                                  subtitle: monthly ? 'This Month' : 'This Year',
-                                  color: _orange,
-                                  icon: Icons.schedule_rounded),
-                            ],
-                          ),
-                        ),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: onManageCalendar,
-                            icon: const Icon(Icons.edit_calendar_outlined),
-                            label: const Text('Manage Calendar'),
-                          ),
+                        Row(children: [
+                          _MobileDashboardMetric(label: 'Employees', value: '$total', color: _blue),
+                          SizedBox(width: 8),
+                          _MobileDashboardMetric(label: 'Present', value: '$present', color: _green),
+                          SizedBox(width: 8),
+                          _MobileDashboardMetric(label: 'Late', value: '$late', color: _orange),
+                          SizedBox(width: 8),
+                          _MobileDashboardMetric(label: 'Absent', value: '$absent', color: _red),
+                        ]),
+                        const SizedBox(height: 16),
+                        _MobileAttendanceRecords(
+                          monthly: monthly,
+                          month: month,
+                          year: year,
+                          employees: employees,
+                          onManageTime: onManageTime,
+                          onManageCalendar: onManageCalendar,
                         ),
                       ],
                     ),
@@ -727,122 +756,341 @@ class _MobileDashboard extends StatelessWidget {
       );
 }
 
-class _DashboardTopBar extends StatelessWidget {
-  const _DashboardTopBar();
+class _MobileDashboardMetric extends StatelessWidget {
+  const _MobileDashboardMetric({required this.label, required this.value, required this.color});
 
-  static const items = <(String, String)>[
-    ('Dashboard', '/admin/dashboard'),
-    ('Employees', '/admin/employees'),
-    ('Approvals', '/admin/approvals'),
-    ('Payroll', '/admin/payroll'),
-    ('Tracking', '/admin/tracking'),
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: Container(
+          height: 80,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: color.withValues(alpha: .25)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _muted, fontSize: 11)),
+            const Spacer(),
+            Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+          ]),
+        ),
+      );
+}
+
+class _MobileAdminDrawer extends StatelessWidget {
+  const _MobileAdminDrawer({required this.onManageCalendar});
+
+  final VoidCallback onManageCalendar;
+
+  static const _routes = <(String, IconData, String)>[
+    ('Dashboard', Icons.dashboard_outlined, '/admin/dashboard'),
+    ('Employees', Icons.groups_outlined, '/admin/employees'),
+    ('Clock Logs', Icons.history_rounded, '/admin/clock-logs'),
+    ('Approvals', Icons.task_alt_rounded, '/admin/approvals'),
+    ('Payroll', Icons.account_balance_wallet_outlined, '/admin/payroll'),
+    ('Tracking', Icons.location_on_outlined, '/admin/tracking'),
   ];
+
+  void _open(BuildContext context, String route) {
+    Navigator.pop(context);
+    Navigator.pushReplacementNamed(context, route);
+  }
+
+  @override
+  Widget build(BuildContext context) => Drawer(
+        child: SafeArea(
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+              child: Row(children: [
+                Expanded(child: Image.asset('assets/images/godigital_logo.png', height: 40, alignment: Alignment.centerLeft)),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+              ]),
+            ),
+            const Divider(height: 1, color: _line),
+            Expanded(child: ListView(children: [
+              for (final item in _routes)
+                ListTile(
+                  leading: Icon(item.$2, color: _navy),
+                  title: Text(item.$1, style: const TextStyle(color: _navy, fontWeight: FontWeight.w600)),
+                  onTap: () => _open(context, item.$3),
+                ),
+              ListTile(
+                leading: const Icon(Icons.calendar_month_outlined, color: _navy),
+                title: const Text('Calendar', style: TextStyle(color: _navy, fontWeight: FontWeight.w600)),
+                onTap: () { Navigator.pop(context); onManageCalendar(); },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline_rounded, color: _navy),
+                title: const Text('Profile', style: TextStyle(color: _navy, fontWeight: FontWeight.w600)),
+                onTap: () => _open(context, '/admin/settings'),
+              ),
+            ])),
+            const Divider(height: 1, color: _line),
+            ListTile(
+              leading: const Icon(Icons.logout_rounded, color: _red),
+              title: const Text('Logout', style: TextStyle(color: _red, fontWeight: FontWeight.w700)),
+              onTap: () => Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil('/home', (route) => false),
+            ),
+            const SizedBox(height: 10),
+          ]),
+        ),
+      );
+}
+
+class _MobileAttendanceRecords extends StatelessWidget {
+  const _MobileAttendanceRecords({
+    required this.monthly,
+    required this.month,
+    required this.year,
+    required this.employees,
+    required this.onManageTime,
+    required this.onManageCalendar,
+  });
+
+  final bool monthly;
+  final String month;
+  final int year;
+  final List<_EmployeeAttendance> employees;
+  final VoidCallback onManageTime;
+  final VoidCallback onManageCalendar;
 
   @override
   Widget build(BuildContext context) => Container(
-        height: 92,
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(bottom: BorderSide(color: _line)),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x0E07186F),
-              blurRadius: 14,
-              offset: Offset(0, 5),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFBFD2F2)), borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.calendar_month_outlined, color: _blue, size: 22),
+            const SizedBox(width: 9),
+            Expanded(child: Text(monthly ? '${_fullMonthName(month)} $year Attendance' : '$year Yearly Attendance', style: const TextStyle(color: _navy, fontSize: 16, fontWeight: FontWeight.w800))),
+            IconButton(onPressed: onManageTime, icon: const Icon(Icons.schedule_rounded, color: _navy), tooltip: 'Manage Time'),
+            IconButton(onPressed: onManageCalendar, icon: const Icon(Icons.edit_calendar_outlined, color: _blue), tooltip: 'Manage Calendar'),
+          ]),
+          const SizedBox(height: 8),
+          const _MobileLegend(),
+          const SizedBox(height: 8),
+          if (employees.isEmpty)
+            const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Center(child: Text('No attendance records found.')))
+          else if (monthly)
+            _MobileCalendarScroll(month: month, year: year, employees: employees)
+          else
+            _MobileYearlySummary(employees: employees),
+        ]),
+      );
+}
+
+class _MobileYearlySummary extends StatelessWidget {
+  const _MobileYearlySummary({required this.employees});
+  final List<_EmployeeAttendance> employees;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 220,
+        child: SingleChildScrollView(
+          child: Column(children: [
+            Container(
+              height: 38,
+              color: const Color(0xFFF6F8FC),
+              child: const Row(children: [
+                Expanded(flex: 4, child: Padding(padding: EdgeInsets.only(left: 10), child: Text('Employee', style: TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w700)))),
+                Expanded(child: Center(child: Text('P', style: TextStyle(color: _green, fontWeight: FontWeight.w800)))),
+                Expanded(child: Center(child: Text('L', style: TextStyle(color: _orange, fontWeight: FontWeight.w800)))),
+                Expanded(child: Center(child: Text('Leave', style: TextStyle(color: _purple, fontSize: 10, fontWeight: FontWeight.w800)))),
+                Expanded(flex: 2, child: Center(child: Text('Salary', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w800)))),
+              ]),
             ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Image.asset(
-              'assets/images/godigital_logo.png',
-              width: 160,
-              height: 68,
-              fit: BoxFit.contain,
-              alignment: Alignment.centerLeft,
-            ),
-            const SizedBox(width: 30),
-            Expanded(
-              child: Center(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Container(
-                    height: 54,
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFC9D9F3)),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final item in items)
-                          _DashboardNavItem(
-                            label: item.$1,
-                            route: item.$2,
-                            active: item.$1 == 'Dashboard',
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
+            for (final employee in employees)
+              Container(
+                height: 42,
+                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
+                child: Row(children: [
+                  Expanded(flex: 4, child: Padding(padding: const EdgeInsets.only(left: 10), child: Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600)))),
+                  Expanded(child: Center(child: Text('${employee.present}', style: const TextStyle(color: _green, fontWeight: FontWeight.w700)))),
+                  Expanded(child: Center(child: Text('${employee.late}', style: const TextStyle(color: _orange, fontWeight: FontWeight.w700)))),
+                  Expanded(child: Center(child: Text('${employee.halfLeave}', style: const TextStyle(color: _purple, fontWeight: FontWeight.w700)))),
+                  Expanded(flex: 2, child: Center(child: Text(employee.updatedSalary, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 10, fontWeight: FontWeight.w600)))),
+                ]),
               ),
-            ),
-            const SizedBox(width: 30),
-            const AdminNotificationBell(mobile: false),
-            const SizedBox(width: 25),
-            const AdminLogoutButton(),
-          ],
+          ]),
         ),
       );
 }
 
-class _DashboardNavItem extends StatelessWidget {
-  const _DashboardNavItem({
-    required this.label,
-    required this.route,
-    required this.active,
-  });
+class _MobileCalendarScroll extends StatelessWidget {
+  const _MobileCalendarScroll({required this.month, required this.year, required this.employees});
 
-  final String label;
-  final String route;
-  final bool active;
+  final String month;
+  final int year;
+  final List<_EmployeeAttendance> employees;
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: active ? _blue : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: active
-              ? null
-              : () => Navigator.pushReplacementNamed(context, route),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 13),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.white : _navy,
-                fontSize: 14,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+  Widget build(BuildContext context) {
+    const codes = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final monthNumber = codes.indexOf(month) + 1;
+    final dayCount = DateTime(year, monthNumber + 1, 0).day;
+    const employeeWidth = 142.0;
+    const dayWidth = 38.0;
+    const summaryWidths = [46.0, 40.0, 48.0, 82.0, 82.0, 82.0];
+    const summaryLabels = ['Present', 'Late', 'Half\nLeave', 'Salary\nper month', 'Absent\ndeduction', 'Updated\nsalary'];
+    final weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final tableWidth = employeeWidth + dayCount * dayWidth + summaryWidths.reduce((a, b) => a + b);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Padding(
+        padding: EdgeInsets.only(bottom: 7),
+        child: Text('Swipe sideways to view all days', style: TextStyle(color: _muted, fontSize: 11)),
+      ),
+      Container(
+        decoration: BoxDecoration(border: Border.all(color: _line), borderRadius: BorderRadius.circular(8)),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          height: 220,
+          child: SingleChildScrollView(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(children: [
+                  Container(
+                    height: 48,
+                    color: const Color(0xFFF6F8FC),
+                    child: Row(children: [
+                      _headerCell('Employee', employeeWidth, left: true),
+                      for (var day = 1; day <= dayCount; day++)
+                        _headerCell('$day\n${weekday[DateTime(year, monthNumber, day).weekday - 1].substring(0, 1)}', dayWidth),
+                      for (var index = 0; index < summaryLabels.length; index++)
+                        _headerCell(summaryLabels[index], summaryWidths[index]),
+                    ]),
+                  ),
+                  for (final employee in employees)
+                    SizedBox(
+                      height: 38,
+                      child: Row(children: [
+                        SizedBox(width: employeeWidth, child: Padding(padding: const EdgeInsets.only(left: 10), child: Align(alignment: Alignment.centerLeft, child: Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600))))),
+                        for (var index = 0; index < dayCount; index++)
+                          SizedBox(width: dayWidth, child: Center(child: _CalendarMark(value: index < employee.days.length ? employee.days[index] : ''))),
+                        _summaryCell('${employee.present}', _green, summaryWidths[0]),
+                        _summaryCell('${employee.late}', _orange, summaryWidths[1]),
+                        _summaryCell('${employee.halfLeave}', _purple, summaryWidths[2]),
+                        _summaryCell(employee.salary, _navy, summaryWidths[3]),
+                        _summaryCell(employee.afterLeaves, _navy, summaryWidths[4]),
+                        _summaryCell(employee.updatedSalary, _navy, summaryWidths[5]),
+                      ]),
+                    ),
+                ]),
               ),
             ),
           ),
         ),
-      );
+      ),
+    ]);
+  }
+
+  Widget _headerCell(String label, double width, {bool left = false}) => SizedBox(
+    width: width,
+    child: Padding(
+      padding: EdgeInsets.only(left: left ? 10 : 2),
+      child: Align(
+        alignment: left ? Alignment.centerLeft : Alignment.center,
+        child: Text(label, textAlign: TextAlign.center, style: const TextStyle(color: _navy, fontSize: 9, fontWeight: FontWeight.w700)),
+      ),
+    ),
+  );
+
+  Widget _summaryCell(String value, Color color, double width) => SizedBox(
+    width: width,
+    child: Center(child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700))),
+  );
 }
 
-class _PeriodToggle extends StatelessWidget {
-  const _PeriodToggle({required this.monthly, required this.onChanged});
+class _CalendarMark extends StatelessWidget {
+  const _CalendarMark({required this.value});
+  final String value;
 
-  final bool monthly;
-  final ValueChanged<bool> onChanged;
+  Color get _color {
+    final mark = value.toUpperCase();
+    if (mark == 'P') return _green;
+    if (mark == 'L') return _orange;
+    if (mark == 'A') return _red;
+    if (mark == 'H' || mark.contains('LEAVE')) return _purple;
+    return const Color(0xFF9BA8BC);
+  }
+
+  @override
+  Widget build(BuildContext context) => Text(value.isEmpty ? '–' : value, style: TextStyle(color: _color, fontSize: 10, fontWeight: FontWeight.w700));
+}
+
+class _MobileLegend extends StatelessWidget {
+  const _MobileLegend();
+  @override
+  Widget build(BuildContext context) => const Wrap(spacing: 10, runSpacing: 6, children: [
+    _LegendDot(label: 'Present', color: _green),
+    _LegendDot(label: 'Absent', color: _red),
+    _LegendDot(label: 'Late', color: _orange),
+    _LegendDot(label: 'Leave', color: _purple),
+  ]);
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.label, required this.color});
+  final String label;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+    const SizedBox(width: 4), Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
+  ]);
+}
+
+class _MobileEmployeeRecord extends StatelessWidget {
+  const _MobileEmployeeRecord({required this.employee});
+  final _EmployeeAttendance employee;
 
   @override
   Widget build(BuildContext context) => Container(
-        width: 224,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
+        child: Row(children: [
+          CircleAvatar(radius: 18, backgroundColor: const Color(0xFFEAF0FA), child: Text(employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(), style: const TextStyle(color: _navy, fontWeight: FontWeight.w700))),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontWeight: FontWeight.w700)),
+            Text(employee.designation, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _muted, fontSize: 12)),
+          ])),
+          _RecordCount(label: 'P', value: employee.present.toString(), color: _green),
+          const SizedBox(width: 10),
+          _RecordCount(label: 'L', value: employee.late.toString(), color: _orange),
+        ]),
+      );
+}
+
+class _RecordCount extends StatelessWidget {
+  const _RecordCount({required this.label, required this.value, required this.color});
+  final String label, value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+    Text(label, style: const TextStyle(color: _muted, fontSize: 10)),
+  ]);
+}
+
+class _PeriodToggle extends StatelessWidget {
+  const _PeriodToggle({required this.monthly, required this.onChanged, this.width = 224});
+
+  final bool monthly;
+  final ValueChanged<bool> onChanged;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: width,
         height: 48,
         decoration: BoxDecoration(
           border: Border.all(color: const Color(0xFFC9D9F3)),
@@ -898,15 +1146,16 @@ class _PeriodButton extends StatelessWidget {
 }
 
 class _YearSelector extends StatelessWidget {
-  const _YearSelector({required this.value, required this.onChanged});
+  const _YearSelector({required this.value, required this.onChanged, this.compact = false});
 
   final int value;
   final ValueChanged<int> onChanged;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Container(
         height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: const Color(0xFFC9D9F3)),
@@ -915,21 +1164,21 @@ class _YearSelector extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.calendar_month_outlined, color: _blue, size: 23),
-            const SizedBox(width: 14),
+            Icon(Icons.calendar_month_outlined, color: _blue, size: compact ? 20 : 23),
+            SizedBox(width: compact ? 6 : 14),
             DropdownButtonHideUnderline(
               child: DropdownButton<int>(
                 value: value,
                 borderRadius: BorderRadius.circular(10),
-                icon: const Padding(
-                  padding: EdgeInsets.only(left: 14),
+                icon: Padding(
+                  padding: EdgeInsets.only(left: compact ? 4 : 14),
                   child: Icon(Icons.keyboard_arrow_down_rounded,
                       color: _navy, size: 20),
                 ),
-                style: const TextStyle(
+                style: TextStyle(
                   color: _navy,
                   fontWeight: FontWeight.w700,
-                  fontSize: 14,
+                  fontSize: compact ? 13 : 14,
                 ),
                 items: List.generate(
                   7,
