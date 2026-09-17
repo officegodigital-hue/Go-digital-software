@@ -783,7 +783,7 @@ class _DropdownField extends StatelessWidget {
       ),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           filled: true,
           fillColor: const Color(0xFFFBFCFE),

@@ -892,17 +892,6 @@ class _Filters extends StatelessWidget {
                 label: const Text('Reset'),
               ),
             ]),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                _MobileFilterChip(label: department, onTap: () => _openMobileFilters(context)),
-                const SizedBox(width: 8),
-                _MobileFilterChip(label: status, onTap: () => _openMobileFilters(context)),
-                const SizedBox(width: 8),
-                _MobileFilterChip(label: workMode, onTap: () => _openMobileFilters(context)),
-              ]),
-            ),
           ]);
         }
         if (narrow) {

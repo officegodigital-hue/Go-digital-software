@@ -23,6 +23,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
+  String searchQuery = '';
   List<_ApprovalRequest> requests = [];
   List<String> employeeNames = const ['All Employees'];
   int leaveCount = 0;
@@ -168,7 +169,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   employees: employeeNames,
                                   leaveCount: leaveCount,
                                   extraCount: extraCount,
-                                  requests: requests,
+                                  requests: requests.where((request) {
+                                    final query = searchQuery.trim().toLowerCase();
+                                    return query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query);
+                                  }).toList(),
+                                  searchQuery: searchQuery,
+                                  onSearch: (value) => setState(() => searchQuery = value),
                                   onTabChanged: (value) {
                                     leaveRequests = value;
                                     _load();
@@ -353,6 +359,8 @@ class _RequestsPanel extends StatelessWidget {
     required this.leaveCount,
     required this.extraCount,
     required this.requests,
+    required this.searchQuery,
+    required this.onSearch,
     required this.onTabChanged,
     required this.onEmployeeChanged,
     required this.onStatusChanged,
@@ -367,24 +375,25 @@ class _RequestsPanel extends StatelessWidget {
   final List<String> employees;
   final int leaveCount, extraCount;
   final List<_ApprovalRequest> requests;
+  final String searchQuery;
+  final ValueChanged<String> onSearch;
   final ValueChanged<bool> onTabChanged;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
   final VoidCallback onReset;
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    return Container(
         padding: EdgeInsets.fromLTRB(
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          20,
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          18,
+          mobile ? 0 : 28, mobile ? 0 : 20, mobile ? 0 : 28, mobile ? 0 : 18,
         ),
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xFFE4E7EE)),
+          color: mobile ? Colors.transparent : Colors.white,
+          border: mobile ? null : Border.all(color: const Color(0xFFE4E7EE)),
           borderRadius: BorderRadius.circular(14),
-          boxShadow: const [
+          boxShadow: mobile ? const [] : const [
             BoxShadow(
                 color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))
           ],
@@ -397,7 +406,7 @@ class _RequestsPanel extends StatelessWidget {
                 leaveCount: leaveCount,
                 extraCount: extraCount,
                 onChanged: onTabChanged),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _ApprovalFilters(
               employee: employee,
               employees: employees,
@@ -407,8 +416,10 @@ class _RequestsPanel extends StatelessWidget {
               onStatusChanged: onStatusChanged,
               onDateChanged: onDateChanged,
               onReset: onReset,
+              searchQuery: searchQuery,
+              onSearch: onSearch,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             if (MediaQuery.sizeOf(context).width < 600)
               _MobileApprovalList(
                   requests: requests, onApprove: onApprove, onReject: onReject)
@@ -437,6 +448,7 @@ class _RequestsPanel extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _MobileApprovalList extends StatelessWidget {
@@ -655,16 +667,40 @@ class _ApprovalFilters extends StatelessWidget {
       required this.onEmployeeChanged,
       required this.onStatusChanged,
       required this.onDateChanged,
-      required this.onReset});
+      required this.onReset,
+      required this.searchQuery,
+      required this.onSearch});
   final String employee, status, dateRange;
   final List<String> employees;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
   final VoidCallback onReset;
+  final String searchQuery;
+  final ValueChanged<String> onSearch;
 
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
+        final mobile = MediaQuery.sizeOf(context).width < 600;
         final width = constraints.maxWidth < 900 ? constraints.maxWidth : 350.0;
+        if (mobile) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              onChanged: onSearch,
+              decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(hintText: 'Search requests', contentPadding: const EdgeInsets.symmetric(vertical: 16)),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              OutlinedButton.icon(
+                onPressed: () => _showMobileFilters(context),
+                icon: const Icon(Icons.tune_rounded, size: 19),
+                label: const Text('Filter'),
+                style: OutlinedButton.styleFrom(foregroundColor: _ApprovalsColors.blue, side: const BorderSide(color: _ApprovalsColors.blue), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13)),
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(onPressed: onReset, icon: const Icon(Icons.restart_alt_rounded), color: _ApprovalsColors.blue, tooltip: 'Reset filters'),
+            ]),
+          ]);
+        }
         return Wrap(
           spacing: 44,
           runSpacing: 14,
@@ -724,6 +760,22 @@ class _ApprovalFilters extends StatelessWidget {
           ],
         );
       });
+
+  void _showMobileFilters(BuildContext context) {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFD8E1F0), borderRadius: BorderRadius.circular(4)))),
+        const SizedBox(height: 16), const Text('Filter requests', style: TextStyle(color: _ApprovalsColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
+        _FilterField(label: 'Employee', width: double.infinity, child: DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration(), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList())),
+        const SizedBox(height: 12),
+        _FilterField(label: 'Status', width: double.infinity, child: DropdownButtonFormField<String>(initialValue: status, onChanged: onStatusChanged, decoration: _fieldDecoration(), items: const ['All Status', 'Pending', 'Approved', 'Rejected'].map((item) => DropdownMenuItem(value: item, child: Text(item))).toList())),
+        const SizedBox(height: 18),
+        FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters')),
+      ]),
+    )));
+  }
 }
 
 class _FilterField extends StatelessWidget {

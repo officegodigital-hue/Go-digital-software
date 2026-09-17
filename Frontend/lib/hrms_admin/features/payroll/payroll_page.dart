@@ -491,7 +491,9 @@ class _PayrollPanel extends StatelessWidget {
   final ValueChanged<_PayrollRow> onMarkPaid;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    return Container(
         padding: EdgeInsets.fromLTRB(
           MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
           20,
@@ -510,17 +512,17 @@ class _PayrollPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Monthly payroll',
+            if (!mobile) const Text('Monthly payroll',
                 style: TextStyle(
                     color: _PayrollColors.navy,
                     fontSize: 18,
                     fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            const Text(
+            if (!mobile) const SizedBox(height: 6),
+            if (!mobile) const Text(
               'Generate one monthly run for all employees with configured compensation. Net pay is monthly salary minus deductions from the Payroll policy.',
               style: TextStyle(color: Color(0xFF596176), fontSize: 13),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: mobile ? 0 : 16),
             _PayrollFilters(
               monthKey: monthKey,
               months: months,
@@ -547,6 +549,7 @@ class _PayrollPanel extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _PayrollFilters extends StatelessWidget {
@@ -575,6 +578,14 @@ class _PayrollFilters extends StatelessWidget {
         ? monthKey
         : (months.isEmpty ? monthKey : months.first.key);
     return LayoutBuilder(builder: (_, constraints) {
+      final mobile = MediaQuery.sizeOf(context).width < 600;
+      if (mobile) {
+        return Row(children: [
+          OutlinedButton.icon(onPressed: () => _showMobileFilters(context, monthValue), icon: const Icon(Icons.tune_rounded, size: 19), label: const Text('Filter'), style: OutlinedButton.styleFrom(foregroundColor: _PayrollColors.blue, side: const BorderSide(color: _PayrollColors.blue), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13))),
+          const SizedBox(width: 8),
+          IconButton.outlined(onPressed: onReset, icon: const Icon(Icons.restart_alt_rounded), color: _PayrollColors.blue, tooltip: 'Reset filters'),
+        ]);
+      }
       final width = constraints.maxWidth < 900 ? constraints.maxWidth : 280.0;
       return Wrap(
         spacing: 24,
@@ -646,6 +657,16 @@ class _PayrollFilters extends StatelessWidget {
         ],
       );
     });
+  }
+
+  void _showMobileFilters(BuildContext context, String monthValue) {
+    showModalBottomSheet<void>(context: context, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(padding: const EdgeInsets.fromLTRB(20, 18, 20, 24), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const Text('Filter payroll', style: TextStyle(color: _PayrollColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
+      DropdownButtonFormField<String>(initialValue: monthValue, onChanged: onMonthChanged, decoration: _fieldDecoration().copyWith(labelText: 'Month'), items: months.map((item) => DropdownMenuItem(value: item.key, child: Text(item.label))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration().copyWith(labelText: 'Employee'), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: status, onChanged: onStatusChanged, decoration: _fieldDecoration().copyWith(labelText: 'Status'), items: const ['All Status','Draft','Pending','Paid'].map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 16),
+      FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters')),
+    ]))));
   }
 }
 
