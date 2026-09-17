@@ -159,6 +159,9 @@ class _TrackingPageState extends State<TrackingPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: HrmsColors.page,
+      bottomNavigationBar: mobile
+          ? const AdminMobileBottomNav(activeRoute: '/admin/tracking')
+          : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/tracking'),
