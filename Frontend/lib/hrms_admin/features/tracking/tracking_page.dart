@@ -159,6 +159,9 @@ class _TrackingPageState extends State<TrackingPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: HrmsColors.page,
+      bottomNavigationBar: mobile
+          ? const AdminMobileBottomNav(activeRoute: '/admin/tracking')
+          : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/tracking'),
@@ -196,6 +199,15 @@ class _TrackingPageState extends State<TrackingPage> {
                           _TrackingErrorState(message: error!, onRetry: _load)
                         else ...[
                           _TrackingKpis(counts: counts),
+                          if (mobile) ...[
+                            const SizedBox(height: 16),
+                            _TrackingMobileActions(
+                              onOfficeLocation: _openOfficeLocation,
+                              onManageWaiting: _openFieldWaitingSettings,
+                              onHomeApprovals: _openHomeApprovals,
+                              onRefresh: _load,
+                            ),
+                          ],
                           const SizedBox(height: 20),
                           _TrackingWorkspace(
                             mode: mode,
@@ -216,6 +228,27 @@ class _TrackingPageState extends State<TrackingPage> {
       ),
     );
   }
+}
+
+class _TrackingMobileActions extends StatelessWidget {
+  const _TrackingMobileActions({required this.onOfficeLocation, required this.onManageWaiting, required this.onHomeApprovals, required this.onRefresh});
+  final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 72,
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFC9D9F3)), borderRadius: BorderRadius.circular(18)),
+    child: Row(children: [
+      _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
+      _tool(Icons.timer_outlined, 'Field', onManageWaiting),
+      _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
+      _tool(Icons.refresh, 'Refresh', () => onRefresh()),
+    ]),
+  );
+
+  Widget _tool(IconData icon, String label, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(14), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: HrmsColors.blue, size: 22), const SizedBox(height: 4), Text(label, style: const TextStyle(color: HrmsColors.navy, fontSize: 11, fontWeight: FontWeight.w700))])));
 }
 
 

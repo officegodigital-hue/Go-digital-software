@@ -39,9 +39,10 @@ class EmployeeScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     if (MediaQuery.sizeOf(context).width < 600) {
       return Scaffold(
+        bottomNavigationBar: EmployeeMobileBottomNav(route: route),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             child: mobile,
           ),
         ),
@@ -93,6 +94,69 @@ class EmployeeScaffold extends StatelessWidget {
       ),
     );
   }
+}
+
+class EmployeeMobileBottomNav extends StatelessWidget {
+  const EmployeeMobileBottomNav({super.key, required this.route});
+  final String route;
+
+  static const _items = <_NavItem>[
+    _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
+    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
+    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
+    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
+    _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
+    _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+        child: Container(
+          height: 62,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF172554),
+            borderRadius: BorderRadius.circular(34),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: _items.map((item) {
+              final active = item.route == route;
+              return Expanded(
+                child: Tooltip(
+                  message: item.label,
+                  child: InkWell(
+                    onTap: active
+                        ? null
+                        : () => Navigator.of(context).pushReplacementNamed(item.route),
+                    borderRadius: BorderRadius.circular(25),
+                    child: Center(
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: active ? const Color(0xFF2563EB) : Colors.transparent,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(item.icon, color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      );
 }
 
 class EmployeeSidebar extends StatelessWidget {
@@ -319,7 +383,10 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       const Duration(seconds: 15),
       (_) => _fetchHeaderStatus(),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchHeaderStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchProfile();
+      _fetchHeaderStatus();
+    });
   }
 
   @override
@@ -355,10 +422,28 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       final data = jsonDecode(raw);
       if (data is Map && mounted) {
         setState(() => _applyIdentity(
-          data['fullName']?.toString() ?? data['full_name']?.toString(),
-          data['staffId']?.toString() ?? data['staff_id']?.toString(),
+          data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
+          data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
         ));
       }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchProfile() async {
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+      final body = jsonDecode(response.body);
+      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      final profile = Map<String, dynamic>.from(body['data'] as Map);
+      setState(() => _applyIdentity(
+        profile['fullName']?.toString() ?? profile['full_name']?.toString(),
+        profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
+      ));
     } catch (_) {}
   }
 

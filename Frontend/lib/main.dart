@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
+import 'package:godigital_portal/hrms_admin/routing/app_router.dart';
 import 'package:godigital_portal/home_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
@@ -41,8 +42,6 @@ import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
-import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
@@ -70,6 +69,16 @@ class MyApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         title: "GoDigital Portal",
         initialRoute: '/',
+        // Register admin pages on the root navigator so direct browser URLs
+        // such as /#/admin/clock-logs work before the workspace is opened.
+        onGenerateRoute: (settings) {
+          final builder = AppRouter.routes[settings.name];
+          if (builder == null) return null;
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => AdminGuard(child: builder(context)),
+          );
+        },
         onUnknownRoute: (settings) {
           debugPrint("ERROR: Route not found: ${settings.name}");
           return MaterialPageRoute(

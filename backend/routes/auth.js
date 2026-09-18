@@ -167,6 +167,21 @@ router.get('/verify', authenticateToken, (req, res) => {
   });
 });
 
+// Read the signed-in employee's current profile from employee_users.
+router.get('/me', authenticateToken, (req, res) => {
+  return res.json({
+    success: true,
+    data: {
+      id: req.user.id,
+      fullName: req.user.fullName,
+      staffId: req.user.staffId,
+      email: req.user.email,
+      role: req.user.role,
+      userType: req.user.userType,
+    },
+  });
+});
+
 // POST /api/auth/refresh — Refresh JWT token
 router.post('/refresh', authenticateToken, (req, res) => {
   const newToken = jwt.sign(

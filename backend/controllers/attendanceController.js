@@ -47,6 +47,29 @@ function parseMonthParam(value) {
   return String(value);
 }
 
+function shiftDurationMinutes(shiftStart, shiftEnd) {
+  const toMinutes = function (value) {
+    const parts = String(value || '').split(':').map(Number);
+    return Number(parts[0] || 0) * 60 + Number(parts[1] || 0);
+  };
+  const start = toMinutes(shiftStart);
+  let end = toMinutes(shiftEnd);
+  if (end <= start) end += 24 * 60;
+  return Math.max(0, end - start);
+}
+
+function workingDaysInMonth(month) {
+  const parts = String(month).split('-').map(Number);
+  const year = parts[0];
+  const monthIndex = parts[1] - 1;
+  const days = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  let count = 0;
+  for (let day = 1; day <= days; day += 1) {
+    if (new Date(Date.UTC(year, monthIndex, day)).getUTCDay() !== 0) count += 1;
+  }
+  return count;
+}
+
 function normalizeMethod(value) {
   const method = String(value || 'mobile').toLowerCase();
   if (method === 'wifi' || method === 'office_wifi') return 'wifi';
@@ -73,6 +96,14 @@ async function breakMinutes(attendanceId) {
     if (error.code === 'ER_NO_SUCH_TABLE') return 0;
     throw error;
   }
+}
+
+async function persistedWorkedMinutes(record) {
+  const stored = Number(record && record.working_minutes || 0);
+  if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
+  const completedBreakMinutes = await breakMinutes(record.id);
+  return Math.max(0,
+    policy.minutesBetween(sqlDateTime(record.check_in_at), sqlDateTime(record.check_out_at)) - completedBreakMinutes);
 }
 
 async function getRecord(employeeId, date, executor = db, lock = false) {
@@ -392,6 +423,15 @@ async function employeeDashboard(req, res) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
+    const timeSettings = await policy.getTimeSettings(db);
+    const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
+    const monthlyWorkingDays = workingDaysInMonth(month);
+    const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
+    const completedMinutes = await Promise.all(monthRows.map(persistedWorkedMinutes));
+    let actualMinutes = completedMinutes.reduce(function (sum, minutes) {
+      return sum + minutes;
+    }, 0);
+
     // Keep a date-keyed representation as well as the list. Older employee
     // clients use the keyed form, while newer ones use month_records.
     const calendarData = {};
@@ -410,7 +450,11 @@ async function employeeDashboard(req, res) {
 
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
     if (checkedIn) {
-      workedSeconds = Math.max(0, policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime())) * 60;
+      const completedBreakMinutes = await breakMinutes(record.id);
+      const liveMinutes = Math.max(0,
+        policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+      workedSeconds = liveMinutes * 60;
+      if (month === date.slice(0, 7)) actualMinutes += liveMinutes;
     }
 
     return ok(res, {
@@ -432,7 +476,18 @@ async function employeeDashboard(req, res) {
         month: month,
         present_days: presentDays,
         absent_days: absentDays,
-        late_days: lateDays
+        late_days: lateDays,
+        work_time: {
+          actual_minutes: actualMinutes,
+          target_minutes: targetMinutes,
+          daily_target_minutes: dailyTargetMinutes,
+          working_days: monthlyWorkingDays,
+          overtime_minutes: Math.max(0, actualMinutes - targetMinutes),
+          remaining_minutes: Math.max(0, targetMinutes - actualMinutes),
+          shift_start: timeSettings.shiftStart,
+          shift_end: timeSettings.shiftEnd,
+          is_live: checkedIn && month === date.slice(0, 7)
+        }
       },
       month_records: monthRecords,
       calendarData: calendarData
@@ -550,6 +605,27 @@ async function checkOut(req, res) {
   } catch (error) {
     console.error('POST /attendance/check-out', error);
     return fail(res, 500, error.message);
+  }
+}
+
+async function heartbeat(req, res) {
+  try {
+    const employeeId = req.user.id;
+    const record = await getRecord(employeeId, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'There is no active work session.');
+    }
+    const completedBreakMinutes = await breakMinutes(record.id);
+    const workingMinutes = Math.max(0,
+      policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+    await db.query(
+      "UPDATE attendance_records SET working_minutes = ? WHERE id = ? AND check_out_at IS NULL",
+      [workingMinutes, record.id]
+    );
+    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes });
+  } catch (error) {
+    console.error('POST /attendance/heartbeat', error);
+    return fail(res, 500, 'Unable to save current work time.');
   }
 }
 
@@ -720,6 +796,7 @@ module.exports = {
   checkInPolicy: checkInPolicy,
   checkIn: checkIn,
   checkOut: checkOut,
+  heartbeat: heartbeat,
   myPermissions: myPermissions,
   createPermission: createPermission,
   adminPermissions: adminPermissions,

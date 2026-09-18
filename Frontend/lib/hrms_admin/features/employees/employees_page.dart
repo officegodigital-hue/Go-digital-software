@@ -131,6 +131,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: HrmsColors.page,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/employees') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/employees'),
@@ -660,17 +661,19 @@ class _EmployeeKpis extends StatelessWidget {
     ];
     return LayoutBuilder(
       builder: (_, constraints) {
-        final columns = constraints.maxWidth < 650
+        final columns = mobile
+            ? 4
+            : constraints.maxWidth < 650
             ? 2
             : constraints.maxWidth < 1100
             ? 2
             : 4;
-        final spacing = mobile ? 12.0 : 20.0;
+        final spacing = mobile ? 8.0 : 20.0;
         final width =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;
         return Wrap(
           spacing: spacing,
-          runSpacing: mobile ? 12 : 16,
+          runSpacing: mobile ? 8 : 16,
           children: cards
               .map((card) => SizedBox(width: width, child: card))
               .toList(),
@@ -697,7 +700,25 @@ class _EmployeeKpi extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
+  Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width < 600) {
+      final mobileLabel = label == 'Total Employees' ? 'Employees' : label;
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: color.withValues(alpha: .25)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(mobileLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return LayoutBuilder(
     builder: (_, constraints) {
       final compact = constraints.maxWidth < 220;
       return Container(
@@ -786,6 +807,7 @@ class _EmployeeKpi extends StatelessWidget {
       );
     },
   );
+  }
 }
 
 class _Filters extends StatelessWidget {
@@ -811,11 +833,11 @@ class _Filters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(20),
+    padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 0 : 20),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: MediaQuery.sizeOf(context).width < 600 ? Colors.transparent : Colors.white,
       borderRadius: BorderRadius.circular(14),
-      boxShadow: const [
+      boxShadow: MediaQuery.sizeOf(context).width < 600 ? const [] : const [
         BoxShadow(
           color: Color(0x0C071A72),
           blurRadius: 18,
@@ -826,48 +848,68 @@ class _Filters extends StatelessWidget {
     child: LayoutBuilder(
       builder: (_, constraints) {
         final narrow = constraints.maxWidth < 850;
-        final fields = [
-          SizedBox(
-            width: narrow ? constraints.maxWidth : 430,
-            child: TextField(
-              controller: searchController,
-              onChanged: onSearch,
-              decoration: _inputDecoration(
-                'Search by name, employee ID or email',
-                Icons.search_rounded,
-              ),
-            ),
-          ),
-          _FilterDropdown(
-            label: 'Department',
-            value: department,
-            values: ['All Departments', ...departmentOptions],
-            onChanged: onDepartment,
-          ),
-          _FilterDropdown(
-            label: 'Status',
-            value: status,
-            values: const ['All Status', 'Active', 'On Leave', 'Inactive'],
-            onChanged: onStatus,
-          ),
-          _FilterDropdown(
-            label: 'Work Mode',
-            value: workMode,
-            values: const ['All Work Modes', 'Office', 'Home', 'Field'],
-            onChanged: onMode,
-          ),
-          OutlinedButton(
+        final search = TextField(
+          controller: searchController,
+          onChanged: onSearch,
+          decoration: _inputDecoration('Search by name, employee ID or email', Icons.search_rounded),
+        );
+        final departmentField = _FilterDropdown(label: 'Department', value: department, values: ['All Departments', ...departmentOptions], onChanged: onDepartment);
+        final statusField = _FilterDropdown(label: 'Status', value: status, values: const ['All Status', 'Active', 'On Leave', 'Inactive'], onChanged: onStatus);
+        final modeField = _FilterDropdown(label: 'Work Mode', value: workMode, values: const ['All Work Modes', 'Office', 'Home', 'Field'], onChanged: onMode);
+        final reset = Tooltip(
+          message: 'Reset filters',
+          child: OutlinedButton(
             onPressed: onReset,
             style: OutlinedButton.styleFrom(
-              minimumSize: const Size(57, 57),
+              minimumSize: const Size(56, 56),
               side: const BorderSide(color: Color(0xFFA8C0F8)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(9),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
             ),
-            child: const Icon(Icons.tune_rounded, color: HrmsColors.blue),
+            child: const Icon(Icons.restart_alt_rounded, color: HrmsColors.blue),
           ),
-        ];
+        );
+        final mobile = MediaQuery.sizeOf(context).width < 600;
+        if (mobile) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            search,
+            const SizedBox(height: 12),
+            Row(children: [
+              OutlinedButton.icon(
+                onPressed: () => _openMobileFilters(context),
+                icon: const Icon(Icons.tune_rounded, size: 20),
+                label: const Text('Filters'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HrmsColors.blue,
+                  side: const BorderSide(color: HrmsColors.blue),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: onReset,
+                icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                label: const Text('Reset'),
+              ),
+            ]),
+          ]);
+        }
+        if (narrow) {
+          final stackFilters = constraints.maxWidth < 410;
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            search,
+            const SizedBox(height: 14),
+            if (stackFilters) ...[
+              departmentField,
+              const SizedBox(height: 12),
+              statusField,
+            ] else
+              Row(children: [Expanded(child: departmentField), const SizedBox(width: 12), Expanded(child: statusField)]),
+            const SizedBox(height: 12),
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: modeField), const SizedBox(width: 12), reset]),
+          ]);
+        }
+        final fields = [SizedBox(width: 430, child: search), departmentField, statusField, modeField, reset];
         return Wrap(
           spacing: 26,
           runSpacing: 16,
@@ -876,6 +918,57 @@ class _Filters extends StatelessWidget {
         );
       },
     ),
+  );
+
+  void _openMobileFilters(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Center(child: Container(width: 42, height: 4, decoration: BoxDecoration(color: const Color(0xFFD8E1F0), borderRadius: BorderRadius.circular(4)))),
+            const SizedBox(height: 18),
+            const Text('Filter employees', style: TextStyle(color: HrmsColors.navy, fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            _FilterDropdown(label: 'Department', value: department, values: ['All Departments', ...departmentOptions], onChanged: onDepartment),
+            const SizedBox(height: 12),
+            _FilterDropdown(label: 'Status', value: status, values: const ['All Status', 'Active', 'On Leave', 'Inactive'], onChanged: onStatus),
+            const SizedBox(height: 12),
+            _FilterDropdown(label: 'Work Mode', value: workMode, values: const ['All Work Modes', 'Office', 'Home', 'Field'], onChanged: onMode),
+            const SizedBox(height: 20),
+            Row(children: [
+              Expanded(child: OutlinedButton(onPressed: () { onReset(); Navigator.pop(sheetContext); }, child: const Text('Reset'))),
+              const SizedBox(width: 12),
+              Expanded(child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters'))),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileFilterChip extends StatelessWidget {
+  const _MobileFilterChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ActionChip(
+    onPressed: onTap,
+    backgroundColor: const Color(0xFFEAF2FF),
+    side: BorderSide.none,
+    avatar: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF50649E)),
+    label: Text(label, style: const TextStyle(color: HrmsColors.navy, fontSize: 13)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
   );
 }
 
@@ -1096,133 +1189,87 @@ class _MobileEmployeeList extends StatelessWidget {
         child: Center(child: Text('No employees match these filters.')),
       );
     }
-    return Column(
-      children: [
-        ...employees.map(
-          (employee) => Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: const Color(0xFFE5EAF3)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x08071A72),
-                  blurRadius: 12,
-                  offset: Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 23,
-                      backgroundColor: const Color(0xFFEAF1FF),
-                      child: Text(
-                        employee.name.substring(0, 1),
-                        style: const TextStyle(
-                          color: HrmsColors.blue,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            employee.name,
-                            style: const TextStyle(
-                              color: HrmsColors.navy,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                          Text(
-                            '${employee.id} • ${employee.department}',
-                            style: const TextStyle(
-                              color: Color(0xFF657087),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _StatusBadge(status: employee.status),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _MobileEmployeeDetail(
-                        icon: Icons.work_outline_rounded,
-                        label: 'Work mode',
-                        value: employee.workMode,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _MobileEmployeeDetail(
-                        icon: Icons.currency_rupee_rounded,
-                        label: 'Salary',
-                        value: employee.salary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 9),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => onView(employee),
-                      icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
-                      label: const Text('View'),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => onEdit(employee),
-                      icon: const Icon(Icons.edit_outlined, size: 17),
-                      label: const Text('Edit'),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: 'More actions',
-                      onSelected: (value) {
-                        if (value == 'toggle') onToggle(employee);
-                        if (value == 'delete') onDelete(employee);
-                      },
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: Text(
-                            employee.status == 'Inactive'
-                                ? 'Reactivate'
-                                : 'Deactivate',
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5EAF3)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [BoxShadow(color: Color(0x08071A72), blurRadius: 14, offset: Offset(0, 5))],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 15, 12, 12),
+          child: Row(children: [
+            Expanded(child: Text('Employees ($total)', style: const TextStyle(color: HrmsColors.navy, fontSize: 17, fontWeight: FontWeight.w800))),
+            const Text('Sort by', style: TextStyle(color: Color(0xFF657087), fontSize: 12)),
+            TextButton.icon(onPressed: () {}, iconAlignment: IconAlignment.end, icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18), label: const Text('Name')),
+          ]),
         ),
-        Text(
-          'Showing ${employees.length} of $total employees',
-          style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
-        ),
-      ],
+        const _MobileEmployeeHeader(),
+        ...employees.map((employee) => _CompactMobileEmployeeRow(
+          employee: employee,
+          onView: () => onView(employee),
+          onEdit: () => onEdit(employee),
+          onToggle: () => onToggle(employee),
+          onDelete: () => onDelete(employee),
+        )),
+      ]),
     );
   }
+}
+
+class _MobileEmployeeHeader extends StatelessWidget {
+  const _MobileEmployeeHeader();
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 38,
+    color: const Color(0xFFF6F8FC),
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: const Row(children: [
+      Expanded(flex: 4, child: Text('EMPLOYEE', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
+      Expanded(flex: 3, child: Text('DEPARTMENT', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
+      Expanded(flex: 2, child: Text('STATUS', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
+      SizedBox(width: 24),
+    ]),
+  );
+}
+
+class _CompactMobileEmployeeRow extends StatelessWidget {
+  const _CompactMobileEmployeeRow({required this.employee, required this.onView, required this.onEdit, required this.onToggle, required this.onDelete});
+  final _Employee employee;
+  final VoidCallback onView, onEdit, onToggle, onDelete;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 66,
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFE5EAF3)))),
+    child: Row(children: [
+      Expanded(flex: 4, child: Row(children: [
+        CircleAvatar(radius: 18, backgroundColor: const Color(0xFFEAF1FF), child: Text(employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(), style: const TextStyle(color: HrmsColors.navy, fontWeight: FontWeight.w700))),
+        const SizedBox(width: 8),
+        Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: HrmsColors.navy, fontSize: 12, fontWeight: FontWeight.w700)),
+          Text(employee.id, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF657087), fontSize: 10)),
+        ])),
+      ])),
+      Expanded(flex: 3, child: Text(employee.department, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11))),
+      Expanded(flex: 2, child: FittedBox(alignment: Alignment.centerLeft, fit: BoxFit.scaleDown, child: _StatusBadge(status: employee.status))),
+      PopupMenuButton<String>(
+        tooltip: 'Employee actions',
+        padding: EdgeInsets.zero,
+        icon: const Icon(Icons.more_vert_rounded, color: HrmsColors.navy, size: 21),
+        onSelected: (value) { if (value == 'view') onView(); if (value == 'edit') onEdit(); if (value == 'toggle') onToggle(); if (value == 'delete') onDelete(); },
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'view', child: Text('View employee')),
+          const PopupMenuItem(value: 'edit', child: Text('Edit employee')),
+          PopupMenuItem(value: 'toggle', child: Text(employee.status == 'Inactive' ? 'Reactivate' : 'Deactivate')),
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
+      ),
+    ]),
+  );
 }
 
 class _MobileEmployeeDetail extends StatelessWidget {

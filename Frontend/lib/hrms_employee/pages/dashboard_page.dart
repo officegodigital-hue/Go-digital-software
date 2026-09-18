@@ -42,6 +42,7 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
+        bottomNavigationBar: mobile ? const EmployeeMobileBottomNav(route: '/employee/dashboard') : null,
         body: SafeArea(
             child: Stack(children: [
       Column(children: [
@@ -52,7 +53,7 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
         Expanded(
             child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
-              mobile ? 18 : 36, mobile ? 24 : 34, mobile ? 18 : 36, 40),
+              mobile ? 18 : 36, mobile ? 24 : 34, mobile ? 18 : 36, mobile ? 110 : 40),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
             child: const _Content(),
@@ -84,7 +85,10 @@ class _HeaderState extends State<_Header> {
   void initState() {
     super.initState();
     _loadStoredIdentity();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEmployee());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProfile();
+      _loadEmployee();
+    });
   }
 
   void _setIdentity(String? name, String? staffId) {
@@ -104,7 +108,25 @@ class _HeaderState extends State<_Header> {
       final raw = await AuthStorage.getString('user_data');
       if (raw == null || raw.isEmpty) return;
       final data = jsonDecode(raw);
-      if (data is Map && mounted) _setIdentity(data['fullName']?.toString() ?? data['full_name']?.toString(), data['staffId']?.toString() ?? data['staff_id']?.toString());
+      if (data is Map && mounted) _setIdentity(
+        data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
+        data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadProfile() async {
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+      final body = jsonDecode(response.body);
+      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      final profile = Map<String, dynamic>.from(body['data'] as Map);
+      _setIdentity(profile['fullName']?.toString() ?? profile['full_name']?.toString(), profile['staffId']?.toString() ?? profile['staff_id']?.toString());
     } catch (_) {}
   }
 

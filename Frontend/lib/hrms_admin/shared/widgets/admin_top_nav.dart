@@ -15,6 +15,7 @@ class AdminTopNav extends StatelessWidget {
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
     ('Employees', '/admin/employees'),
+    ('Clock Logs', '/admin/clock-logs'),
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
@@ -65,32 +66,6 @@ class AdminTopNav extends StatelessWidget {
           AdminNotificationBell(mobile: mobile),
           SizedBox(width: mobile ? 3 : 18),
           AdminLogoutButton(compact: compact || mobile),
-          if (compact)
-            PopupMenuButton<String>(
-              tooltip: 'Navigation',
-              icon: const Icon(Icons.menu_rounded, color: _navy, size: 28),
-              onSelected: (route) => _open(context, route),
-              itemBuilder: (_) => items
-                  .map(
-                    (item) => PopupMenuItem(
-                      value: item.$2,
-                      child: Row(
-                        children: [
-                          if (item.$2 == activeRoute) ...[
-                            const Icon(Icons.circle, size: 8, color: _blue),
-                            const SizedBox(width: 10),
-                          ],
-                          Text(item.$1,
-                              style: TextStyle(
-                                  fontWeight: item.$2 == activeRoute
-                                      ? FontWeight.w700
-                                      : FontWeight.w500)),
-                        ],
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
         ],
       ),
     );
@@ -108,23 +83,96 @@ class AdminLogoutButton extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => TextButton.icon(
+  Widget build(BuildContext context) {
+    if (compact) {
+      return IconButton(
+        tooltip: 'Workspace',
         onPressed: () => _openWorkspace(context),
-        icon: const Icon(Icons.grid_view_rounded, size: 19),
-        label: compact ? const SizedBox.shrink() : const Text('Workspace'),
-        style: TextButton.styleFrom(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(42, 42),
+          backgroundColor: const Color(0xFFEAF0FA),
           foregroundColor: _navy,
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 10 : 16,
-            vertical: 12,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: const BorderSide(color: Color(0xFFD6E0F0)),
+          shape: const CircleBorder(),
+        ),
+        icon: const Icon(Icons.grid_view_rounded, size: 21),
+      );
+    }
+    return TextButton.icon(
+      onPressed: () => _openWorkspace(context),
+      icon: const Icon(Icons.grid_view_rounded, size: 19),
+      label: const Text('Workspace'),
+      style: TextButton.styleFrom(
+        foregroundColor: _navy,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: Color(0xFFD6E0F0)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared floating dock for every admin page below the mobile breakpoint.
+/// Less-frequent destinations remain available from the hamburger drawer.
+class AdminMobileBottomNav extends StatelessWidget {
+  const AdminMobileBottomNav({super.key, required this.activeRoute});
+
+  final String activeRoute;
+
+  void _open(BuildContext context, String route) {
+    if (route == activeRoute) return;
+    Navigator.pushReplacementNamed(context, route);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= 600) return const SizedBox.shrink();
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+      child: Container(
+        height: 62,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF172554),
+          borderRadius: BorderRadius.circular(34),
+          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 18, offset: Offset(0, 8))],
+        ),
+        child: Row(children: [
+          _dockItem(context, icon: Icons.home_rounded, label: 'Dashboard', route: '/admin/dashboard'),
+          _dockItem(context, icon: Icons.groups_rounded, label: 'Employees', route: '/admin/employees'),
+          _dockItem(context, icon: Icons.history_rounded, label: 'Clock Logs', route: '/admin/clock-logs'),
+          _dockItem(context, icon: Icons.task_alt_rounded, label: 'Approvals', route: '/admin/approvals'),
+          _dockItem(context, icon: Icons.account_balance_wallet_rounded, label: 'Payroll', route: '/admin/payroll'),
+          _dockItem(context, icon: Icons.location_on_rounded, label: 'Tracking', route: '/admin/tracking'),
+        ]),
+      ),
+    );
+  }
+
+  Widget _dockItem(BuildContext context, {required IconData icon, required String label, required String route}) {
+    final active = activeRoute == route;
+    return Expanded(
+      child: Tooltip(
+        message: label,
+        child: InkWell(
+          onTap: () => _open(context, route),
+          borderRadius: BorderRadius.circular(25),
+          child: Center(
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(color: active ? const Color(0xFF2563EB) : Colors.transparent, shape: BoxShape.circle),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
           ),
         ),
-      );
+      ),
+    );
+  }
 }
+
 class AdminPageHeader extends StatelessWidget {
   const AdminPageHeader({
     super.key,
@@ -374,4 +422,3 @@ class _NotificationsDialog extends StatelessWidget {
         ],
       );
 }
-
