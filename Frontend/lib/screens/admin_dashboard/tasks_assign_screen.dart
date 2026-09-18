@@ -31,7 +31,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   final ScrollController _verticalController = ScrollController();
   final ScrollController _leftVerticalController = ScrollController();
 
-  bool _syncingHorizontal = false;
+  final bool _syncingHorizontal = false;
   bool _syncingVertical = false;
 
   List<Map<String, dynamic>> taskRows = [];
@@ -1070,7 +1070,7 @@ Future<void> _showTaskMasterDialog() async {
                                                 itemCount:
                                                     roleTaskList.length,
                                                 separatorBuilder:
-                                                    (_, __) =>
+                                                    (_, _) =>
                                                         const SizedBox(
                                                             height: 7),
                                                 itemBuilder:
@@ -2922,7 +2922,7 @@ else
                           child: ListView.separated(
                             padding: const EdgeInsets.all(16),
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 const SizedBox(height: 7),
                             itemBuilder: (_, i) {
                               final title = filtered[i];
@@ -3611,7 +3611,7 @@ else
       return employees.contains(upper) ? upper : '';
     }
     // 🟢 Date string-la irunthu day number mattum (e.g., "24") extract panra function
-  String _formatOnlyDay(dynamic rawDate) {
+  String formatOnlyDay(dynamic rawDate) {
     if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
     final val = rawDate.toString().trim();
     
@@ -3705,7 +3705,7 @@ else
                   Expanded(
                     child: Text(
                       // 🟢 Day (Date) mattum eduthu kaattum (e.g. "24")
-                      _formatOnlyDay(row['maintenance_date']),
+                      formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
@@ -4056,7 +4056,7 @@ Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
                           : ListView.separated(
                               padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
                               itemCount: filtered.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 5),
+                              separatorBuilder: (_, _) => const SizedBox(height: 5),
                               itemBuilder: (_, index) {
                                 final name = filtered[index];
                                 final isNone = name == 'NONE';

@@ -1948,7 +1948,7 @@ Future<void> _deleteAdditionalTask(
     return DropdownButtonFormField<String>(
       key: ValueKey(selectedDeliverable),
       isExpanded: true,
-      value: taskTimings.any(
+      initialValue: taskTimings.any(
         (t) => t['task_name'].toString() == selectedDeliverable,
       )
           ? selectedDeliverable

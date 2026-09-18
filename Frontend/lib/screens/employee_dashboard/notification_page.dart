@@ -2862,7 +2862,7 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
+  Widget _buildMessageContent(dynamic raw) {
     final payload = _messagePayload(raw);
 
     // ✅ Render File Download Card

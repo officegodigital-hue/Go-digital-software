@@ -1534,7 +1534,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
                     ),
                   ),
                 ),
-                if (trailing != null) trailing,
+                ?trailing,
               ],
             ),
           ),
@@ -1893,7 +1893,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
               const Text("Include 18% GST", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF475569))),
               Switch(
                 value: includeGST,
-                activeColor: const Color(0xFF0052CC),
+                activeThumbColor: const Color(0xFF0052CC),
                 onChanged: _viewOnly ? null : (val) => setState(() => includeGST = val),
               ),
             ],
@@ -1949,7 +1949,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
               const Text("Include 18% GST", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
               Switch(
                 value: includeGST,
-                activeColor: const Color(0xFF0052CC),
+                activeThumbColor: const Color(0xFF0052CC),
                 onChanged: _viewOnly ? null : (val) => setState(() => includeGST = val),
               ),
             ],

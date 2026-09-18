@@ -913,7 +913,7 @@ Widget _buildHero(
           scrollDirection: Axis.horizontal,
           itemCount: cards.length,
           separatorBuilder:
-              (_, __) =>
+              (_, _) =>
                   const SizedBox(width: 9),
           itemBuilder:
               (context, index) =>
@@ -1304,7 +1304,7 @@ Widget _buildHero(
                       const NeverScrollableScrollPhysics(),
                   itemCount: tasks.length,
                   separatorBuilder:
-                      (_, __) =>
+                      (_, _) =>
                           const Divider(
                     height: 1,
                     color: Color(0xFFF1F5F9),
@@ -1559,7 +1559,7 @@ Widget _buildHero(
           const EdgeInsets.all(12),
       itemCount: tasks.length,
       separatorBuilder:
-          (_, __) =>
+          (_, _) =>
               const SizedBox(height: 10),
       itemBuilder:
           (context, index) {

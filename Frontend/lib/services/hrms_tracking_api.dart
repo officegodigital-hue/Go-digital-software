@@ -190,7 +190,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'accuracy': ?accuracy,
       }),
     );
 
@@ -217,7 +217,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'accuracy': ?accuracy,
       }),
     );
 
@@ -233,9 +233,9 @@ class HrmsTrackingApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/stop'),
       headers: await _headers(),
       body: jsonEncode({
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracy': ?accuracy,
       }),
     );
 

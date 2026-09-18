@@ -290,7 +290,7 @@ class _EmployeeAttendanceState extends State<EmployeeAttendance> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               DropdownButtonFormField<String>(
-                                                value: selected,
+                                                initialValue: selected,
                                                 items: const [
                                                   DropdownMenuItem(
                                                     value: 'late_entry',

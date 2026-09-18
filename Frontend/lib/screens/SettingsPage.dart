@@ -95,12 +95,14 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(()=>_profilePhotoDataUrl='data:$mime;base64,${base64Encode(bytes)}');
       setState(()=>_photoChanged=true);
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content:Text('Could not pick photo: $e'),backgroundColor:Colors.redAccent));
+      }
     }
   }
 
-  void _removePhoto()=>setState(()=>{_profilePhotoDataUrl=null,_photoChanged=true});
+  void _removePhoto()=>setState((){_profilePhotoDataUrl=null;_photoChanged=true;});
 
   Future<bool> _saveProfile({String? passwordOverride}) async {
     if(_firstNameController.text.trim().isEmpty||
@@ -131,18 +133,24 @@ class _SettingsPageState extends State<SettingsPage> {
       final d=jsonDecode(r.body);
       if(r.statusCode==200&&d['success']==true){
         _photoChanged=false; await a.refreshUserData();
-        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if(mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:Text('Settings saved successfully!'),
           backgroundColor:Color(0xFF00A854)));
+        }
         return true;
       }
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:Text(d['message']??'Could not save settings'),
         backgroundColor:Colors.redAccent));
+      }
       return false;
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:Text('Connection error: $e'),backgroundColor:Colors.redAccent));
+      }
       return false;
     }finally{if(mounted)setState(()=>_saving=false);}
   }
@@ -237,8 +245,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     final serverPassword = d['password']?.toString() ?? '';
 
                     if (cur.text.trim() != serverPassword) {
-                      if (mounted) ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                      if (mounted) {
+                        ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
                         content: Text('Incorrect current password!'), backgroundColor: Colors.redAccent));
+                      }
                       return;
                     }
                   }
@@ -274,7 +284,7 @@ class _SettingsPageState extends State<SettingsPage> {
     shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12)));
 
   static Widget _iconBox(IconData i,Color c)=>Container(width:42,height:42,
-    decoration:BoxDecoration(color:c.withOpacity(.09),borderRadius:BorderRadius.circular(13)),
+    decoration:BoxDecoration(color:c.withValues(alpha: .09),borderRadius:BorderRadius.circular(13)),
     child:Icon(i,color:c,size:21));
 
   @override Widget build(BuildContext context)=>AdminLayout(
@@ -320,10 +330,10 @@ class _SettingsPageState extends State<SettingsPage> {
     decoration:BoxDecoration(
       gradient:const LinearGradient(colors:[dark,primary]),
       borderRadius:BorderRadius.circular(22),
-      boxShadow:[BoxShadow(color:primary.withOpacity(.18),blurRadius:24,offset:const Offset(0,10))]),
+      boxShadow:[BoxShadow(color:primary.withValues(alpha: .18),blurRadius:24,offset:const Offset(0,10))]),
     child:Row(children:[
       Container(width:m?46:54,height:m?46:54,
-        decoration:BoxDecoration(color:Colors.white.withOpacity(.13),
+        decoration:BoxDecoration(color:Colors.white.withValues(alpha: .13),
           borderRadius:BorderRadius.circular(16),border:Border.all(color:Colors.white24)),
         child:const Icon(Icons.settings_rounded,color:Colors.white,size:25)),
       const SizedBox(width:15),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,
@@ -358,7 +368,7 @@ class _SettingsPageState extends State<SettingsPage> {
       children:[_photoButtons(),const SizedBox(height:12),_colors()]);
     return Container(padding:EdgeInsets.all(m?18:24),
       decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),
-        border:Border.all(color:border),boxShadow:[BoxShadow(color:Colors.black.withOpacity(.035),
+        border:Border.all(color:border),boxShadow:[BoxShadow(color:Colors.black.withValues(alpha: .035),
           blurRadius:18,offset:const Offset(0,7))]),
       child:m?Column(children:[
         _avatar(photo,initials,46),const SizedBox(height:14),content,
@@ -376,7 +386,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _avatar(ImageProvider? p,String initials,double r)=>Stack(clipBehavior:Clip.none,children:[
     Container(padding:const EdgeInsets.all(3),decoration:BoxDecoration(shape:BoxShape.circle,
-      border:Border.all(color:_color(_avatarColorHex).withOpacity(.28),width:2)),
+      border:Border.all(color:_color(_avatarColorHex).withValues(alpha: .28),width:2)),
       child:CircleAvatar(radius:r,backgroundColor:_color(_avatarColorHex),backgroundImage:p,
         child:p==null?Text(initials.isEmpty?'?':initials,
           style:TextStyle(color:Colors.white,fontSize:r*.58,fontWeight:FontWeight.w900)):null)),
@@ -409,7 +419,7 @@ class _SettingsPageState extends State<SettingsPage> {
               width:s?28:24,height:s?28:24,
               decoration:BoxDecoration(color:_color(h),shape:BoxShape.circle,
                 border:Border.all(color:Colors.white,width:2),
-                boxShadow:[BoxShadow(color:_color(h).withOpacity(.25),blurRadius:5)]),
+                boxShadow:[BoxShadow(color:_color(h).withValues(alpha: .25),blurRadius:5)]),
               child:s?const Icon(Icons.check_rounded,color:Colors.white,size:15):null));
         }),
       ]));
@@ -417,7 +427,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _section(IconData i,Color c,String title,String sub,Widget child)=>Container(
     width:double.infinity,padding:const EdgeInsets.all(22),
     decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),
-      border:Border.all(color:border),boxShadow:[BoxShadow(color:Colors.black.withOpacity(.025),
+      border:Border.all(color:border),boxShadow:[BoxShadow(color:Colors.black.withValues(alpha: .025),
         blurRadius:15,offset:const Offset(0,6))]),
     child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Row(children:[_iconBox(i,c),const SizedBox(width:12),Expanded(child:Column(

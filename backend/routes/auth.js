@@ -244,3 +244,5 @@ function authenticateToken(req, res, next) {
 
 module.exports = router;
 module.exports.authenticateToken = authenticateToken;
+// Shared so every auth layer verifies against the exact key login signs with.
+module.exports.JWT_SECRET = JWT_SECRET;

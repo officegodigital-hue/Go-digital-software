@@ -117,8 +117,11 @@ flutter:
   # see https://flutter.dev/to/font-from-package
   assets:
     - assets/images/
+    - assets/client_work_repository/
     - assets/sounds/
     - assets/images/whatsapp_logo.png
+    - assets/branding/admin/
+    - assets/branding/user/
 
 
     

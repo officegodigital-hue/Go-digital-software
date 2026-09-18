@@ -1698,7 +1698,7 @@ final visibleRows = taskRows.where((r) {
       return employees.contains(upper) ? upper : '';
     }
     // 🟢 Date string-la irunthu day number mattum (e.g., "24") extract panra function
-  String _formatOnlyDay(dynamic rawDate) {
+  String formatOnlyDay(dynamic rawDate) {
     if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
     final val = rawDate.toString().trim();
     
@@ -1792,7 +1792,7 @@ final visibleRows = taskRows.where((r) {
                   Expanded(
                     child: Text(
                       // 🟢 Day (Date) mattum eduthu kaattum (e.g. "24")
-                      _formatOnlyDay(row['maintenance_date']),
+                      formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,

@@ -311,7 +311,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0757D5).withOpacity(0.28),
+            color: const Color(0xFF0757D5).withValues(alpha: 0.28),
             blurRadius: 30,
             offset: const Offset(0, 12),
           ),
@@ -377,7 +377,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
           "Here is your live overview of today's GoDigital priorities, client tasks, and performance metrics.",
           style: TextStyle(
             fontSize: 13.5,
-            color: Colors.white.withOpacity(0.85),
+            color: Colors.white.withValues(alpha: 0.85),
             fontWeight: FontWeight.w500,
             height: 1.35,
           ),
@@ -394,9 +394,9 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.14),
+        color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.24)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -421,9 +421,9 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.12),
+        color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.24)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -510,7 +510,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
         border: Border.all(color: const Color(0xFFE5ECF6)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B5ED7).withOpacity(0.06),
+            color: const Color(0xFF0B5ED7).withValues(alpha: 0.06),
             blurRadius: 28,
             offset: const Offset(0, 12),
           ),
@@ -669,7 +669,7 @@ class _VideographerDashboardPageState extends State<VideographerDashboardPage> {
         borderRadius: BorderRadius.circular(13),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0757D5).withOpacity(0.16),
+            color: const Color(0xFF0757D5).withValues(alpha: 0.16),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -983,7 +983,7 @@ class _PremiumTaskRowState extends State<_PremiumTaskRow> {
           boxShadow: _hovered
               ? [
                   BoxShadow(
-                    color: const Color(0xFF0B5ED7).withOpacity(0.07),
+                    color: const Color(0xFF0B5ED7).withValues(alpha: 0.07),
                     blurRadius: 12,
                     offset: const Offset(0, 3),
                   ),
@@ -1255,10 +1255,10 @@ class _PremiumTaskRowState extends State<_PremiumTaskRow> {
           vertical: 6,
         ),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: color.withOpacity(0.14),
+            color: color.withValues(alpha: 0.14),
           ),
         ),
         child: Row(

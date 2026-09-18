@@ -522,7 +522,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                                       : ListView.separated(
                                           itemCount: filteredClients.length,
                                           physics: const BouncingScrollPhysics(),
-                                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                          separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                           itemBuilder: (context, index) {
                                             final c = filteredClients[index];
                                             final int displayOrder =

@@ -94,12 +94,14 @@ class _EmployeeSettingsPageState extends State<EmployeeSettingsPage> {
         _photoChanged=true;
       });
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content:Text('Could not pick photo: $e'),backgroundColor:Colors.redAccent));
+      }
     }
   }
 
-  void _removePhoto()=>setState(()=>{_profilePhotoDataUrl=null,_photoChanged=true});
+  void _removePhoto()=>setState((){_profilePhotoDataUrl=null;_photoChanged=true;});
 
   Future<bool> _saveProfile({String? passwordOverride}) async {
     if(_firstNameController.text.trim().isEmpty||
@@ -130,18 +132,24 @@ class _EmployeeSettingsPageState extends State<EmployeeSettingsPage> {
       final d=jsonDecode(r.body);
       if(r.statusCode==200&&d['success']==true){
         _photoChanged=false; await a.refreshUserData();
-        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if(mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:Text('Settings saved successfully!'),
           backgroundColor:Color(0xFF00A854)));
+        }
         return true;
       }
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:Text(d['message']??'Could not save settings'),
         backgroundColor:Colors.redAccent));
+      }
       return false;
     }catch(e){
-      if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:Text('Connection error: $e'),backgroundColor:Colors.redAccent));
+      }
       return false;
     }finally{if(mounted)setState(()=>_saving=false);}
   }
@@ -236,8 +244,10 @@ class _EmployeeSettingsPageState extends State<EmployeeSettingsPage> {
                     final serverPassword = d['password']?.toString() ?? '';
 
                     if (cur.text.trim() != serverPassword) {
-                      if (mounted) ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
+                      if (mounted) {
+                        ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(
                         content: Text('Incorrect current password!'), backgroundColor: Colors.redAccent));
+                      }
                       return;
                     }
                   }

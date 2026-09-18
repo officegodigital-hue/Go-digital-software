@@ -112,7 +112,7 @@ OverlayEntry? _clientOverlay;
   List<Map<String, dynamic>> _packages = [];
   bool _loadingPackages = true;
 
-  bool _isSelectingClient = false;
+  final bool _isSelectingClient = false;
 
   List<Map<String, dynamic>> _clients = [];
   bool _showClientDropdown = false;
@@ -1972,7 +1972,7 @@ void _selectClient(Map<String, dynamic> client) {
                     ),
                   ),
                 ),
-                if (trailing != null) trailing,
+                ?trailing,
               ],
             ),
           ),

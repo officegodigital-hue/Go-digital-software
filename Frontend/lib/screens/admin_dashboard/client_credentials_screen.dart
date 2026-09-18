@@ -858,7 +858,7 @@ final Map<int, bool> _visiblePasswords = {};
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(.025),
+                color: Colors.black.withValues(alpha: .025),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -914,7 +914,7 @@ final Map<int, bool> _visiblePasswords = {};
                                 itemCount:
                                     visibleClients.length,
                                 separatorBuilder:
-                                    (_, __) =>
+                                    (_, _) =>
                                         const Divider(
                                   height: 1,
                                   color: Color(0xFFE2E8F0),
@@ -1353,7 +1353,7 @@ final Map<int, bool> _visiblePasswords = {};
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.025),
+            color: Colors.black.withValues(alpha: .025),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -1549,7 +1549,7 @@ final Map<int, bool> _visiblePasswords = {};
                     itemCount:
                         _credentials.length,
                     separatorBuilder:
-                        (_, __) =>
+                        (_, _) =>
                             const Divider(
                       height: 1,
                       color: Color(0xFFE2E8F0),
@@ -1923,7 +1923,7 @@ Widget _buildCredentialForm() {
 
       // While editing, keep the current platform available.
       if (editingPlatform != null &&
-          normalized == editingPlatform!.toLowerCase()) {
+          normalized == editingPlatform.toLowerCase()) {
         return true;
       }
 
@@ -1943,7 +1943,7 @@ Widget _buildCredentialForm() {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.025),
+            color: Colors.black.withValues(alpha: .025),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -1981,7 +1981,7 @@ Widget _buildCredentialForm() {
                   height: 40,
                   decoration: BoxDecoration(
                     color: Colors.white
-                        .withOpacity(.14),
+                        .withValues(alpha: .14),
                     borderRadius:
                         BorderRadius.circular(12),
                   ),
@@ -2571,7 +2571,7 @@ Widget _buildCredentialForm() {
           BoxShadow(
             color: const Color(
               0xFF0052CC,
-            ).withOpacity(.20),
+            ).withValues(alpha: .20),
             blurRadius: 26,
             offset: const Offset(0, 12),
           ),

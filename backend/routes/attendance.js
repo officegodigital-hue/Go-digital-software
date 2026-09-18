@@ -12,6 +12,7 @@ router.get('/dashboard', function (req, res, next) {
   if (userType === 'admin') return attendance.dashboard(req, res, next);
   return attendance.employeeDashboard(req, res, next);
 });
+router.get('/clock-logs', attendance.requireAdmin, attendance.clockLogs);
 router.get('/export', attendance.requireAdmin, attendance.exportCsv);
 router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions);
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);

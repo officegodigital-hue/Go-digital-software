@@ -773,10 +773,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
 Widget _workingHoursBody(Map hours) {
   final double prodPct =
-      (hours['productivityPct'] as num?)?.toDouble()?.clamp(0.0, 100.0) ?? 0.0;
+      (hours['productivityPct'] as num?)?.toDouble().clamp(0.0, 100.0) ?? 0.0;
   final double idlePct = (100.0 - prodPct).clamp(0.0, 100.0);
   final double efficiencyPct =
-      (hours['efficiencyPct'] as num?)?.toDouble()?.clamp(0.0, 100.0) ??
+      (hours['efficiencyPct'] as num?)?.toDouble().clamp(0.0, 100.0) ??
       prodPct;
 
   return LayoutBuilder(

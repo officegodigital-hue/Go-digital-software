@@ -908,7 +908,7 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
   'status': '',
   'remarks': '',
   '_editing': true,
-});;
+});
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1041,7 +1041,7 @@ Future<void> _saveRow(
       backgroundColor: Colors.red,
     ),
   );
-};
+}
     }
   } catch (e) {
     print(e);
@@ -1124,7 +1124,7 @@ Future<bool> _confirmSubmit() async {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
+                    color: Colors.black.withValues(alpha: 0.12),
                     blurRadius: 30,
                     offset: const Offset(0, 12),
                   ),
@@ -1488,7 +1488,7 @@ Future<void> _submitDay() async {
         borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0757D5).withOpacity(.20),
+            color: const Color(0xFF0757D5).withValues(alpha: .20),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -1531,9 +1531,9 @@ Future<void> _submitDay() async {
           width: 50,
           height: 50,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(.16),
+            color: Colors.white.withValues(alpha: .16),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(.24)),
+            border: Border.all(color: Colors.white.withValues(alpha: .24)),
           ),
           child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 25),
         ),
@@ -1545,7 +1545,7 @@ Future<void> _submitDay() async {
               Text(
                 'DAY PLANNER • 2050',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(.72),
+                  color: Colors.white.withValues(alpha: .72),
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1.4,
@@ -1569,7 +1569,7 @@ Future<void> _submitDay() async {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(.76),
+                  color: Colors.white.withValues(alpha: .76),
                   fontSize: 11.5,
                   fontWeight: FontWeight.w500,
                 ),
@@ -1588,9 +1588,9 @@ Future<void> _submitDay() async {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.12),
+          color: Colors.white.withValues(alpha: .12),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(.20)),
+          border: Border.all(color: Colors.white.withValues(alpha: .20)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1602,7 +1602,7 @@ Future<void> _submitDay() async {
               style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
             ),
             const SizedBox(width: 5),
-            Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white.withOpacity(.75), size: 18),
+            Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white.withValues(alpha: .75), size: 18),
           ],
         ),
       ),
@@ -1646,9 +1646,9 @@ Future<void> _submitDay() async {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
           decoration: BoxDecoration(
-            color: filled ? Colors.white : Colors.white.withOpacity(.10),
+            color: filled ? Colors.white : Colors.white.withValues(alpha: .10),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(.24)),
+            border: Border.all(color: Colors.white.withValues(alpha: .24)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1715,7 +1715,7 @@ Future<void> _submitDay() async {
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         itemCount: cards.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (_, index) => cards[index],
       ),
     );
@@ -1731,7 +1731,7 @@ Future<void> _submitDay() async {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFDCE8FB)),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF174A8B).withOpacity(.06), blurRadius: 14, offset: const Offset(0, 6)),
+          BoxShadow(color: const Color(0xFF174A8B).withValues(alpha: .06), blurRadius: 14, offset: const Offset(0, 6)),
         ],
       ),
       child: Column(
@@ -1742,7 +1742,7 @@ Future<void> _submitDay() async {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(color: color.withOpacity(.10), borderRadius: BorderRadius.circular(11)),
+                decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(11)),
                 child: Icon(icon, color: color, size: 18),
               ),
               const Spacer(),
@@ -1775,7 +1775,7 @@ Future<void> _submitDay() async {
         border: Border.all(color: const Color(0xFFDCE8FB)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF174A8B).withOpacity(.04),
+            color: const Color(0xFF174A8B).withValues(alpha: .04),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
@@ -1875,8 +1875,8 @@ Future<void> _submitDay() async {
             boxShadow: [
               BoxShadow(
                 color: primary
-                    ? const Color(0xFF0757D5).withOpacity(.14)
-                    : const Color(0xFF16A34A).withOpacity(.07),
+                    ? const Color(0xFF0757D5).withValues(alpha: .14)
+                    : const Color(0xFF16A34A).withValues(alpha: .07),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -1949,10 +1949,10 @@ Future<void> _submitDay() async {
       constraints: BoxConstraints(minWidth: inHero ? 150 : 0),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
       decoration: BoxDecoration(
-        color: inHero ? Colors.white.withOpacity(.13) : const Color(0xFFEFF6FF),
+        color: inHero ? Colors.white.withValues(alpha: .13) : const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
-          color: inHero ? Colors.white.withOpacity(.22) : const Color(0xFFCFE0FF),
+          color: inHero ? Colors.white.withValues(alpha: .22) : const Color(0xFFCFE0FF),
         ),
       ),
       child: Row(
@@ -1962,7 +1962,7 @@ Future<void> _submitDay() async {
             width: 31,
             height: 31,
             decoration: BoxDecoration(
-              color: inHero ? Colors.white.withOpacity(.14) : const Color(0xFF0757D5).withOpacity(.10),
+              color: inHero ? Colors.white.withValues(alpha: .14) : const Color(0xFF0757D5).withValues(alpha: .10),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Icon(
@@ -1981,7 +1981,7 @@ Future<void> _submitDay() async {
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.w900,
-                  color: inHero ? Colors.white.withOpacity(.70) : const Color(0xFF6C7F9C),
+                  color: inHero ? Colors.white.withValues(alpha: .70) : const Color(0xFF6C7F9C),
                   letterSpacing: .65,
                 ),
               ),
@@ -2052,7 +2052,7 @@ Future<void> _submitDay() async {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFD9E5F6)),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF174A8B).withOpacity(.07), blurRadius: 18, offset: const Offset(0, 8)),
+          BoxShadow(color: const Color(0xFF174A8B).withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, 8)),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -2103,7 +2103,7 @@ Future<void> _submitDay() async {
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(.14), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)),
             child: Text('$count ROW${count == 1 ? '' : 'S'}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: .5)),
           ),
         ],
@@ -2289,7 +2289,7 @@ Future<void> _submitDay() async {
 
     await showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(.48),
+      barrierColor: Colors.black.withValues(alpha: .48),
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
@@ -2308,7 +2308,7 @@ Future<void> _submitDay() async {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(.20),
+                        color: Colors.black.withValues(alpha: .20),
                         blurRadius: 36,
                         offset: const Offset(0, 14),
                       ),
@@ -2332,9 +2332,9 @@ Future<void> _submitDay() async {
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(.14),
+                                color: Colors.white.withValues(alpha: .14),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.white.withOpacity(.18)),
+                                border: Border.all(color: Colors.white.withValues(alpha: .18)),
                               ),
                               child: const Icon(Icons.business_rounded, color: Colors.white, size: 21),
                             ),
@@ -2412,7 +2412,7 @@ Future<void> _submitDay() async {
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
                                 itemCount: filtered.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                separatorBuilder: (_, _) => const SizedBox(height: 8),
                                 itemBuilder: (_, index) {
                                   final client = filtered[index];
                                   final maintenance = clientMaintenanceDates[client] ?? '';
@@ -2548,9 +2548,9 @@ Future<void> _submitDay() async {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.08),
+              color: Colors.white.withValues(alpha: .08),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withOpacity(.10)),
+              border: Border.all(color: Colors.white.withValues(alpha: .10)),
             ),
             child: Row(
               children: [
@@ -2558,7 +2558,7 @@ Future<void> _submitDay() async {
                   width: 29,
                   height: 29,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(.13),
+                    color: Colors.white.withValues(alpha: .13),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.business_rounded, color: Colors.white, size: 15),
@@ -2570,7 +2570,7 @@ Future<void> _submitDay() async {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.white.withOpacity(.78),
+                      color: selected ? Colors.white : Colors.white.withValues(alpha: .78),
                       fontSize: 10.5,
                       fontWeight: FontWeight.w800,
                     ),
@@ -2666,7 +2666,7 @@ Future<void> _submitDay() async {
               decoration: InputDecoration(
                 isDense: true,
                 filled: true,
-                fillColor: Colors.white.withOpacity(.72),
+                fillColor: Colors.white.withValues(alpha: .72),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(9), borderSide: BorderSide.none),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
                 hintText: field == 'today_plan' ? 'Enter today\'s plan...' : 'Add remarks...',

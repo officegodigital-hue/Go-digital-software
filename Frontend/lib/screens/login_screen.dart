@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/shared/branding_assets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -165,7 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildLogo({required double logoWidth}) {
     return Image.asset(
-      'assets/images/godigital_logo.png',
+      brandingLogoAssetForRole(isAdmin: _selectedTab == 1),
       width: logoWidth,
       fit: BoxFit.contain,
     );
@@ -182,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
         border: Border.all(color: const Color(0xFFDDDDDD)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 14,
             offset: const Offset(0, 4),
           ),

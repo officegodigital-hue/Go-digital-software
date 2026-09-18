@@ -56,9 +56,7 @@ class _NavTile {
     this.subtitle,
     this.icon,
     this.color,
-    this.route, {
-    this.arguments,
-  });
+    this.route) : arguments = null;
 }
 
 class _KpiData {
@@ -946,8 +944,8 @@ class _AdminDashboardState extends State<AdminDashboard>
             borderRadius: BorderRadius.circular(26),
             boxShadow: [
               BoxShadow(
-                color: _Palette.primary.withOpacity(
-                  0.24 + (t * 0.08),
+                color: _Palette.primary.withValues(
+                  alpha: 0.24 + (t * 0.08),
                 ),
                 blurRadius: 34 + (t * 8),
                 offset: Offset(
@@ -1030,11 +1028,11 @@ class _AdminDashboardState extends State<AdminDashboard>
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withOpacity(opacity),
+          color: Colors.white.withValues(alpha: opacity),
           boxShadow: [
             BoxShadow(
-              color: Colors.white.withOpacity(
-                opacity * 0.7,
+              color: Colors.white.withValues(
+                alpha: opacity * 0.7,
               ),
               blurRadius: 55,
               spreadRadius: 12,
@@ -1084,7 +1082,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           "Your live GoDigital command center for clients, people, billing, tasks and productivity.",
           style: TextStyle(
             fontSize: 13.5,
-            color: Colors.white.withOpacity(0.84),
+            color: Colors.white.withValues(alpha: 0.84),
             fontWeight: FontWeight.w500,
             height: 1.4,
           ),
@@ -1102,7 +1100,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                   : 'All dashboard systems synchronized',
               style: TextStyle(
                 fontSize: 11,
-                color: Colors.white.withOpacity(0.76),
+                color: Colors.white.withValues(alpha: 0.76),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1145,10 +1143,10 @@ class _AdminDashboardState extends State<AdminDashboard>
         vertical: 6,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.12),
+        color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: Colors.white.withOpacity(0.20),
+          color: Colors.white.withValues(alpha: 0.20),
         ),
       ),
       child: Row(
@@ -1187,10 +1185,10 @@ class _AdminDashboardState extends State<AdminDashboard>
         vertical: 14,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.10),
+        color: Colors.white.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(17),
         border: Border.all(
-          color: Colors.white.withOpacity(0.20),
+          color: Colors.white.withValues(alpha: 0.20),
         ),
       ),
       child: Row(
@@ -1201,7 +1199,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             height: 36,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
+              color: Colors.white.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(11),
             ),
             child: const Icon(
@@ -1219,7 +1217,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 'TODAY',
                 style: TextStyle(
                   fontSize: 9,
-                  color: Colors.white.withOpacity(0.65),
+                  color: Colors.white.withValues(alpha: 0.65),
                   fontWeight: FontWeight.w900,
                   letterSpacing: 1,
                 ),
@@ -1408,7 +1406,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: const Color(0xFFF59E0B)
-                  .withOpacity(0.10),
+                  .withValues(alpha: 0.10),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -1484,7 +1482,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         ),
         boxShadow: [
           BoxShadow(
-            color: _Palette.primary.withOpacity(0.055),
+            color: _Palette.primary.withValues(alpha: 0.055),
             blurRadius: 28,
             offset: const Offset(0, 12),
           ),
@@ -1590,7 +1588,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: _Palette.completed
-                              .withOpacity(0.09),
+                              .withValues(alpha: 0.09),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -1664,7 +1662,7 @@ class _AdminDashboardState extends State<AdminDashboard>
       height: 35,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.09),
+        color: color.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(11),
       ),
       child: Icon(
@@ -1685,7 +1683,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         vertical: 3,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -1766,7 +1764,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: _Palette.primary
-                            .withOpacity(0.08),
+                            .withValues(alpha: 0.08),
                         shape: BoxShape.circle,
                       ),
                       child: Text(
@@ -1962,7 +1960,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 vertical: 5,
               ),
               decoration: BoxDecoration(
-                color: _Palette.primary.withOpacity(0.07),
+                color: _Palette.primary.withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Row(
@@ -2167,15 +2165,15 @@ class _AnimatedKpiCardState
               border: Border.all(
                 color: active
                     ? widget.data.color
-                        .withOpacity(0.35)
+                        .withValues(alpha: 0.35)
                     : const Color(0xFFE5ECF6),
                 width: active ? 1.2 : 1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: widget.data.color
-                      .withOpacity(
-                    active ? 0.13 : 0.045,
+                      .withValues(
+                    alpha: active ? 0.13 : 0.045,
                   ),
                   blurRadius:
                       active ? 26 : 18,
@@ -2225,8 +2223,8 @@ class _AnimatedKpiCardState
                           BoxDecoration(
                         color: widget
                             .data.color
-                            .withOpacity(
-                          active
+                            .withValues(
+                          alpha: active
                               ? 0.15
                               : 0.09,
                         ),
@@ -2423,22 +2421,22 @@ class _AnimatedNavCardState
             decoration: BoxDecoration(
               color: active
                   ? widget.tile.color
-                      .withOpacity(0.025)
+                      .withValues(alpha: 0.025)
                   : Colors.white,
               borderRadius:
                   BorderRadius.circular(17),
               border: Border.all(
                 color: active
                     ? widget.tile.color
-                        .withOpacity(0.40)
+                        .withValues(alpha: 0.40)
                     : _Palette.border,
                 width: active ? 1.2 : 1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: widget.tile.color
-                      .withOpacity(
-                    active ? 0.12 : 0.035,
+                      .withValues(
+                    alpha: active ? 0.12 : 0.035,
                   ),
                   blurRadius:
                       active ? 24 : 13,
@@ -2462,8 +2460,8 @@ class _AnimatedNavCardState
                   decoration:
                       BoxDecoration(
                     color: widget.tile.color
-                        .withOpacity(
-                      active ? 0.14 : 0.085,
+                        .withValues(
+                      alpha: active ? 0.14 : 0.085,
                     ),
                     borderRadius:
                         BorderRadius.circular(
@@ -2550,7 +2548,7 @@ class _AnimatedNavCardState
                         BoxDecoration(
                       color: active
                           ? widget.tile.color
-                              .withOpacity(0.10)
+                              .withValues(alpha: 0.10)
                           : Colors.transparent,
                       shape: BoxShape.circle,
                     ),

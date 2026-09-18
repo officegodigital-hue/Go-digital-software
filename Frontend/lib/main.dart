@@ -6,6 +6,7 @@ import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
 import 'package:godigital_portal/hrms_admin/routing/app_router.dart';
 import 'package:godigital_portal/home_screen.dart';
+import 'package:godigital_portal/client_work_repository/client_work_repository_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/attendance_page.dart';
@@ -94,6 +95,7 @@ class MyApp extends StatelessWidget {
 
           // Home Screen (After Login)
           '/home': (context) => const HomeScreen(),
+          '/client-work-repository': (context) => const ClientWorkRepositoryPage(),
 
           // Admin Dashboard
           '/admin': (context) => const AdminGuard(child: AdminDashboard()),

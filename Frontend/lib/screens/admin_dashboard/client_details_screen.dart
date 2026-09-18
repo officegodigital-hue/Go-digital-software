@@ -517,7 +517,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.025),
+            color: Colors.black.withValues(alpha: 0.025),
             blurRadius: 20,
             offset: const Offset(0, 5),
           ),
@@ -995,7 +995,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.025),
+            color: Colors.black.withValues(alpha: .025),
             blurRadius: 18,
             offset: const Offset(0, 5),
           ),
@@ -1089,7 +1089,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E3A8A).withOpacity(.12),
+            color: const Color(0xFF1E3A8A).withValues(alpha: .12),
             blurRadius: 25,
             offset: const Offset(0, 10),
           ),
@@ -1104,10 +1104,10 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.10),
+                  color: Colors.white.withValues(alpha: .10),
                   borderRadius: BorderRadius.circular(11),
                   border: Border.all(
-                    color: Colors.white.withOpacity(.12),
+                    color: Colors.white.withValues(alpha: .12),
                   ),
                 ),
                 child: const Icon(
@@ -1135,7 +1135,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
           Text(
             "GoDigital partners represent the top 5% of digital-first enterprises.",
             style: TextStyle(
-              color: Colors.white.withOpacity(.88),
+              color: Colors.white.withValues(alpha: .88),
               fontSize: 12,
               height: 1.55,
             ),
@@ -1146,7 +1146,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
           Text(
             "Accurate information at this stage helps streamline billing, contracts and the complete client lifecycle.",
             style: TextStyle(
-              color: Colors.white.withOpacity(.65),
+              color: Colors.white.withValues(alpha: .65),
               fontSize: 11,
               height: 1.55,
             ),
@@ -1220,7 +1220,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
       children: [
         Icon(
           icon,
-          color: Colors.white.withOpacity(.72),
+          color: Colors.white.withValues(alpha: .72),
           size: 16,
         ),
         const SizedBox(width: 9),
@@ -1228,7 +1228,7 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
           child: Text(
             text,
             style: TextStyle(
-              color: Colors.white.withOpacity(.78),
+              color: Colors.white.withValues(alpha: .78),
               fontSize: 10.5,
               fontWeight: FontWeight.w600,
             ),

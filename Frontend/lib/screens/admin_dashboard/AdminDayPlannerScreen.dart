@@ -605,7 +605,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                 ? const Center(child: Text("No employees found matching filter criteria.", style: TextStyle(color: _muted, fontWeight: FontWeight.w600)))
                 : ListView.separated(
                     itemCount: filteredEmployees.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
+                    separatorBuilder: (_, _) => const Divider(height: 1, color: _border),
                     itemBuilder: (context, index) {
                       final emp = filteredEmployees[index];
                       final empName = emp['fullName'] ?? 'Employee';

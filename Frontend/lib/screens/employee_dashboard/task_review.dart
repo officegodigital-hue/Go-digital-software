@@ -673,7 +673,7 @@ class _ManagerReviewScreenState extends State<ManagerReviewScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: filteredReviews.length,
-                  separatorBuilder: (_, __) => const Divider(
+                  separatorBuilder: (_, _) => const Divider(
                       height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
                   itemBuilder: (context, index) {
                     final row = filteredReviews[index];
