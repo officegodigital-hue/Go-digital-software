@@ -1,11 +1,11 @@
 // name=admin_layout.dart
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:godigital_portal/services/auth_service.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/api_config.dart';
 
 class AdminLayout extends StatefulWidget {
@@ -26,25 +26,30 @@ class AdminLayout extends StatefulWidget {
   State<AdminLayout> createState() => _AdminLayoutState();
 }
 
-class _AdminLayoutState extends State<AdminLayout> {
-  bool _sidebarCollapsed = false;
+class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin {
   Timer? _pollingTimer;
   Timer? _popupTimer;
 
   int _unreadCount = 0;
-
   bool _showPopup = false;
   String? _latestMessage;
+  bool _isSidebarCollapsed = false;
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   final TextEditingController _searchController = TextEditingController();
-
   Set<int> _knownNotificationIds = {};
+
+  // Animation controller for floating background bubbles in the sidebar
+  late AnimationController _bubbleController;
 
   @override
   void initState() {
     super.initState();
     _startPolling();
+    _bubbleController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 7),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -53,6 +58,7 @@ class _AdminLayoutState extends State<AdminLayout> {
     _popupTimer?.cancel();
     _audioPlayer.dispose();
     _searchController.dispose();
+    _bubbleController.dispose();
     super.dispose();
   }
 
@@ -147,7 +153,6 @@ class _AdminLayoutState extends State<AdminLayout> {
       await _audioPlayer.play(
         AssetSource("sounds/notification.mp3"),
       );
-      debugPrint("Sound Played");
     } catch (e) {
       debugPrint("Audio Error: $e");
     }
@@ -166,11 +171,10 @@ class _AdminLayoutState extends State<AdminLayout> {
     final String userType = user?['user_type']?.toString() ?? 'Administrator';
     final String userRole = user?['role']?.toString() ?? 'Administrator';
 
-    // 🟢 Read profile photo and avatar color from user session
     final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
     final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
 
-    Color avatarColor = const Color(0xFF2A52BE);
+    Color avatarColor = const Color(0xFF0757D5);
     if (avatarColorHex.isNotEmpty) {
       try {
         final s = avatarColorHex.replaceAll('#', '');
@@ -238,147 +242,223 @@ class _AdminLayoutState extends State<AdminLayout> {
         final bool isDesktop = constraints.maxWidth >= 900;
         final bool isSmallMobile = constraints.maxWidth < 450;
 
-        final Widget sidebarWidget = Container(
-          width: _sidebarCollapsed && isDesktop ? 76 : 230,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF06152F),
-                Color(0xFF0A2B62),
-                Color(0xFF071B3B),
-              ],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 64,
-                width: double.infinity,
-                color: const Color(0xFF151D2E),
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+        // 🟢 Sidebar with Bottom-to-Top Gradient & Animated Floating Bubbles
+        final Widget sidebarWidget = AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          width: _isSidebarCollapsed ? 76 : 252,
+          child: AnimatedBuilder(
+            animation: _bubbleController,
+            builder: (context, child) {
+              final t = Curves.easeInOut.transform(_bubbleController.value);
+              return Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter, // Flows Bottom to Top
+                    end: Alignment.topCenter,
+                    colors: [
+                      Color(0xFF031C4C),
+                      Color.fromARGB(255, 8, 52, 122),
+                      Color.fromARGB(255, 6, 85, 189),
+                    ],
+                    stops: [0.0, 0.52, 1.0],
+                  ),
+                ),
+                child: Stack(
                   children: [
-                    const Text(
-                      'GoDigital Admin',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
+                    // Floating Animated Bubble 1
+                    Positioned(
+                      right: -25 + (t * 15),
+                      top: 60 + (t * 10),
+                      child: IgnorePointer(
+                        child: Container(
+                          width: 125,
+                          height: 125,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.09),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.white.withOpacity(0.06),
+                                blurRadius: 40,
+                                spreadRadius: 10,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    if (!isDesktop)
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white, size: 20),
-                        onPressed: () => Navigator.of(context).pop(),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                    // Floating Animated Bubble 2
+                    Positioned(
+                      left: -20 - (t * 15),
+                      bottom: 100 - (t * 15),
+                      child: IgnorePointer(
+                        child: Container(
+                          width: 140,
+                          height: 140,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.06),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.white.withOpacity(0.04),
+                                blurRadius: 45,
+                                spreadRadius: 8,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
+                    ),
+                    // Sidebar Content
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 68,
+                          width: double.infinity,
+                          padding: EdgeInsets.symmetric(horizontal: _isSidebarCollapsed ? 12 : 16),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              if (!_isSidebarCollapsed)
+                                const Expanded(
+                                  child: Text(
+                                    'GoDigital Admin',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ),
+                              Material(
+                                color: Colors.white.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                child: IconButton(
+                                  tooltip: _isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar',
+                                  icon: Icon(
+                                    _isSidebarCollapsed ? Icons.menu_open_rounded : Icons.menu_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _isSidebarCollapsed = !_isSidebarCollapsed;
+                                    });
+                                  },
+                                  padding: const EdgeInsets.all(6),
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(height: 1, color: Colors.white.withOpacity(0.2)),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: filteredNavItems.map((item) {
+                                return _navItem(
+                                  item['icon'] as IconData,
+                                  item['title'] as String,
+                                  item['route'] as String,
+                                  context,
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                        Container(height: 1, color: Colors.white.withOpacity(0.2)),
+                        
+                        // Home Button
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              hoverColor: Colors.white.withOpacity(0.12),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: _isSidebarCollapsed ? 16 : 12, vertical: 11),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.home_rounded, size: 20, color: Colors.white70),
+                                    if (!_isSidebarCollapsed) ...[
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Home',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Logout Button
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () async {
+                                final authService = Provider.of<AuthService>(context, listen: false);
+                                await authService.logout();
+                                if (!mounted) return;
+                                Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              hoverColor: Colors.white.withOpacity(0.12),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: _isSidebarCollapsed ? 16 : 12, vertical: 11),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.logout_rounded, size: 20, color: Color(0xFFFF8080)),
+                                    if (!_isSidebarCollapsed) ...[
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Logout',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFFFF8080),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    ),
                   ],
                 ),
-              ),
-              Container(
-                height: 1,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      const Color(0xFF35A8FF).withValues(alpha: 0.55),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: filteredNavItems.map((item) {
-                      return _navItem(
-                        item['icon'] as IconData,
-                        item['title'] as String,
-                        item['route'] as String,
-                        context,
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-              Container(height: 1, color: const Color(0xFF232D42)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.home_rounded, size: 17, color: Color(0xFF8A94A6)),
-                          SizedBox(width: 12),
-                          Text(
-                            'Home',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF8A94A6),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () async {
-                      final authService = Provider.of<AuthService>(context, listen: false);
-                      await authService.logout();
-                      if (!mounted) return;
-                      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.logout_rounded, size: 17, color: Color(0xFF8A94A6)),
-                          SizedBox(width: 12),
-                          Text(
-                            'Logout',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF8A94A6),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+              );
+            },
           ),
         );
 
         return Scaffold(
-          backgroundColor: const Color(0xFFF5F8FD),
+          backgroundColor: const Color(0xFFF6F9FE),
           drawer: isDesktop ? null : Drawer(child: sidebarWidget),
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -392,7 +472,7 @@ class _AdminLayoutState extends State<AdminLayout> {
                     Positioned.fill(
                       child: Column(
                         children: [
-                          const SizedBox(height: 65),
+                          const SizedBox(height: 68),
                           Expanded(
                             child: LayoutBuilder(
                               builder: (context, constraints) {
@@ -423,34 +503,19 @@ class _AdminLayoutState extends State<AdminLayout> {
                       right: 0,
                       child: Material(
                         color: Colors.white,
-                        elevation: 8,
-                        shadowColor: const Color(0xFF0759D4).withValues(alpha: 0.10),
+                        elevation: 3,
+                        shadowColor: Colors.black.withOpacity(0.06),
                         child: Container(
-                          height: 64,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [
-                                Colors.white,
-                                Color(0xFFF7FAFF),
-                                Colors.white,
-                              ],
-                            ),
-                            border: Border(
-                              bottom: BorderSide(
-                                color: Color(0xFFE3ECFA),
-                              ),
-                            ),
-                          ),
-                          padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 8 : 20),
+                          height: 68,
+                          color: Colors.white,
+                          padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 8 : 22),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               if (!isDesktop)
                                 Builder(
                                   builder: (ctx) => IconButton(
-                                    icon: const Icon(Icons.menu, color: Color(0xFF1A1A2E)),
+                                    icon: const Icon(Icons.menu, color: Color(0xFF0757D5)),
                                     onPressed: () => Scaffold.of(ctx).openDrawer(),
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
@@ -464,14 +529,14 @@ class _AdminLayoutState extends State<AdminLayout> {
                                   child: Container(
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFF4F6FA),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFFE0E4EF)),
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFE2E8F0)),
                                     ),
                                     child: Row(
                                       children: [
-                                        const SizedBox(width: 8),
-                                        const Icon(Icons.search, size: 16, color: Color(0xFFADB5BD)),
+                                        const SizedBox(width: 10),
+                                        const Icon(Icons.search, size: 17, color: Color(0xFF64748B)),
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: TextField(
@@ -481,8 +546,8 @@ class _AdminLayoutState extends State<AdminLayout> {
                                               widget.onSearch?.call(value);
                                             },
                                             decoration: const InputDecoration(
-                                              hintText: 'Search...',
-                                              hintStyle: TextStyle(fontSize: 12, color: Color(0xFF9AA3B2)),
+                                              hintText: 'Search workspace...',
+                                              hintStyle: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                                               border: InputBorder.none,
                                               isDense: true,
                                               contentPadding: EdgeInsets.zero,
@@ -491,7 +556,7 @@ class _AdminLayoutState extends State<AdminLayout> {
                                         ),
                                         if (_searchController.text.isNotEmpty)
                                           IconButton(
-                                            icon: const Icon(Icons.close, size: 16, color: Color(0xFF7B8494)),
+                                            icon: const Icon(Icons.close, size: 16, color: Color(0xFF64748B)),
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
                                             onPressed: () {
@@ -507,33 +572,33 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 ),
                               ),
 
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 10),
 
                               if (!isSmallMobile) ...[
                                 ElevatedButton.icon(
                                   onPressed: () {
                                     Navigator.pushNamed(context, '/client-history');
                                   },
-                                  icon: const Icon(Icons.add, size: 14, color: Colors.white),
+                                  icon: const Icon(Icons.add, size: 15, color: Colors.white),
                                   label: const Text(
                                     'Quick Add',
-                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2A52BE),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    backgroundColor: const Color(0xFF0757D5),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                                     elevation: 0,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 10),
                               ],
 
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.notifications_outlined, size: 20, color: Color(0xFF555F6E)),
+                                    icon: const Icon(Icons.notifications_outlined, size: 21, color: Color(0xFF475569)),
                                     onPressed: () {
                                       Navigator.pushNamed(context, '/notifications');
                                     },
@@ -546,7 +611,7 @@ class _AdminLayoutState extends State<AdminLayout> {
                                       top: 0,
                                       child: Container(
                                         padding: const EdgeInsets.all(3),
-                                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                        decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
                                         constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                                         child: Text(
                                           '$_unreadCount',
@@ -559,9 +624,9 @@ class _AdminLayoutState extends State<AdminLayout> {
                               ),
 
                               if (!isSmallMobile) ...[
-                                const SizedBox(width: 2),
+                                const SizedBox(width: 4),
                                 IconButton(
-                                  icon: const Icon(Icons.help_outline_rounded, size: 19, color: Color(0xFF555F6E)),
+                                  icon: const Icon(Icons.help_outline_rounded, size: 20, color: Color(0xFF475569)),
                                   onPressed: () {
                                     showDialog(
                                       context: context,
@@ -577,9 +642,9 @@ class _AdminLayoutState extends State<AdminLayout> {
                                   padding: const EdgeInsets.all(4),
                                   constraints: const BoxConstraints(),
                                 ),
-                                const SizedBox(width: 2),
+                                const SizedBox(width: 4),
                                 IconButton(
-                                  icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF555F6E)),
+                                  icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF475569)),
                                   onPressed: () {
                                     Navigator.pushNamed(context, '/settings');
                                   },
@@ -588,18 +653,17 @@ class _AdminLayoutState extends State<AdminLayout> {
                                 ),
                               ],
 
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 6),
                               if (isDesktop) ...[
-                                Container(width: 1, height: 36, color: const Color(0xFFE0E4EF)),
-                                const SizedBox(width: 10),
+                                Container(width: 1, height: 32, color: const Color(0xFFE2E8F0)),
+                                const SizedBox(width: 12),
                               ],
 
-                              // 🟢 MOBILE VIEW: Profile Icon with custom photo or color
                               if (!isDesktop)
                                 PopupMenuButton<int>(
                                   offset: const Offset(0, 45),
                                   icon: CircleAvatar(
-                                    radius: 15,
+                                    radius: 16,
                                     backgroundColor: avatarColor,
                                     backgroundImage: profileImage,
                                     child: profileImage == null
@@ -612,24 +676,22 @@ class _AdminLayoutState extends State<AdminLayout> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1A2E))),
+                                          Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                                           const SizedBox(height: 2),
-                                          Text("$userType | $userRole", style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
+                                          Text("$userType | $userRole", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                         ],
                                       ),
                                     ),
                                   ],
                                 ),
 
-                              // 🟢 DESKTOP VIEW: Admin Name & Details with custom photo or avatar color
                               if (isDesktop) ...[
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Text(userName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1A1A2E))),
-                                    Text(userType, style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
-                                    Text(userRole, style: const TextStyle(fontSize: 8, color: Color(0xFF8A94A6))),
+                                    Text(userName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+                                    Text(userType, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                   ],
                                 ),
                                 const SizedBox(width: 10),
@@ -638,7 +700,7 @@ class _AdminLayoutState extends State<AdminLayout> {
                                   backgroundColor: avatarColor,
                                   backgroundImage: profileImage,
                                   child: profileImage == null
-                                      ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700))
+                                      ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800))
                                       : null,
                                 ),
                               ],
@@ -650,37 +712,30 @@ class _AdminLayoutState extends State<AdminLayout> {
 
                     if (_showPopup)
                       Positioned(
-                        top: 70,
+                        top: 74,
                         right: 20,
                         child: Material(
                           elevation: 10,
                           color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                           child: Container(
                             width: 320,
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white,
-                                  Color(0xFFF4F8FF),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFBFD8FA)),
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF0757D5)),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.15),
-                                  blurRadius: 12,
+                                  color: Colors.black.withOpacity(0.12),
+                                  blurRadius: 15,
                                   offset: const Offset(0, 5),
                                 ),
                               ],
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.notifications_active, color: Color(0xFF2A52BE)),
+                                const Icon(Icons.notifications_active, color: Color(0xFF0757D5)),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
@@ -712,51 +767,57 @@ class _AdminLayoutState extends State<AdminLayout> {
     );
   }
 
-  bool _navHover(String route) => false;
-
-  Widget _sidebarToggle() {
-    return IconButton(
-      tooltip: _sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar',
-      onPressed: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
-      icon: AnimatedRotation(
-        turns: _sidebarCollapsed ? 0.5 : 0,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutBack,
-        child: const Icon(Icons.chevron_left_rounded, color: Color(0xFFB9D6FF)),
-      ),
-    );
-  }
-
+  // 🟢 Animated Sidebar Nav Item with Heightened Icons and Bright Lighting Hover Effect
   Widget _navItem(IconData icon, String title, String route, BuildContext context) {
     final bool isActive = widget.currentRoute == route;
-    final bool collapsed = _sidebarCollapsed && MediaQuery.of(context).size.width >= 900;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
             if (!isActive) Navigator.pushNamed(context, route);
           },
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12, vertical: 11),
+          borderRadius: BorderRadius.circular(10),
+          hoverColor: Colors.white.withOpacity(0.14), // 💡 Bright Lighting effect on hover
+          splashColor: Colors.white.withOpacity(0.2),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: EdgeInsets.symmetric(horizontal: _isSidebarCollapsed ? 16 : 12, vertical: 11),
             decoration: BoxDecoration(
-              color: isActive ? const Color(0xFF0E63D7) : (_navHover(route) ? const Color(0xFF111E33) : Colors.transparent),
-              borderRadius: BorderRadius.circular(8),
+              color: isActive ? Colors.white : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: isActive
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ]
+                  : [],
             ),
             child: Row(
               children: [
-                Icon(icon, size: 17, color: isActive ? Colors.white : const Color(0xFF8A94A6)),
-                if (!collapsed) const SizedBox(width: 12),
-                if (!collapsed) Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                    color: isActive ? Colors.white : const Color(0xFF8A94A6),
-                  ),
+                Icon(
+                  icon, 
+                  size: 20, // ⬆️ Slightly taller and prominent icon size
+                  color: isActive ? const Color(0xFF0757D5) : Colors.white70,
                 ),
+                if (!_isSidebarCollapsed) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                        color: isActive ? const Color(0xFF0757D5) : Colors.white70,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

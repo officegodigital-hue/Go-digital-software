@@ -14,6 +14,13 @@ async function ensureHrmsEmployeeTables(db) {
     "CASE WHEN u.is_active = 1 THEN 'Active' ELSE 'Inactive' END " +
     "FROM employee_users u LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = u.id WHERE p.id IS NULL"
   );
+
+  await db.query(
+    `UPDATE hrms_employee_profiles p
+     JOIN employee_users u ON TRIM(p.full_name) = TRIM(u.full_name)
+     SET p.employee_user_id = u.id
+     WHERE p.employee_user_id IS NULL`
+  );
 }
 
 module.exports = { ensureHrmsEmployeeTables: ensureHrmsEmployeeTables };
