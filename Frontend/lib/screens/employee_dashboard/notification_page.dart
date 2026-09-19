@@ -2862,106 +2862,38 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
-    final payload = _messagePayload(raw);
+Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
+    Map<String, dynamic>? payload;
+    String displayPreview = '';
 
-    // ✅ Render File Download Card
-    if (payload != null && (payload['type'] == 'file' || payload['fileName'] != null)) {
-      final fileName = payload['fileName']?.toString() ?? payload['name']?.toString() ?? 'Shared file';
-      final relativeUrl = payload['url']?.toString() ?? payload['fileUrl']?.toString() ?? '';
-      final originUrl = _baseUrl.replaceAll(RegExp(r'/api/?$'), '');
-      final fileUrl = relativeUrl.startsWith('http') 
-          ? relativeUrl 
-          : '$originUrl/api/chat/download/${Uri.encodeComponent(fileName)}';
-      final size = int.tryParse(payload['size']?.toString() ?? '') ?? 0;
-      
-      final double sizeInKb = size / 1024;
-      final String sizeText = sizeInKb > 1024 
-          ? '${(size / (1024 * 1024)).toStringAsFixed(2)} MB' 
-          : '${sizeInKb.toStringAsFixed(1)} KB';
+    if (raw is Map) {
+      payload = Map<String, dynamic>.from(raw);
+    } else if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          payload = Map<String, dynamic>.from(decoded);
+          displayPreview = payload['preview']?.toString() ?? '';
+        }
+      } catch (_) {}
+    }
 
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4F8FF),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD6E5FF)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Color(0xFF0052CC),
-                  child: Icon(Icons.description_rounded, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(fileName, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                      const SizedBox(height: 2),
-                      Text(size > 0 ? sizeText : 'Document', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0052CC),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    elevation: 0,
-                  ),
-                  icon: const Icon(Icons.download_rounded, size: 14),
-                  label: const Text('Download', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  onPressed: fileUrl.isEmpty ? null : () async {
-  try {
-    final uri = Uri.parse(fileUrl);
-    final response = await http.get(uri);
-    if (response.statusCode == 200) {
-      final blob = html.Blob([response.bodyBytes], 'application/octet-stream');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute("download", fileName)
-        ..click();
-      html.Url.revokeObjectUrl(url);
-    } else {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    }
-  } catch (e) {
-    debugPrint("Download error: $e");
-  }
-},
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
+    final innerPayload = payload != null && payload['payload'] is Map 
+        ? Map<String, dynamic>.from(payload['payload']) 
+        : null;
+
+    final type = innerPayload?['type']?.toString() ?? payload?['type']?.toString();
 
     // ✅ Render Day Planner Submission Card
-    if (payload != null && payload['type'] == 'PLAN_SUBMITTED') {
-      final sender = payload['sender']?.toString() ?? 'Employee';
-      final reportType = payload['reportType']?.toString() ?? 'Day';
-      final date = payload['date']?.toString() ?? '';
-      
+    if (type == 'PLAN_SUBMITTED') {
+      final pData = innerPayload ?? payload ?? {};
+      final sender = pData['sender']?.toString() ?? 'Employee';
+      final reportType = pData['reportType']?.toString() ?? 'Day';
+      final date = pData['date']?.toString() ?? '';
+
       return Container(
-        padding: const EdgeInsets.all(12),
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 420),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -2970,36 +2902,70 @@ final String sizeText = sizeInKb > 1024
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("$sender Submitted Planner", style: const TextStyle(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 4),
-            Text("$reportType Report • $date", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                color: Color(0xFF0052CC),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(15)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.assignment_turned_in_rounded, color: Colors.white, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "$sender Submitted Planner",
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text("$reportType Report • Date: $date", style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
           ],
         ),
       );
     }
 
-    final textValue = payload?['text']?.toString() ?? raw?.toString() ?? '';
-    final reply = payload?['replyTo']?.toString();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (reply != null && reply.isNotEmpty)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(10),
-              border: const Border(left: BorderSide(color: Color(0xFF0052CC), width: 3)),
+    // ✅ Render General Notification Cards (Task Planner Share, Updates, Assignments, etc.)
+    if (displayPreview.isNotEmpty || type != null) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              displayPreview.isNotEmpty ? displayPreview : (innerPayload?['taskName'] ?? 'Notification Update'),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
             ),
-            child: Text(reply, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
-          ),
-        _buildRichTextWithLinks(textValue),
-      ],
-    );
+            if (innerPayload?['content'] != null && innerPayload!['content'].toString().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _buildRichTextWithLinks(innerPayload['content'].toString()),
+            ],
+            if (innerPayload?['contentType'] != null) ...[
+              const SizedBox(height: 4),
+              Text("Type: ${innerPayload!['contentType']}", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+            ],
+          ],
+        ),
+      );
+    }
+
+    // Fallback normal text
+    final textValue = payload?['text']?.toString() ?? raw?.toString() ?? '';
+    return _buildRichTextWithLinks(textValue);
   }
+
+
+  
   
   Widget _buildRichTextWithLinks(String value) {
     final regex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
