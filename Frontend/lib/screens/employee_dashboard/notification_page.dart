@@ -2862,14 +2862,9 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-<<<<<<< HEAD
-Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
+ Widget _buildMessageContent(dynamic raw) {
     Map<String, dynamic>? payload;
     String displayPreview = '';
-=======
-  Widget _buildMessageContent(dynamic raw) {
-    final payload = _messagePayload(raw);
->>>>>>> 625af6391cd839492b87beb8215a21bab5ab9cfd
 
     if (raw is Map) {
       payload = Map<String, dynamic>.from(raw);
@@ -2895,6 +2890,7 @@ Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
       final sender = pData['sender']?.toString() ?? 'Employee';
       final reportType = pData['reportType']?.toString() ?? 'Day';
       final date = pData['date']?.toString() ?? '';
+      final plannerData = pData['plannerData'] as List<dynamic>? ?? [];
 
       return Container(
         width: double.infinity,
@@ -2968,6 +2964,7 @@ Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
     final textValue = payload?['text']?.toString() ?? raw?.toString() ?? '';
     return _buildRichTextWithLinks(textValue);
   }
+
 
 
   
