@@ -2862,9 +2862,14 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
+<<<<<<< HEAD
 Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
     Map<String, dynamic>? payload;
     String displayPreview = '';
+=======
+  Widget _buildMessageContent(dynamic raw) {
+    final payload = _messagePayload(raw);
+>>>>>>> 625af6391cd839492b87beb8215a21bab5ab9cfd
 
     if (raw is Map) {
       payload = Map<String, dynamic>.from(raw);

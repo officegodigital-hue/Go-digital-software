@@ -1040,7 +1040,7 @@ class _PackageQuotationAdminState extends State<PackageQuotationAdmin> {
                       const Text('Select Role:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: selectedRoleKey,
+                        initialValue: selectedRoleKey,
                         isExpanded: true,
                         decoration: InputDecoration(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),

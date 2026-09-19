@@ -136,6 +136,7 @@ function serializeRecord(row, person) {
     id: row.id,
     employeeId: row.employee_id,
     employeeName: person ? person.full_name : null,
+    staffId: person ? person.staff_id : null,
     role: person ? person.role : null,
     date: sqlDate(row.attendance_date),
     checkIn: policy.formatDisplayTime(sqlDateTime(row.check_in_at)),
@@ -318,6 +319,66 @@ async function dashboard(req, res) {
     });
   } catch (error) {
     console.error('GET /attendance/dashboard', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function clockLogs(req, res) {
+  try {
+    const view = req.query.view === 'day' ? 'day' : 'month';
+    let start, end;
+    if (view === 'day') {
+      const date = parseDateParam(req.query.date);
+      if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
+      start = date;
+      end = date;
+    } else {
+      const month = parseMonthParam(req.query.month);
+      if (!month) return fail(res, 400, 'month must be YYYY-MM');
+      const parts = month.split('-').map(Number);
+      const daysInMonth = new Date(Date.UTC(parts[0], parts[1], 0)).getUTCDate();
+      start = month + '-01';
+      end = month + '-' + String(daysInMonth).padStart(2, '0');
+    }
+
+    const employees = await staff.listActiveStaff(db);
+    const employeeIdFilter = req.query.employeeId ? Number(req.query.employeeId) : null;
+    const scopedEmployees = employeeIdFilter
+      ? employees.filter(function (person) { return person.id === employeeIdFilter; })
+      : employees;
+    const ids = scopedEmployees.map(function (person) { return person.id; });
+
+    const [records] = ids.length
+      ? await db.query(
+          'SELECT * FROM attendance_records WHERE attendance_date BETWEEN ? AND ? AND employee_id IN (?) ORDER BY attendance_date DESC, check_in_at DESC',
+          [start, end, ids]
+        )
+      : [[]];
+
+    const items = records
+      .filter(function (row) { return row.check_in_at; })
+      .map(function (row) {
+        const person = scopedEmployees.find(function (p) { return p.id === row.employee_id; });
+        return serializeRecord(row, person);
+      });
+
+    return ok(res, {
+      view: view,
+      start: start,
+      end: end,
+      employees: scopedEmployees.map(function (person) {
+        return {
+          id: person.id,
+          employeeId: person.id,
+          employeeName: person.full_name,
+          staffId: person.staff_id,
+          role: person.role
+        };
+      }),
+      items: items
+    });
+  } catch (error) {
+    console.error('GET /attendance/clock-logs', error);
     return fail(res, 500, error.message);
   }
 }
@@ -791,6 +852,7 @@ async function myExport(req, res) {
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
+  clockLogs: clockLogs,
   employeeDashboard: employeeDashboard,
   myHistory: myHistory,
   checkInPolicy: checkInPolicy,

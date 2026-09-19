@@ -315,7 +315,7 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
                           child: ListView.separated(
                             physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                             itemCount: _clients.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                            separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                             itemBuilder: (context, index) {
                               final client = _clients[index];
                               final cId = client['id'] is int ? client['id'] : int.tryParse(client['id'].toString()) ?? 0;
@@ -584,7 +584,7 @@ class _ClientCredentialsScreenState extends State<ClientCredentialsScreen> {
     final otherPlatformCtrl = TextEditingController(text: isCustomPlatform ? existingPlatform : '');
     
     // 🟢 Default Client Name set automatically based on current selected client
-    final clientNameCtrl = TextEditingController(text: isEdit ? (existing?['client_name'] ?? _selectedClientName ?? '') : (_selectedClientName ?? ''));
+    final clientNameCtrl = TextEditingController(text: isEdit ? (existing['client_name'] ?? _selectedClientName ?? '') : (_selectedClientName ?? ''));
     
     final userNameCtrl = TextEditingController(text: existing?['username'] ?? '');
     final passwordCtrl = TextEditingController(text: existing?['password'] ?? '');

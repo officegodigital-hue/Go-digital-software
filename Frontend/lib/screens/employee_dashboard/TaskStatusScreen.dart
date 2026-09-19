@@ -303,7 +303,7 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0052CC).withOpacity(0.20),
+            color: const Color(0xFF0052CC).withValues(alpha: 0.20),
             blurRadius: 26,
             offset: const Offset(0, 10),
           ),
@@ -426,9 +426,9 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
       width: isMobile ? 46 : 58,
       height: isMobile ? 46 : 58,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.16),
+        color: Colors.white.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(isMobile ? 12 : 15),
-        border: Border.all(color: Colors.white.withOpacity(0.22)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),
       child: Icon(
         Icons.fact_check_rounded,
@@ -450,11 +450,11 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
         vertical: 10,
       ),
       decoration: BoxDecoration(
-        color: dark ? Colors.white.withOpacity(0.14) : Colors.white,
+        color: dark ? Colors.white.withValues(alpha: 0.14) : Colors.white,
         borderRadius: BorderRadius.circular(11),
         border: Border.all(
           color: dark
-              ? Colors.white.withOpacity(0.18)
+              ? Colors.white.withValues(alpha: 0.18)
               : const Color(0xFFDCE8F7),
         ),
       ),
@@ -466,7 +466,7 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
             height: 30,
             decoration: BoxDecoration(
               color: dark
-                  ? Colors.white.withOpacity(0.16)
+                  ? Colors.white.withValues(alpha: 0.16)
                   : const Color(0xFFEAF3FF),
               borderRadius: BorderRadius.circular(8),
             ),
@@ -524,7 +524,7 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.025),
+            color: Colors.black.withValues(alpha: 0.025),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -1045,7 +1045,7 @@ class _TaskStatusScreenState extends State<TaskStatusScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.025),
+            color: Colors.black.withValues(alpha: 0.025),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),

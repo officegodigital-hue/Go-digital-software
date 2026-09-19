@@ -1180,7 +1180,7 @@ final draftCount = quotationsData
                       parent: BouncingScrollPhysics(),
                     ),
                     itemCount: quotations.length,
-                    separatorBuilder: (_, __) =>
+                    separatorBuilder: (_, _) =>
                         const Divider(height: 1, color: Color(0xFFE2E8F0)),
                     itemBuilder: (context, index) => _buildQuotationRow(
                       quotations[index],
@@ -1207,7 +1207,7 @@ final draftCount = quotationsData
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: quotations.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) =>
           _buildMobileQuotationCard(quotations[index], startIndex + index + 1, isMainAdmin),
     );
@@ -1635,9 +1635,9 @@ final draftCount = quotationsData
               child: Text('...'),
             ),
           for (final p in <int>{
-            (_currentPage - 1).clamp(2, totalPages - 1) as int,
-            _currentPage.clamp(2, totalPages - 1) as int,
-            (_currentPage + 1).clamp(2, totalPages - 1) as int,
+            (_currentPage - 1).clamp(2, totalPages - 1),
+            _currentPage.clamp(2, totalPages - 1),
+            (_currentPage + 1).clamp(2, totalPages - 1),
           })
             _buildPageButton(
               '$p',

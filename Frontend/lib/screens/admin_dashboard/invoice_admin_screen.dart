@@ -1574,7 +1574,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     primary: false,
                     physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                     itemCount: invoices.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFD7E2F2)),
+                    separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFD7E2F2)),
                     itemBuilder: (context, index) => _buildInvoiceHistoryRow(invoices[index], isMainAdmin),
                   ),
                 ),
@@ -1651,7 +1651,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: invoices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) => _buildMobileInvoiceCard(invoices[index], startIndex + index + 1, isMainAdmin),
     );
   }
@@ -1887,9 +1887,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           _buildPageButton('1', _currentPage == 1, onTap: () => setState(() => _currentPage = 1)),
           if (_currentPage > 3) const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Text('...')),
           for (final p in <int>{
-            (_currentPage - 1).clamp(2, totalPages - 1) as int,
-            _currentPage.clamp(2, totalPages - 1) as int,
-            (_currentPage + 1).clamp(2, totalPages - 1) as int,
+            (_currentPage - 1).clamp(2, totalPages - 1),
+            _currentPage.clamp(2, totalPages - 1),
+            (_currentPage + 1).clamp(2, totalPages - 1),
           })
             _buildPageButton('$p', p == _currentPage, onTap: () => setState(() => _currentPage = p)),
           if (_currentPage < totalPages - 2) const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Text('...')),
@@ -1950,7 +1950,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
 
-    return Container(
+    return SizedBox(
       height: 65,
       child: Row(
         children: [

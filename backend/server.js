@@ -111,6 +111,7 @@ const quotationRoutes  = require('./routes/quotations');
 const invoiceRoutes    = require('./routes/invoices'); 
 const taskRoutes       = require('./routes/tasks');  
 const authRoutes = require('./routes/auth');
+const clientRepositoryRoutes = require('./routes/clientRepository');
 const employeeTaskRoutes  = require('./routes/employee-tasks'); 
 const dailyReportsRouter = require('./routes/daily-reports');
 const taskPlannerRoutes   = require('./routes/task-planner');   
@@ -142,12 +143,13 @@ const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
 
 // near the other ensure imports
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
+const { ensureClientRepositoryTables } = require('./lib/ensureClientRepositoryTables');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 const employeeAttendanceApp = createEmployeeAttendanceApp({
   pool: db,
-  jwtSecret: process.env.JWT_SECRET || 'your_fallback_secret_key_here',
+  jwtSecret: authRoutes.JWT_SECRET,
   timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata',
   basePath: '',
 });
@@ -218,6 +220,7 @@ app.use('/api/quotations', quotationRoutes);
 app.use('/api/invoices', invoiceRoutes); 
 app.use('/api/tasks', taskRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/client-repository', clientRepositoryRoutes);
 app.use('/api/employee-tasks', employeeTaskRoutes); 
 app.use('/api/daily-reports', dailyReportsRouter);
 app.use('/api/task-planner',   taskPlannerRoutes); 
@@ -281,8 +284,10 @@ server.listen(PORT, async () => {
     const payrollRun = await generatePayrollRun(currentYear, currentMonth, attendancePolicy.todayIstDate());
     console.log(`Current payroll draft ready: ${payrollRun.generatedCount} included, ${payrollRun.skippedCount} need compensation.`);
     await ensureHrmsTrackingTables(db);
+    await ensureClientRepositoryTables(db);
     console.log('HRMS tracking tables are ready');
+    console.log('Client Work Repository tables are ready');
   } catch (error) {
-    console.error('Could not ensure attendance tables:', error.message);
+    console.error('Could not ensure startup database tables:', error.message);
   }
 });

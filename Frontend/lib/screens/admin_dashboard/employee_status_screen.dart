@@ -1506,7 +1506,7 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                 height: 480,
                                                 child: ListView.separated(
                                               itemCount: filteredEmployeeRows.length,
-                                              separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                              separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                               itemBuilder: (context, index) {
                                                 final empRow = filteredEmployeeRows[index];
                                                 final roleCounts = Map<String, int>.from(empRow["roleCounts"] ?? {});
@@ -1602,7 +1602,7 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                         )
                                       : ListView.separated(
                                           itemCount: filteredRows.length,
-                                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                          separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                           itemBuilder: (context, index) {
                                             final row = filteredRows[index];
                                             final status = row["status"];

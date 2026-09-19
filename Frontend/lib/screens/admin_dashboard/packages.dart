@@ -360,7 +360,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
                               ),
                               const SizedBox(height: 8),
                               DropdownButtonFormField<String>(
-                                value: selectedRoleKey,
+                                initialValue: selectedRoleKey,
                                 isExpanded: true,
                                 decoration:
                                     _premiumInputDecoration(
@@ -1536,8 +1536,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
 
                           return Row(
                             children: [
-                              if (deleteButton != null)
-                                deleteButton,
+                              ?deleteButton,
                               if (deleteButton != null)
                                 const SizedBox(width: 10),
                               const Spacer(),
@@ -1675,7 +1674,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
             ],
           ),
         ),
-        if (action != null) action,
+        ?action,
       ],
     );
   }

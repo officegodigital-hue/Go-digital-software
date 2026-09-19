@@ -724,7 +724,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
                                               allUserRolesMaster
                                                   .length,
                                           separatorBuilder:
-                                              (_, __) =>
+                                              (_, _) =>
                                                   const SizedBox(
                                             height: 8,
                                           ),
@@ -962,12 +962,16 @@ void _openForm({Map<String, dynamic>? employee}) async {
         if (!name.contains(query) &&
             !staffId.contains(query) &&
             !role.contains(query) &&
-            !email.contains(query)) return false;
+            !email.contains(query)) {
+          return false;
+        }
       }
 
       final userType = _normalizeUserType(item['user_type']);
       if (_tableUserTypeFilter != 'all' &&
-          userType != _tableUserTypeFilter) return false;
+          userType != _tableUserTypeFilter) {
+        return false;
+      }
 
       final isActive = _isTrue(item['is_active']);
       if (_tableStatusFilter == 'active' && !isActive) return false;
@@ -1924,7 +1928,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredEmployees.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (_, _) =>
                   const Divider(height: 1, color: _border),
               itemBuilder: (_, index) =>
                   _buildDesktopEmployeeRow(_filteredEmployees[index], index),
@@ -2158,7 +2162,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
       physics:
           const NeverScrollableScrollPhysics(),
       itemCount: _filteredEmployees.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           const SizedBox(height: 12),
       itemBuilder: (context, index) {
           return _buildMobileEmployeeCard(
@@ -3847,7 +3851,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: value,
+          initialValue: value,
           isExpanded: true,
           icon: const Icon(
             Icons.keyboard_arrow_down_rounded,
@@ -3936,7 +3940,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: value,
+          initialValue: value,
           items: items,
           onChanged: onChanged,
           decoration: InputDecoration(

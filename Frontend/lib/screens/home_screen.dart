@@ -303,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Image.asset(
               'assets/images/godigital_logo.png',
               fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) {
+              errorBuilder: (_, _, _) {
                 return const Icon(
                   Icons.grid_view_rounded,
                   color: primaryColor,
@@ -485,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Image.asset(
         'assets/images/godigital_logo.png',
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) {
+        errorBuilder: (_, _, _) {
           return const Icon(
             Icons.business,
             size: 70,

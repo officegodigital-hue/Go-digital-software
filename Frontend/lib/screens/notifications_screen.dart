@@ -2869,7 +2869,7 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  Widget _buildMessageContent(dynamic raw, {bool compact = false}) {
+  Widget _buildMessageContent(dynamic raw) {
     Map<String, dynamic>? payload;
     String displayPreview = '';
 

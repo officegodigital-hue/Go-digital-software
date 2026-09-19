@@ -108,10 +108,12 @@ class _HeaderState extends State<_Header> {
       final raw = await AuthStorage.getString('user_data');
       if (raw == null || raw.isEmpty) return;
       final data = jsonDecode(raw);
-      if (data is Map && mounted) _setIdentity(
+      if (data is Map && mounted) {
+        _setIdentity(
         data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
         data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
       );
+      }
     } catch (_) {}
   }
 

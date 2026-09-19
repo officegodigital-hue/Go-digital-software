@@ -450,7 +450,7 @@ class _VideographerTaskPlannerHistoryPageState
                         const SizedBox(height: 8),
 
                         DropdownButtonFormField<String>(
-                          value: selectedStatus,
+                          initialValue: selectedStatus,
                           isExpanded: true,
                           decoration: _premiumInput(
                             'Select Status',
@@ -1938,7 +1938,7 @@ class _VideographerTaskPlannerHistoryPageState
           const NeverScrollableScrollPhysics(),
       itemCount:
           filteredRecords.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final item =
