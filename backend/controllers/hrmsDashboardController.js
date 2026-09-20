@@ -133,7 +133,7 @@ async function monthView(req, res) {
 
     const [leaves] = userIds.length
       ? await db.query(
-          `SELECT employee_id, duration_type,
+          `SELECT employee_id, duration_type, leave_type,
                   DATE_FORMAT(from_date, '%Y-%m-%d') AS from_date,
                   DATE_FORMAT(to_date, '%Y-%m-%d') AS to_date
            FROM employee_leaves
@@ -156,9 +156,10 @@ async function monthView(req, res) {
     const leaveMap = new Map();
     leaves.forEach(function (row) {
       let date = row.from_date;
+      const code = row.duration_type === 'Half Day' ? 'HL' : 'LV';
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
-        leaveMap.set(key, row.duration_type === 'Half Day' ? 'HL' : 'LV');
+        leaveMap.set(key, { code: code, leaveType: row.leave_type });
         date = nextDate(date);
       }
     });
@@ -172,6 +173,8 @@ async function monthView(req, res) {
       let present = 0;
       let late = 0;
       let halfLeave = 0;
+      let earnedLeave = 0;
+      let approvedLeave = 0;
       let unexcused = 0;
       let workingDays = 0;
 
@@ -185,7 +188,8 @@ async function monthView(req, res) {
         const userId = profile.employee_user_id;
         const key = userId ? userId + '|' + date : '';
         const record = key ? recordMap.get(key) : null;
-        const leaveType = key ? leaveMap.get(key) : null;
+        const leaveInfo = key ? leaveMap.get(key) : null;
+        const leaveType = leaveInfo ? leaveInfo.code : null;
 
         // Future dates stay blank, except for leave that is already approved.
         if (date > today && !leaveType) {
@@ -213,7 +217,9 @@ async function monthView(req, res) {
           }
         } else if (leaveType) {
           days.push(leaveType);
+          approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
+          if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
           if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing record is unrecorded during development, not absent.
@@ -239,12 +245,54 @@ async function monthView(req, res) {
         excused: halfLeave,
         unexcused: unexcused,
         halfLeave: halfLeave,
+        earnedLeave: earnedLeave,
+        approvedLeave: approvedLeave,
         salary: formatSalary(profile.monthly_salary),
         daysPaid: String(lopDays),
         afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
         updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
       };
     });
+
+    // Day-wise KPIs reflect *today* specifically (a live snapshot) rather
+    // than a month-to-date total, independent of whichever month/year is
+    // being browsed in the calendar below.
+    const [todayYear, todayMonth, todayDay] = today.split('-').map(Number);
+    const todayWeekday = utcWeekday(todayYear, todayMonth, todayDay);
+    let todayPresent = 0;
+    let todayAbsent = 0;
+    let todayLate = 0;
+
+    if (!weeklyOff.has(todayWeekday) && userIds.length) {
+      const [todayRecords] = await db.query(
+        `SELECT * FROM attendance_records WHERE attendance_date = ? AND employee_id IN (?)`,
+        [today, userIds]
+      );
+      const [todayLeaves] = await db.query(
+        `SELECT employee_id FROM employee_leaves
+         WHERE status = 'APPROVED' AND from_date <= ? AND to_date >= ? AND employee_id IN (?)`,
+        [today, today, userIds]
+      );
+      const todayRecordMap = new Map();
+      todayRecords.forEach(function (row) { todayRecordMap.set(row.employee_id, row); });
+      const todayLeaveSet = new Set(todayLeaves.map(function (row) { return row.employee_id; }));
+
+      profiles.forEach(function (profile) {
+        const userId = profile.employee_user_id;
+        const record = userId ? todayRecordMap.get(userId) : null;
+        if (record && record.check_in_at) {
+          if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
+            todayAbsent += 1;
+          } else if (Number(record.is_late)) {
+            todayLate += 1;
+          } else {
+            todayPresent += 1;
+          }
+        } else if (!todayLeaveSet.has(userId) && payrollRules.missingIsAbsent) {
+          todayAbsent += 1;
+        }
+      });
+    }
 
     return ok(res, {
       year: year,
@@ -254,9 +302,9 @@ async function monthView(req, res) {
       payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {
         totalEmployees: profiles.length,
-        present: presentDays,
-        absent: absentDays,
-        late: lateDays,
+        present: todayPresent,
+        absent: todayAbsent,
+        late: todayLate,
       },
       employees: employees,
     });

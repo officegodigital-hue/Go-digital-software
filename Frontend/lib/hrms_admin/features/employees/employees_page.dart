@@ -1,10 +1,19 @@
+import 'leave_policy_dialog.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
 import '../../../services/hrms_employees_api.dart';
+import '../../../services/api_config.dart';
+import '../../../services/auth_storage.dart';
 
 abstract final class HrmsColors {
   static const blue = Color(0xFF075EF7);
@@ -171,6 +180,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             _PageHeader(
                               onAdd: () => _showEmployeeForm(),
                               onExport: _exportEmployees,
+                              onLeavePolicy: _showLeavePolicies,
                             ),
                             const SizedBox(height: 18),
                             _EmployeeKpis(
@@ -250,17 +260,76 @@ class _EmployeesPageState extends State<EmployeesPage> {
   Future<void> _exportEmployees() async {
     try {
       final csv = await HrmsEmployeesApi.exportCsv();
-      await Clipboard.setData(ClipboardData(text: csv));
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Employee CSV copied to clipboard.')),
+      final rows = _parseCsv(csv);
+      if (rows.length <= 1) throw Exception('No employees available to export.');
+      final logo = pw.MemoryImage(
+        (await rootBundle.load('assets/images/godigital_logo.png')).buffer.asUint8List(),
       );
+      final generatedAt = DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now());
+      final document = pw.Document();
+      document.addPage(pw.MultiPage(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.fromLTRB(28, 26, 28, 30),
+        header: (context) => pw.Column(children: [
+          pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
+            pw.Container(width: 54, height: 54, padding: const pw.EdgeInsets.all(6), child: pw.Image(logo, fit: pw.BoxFit.contain)),
+            pw.SizedBox(width: 12),
+            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text('GO DIGITAL', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+              pw.Text('Employee Directory', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            ]),
+            pw.Spacer(),
+            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+              pw.Text('EMPLOYEE MANAGEMENT', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blue700)),
+              pw.Text('Generated $generatedAt', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+            ]),
+          ]),
+          pw.SizedBox(height: 12),
+          pw.Container(height: 2, color: PdfColors.blue700),
+          pw.SizedBox(height: 14),
+        ]),
+        footer: (context) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Text('GoDigital - Confidential internal record', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+          pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+        ]),
+        build: (context) => [
+          pw.Text('Employee Directory', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+          pw.SizedBox(height: 5),
+          pw.Text('${rows.length - 1} employees', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+          pw.SizedBox(height: 12),
+          pw.Table.fromTextArray(
+            headers: rows.first,
+            data: rows.skip(1).toList(),
+            headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF075EF7)),
+            headerStyle: pw.TextStyle(color: PdfColors.white, fontSize: 9, fontWeight: pw.FontWeight.bold),
+            cellStyle: const pw.TextStyle(fontSize: 8, color: PdfColors.blue900),
+            cellHeight: 26,
+            border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFD8E1F1), width: .6),
+            oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF4F7FC)),
+          ),
+        ],
+      ));
+      await Printing.layoutPdf(onLayout: (_) => document.save());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Professional employee PDF is ready.')));
     } catch (err) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
       );
     }
+  }
+
+  List<List<String>> _parseCsv(String input) {
+    final rows = <List<String>>[];
+    for (final line in input.split(RegExp(r'\r?\n'))) {
+      if (line.trim().isEmpty) continue;
+      final values = line.contains('"')
+          ? RegExp(r'"((?:""|[^"])*)"').allMatches(line).map((match) => match.group(1)!.replaceAll('""', '"')).toList()
+          : line.split(',').map((value) => value.trim()).toList();
+      if (values.isNotEmpty) rows.add(values);
+    }
+    return rows;
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -275,6 +344,12 @@ class _EmployeesPageState extends State<EmployeesPage> {
     }
   }
 
+  Future<void> _showLeavePolicies() async {
+    final saved = await showDialog<bool>(context: context, builder: (_) => const LeavePolicyDialog());
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Leave policies saved.')));
+    }
+  }
   Future<void> _showEmployeeForm({_Employee? employee}) async {
     final name = TextEditingController(text: employee?.name ?? '');
     final id = TextEditingController(
@@ -574,9 +649,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
 }
 
 class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.onAdd, required this.onExport});
+  const _PageHeader({required this.onAdd, required this.onExport, required this.onLeavePolicy});
 
-  final VoidCallback onAdd, onExport;
+  final VoidCallback onAdd, onExport, onLeavePolicy;
 
   @override
   Widget build(BuildContext context) => AdminPageHeader(
@@ -585,6 +660,8 @@ class _PageHeader extends StatelessWidget {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        OutlinedButton.icon(onPressed: onLeavePolicy, icon: const Icon(Icons.event_available_outlined), label: const Text('Leave Policy'), style: OutlinedButton.styleFrom(foregroundColor: HrmsColors.navy, side: const BorderSide(color: HrmsColors.line), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)))),
+        const SizedBox(width: 12),
         FilledButton.icon(
           onPressed: onAdd,
           icon: const Icon(Icons.add, size: 25),

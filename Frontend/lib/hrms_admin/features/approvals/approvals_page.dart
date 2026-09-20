@@ -23,6 +23,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
+  String period = 'This Month';
   String searchQuery = '';
   List<_ApprovalRequest> requests = [];
   List<String> employeeNames = const ['All Employees'];
@@ -166,12 +167,13 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   employee: employee,
                                   status: status,
                                   dateRange: dateRange,
+                                  period: period,
                                   employees: employeeNames,
                                   leaveCount: leaveCount,
                                   extraCount: extraCount,
                                   requests: requests.where((request) {
                                     final query = searchQuery.trim().toLowerCase();
-                                    return query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query);
+                                    return (query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query)) && _matchesPeriod(request, period);
                                   }).toList(),
                                   searchQuery: searchQuery,
                                   onSearch: (value) => setState(() => searchQuery = value),
@@ -191,10 +193,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     dateRange = value!;
                                     setState(() {});
                                   },
+                                  onPeriodChanged: (value) => setState(() => period = value),
                                   onReset: () {
                                     employee = 'All Employees';
                                     status = 'All Status';
                                     dateRange = 'All Dates';
+                                    period = 'This Month';
                                     _load();
                                   },
                                   onApprove: (request) =>
@@ -355,6 +359,7 @@ class _RequestsPanel extends StatelessWidget {
     required this.employee,
     required this.status,
     required this.dateRange,
+    required this.period,
     required this.employees,
     required this.leaveCount,
     required this.extraCount,
@@ -365,13 +370,14 @@ class _RequestsPanel extends StatelessWidget {
     required this.onEmployeeChanged,
     required this.onStatusChanged,
     required this.onDateChanged,
+    required this.onPeriodChanged,
     required this.onReset,
     required this.onApprove,
     required this.onReject,
   });
 
   final bool leaveRequests;
-  final String employee, status, dateRange;
+  final String employee, status, dateRange, period;
   final List<String> employees;
   final int leaveCount, extraCount;
   final List<_ApprovalRequest> requests;
@@ -379,6 +385,7 @@ class _RequestsPanel extends StatelessWidget {
   final ValueChanged<String> onSearch;
   final ValueChanged<bool> onTabChanged;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
+  final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
@@ -412,9 +419,11 @@ class _RequestsPanel extends StatelessWidget {
               employees: employees,
               status: status,
               dateRange: dateRange,
+              period: period,
               onEmployeeChanged: onEmployeeChanged,
               onStatusChanged: onStatusChanged,
               onDateChanged: onDateChanged,
+              onPeriodChanged: onPeriodChanged,
               onReset: onReset,
               searchQuery: searchQuery,
               onSearch: onSearch,
@@ -584,22 +593,12 @@ class _ApprovalTabs extends StatelessWidget {
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
         return SizedBox(
-          width: constraints.maxWidth < 600 ? constraints.maxWidth : 426,
-          child: Row(children: [
-            Expanded(
-                child: _TabButton(
-                    label: 'Leave Requests',
-                    count: leaveCount,
-                    active: leaveRequests,
-                    onTap: () => onChanged(true))),
-            const SizedBox(width: 6),
-            Expanded(
-                child: _TabButton(
-                    label: 'Extra Hours',
-                    count: extraCount,
-                    active: !leaveRequests,
-                    onTap: () => onChanged(false))),
-          ]),
+          width: constraints.maxWidth < 600 ? constraints.maxWidth : 220,
+          child: _TabButton(
+              label: 'Leave Requests',
+              count: leaveCount,
+              active: true,
+              onTap: () => onChanged(true)),
         );
       });
 }
@@ -663,16 +662,19 @@ class _ApprovalFilters extends StatelessWidget {
       {required this.employee,
       required this.status,
       required this.dateRange,
+      required this.period,
       required this.employees,
       required this.onEmployeeChanged,
       required this.onStatusChanged,
       required this.onDateChanged,
+      required this.onPeriodChanged,
       required this.onReset,
       required this.searchQuery,
       required this.onSearch});
-  final String employee, status, dateRange;
+  final String employee, status, dateRange, period;
   final List<String> employees;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
+  final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
   final String searchQuery;
   final ValueChanged<String> onSearch;
@@ -681,7 +683,8 @@ class _ApprovalFilters extends StatelessWidget {
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
         final mobile = MediaQuery.sizeOf(context).width < 600;
-        final width = constraints.maxWidth < 900 ? constraints.maxWidth : 350.0;
+        // Keep the complete desktop filter toolbar on one balanced row.
+        final width = ((constraints.maxWidth - 590) / 3).clamp(210.0, 270.0);
         if (mobile) {
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TextField(
@@ -702,7 +705,7 @@ class _ApprovalFilters extends StatelessWidget {
           ]);
         }
         return Wrap(
-          spacing: 44,
+          spacing: 18,
           runSpacing: 14,
           crossAxisAlignment: WrapCrossAlignment.end,
           children: [
@@ -745,6 +748,27 @@ class _ApprovalFilters extends StatelessWidget {
                         .map((item) =>
                             DropdownMenuItem(value: item, child: Text(item)))
                         .toList())),
+            _FilterField(
+                label: 'Period',
+                width: 280,
+                child: SizedBox(
+                  width: 280,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'Today', label: Text('Today', softWrap: false)),
+                      ButtonSegment(value: 'This Month', label: Text('This Month', softWrap: false)),
+                    ],
+                    selected: {period},
+                    onSelectionChanged: (value) => onPeriodChanged(value.first),
+                    style: ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10, vertical: 12)),
+                      backgroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? _ApprovalsColors.blue : Colors.white),
+                      foregroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? Colors.white : _ApprovalsColors.navy),
+                      side: const WidgetStatePropertyAll(BorderSide(color: Color(0xFFD2DCEC))),
+                    ),
+                  ),
+                )),
             OutlinedButton.icon(
               onPressed: onReset,
               icon: const Icon(Icons.refresh_rounded),
@@ -1051,6 +1075,19 @@ class _PaginationButton extends StatelessWidget {
                 style: TextStyle(
                     color: active ? Colors.white : _ApprovalsColors.navy)),
       );
+}
+
+bool _matchesPeriod(_ApprovalRequest request, String period) {
+  if (period == 'All') return true;
+  final match = RegExp(r'(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})').firstMatch(request.dates);
+  if (match == null) return true;
+  const months = <String, int>{'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12};
+  final date = DateTime.tryParse('${match.group(3)}-${months[match.group(2)!.toLowerCase().substring(0, 3)]?.toString().padLeft(2, '0')}-${match.group(1)!.padLeft(2, '0')}');
+  if (date == null) return true;
+  final now = DateTime.now();
+  return period == 'Today'
+      ? date.year == now.year && date.month == now.month && date.day == now.day
+      : date.year == now.year && date.month == now.month;
 }
 
 class _ApprovalRequest {
