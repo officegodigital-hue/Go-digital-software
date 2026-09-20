@@ -39,6 +39,8 @@ class AttendanceRowData {
   final int excused;
   final int unexcused;
   final int halfLeave;
+  final int earnedLeave;
+  final int approvedLeave;
   final String salaryPerMonth;
   final String totalSalaryAfterLeaves;
   final String updatedSalary;
@@ -52,6 +54,8 @@ class AttendanceRowData {
     required this.excused,
     required this.unexcused,
     required this.halfLeave,
+    required this.earnedLeave,
+    required this.approvedLeave,
     required this.salaryPerMonth,
     required this.totalSalaryAfterLeaves,
     required this.updatedSalary,
@@ -68,12 +72,14 @@ class AttendanceGrid extends StatefulWidget {
   final List<int> days; // e.g. 1..31
   final List<String> dayLabels; // e.g. Fri, Sat, Sun...
   final List<AttendanceRowData> rows;
+  final bool showSummary;
 
   const AttendanceGrid({
     super.key,
     required this.days,
     required this.dayLabels,
     required this.rows,
+    this.showSummary = true,
   });
 
   @override
@@ -83,8 +89,9 @@ class AttendanceGrid extends StatefulWidget {
 class _AttendanceGridState extends State<AttendanceGrid> {
   static const double _rowHeight = 40;
   static const double _headerHeight = 60;
-  static const double _dayColWidth = 34;
-  static const _summaryWidths = [45.0, 39.0, 42.0, 47.0, 61.0, 47.0];
+  static const double _dayColWidth = 24;
+  static const double _dayColWidthMax = 44;
+  static const _summaryWidths = [40.0, 34.0, 44.0, 38.0, 42.0, 45.0, 58.0, 45.0];
   final _calendarController = ScrollController();
 
   @override
@@ -93,104 +100,171 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     super.dispose();
   }
 
+  // Any leftover width — after the frozen name/designation columns and
+  // (when shown) the summary panel take their share — is handed back to the
+  // day columns, which stretch evenly (up to a sensible cap) to fill it.
+  // That keeps the three sections visually balanced instead of leaving dead
+  // space on one side while the calendar looks cramped on the other. Only
+  // when there truly isn't enough room even at the minimum width does the
+  // calendar fall back to a visible scrollbar.
+  //
+  // The header row (employee/day/summary column titles) sits outside the
+  // vertical scroll entirely, so it stays fixed in place while only the
+  // employee rows underneath scroll. When the calendar section itself needs
+  // horizontal scrolling, its header and body share one ScrollController so
+  // they stay aligned — the header's own scroll is disabled so only the body
+  // can be dragged.
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _frozenColumns(),
-            Expanded(
-              child: Scrollbar(
-                controller: _calendarController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _calendarController,
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: _calendarColumns(),
-                ),
-              ),
-            ),
-            _summaryColumns(),
-          ],
-        ),
-      ),
-    );
-  }
+    return LayoutBuilder(builder: (context, constraints) {
+      const frozenWidth = 212.0;
+      final summaryWidth =
+          widget.showSummary ? _summaryWidths.reduce((a, b) => a + b) : 0.0;
+      final availableForCalendar =
+          (constraints.maxWidth - frozenWidth - summaryWidth)
+              .clamp(0.0, double.infinity);
+      final baseDayColsWidth = widget.days.length * _dayColWidth;
 
-  Widget _frozenColumns() {
-    return Container(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      final stretchColWidth = widget.days.isEmpty
+          ? _dayColWidth
+          : availableForCalendar / widget.days.length;
+      final canStretchToFit = stretchColWidth >= _dayColWidth;
+      final needsScroll = !canStretchToFit && baseDayColsWidth > availableForCalendar;
+      final colWidth = needsScroll
+          ? _dayColWidth
+          : (canStretchToFit
+              ? stretchColWidth.clamp(_dayColWidth, _dayColWidthMax)
+              : _dayColWidth);
+
+      Widget calendarHeader = _calendarHeaderRow(colWidth);
+      Widget calendarBody = _calendarBodyColumn(colWidth);
+      if (needsScroll) {
+        calendarHeader = SizedBox(
+          width: availableForCalendar,
+          child: SingleChildScrollView(
+            controller: _calendarController,
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: calendarHeader,
+          ),
+        );
+        calendarBody = SizedBox(
+          width: availableForCalendar,
+          child: Scrollbar(
+            controller: _calendarController,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _calendarController,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: calendarBody,
+            ),
+          ),
+        );
+      }
+
+      return Column(
         children: [
           SizedBox(
             height: _headerHeight,
-            width: 230,
             child: Row(
-              children: const [
-                _HeaderCell(text: 'Employee Name', width: 120),
-                _HeaderCell(text: 'Designation', width: 110),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _frozenHeaderRow(),
+                calendarHeader,
+                if (widget.showSummary) _summaryHeaderRow(),
               ],
             ),
           ),
-          for (final row in widget.rows)
-            SizedBox(
-              height: _rowHeight,
-              width: 230,
-              child: Row(
-                children: [
-                  _BodyCell(
-                    width: 120,
-                    child: Text(
-                      row.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF07186F),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                  _BodyCell(
-                    width: 110,
-                    child: Text(
-                      row.designation,
-                      style: const TextStyle(
-                          color: Color(0xFF53688F), fontSize: 9),
-                    ),
-                  ),
-                ],
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.vertical,
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _frozenBodyColumn(),
+                    calendarBody,
+                    if (widget.showSummary) _summaryBodyColumn(),
+                  ],
+                ),
               ),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  Widget _frozenHeaderRow() => const SizedBox(
+        width: 212,
+        child: Row(
+          children: [
+            _HeaderCell(text: 'Employee Name', width: 112),
+            _HeaderCell(text: 'Designation', width: 100),
+          ],
+        ),
+      );
+
+  Widget _frozenBodyColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final row in widget.rows)
+          SizedBox(
+            height: _rowHeight,
+            width: 212,
+            child: Row(
+              children: [
+                _BodyCell(
+                  width: 112,
+                  child: Text(
+                    row.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF07186F),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                _BodyCell(
+                  width: 100,
+                  child: Text(
+                    row.designation,
+                    style: const TextStyle(
+                        color: Color(0xFF53688F), fontSize: 9),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// [colWidth] lets each day column stretch to fill freed-up space when the
+  /// summary panel is hidden; it defaults to the compact fixed width.
+  Widget _calendarHeaderRow(double colWidth) {
+    final dayColsWidth = widget.days.length * colWidth;
+    return SizedBox(
+      width: dayColsWidth,
+      child: Row(
+        children: [
+          for (var i = 0; i < widget.days.length; i++)
+            _HeaderCell(
+              width: colWidth,
+              text: '${widget.days[i]}\n${widget.dayLabels[i]}',
+              dense: true,
             ),
         ],
       ),
     );
   }
 
-  /// Only the date-by-date calendar moves horizontally. Employee details on
-  /// the left and attendance/payroll totals on the right stay visible.
-  Widget _calendarColumns() {
-    final dayColsWidth = widget.days.length * _dayColWidth;
-
+  Widget _calendarBodyColumn(double colWidth) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          height: _headerHeight,
-          width: dayColsWidth,
-          child: Row(
-            children: [
-              for (var i = 0; i < widget.days.length; i++)
-                _HeaderCell(
-                  width: _dayColWidth,
-                  text: '${widget.days[i]}\n${widget.dayLabels[i]}',
-                  dense: true,
-                ),
-            ],
-          ),
-        ),
         for (final row in widget.rows)
           SizedBox(
             height: _rowHeight,
@@ -198,7 +272,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
               children: [
                 for (final mark in row.days)
                   _BodyCell(
-                    width: _dayColWidth,
+                    width: colWidth,
                     child: _MarkChip(mark: mark),
                   ),
               ],
@@ -208,24 +282,32 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     );
   }
 
-  Widget _summaryColumns() {
-    const labels = ['Present', 'Late', 'Half\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
-    const colors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
-    const width = 281.0;
-    return Container(
-      child: Column(children: [
-        SizedBox(height: _headerHeight, width: width, child: Row(children: [for (var i = 0; i < labels.length; i++) _HeaderCell(width: _summaryWidths[i], text: labels[i], dense: true, color: colors[i])])),
-        for (final row in widget.rows)
-          SizedBox(height: _rowHeight, width: width, child: Row(children: [
-            _BodyCell(width: _summaryWidths[0], child: Center(child: _statText('${row.present}', HrmsColors.success))),
-            _BodyCell(width: _summaryWidths[1], child: Center(child: _statText('${row.late}', HrmsColors.warning))),
-            _BodyCell(width: _summaryWidths[2], child: Center(child: _statText('${row.halfLeave}', HrmsColors.accentPurple))),
-            _BodyCell(width: _summaryWidths[3], child: Center(child: Text(row.salaryPerMonth, maxLines: 1, style: _moneyStyle))),
-            _BodyCell(width: _summaryWidths[4], child: Center(child: Text(row.totalSalaryAfterLeaves, maxLines: 1, style: _moneyStyle))),
-            _BodyCell(width: _summaryWidths[5], child: Center(child: Text(row.updatedSalary, maxLines: 1, style: _moneyStyle))),
-          ])),
-      ]),
-    );
+  static const _summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
+  static const _summaryColors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, HrmsColors.accentPurple, HrmsColors.info, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
+  static const _summaryPanelWidth = 346.0;
+
+  Widget _summaryHeaderRow() => SizedBox(
+        width: _summaryPanelWidth,
+        child: Row(children: [
+          for (var i = 0; i < _summaryLabels.length; i++)
+            _HeaderCell(width: _summaryWidths[i], text: _summaryLabels[i], dense: true, color: _summaryColors[i]),
+        ]),
+      );
+
+  Widget _summaryBodyColumn() {
+    return Column(children: [
+      for (final row in widget.rows)
+        SizedBox(height: _rowHeight, width: _summaryPanelWidth, child: Row(children: [
+          _BodyCell(width: _summaryWidths[0], child: Center(child: _statText('${row.present}', HrmsColors.success))),
+          _BodyCell(width: _summaryWidths[1], child: Center(child: _statText('${row.late}', HrmsColors.warning))),
+          _BodyCell(width: _summaryWidths[2], child: Center(child: _statText('${row.approvedLeave}', HrmsColors.accentPurple))),
+          _BodyCell(width: _summaryWidths[3], child: Center(child: _statText('${row.halfLeave}', HrmsColors.accentPurple))),
+          _BodyCell(width: _summaryWidths[4], child: Center(child: _statText('${row.earnedLeave}', HrmsColors.info))),
+          _BodyCell(width: _summaryWidths[5], child: Center(child: Text(row.salaryPerMonth, maxLines: 1, style: _moneyStyle))),
+          _BodyCell(width: _summaryWidths[6], child: Center(child: Text(row.totalSalaryAfterLeaves, maxLines: 1, style: _moneyStyle))),
+          _BodyCell(width: _summaryWidths[7], child: Center(child: Text(row.updatedSalary, maxLines: 1, style: _moneyStyle))),
+        ])),
+    ]);
   }
 
   Widget _statText(String value, Color color) {

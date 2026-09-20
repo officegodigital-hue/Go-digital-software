@@ -9,6 +9,7 @@ import '../shared/employee_ui.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
+import '../../services/hrms_payslip_api.dart';
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -286,11 +287,7 @@ class _Content extends StatelessWidget {
           ('0h', Icons.timelapse_rounded, null)
         ]),
         const SizedBox(height: 12),
-        const _Actions(
-            'SALARY', Color(0xFF07368D), Icons.currency_rupee_rounded, [
-          ('Net Pay ₹37,846', Icons.currency_rupee_rounded, null),
-          ('View Payslip', Icons.description_outlined, '/employee/salary')
-        ]),
+        const _DynamicSalaryAction(),
         const SizedBox(height: 12),
         const _Actions(
             'TRACKING', Color(0xFF079B9B), Icons.location_on_outlined, [
@@ -298,6 +295,35 @@ class _Content extends StatelessWidget {
           ('Route History', Icons.map_outlined, '/employee/tracking')
         ]),
       ]);
+}
+
+class _DynamicSalaryAction extends StatefulWidget {
+  const _DynamicSalaryAction();
+  @override State<_DynamicSalaryAction> createState() => _DynamicSalaryActionState();
+}
+
+class _DynamicSalaryActionState extends State<_DynamicSalaryAction> {
+  late final Future<Map<String, dynamic>> _summary = HrmsPayslipApi.summary();
+
+  String _money(dynamic value) {
+    final amount = value is num ? value : num.tryParse('$value');
+    if (amount == null) return 'Not Set';
+    return '₹${amount.round().toString().replaceAllMapped(RegExp(r'(?<=\d)(?=(\d{3})+$)'), (_) => ',')}';
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+        future: _summary,
+        builder: (_, snapshot) {
+          final payroll = snapshot.data?['payroll'];
+          final map = payroll is Map ? payroll : const <String, dynamic>{};
+          final netPay = map['net_pay'] ?? map['updated_salary'] ?? map['monthly_salary'];
+          return _Actions('SALARY', const Color(0xFF07368D), Icons.currency_rupee_rounded, [
+            ('Net Pay ${_money(netPay)}', Icons.currency_rupee_rounded, null),
+            ('View Payslip', Icons.description_outlined, '/employee/salary'),
+          ]);
+        },
+      );
 }
 
 class _Actions extends StatelessWidget {

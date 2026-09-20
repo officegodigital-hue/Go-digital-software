@@ -30,6 +30,22 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     )
   `);
 
+  const ensureLeavePolicyTables = () => pool.execute(`
+    CREATE TABLE IF NOT EXISTS hrms_leave_policies (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      leave_type VARCHAR(80) NOT NULL,
+      annual_allowance DECIMAL(8,2) NOT NULL DEFAULT 0,
+      carry_forward TINYINT(1) NOT NULL DEFAULT 0,
+      effective_year INT NOT NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      PRIMARY KEY (id), UNIQUE KEY uniq_leave_policy_year (leave_type, effective_year)
+    )
+  `).then(() => pool.execute(`
+    INSERT IGNORE INTO hrms_leave_policies (leave_type, annual_allowance, effective_year)
+    VALUES ('Casual Leave', 12, YEAR(CURDATE())), ('Sick Leave', 8, YEAR(CURDATE())),
+           ('Earned Leave', 18, YEAR(CURDATE())), ('Optional Holiday', 3, YEAR(CURDATE()))
+  `));
+
   // JWT Auth Middleware
   const authMiddleware = async (req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -136,6 +152,7 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     // ==========================================
     app.get(`${prefix}/leave/dashboard`, authMiddleware, async (req, res, next) => {
       try {
+        await ensureLeavePolicyTables();
         const empId = req.employee.id;
 
         const [leaves] = await pool.execute(
@@ -159,7 +176,8 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           }
         }
 
-        const quotas = { 'Casual Leave': 12, 'Sick Leave': 8, 'Earned Leave': 18, 'Optional Holiday': 3 };
+        const [policyRows] = await pool.execute(`SELECT leave_type, annual_allowance FROM hrms_leave_policies WHERE effective_year = YEAR(CURDATE()) AND active = 1`);
+        const quotas = Object.fromEntries(policyRows.map((row) => [row.leave_type, Number(row.annual_allowance || 0)]));
         const balances = Object.keys(quotas).map((type) => ({
           type,
           used: consumed[type],
@@ -178,8 +196,19 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
       }
     });
 
+    app.get(`${prefix}/leave/policies`, authMiddleware, async (req, res, next) => {
+      try { await ensureLeavePolicyTables(); const [rows] = await pool.execute('SELECT * FROM hrms_leave_policies WHERE effective_year = YEAR(CURDATE()) ORDER BY id'); res.json({ success: true, data: rows }); } catch (error) { next(error); }
+    });
+    app.put(`${prefix}/leave/policies/:id`, authMiddleware, async (req, res, next) => {
+      try { await ensureLeavePolicyTables(); const { annual_allowance, carry_forward, active } = req.body; await pool.execute('UPDATE hrms_leave_policies SET annual_allowance = ?, carry_forward = ?, active = ? WHERE id = ?', [Number(annual_allowance), carry_forward ? 1 : 0, active === false ? 0 : 1, Number(req.params.id)]); res.json({ success: true }); } catch (error) { next(error); }
+    });
+    app.post(`${prefix}/leave/policies`, authMiddleware, async (req, res, next) => {
+      try { await ensureLeavePolicyTables(); const { leave_type, annual_allowance, carry_forward = false, effective_year = new Date().getFullYear() } = req.body; const [result] = await pool.execute('INSERT INTO hrms_leave_policies (leave_type, annual_allowance, carry_forward, effective_year) VALUES (?, ?, ?, ?)', [leave_type, Number(annual_allowance), carry_forward ? 1 : 0, Number(effective_year)]); res.json({ success: true, id: result.insertId }); } catch (error) { next(error); }
+    });
+
     app.post(`${prefix}/leave/apply`, authMiddleware, async (req, res, next) => {
       try {
+        await ensureLeavePolicyTables();
         const empId = req.employee.id;
         const { leave_type, duration_type, from_date, to_date, reason } = req.body;
         if (!leave_type || !from_date || !to_date) {
@@ -190,6 +219,10 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         let days = (d2 - d1) / (1000 * 60 * 60 * 24) + 1;
         if (days < 0) days = 1;
         if (duration_type === 'Half Day') days = 0.5;
+        const [[policy]] = await pool.execute('SELECT annual_allowance FROM hrms_leave_policies WHERE leave_type = ? AND effective_year = YEAR(CURDATE()) AND active = 1', [leave_type]);
+        if (!policy) return res.status(400).json({ success: false, message: 'This leave type is not configured by Admin.' });
+        const [[usage]] = await pool.execute(`SELECT COALESCE(SUM(days_count), 0) AS used FROM employee_leaves WHERE employee_id = ? AND leave_type = ? AND YEAR(from_date) = YEAR(CURDATE()) AND status IN ('PENDING','APPROVED')`, [empId, leave_type]);
+        if (Number(usage.used) + days > Number(policy.annual_allowance)) return res.status(400).json({ success: false, message: 'Insufficient leave balance.' });
 
         const [result] = await pool.execute(
           `INSERT INTO employee_leaves
@@ -609,4 +642,3 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
 }
 
 module.exports = { createApp };
-

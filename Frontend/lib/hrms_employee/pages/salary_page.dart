@@ -172,7 +172,7 @@ class _NetPayBannerState extends State<_NetPayBanner> {
                 if (payroll.isEmpty)
                   Text(snapshot.data?['reviewRequired'] == true ? 'Payroll under review' : 'Payroll not generated', style: TextStyle(color: Colors.white, fontSize: widget.mobile ? 22 : 28, fontWeight: FontWeight.w700))
                 else ...[
-                  Text(_money(payroll['net_pay']), maxLines: 1, style: TextStyle(color: Colors.white, fontSize: widget.mobile ? 38 : 50, fontWeight: FontWeight.w800)),
+                  Text(_money(payroll['net_pay'] ?? payroll['updated_salary'] ?? payroll['monthly_salary']), maxLines: 1, style: TextStyle(color: Colors.white, fontSize: widget.mobile ? 38 : 50, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Text('${payroll['pay_month']}/${payroll['pay_year']}',
                     style: TextStyle(
@@ -276,7 +276,7 @@ class _SalaryOverviewCardState extends State<_SalaryOverviewCard> {
           if (payroll.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(snapshot.data?['reviewRequired'] == true ? 'Admin needs to correct an existing payroll record before salary payment details can be shown.' : 'Payroll has not been generated for this employee.', style: const TextStyle(color: employeeMuted))) else ...[
             LabeledValue('Gross Salary', _money(payroll['monthly_salary'])), const Divider(height: 1, color: employeeLine),
             LabeledValue('Leave Deduction', '−${_money(payroll['deductions'])}'), const Divider(height: 1, color: employeeLine),
-            LabeledValue('Net Pay', _money(payroll['net_pay']), valueColor: employeeBlue),
+            LabeledValue('Net Pay', _money(payroll['net_pay'] ?? payroll['updated_salary'] ?? payroll['monthly_salary']), valueColor: employeeBlue),
           ],
         ]),
       ));
@@ -330,7 +330,13 @@ class _RecentPayslipsCard extends StatefulWidget {
 
 class _RecentPayslipsCardState extends State<_RecentPayslipsCard> {
   late Future<List<Map<String, dynamic>>> _items = HrmsPayslipApi.mine();
-  void _refresh() => setState(() => _items = HrmsPayslipApi.mine());
+  void _refresh() {
+    final next = HrmsPayslipApi.mine();
+    if (!mounted) return;
+    setState(() {
+      _items = next;
+    });
+  }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
