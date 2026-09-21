@@ -21,77 +21,45 @@ const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'perso
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
-async function ensurePaidLeavePolicy() {
-  await db.query(`CREATE TABLE IF NOT EXISTS hrms_paid_leave_policy (
-    id TINYINT NOT NULL PRIMARY KEY,
-    weekly_limit DECIMAL(5,2) NOT NULL DEFAULT 1,
-    monthly_limit DECIMAL(5,2) NOT NULL DEFAULT 2,
-    yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 12,
-    probation_days INT NOT NULL DEFAULT 0,
-    minimum_notice_days INT NOT NULL DEFAULT 0,
-    max_consecutive_days DECIMAL(5,2) NOT NULL DEFAULT 0,
-    allow_half_day TINYINT(1) NOT NULL DEFAULT 1,
-    weekly_required_worked_days INT NOT NULL DEFAULT 0,
-    monthly_required_worked_days INT NOT NULL DEFAULT 0,
-    yearly_required_worked_days INT NOT NULL DEFAULT 0,
+const DEFAULT_POLICY = { weeklyOffDays: [0], deductApprovedLeave: true, deductExplicitAbsence: true, missingAttendanceIsAbsent: false };
+
+async function ensurePolicyTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
+    id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+    weekly_off_days JSON NOT NULL,
+    deduct_approved_leave TINYINT(1) NOT NULL DEFAULT 1,
+    deduct_explicit_absence TINYINT(1) NOT NULL DEFAULT 1,
+    missing_attendance_is_absent TINYINT(1) NOT NULL DEFAULT 0,
+    salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26,
+    updated_by BIGINT UNSIGNED NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-  const additions = [
-    ['probation_days', 'INT NOT NULL DEFAULT 0'],
-    ['minimum_notice_days', 'INT NOT NULL DEFAULT 0'],
-    ['max_consecutive_days', 'DECIMAL(5,2) NOT NULL DEFAULT 0'],
-    ['allow_half_day', 'TINYINT(1) NOT NULL DEFAULT 1'],
-    ['weekly_required_worked_days', 'INT NOT NULL DEFAULT 0'],
-    ['monthly_required_worked_days', 'INT NOT NULL DEFAULT 0'],
-    ['yearly_required_worked_days', 'INT NOT NULL DEFAULT 0'],
-  ];
-  for (const [name, definition] of additions) {
-    try { await db.query(`ALTER TABLE hrms_paid_leave_policy ADD COLUMN ${name} ${definition}`); }
-    catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
-  }
-  await db.query('INSERT IGNORE INTO hrms_paid_leave_policy (id, weekly_limit, monthly_limit, yearly_limit, probation_days, minimum_notice_days, max_consecutive_days, allow_half_day, weekly_required_worked_days, monthly_required_worked_days, yearly_required_worked_days) VALUES (1, 1, 2, 12, 0, 0, 0, 1, 0, 0, 0)');
+  )`);
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26'); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN updated_by BIGINT UNSIGNED NULL'); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'); } catch (_) {}
+  await db.query(`INSERT IGNORE INTO hrms_payroll_policy (id, weekly_off_days, deduct_approved_leave, deduct_explicit_absence, missing_attendance_is_absent) VALUES (1, '[0]', 1, 1, 0)`);
 }
 
-async function getPaidLeavePolicy(req, res) {
-  try {
-    await ensurePaidLeavePolicy();
-    const [rows] = await db.query('SELECT weekly_limit, monthly_limit, yearly_limit, probation_days, minimum_notice_days, max_consecutive_days, allow_half_day, weekly_required_worked_days, monthly_required_worked_days, yearly_required_worked_days FROM hrms_paid_leave_policy WHERE id = 1');
-    return ok(res, rows[0]);
-  } catch (error) { return fail(res, 500, error.message); }
-}
-
-async function updatePaidLeavePolicy(req, res) {
-  try {
-    const body = req.body || {};
-    const weekly = Number(body.weeklyLimit);
-    const monthly = Number(body.monthlyLimit);
-    const yearly = Number(body.yearlyLimit);
-    const probationDays = Number(body.probationDays ?? 0);
-    const minimumNoticeDays = Number(body.minimumNoticeDays ?? 0);
-    const maxConsecutiveDays = Number(body.maxConsecutiveDays ?? 0);
-    const weeklyRequiredWorkedDays = Number(body.weeklyRequiredWorkedDays ?? 0);
-    const monthlyRequiredWorkedDays = Number(body.monthlyRequiredWorkedDays ?? 0);
-    const yearlyRequiredWorkedDays = Number(body.yearlyRequiredWorkedDays ?? 0);
-    // The simplified Salary Master has no half-day switch; half days remain
-    // available unless a future policy explicitly sends a value.
-    const allowHalfDay = body.allowHalfDay == null
-      ? true
-      : body.allowHalfDay === true || Number(body.allowHalfDay) === 1;
-    if (![weekly, monthly, yearly, probationDays, minimumNoticeDays, maxConsecutiveDays, weeklyRequiredWorkedDays, monthlyRequiredWorkedDays, yearlyRequiredWorkedDays].every(Number.isFinite) || weekly < 0 || monthly < 0 || yearly < 0 || probationDays < 0 || minimumNoticeDays < 0 || maxConsecutiveDays < 0 || weeklyRequiredWorkedDays < 0 || monthlyRequiredWorkedDays < 0 || yearlyRequiredWorkedDays < 0) return fail(res, 400, 'Salary Master values must be zero or positive numbers');
-    if (weekly > monthly || monthly > yearly) return fail(res, 400, 'Weekly limit cannot exceed monthly, and monthly cannot exceed yearly');
-    await ensurePaidLeavePolicy();
-    await db.query('UPDATE hrms_paid_leave_policy SET weekly_limit = ?, monthly_limit = ?, yearly_limit = ?, probation_days = ?, minimum_notice_days = ?, max_consecutive_days = ?, allow_half_day = ?, weekly_required_worked_days = ?, monthly_required_worked_days = ?, yearly_required_worked_days = ? WHERE id = 1', [weekly, monthly, yearly, probationDays, minimumNoticeDays, maxConsecutiveDays, allowHalfDay ? 1 : 0, weeklyRequiredWorkedDays, monthlyRequiredWorkedDays, yearlyRequiredWorkedDays]);
-    return getPaidLeavePolicy(req, res);
-  } catch (error) { return fail(res, 500, error.message); }
+async function payrollPolicy() {
+  await ensurePolicyTable();
+  const [rows] = await db.query('SELECT * FROM hrms_payroll_policy WHERE id = 1');
+  const row = rows[0] || {};
+  let weeklyOffDays = DEFAULT_POLICY.weeklyOffDays;
+  try { weeklyOffDays = JSON.parse(row.weekly_off_days || '[0]'); } catch (_) {}
+  return {
+    weeklyOffDays: Array.isArray(weeklyOffDays) ? weeklyOffDays.map(Number).filter((day) => day >= 0 && day <= 6) : [0],
+    deductApprovedLeave: Boolean(Number(row.deduct_approved_leave ?? 1)),
+    deductExplicitAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)),
+    missingAttendanceIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)),
+    salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)),
+  };
 }
 
 function formatSalary(value) {
   if (value === null || value === undefined || value === '') return 'Not Set';
-  // MySQL supplies decimal salary values such as "20000.00". Retaining the
-  // decimal point prevents twenty thousand being displayed as twenty lakhs.
-  const amount = Number(String(value).replace(/[₹\s,]/g, ''));
+  const amount = Number(value);
   if (!Number.isFinite(amount)) return 'Not Set';
-  return '₹' + amount.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return '₹' + Math.round(amount).toLocaleString('en-US');
 }
 
 function pad(value) {
@@ -151,17 +119,47 @@ function monthOptions(today) {
 }
 
 async function computeRows(year, month, today) {
-  const weeklyOff = 0;
+  const configuredPolicy = await payrollPolicy();
+  const weeklyOff = new Set(configuredPolicy.weeklyOffDays);
   const totalDays = daysInMonth(year, month);
   const start = ymd(year, month, 1);
   const end = ymd(year, month, totalDays);
   const cutoff = end < today ? end : today;
 
   const [profiles] = await db.query(`
-    SELECT * FROM hrms_employee_profiles
-    WHERE employment_status <> 'Inactive'
-    ORDER BY full_name ASC
+    SELECT p.* FROM hrms_employee_profiles p JOIN employee_users u ON u.id = p.employee_user_id
+    WHERE p.employment_status <> 'Inactive' AND u.is_active = 1
+    ORDER BY p.full_name ASC
   `);
+
+  // Compensation is versioned by immutable profile/user IDs. A name is display-only.
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_compensation (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    profile_id BIGINT UNSIGNED NULL,
+    employee_user_id BIGINT UNSIGNED NULL,
+    monthly_salary DECIMAL(12,2) NOT NULL,
+    effective_from DATE NOT NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY profile_effective (profile_id, effective_from),
+    KEY user_effective (employee_user_id, effective_from)
+  )`);
+  try { await db.query('ALTER TABLE hrms_employee_compensation ADD COLUMN profile_id BIGINT UNSIGNED NULL AFTER id'); } catch (_) {}
+  for (const profile of profiles) {
+    if (profile.monthly_salary === null || profile.monthly_salary === undefined) continue;
+    await db.query(`INSERT INTO hrms_employee_compensation (profile_id, employee_user_id, monthly_salary, effective_from)
+      SELECT ?, ?, ?, COALESCE(DATE(created_at), ?)
+      FROM hrms_employee_profiles WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM hrms_employee_compensation c WHERE c.profile_id = ?)
+      LIMIT 1`, [profile.id, profile.employee_user_id || null, profile.monthly_salary, start, profile.id, profile.id]);
+  }
+  const [compensations] = await db.query(`SELECT profile_id, employee_user_id, monthly_salary, effective_from
+    FROM hrms_employee_compensation WHERE effective_from <= ? ORDER BY effective_from ASC, id ASC`, [end]);
+  const compensationMap = new Map();
+  compensations.forEach(function (row) {
+    if (row.profile_id) compensationMap.set('profile:' + row.profile_id, row);
+    if (row.employee_user_id) compensationMap.set('user:' + row.employee_user_id, row);
+  });
 
   const userIds = profiles.map(function (row) { return row.employee_user_id; }).filter(Boolean);
 
@@ -216,34 +214,85 @@ async function computeRows(year, month, today) {
 
     for (let day = 1; day <= totalDays; day += 1) {
       const date = ymd(year, month, day);
-      if (utcWeekday(year, month, day) === weeklyOff) continue;
+      if (weeklyOff.has(utcWeekday(year, month, day))) continue;
       if (date > cutoff) continue;
       workingDays += 1;
       const userId = profile.employee_user_id;
       const key = userId ? userId + '|' + date : '';
       const record = key ? recordMap.get(key) : null;
-      if (record && String(record.attendance_status).toLowerCase() === 'absent') {
-        // Only a deliberately marked absence is loss of pay. A day with no
-        // attendance entry is still unrecorded, so payroll must not deduct it.
+
+      // 1. Safely read the status to ignore case (e.g., 'Absent' vs 'absent')
+      const attStatus = record && record.attendance_status ? String(record.attendance_status).toLowerCase().trim() : '';
+
+      if (attStatus === 'absent') {
+        // An explicit absence is visible in the summary even when the policy
+        // treats it as paid time.
         absent += 1;
       } else if (record && record.check_in_at) {
-        if (Number(record.is_late)) late += 1;
+        // Punched in
+        if (Number(record.is_late) || attStatus === 'late') late += 1;
         else present += 1;
       } else if (key && leaveSet.has(key)) {
+        // Approved leave
         leaveDays += 1;
+      } else if (configuredPolicy.missingAttendanceIsAbsent) {
+        // Do not silently turn a missing record into an absence unless the
+        // administrator has chosen that policy.
+        absent += 1;
       }
     }
 
-    const salaryNumber = Number(profile.monthly_salary || 0);
-    // Any day that is not explicitly marked absent remains paid. This keeps
-    // payroll consistent with the attendance dashboard's "unrecorded" days.
-    const paidDays = Math.max(0, workingDays - absent);
-    const lopDays = absent;
-    const netPay = workingDays && salaryNumber
-      ? Math.round((paidDays / workingDays) * salaryNumber)
+    const compensation = compensationMap.get('profile:' + profile.id) || compensationMap.get('user:' + profile.employee_user_id);
+    const salaryNumber = Number(compensation ? compensation.monthly_salary : profile.monthly_salary || 0);
+
+    // A payroll day is a fixed policy divisor (normally 26), not the number
+    // of days elapsed when the payroll is generated. This makes a three-day
+    // absence from a Rs. 50,000 salary deduct Rs. 5,770 consistently.
+    const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? leaveDays : 0;
+    const unpaidAbsenceDays = configuredPolicy.deductExplicitAbsence ? absent : 0;
+    const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays);
+    const paidDays = Math.max(0, workingDays - lopDays);
+    const deductions = salaryNumber && lopDays > 0
+      ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / configuredPolicy.salaryDayDivisor)))
       : 0;
-    const deductions = salaryNumber ? Math.max(0, salaryNumber - netPay) : 0;
+
+    // Dynamic Net Pay
+    const netPay = Math.max(0, salaryNumber - deductions);
+
     const saved = savedMap.get(Number(profile.id));
+    if (saved && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
+        (saved.status === 'paid' && !(Number(saved.monthly_salary) > 0)))) {
+      return { id: saved.id, profileId: profile.id, employeeUserId: profile.employee_user_id,
+        name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
+        department: profile.department, monthlySalary: salaryNumber || null, salary: formatSalary(salaryNumber || null),
+        workingDays, paidDays, lopDays, deductions: 0, deductionsLabel: 'Review required',
+        netPay: 0, netPayLabel: 'Review required', status: 'Review required', paidAt: '',
+        integrityError: 'Saved payroll has inconsistent ownership or missing paid salary. An audited correction is required.' };
+    }
+
+    if (!salaryNumber) {
+      return {
+        id: saved ? saved.id : null, profileId: profile.id, employeeUserId: profile.employee_user_id,
+        name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
+        department: profile.department, monthlySalary: null, salary: 'Not Set',
+        workingDays: workingDays, presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
+        paidDays: paidDays, lopDays: lopDays, deductions: 0, deductionsLabel: '–', netPay: 0, netPayLabel: '–',
+        status: 'Salary required', paidAt: '',
+      };
+    }
+
+    if (saved && String(saved.status) === 'paid') {
+      return {
+        id: saved.id, profileId: profile.id, employeeUserId: profile.employee_user_id,
+        name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
+        department: profile.department, monthlySalary: Number(saved.monthly_salary || 0), salary: formatSalary(saved.monthly_salary),
+        workingDays: Number(saved.working_days || 0), presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
+        paidDays: Number(saved.paid_days || 0), lopDays: Number(saved.lop_days || 0), deductions: Number(saved.deductions || 0),
+        deductionsLabel: formatSalary(saved.deductions), netPay: Number(saved.net_pay || 0), netPayLabel: formatSalary(saved.net_pay),
+        status: 'Paid', paidAt: saved.paid_at ? isoDate(saved.paid_at) : '',
+      };
+    }
+
     const status = saved ? String(saved.status) : 'draft';
 
     return {
@@ -254,7 +303,7 @@ async function computeRows(year, month, today) {
       employeeCode: profile.employee_code,
       department: profile.department,
       monthlySalary: salaryNumber || null,
-      salary: formatSalary(profile.monthly_salary),
+      salary: formatSalary(salaryNumber),
       workingDays: workingDays,
       presentDays: present,
       lateDays: late,
@@ -309,6 +358,7 @@ async function list(req, res) {
       label: MONTHS[parsed.month - 1] + ' ' + parsed.year,
       months: monthOptions(parsed.today),
       timezone: policy.TIME_ZONE,
+      policy: await payrollPolicy(),
       items: items,
       employees: names,
       kpis: toKpis(items),
@@ -319,31 +369,58 @@ async function list(req, res) {
   }
 }
 
+async function getPolicy(req, res) {
+  try { return ok(res, await payrollPolicy()); } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function savePolicy(req, res) {
+  try {
+    const body = req.body || {};
+    const weekly = Array.isArray(body.weeklyOffDays) ? [...new Set(body.weeklyOffDays.map(Number).filter((day) => day >= 0 && day <= 6))] : null;
+    if (!weekly) return fail(res, 400, 'weeklyOffDays must contain weekday numbers from 0 to 6');
+    const divisor = Math.max(1, Math.min(31, Number(body.salaryDayDivisor || 26)));
+    const values = [JSON.stringify(weekly), body.deductApprovedLeave ? 1 : 0, body.deductExplicitAbsence ? 1 : 0, body.missingAttendanceIsAbsent ? 1 : 0, divisor, req.user.id];
+    await ensurePolicyTable();
+    await db.query(`UPDATE hrms_payroll_policy SET weekly_off_days = ?, deduct_approved_leave = ?, deduct_explicit_absence = ?, missing_attendance_is_absent = ?, salary_day_divisor = ?, updated_by = ? WHERE id = 1`, values);
+    return ok(res, await payrollPolicy(), 'Payroll policy saved');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 async function generate(req, res) {
   try {
     const parsed = parseMonth(req);
     if (parsed.error) return fail(res, 400, parsed.error);
-    const items = await computeRows(parsed.year, parsed.month, parsed.today);
+    const result = await generatePayrollRun(parsed.year, parsed.month, parsed.today);
+    return ok(res, result, 'Payroll generated for ' + MONTHS[parsed.month - 1] + ' ' + parsed.year + '. ' + result.generatedCount + ' employee(s) included; ' + result.skippedCount + ' need compensation.');
+  } catch (error) {
+    console.error('POST /hrms/payroll/generate', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function generatePayrollRun(year, month, today) {
+    const allItems = await computeRows(year, month, today);
+    const items = allItems.filter(function (item) { return Number(item.monthlySalary) > 0 && !item.integrityError && item.employeeUserId; });
     for (const item of items) {
+      if (item.status === 'Paid') continue;
       await db.query(
         `INSERT INTO hrms_payroll_items
           (profile_id, employee_user_id, pay_year, pay_month, monthly_salary,
            working_days, paid_days, lop_days, deductions, net_pay, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
          ON DUPLICATE KEY UPDATE
-           employee_user_id = VALUES(employee_user_id),
-           monthly_salary = VALUES(monthly_salary),
-           working_days = VALUES(working_days),
-           paid_days = VALUES(paid_days),
-           lop_days = VALUES(lop_days),
-           deductions = VALUES(deductions),
-           net_pay = VALUES(net_pay),
+           monthly_salary = IF(status = 'paid', monthly_salary, VALUES(monthly_salary)),
+           working_days = IF(status = 'paid', working_days, VALUES(working_days)),
+           paid_days = IF(status = 'paid', paid_days, VALUES(paid_days)),
+           lop_days = IF(status = 'paid', lop_days, VALUES(lop_days)),
+           deductions = IF(status = 'paid', deductions, VALUES(deductions)),
+           net_pay = IF(status = 'paid', net_pay, VALUES(net_pay)),
            status = IF(status = 'paid', 'paid', 'pending')`,
         [
           item.profileId,
           item.employeeUserId || null,
-          parsed.year,
-          parsed.month,
+          year,
+          month,
           item.monthlySalary,
           item.workingDays,
           item.paidDays,
@@ -353,17 +430,17 @@ async function generate(req, res) {
         ]
       );
     }
-    const refreshed = await computeRows(parsed.year, parsed.month, parsed.today);
-    return ok(res, {
-      year: parsed.year,
-      month: parsed.month,
+    const refreshed = await computeRows(year, month, today);
+    return {
+      year: year,
+      month: month,
       items: refreshed,
       kpis: toKpis(refreshed),
-    }, 'Payroll generated for ' + MONTHS[parsed.month - 1] + ' ' + parsed.year);
-  } catch (error) {
-    console.error('POST /hrms/payroll/generate', error);
-    return fail(res, 500, error.message);
-  }
+      generatedCount: items.filter(item => item.status !== 'Paid').length,
+      retainedPaidCount: items.filter(item => item.status === 'Paid').length,
+      reviewCount: allItems.filter(item => item.integrityError).length,
+      skippedCount: allItems.length - items.length,
+    };
 }
 
 async function markPaid(req, res) {
@@ -374,6 +451,11 @@ async function markPaid(req, res) {
       return fail(res, 400, 'status must be paid or pending');
     }
     const at = status === 'paid' ? policy.nowIstDateTime() : null;
+    const [[payroll]] = await db.query(`SELECT p.id, p.monthly_salary FROM hrms_payroll_items p
+      JOIN hrms_employee_profiles e ON e.id = p.profile_id AND e.employee_user_id = p.employee_user_id
+      JOIN employee_users u ON u.id = e.employee_user_id WHERE p.id = ?`, [id]);
+    if (!payroll) return fail(res, 404, 'Payroll row not found. Generate payroll for this month first.');
+    if (Number(payroll.monthly_salary) <= 0) return fail(res, 400, 'Compensation must be configured before payroll can be paid.');
     const [result] = await db.query(
       `UPDATE hrms_payroll_items
        SET status = ?, paid_at = ?
@@ -393,9 +475,10 @@ async function markPaid(req, res) {
 
 module.exports = {
   requireAdmin,
-  getPaidLeavePolicy,
-  updatePaidLeavePolicy,
   list,
   generate,
   markPaid,
+  getPolicy,
+  savePolicy,
+  generatePayrollRun,
 };

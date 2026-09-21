@@ -20,57 +20,6 @@ function requireAdmin(req, res, next) {
 
 const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
 const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit'];
-const LEAVE_POLICY_DEFAULTS = {
-  'Casual Leave': 12,
-  'Sick Leave': 8,
-  'Earned Leave': 12,
-  'Optional Holiday': 3,
-};
-
-async function ensureLeaveTypePolicies() {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS hrms_leave_type_policies (
-      leave_type VARCHAR(64) NOT NULL PRIMARY KEY,
-      yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 0,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
-  for (const [type, limit] of Object.entries(LEAVE_POLICY_DEFAULTS)) {
-    await db.query('INSERT IGNORE INTO hrms_leave_type_policies (leave_type, yearly_limit) VALUES (?, ?)', [type, limit]);
-  }
-}
-
-async function leavePolicies(req, res) {
-  try {
-    await ensureLeaveTypePolicies();
-    const [rows] = await db.query('SELECT leave_type, yearly_limit FROM hrms_leave_type_policies ORDER BY FIELD(leave_type, \'Casual Leave\', \'Sick Leave\', \'Earned Leave\', \'Optional Holiday\')');
-    return ok(res, { items: rows });
-  } catch (error) { return fail(res, 500, error.message); }
-}
-
-async function updateLeavePolicies(req, res) {
-  try {
-    const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
-    await ensureLeaveTypePolicies();
-    for (const item of items) {
-      const type = String(item.leaveType || '').trim();
-      const limit = Number(item.yearlyLimit);
-      if (!(type in LEAVE_POLICY_DEFAULTS) || !Number.isFinite(limit) || limit < 0) {
-        return fail(res, 400, 'Each leave limit must be a zero or positive number.');
-      }
-      await db.query('UPDATE hrms_leave_type_policies SET yearly_limit = ? WHERE leave_type = ?', [limit, type]);
-      if (type === 'Earned Leave') {
-        await db.query(`CREATE TABLE IF NOT EXISTS hrms_paid_leave_policy (
-          id TINYINT NOT NULL PRIMARY KEY, weekly_limit DECIMAL(5,2) NOT NULL DEFAULT 1,
-          monthly_limit DECIMAL(5,2) NOT NULL DEFAULT 2, yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 12
-        )`);
-        await db.query('INSERT IGNORE INTO hrms_paid_leave_policy (id, weekly_limit, monthly_limit, yearly_limit) VALUES (1, 1, 2, 12)');
-        await db.query('UPDATE hrms_paid_leave_policy SET yearly_limit = ? WHERE id = 1', [limit]);
-      }
-    }
-    return leavePolicies(req, res);
-  } catch (error) { return fail(res, 500, error.message); }
-}
 
 function displayType(requestType) {
   const value = String(requestType || '').toLowerCase();
@@ -83,7 +32,6 @@ function displayType(requestType) {
   if (value === 'extra_hours') return 'Extra Hours';
   if (value === 'late_entry') return 'Late Entry';
   if (value === 'early_exit') return 'Early Exit';
-  if (value === 'payslip_download') return 'Payslip Download';
   return String(requestType || '').replace(/_/g, ' ');
 }
 
@@ -93,7 +41,6 @@ function iconMeta(typeLabel) {
   if (typeLabel === 'Extra Hours' || typeLabel === 'Late Entry' || typeLabel === 'Early Exit') {
     return { icon: 'more_time', color: 0xFFFF6500 };
   }
-  if (typeLabel === 'Payslip Download') return { icon: 'receipt', color: 0xFFE53935 };
   return { icon: 'beach', color: 0xFF7137E8 };
 }
 
@@ -325,25 +272,7 @@ async function review(req, res) {
        SET l.status = ?
        WHERE link.approval_request_id = ?`,
       [status === 'approved' ? 'APPROVED' : 'DENIED', id]
-    );
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS hrms_payslip_download_requests (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        payroll_item_id BIGINT UNSIGNED NOT NULL,
-        employee_user_id INT NOT NULL,
-        approval_request_id BIGINT UNSIGNED NOT NULL,
-        status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_payslip_employee_period (payroll_item_id, employee_user_id),
-        UNIQUE KEY uq_payslip_approval_request (approval_request_id)
-      )
-    `);
-    await db.query(
-      'UPDATE hrms_payslip_download_requests SET status = ? WHERE approval_request_id = ?',
-      [status, id]
-    );
-    const [rows] = await db.query(
+    );    const [rows] = await db.query(
       `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
@@ -371,7 +300,7 @@ module.exports = {
   review,
   notifications,
   markAllNotificationsRead,
-  leavePolicies,
-  updateLeavePolicies,
   LEAVE_TYPES,
 };
+
+

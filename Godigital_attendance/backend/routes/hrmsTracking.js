@@ -10,6 +10,9 @@ router.put('/settings', hrms.requireAdmin, hrms.updateTrackingSettings);
 // Employee self-service — called from the mobile app
 router.post('/status', hrms.setStatus);
 router.post('/ping', hrms.ping);
+router.post('/comments', hrms.addTrackingComment);
+router.get('/comments', hrms.myTrackingComments);
+router.get('/admin-comments', hrms.requireAdmin, hrms.adminTrackingComments);
 
 // Admin dashboard views
 router.get('/', hrms.requireAdmin, hrms.list);
@@ -44,8 +47,6 @@ router.patch(
 );
 
 router.get('/field-session', hrms.getMyFieldSession);
-router.get('/field-session/summary', hrms.getMyFieldSessionSummary);
-router.get('/permissions', hrms.getMyTrackingPermissions);
 router.post('/field-session/start', hrms.startFieldTracking);
 router.post('/field-session/stop', hrms.stopFieldTracking);
 router.get('/field-waiting-alert', hrms.getMyWaitingAlert);

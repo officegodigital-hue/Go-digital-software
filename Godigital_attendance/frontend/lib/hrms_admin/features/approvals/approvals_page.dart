@@ -23,6 +23,8 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
+  String period = 'This Month';
+  String searchQuery = '';
   List<_ApprovalRequest> requests = [];
   List<String> employeeNames = const ['All Employees'];
   int leaveCount = 0;
@@ -112,60 +114,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     }
   }
 
-  Future<void> _openLeavePolicy() async {
-    try {
-      final data = await HrmsApprovalsApi.leavePolicies();
-      final items = (data['items'] as List? ?? []).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
-      final controllers = <String, TextEditingController>{
-        for (final item in items) item['leave_type'].toString(): TextEditingController(text: '${item['yearly_limit'] ?? 0}'),
-      };
-      if (!mounted) return;
-      final save = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Leave Limits'),
-          content: SizedBox(
-            width: 410,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Set the yearly number of days available for each leave type. Approved requests reduce the employee balance.'),
-              const SizedBox(height: 16),
-              ...items.map((item) {
-                final type = item['leave_type'].toString();
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: TextField(
-                    controller: controllers[type],
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(labelText: '$type days per year', border: const OutlineInputBorder()),
-                  ),
-                );
-              }),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save limits')),
-          ],
-        ),
-      );
-      if (save != true || !mounted) return;
-      await HrmsApprovalsApi.updateLeavePolicies(items.map((item) {
-        final type = item['leave_type'].toString();
-        return {'leaveType': type, 'yearlyLimit': num.tryParse(controllers[type]!.text) ?? -1};
-      }).toList());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Leave limits saved.')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: _ApprovalsColors.page,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/approvals') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/approvals'),
@@ -195,7 +149,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _ApprovalsHeader(onLeaveLimits: _openLeavePolicy),
+                                const _ApprovalsHeader(),
                                 const SizedBox(height: 17),
                                 _ApprovalKpis(
                                   pending: kpiPending,
@@ -213,10 +167,16 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   employee: employee,
                                   status: status,
                                   dateRange: dateRange,
+                                  period: period,
                                   employees: employeeNames,
                                   leaveCount: leaveCount,
                                   extraCount: extraCount,
-                                  requests: requests,
+                                  requests: requests.where((request) {
+                                    final query = searchQuery.trim().toLowerCase();
+                                    return (query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query)) && _matchesPeriod(request, period);
+                                  }).toList(),
+                                  searchQuery: searchQuery,
+                                  onSearch: (value) => setState(() => searchQuery = value),
                                   onTabChanged: (value) {
                                     leaveRequests = value;
                                     _load();
@@ -233,10 +193,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     dateRange = value!;
                                     setState(() {});
                                   },
+                                  onPeriodChanged: (value) => setState(() => period = value),
                                   onReset: () {
                                     employee = 'All Employees';
                                     status = 'All Status';
                                     dateRange = 'All Dates';
+                                    period = 'This Month';
                                     _load();
                                   },
                                   onApprove: (request) =>
@@ -257,14 +219,11 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 }
 
 class _ApprovalsHeader extends StatelessWidget {
-  const _ApprovalsHeader({required this.onLeaveLimits});
-  final VoidCallback onLeaveLimits;
+  const _ApprovalsHeader();
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-    const Expanded(child: AdminPageHeader(title: 'Approvals')),
-    OutlinedButton.icon(onPressed: onLeaveLimits, icon: const Icon(Icons.event_note_outlined), label: const Text('Leave limits')),
-  ]);
+  Widget build(BuildContext context) =>
+      const AdminPageHeader(title: 'Approvals');
 }
 
 class _ApprovalKpis extends StatelessWidget {
@@ -287,15 +246,19 @@ class _ApprovalKpis extends StatelessWidget {
           Icons.highlight_off_rounded, Color(0xFFF0182A)),
     ];
     return LayoutBuilder(builder: (_, constraints) {
-      final columns = constraints.maxWidth < 700
+      final mobile = constraints.maxWidth < 600;
+      final columns = mobile
+          ? 3
+          : constraints.maxWidth < 700
           ? 1
           : constraints.maxWidth < 1050
               ? 2
               : 3;
-      final width = (constraints.maxWidth - (columns - 1) * 20) / columns;
+      final spacing = mobile ? 8.0 : 20.0;
+      final width = (constraints.maxWidth - (columns - 1) * spacing) / columns;
       return Wrap(
-        spacing: 20,
-        runSpacing: 16,
+        spacing: spacing,
+        runSpacing: mobile ? 8 : 16,
         children: cards
             .map((card) => SizedBox(width: width, child: card))
             .toList(),
@@ -312,7 +275,21 @@ class _ApprovalKpi extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    if (compact) {
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return Container(
         height: 116,
         padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
         decoration: BoxDecoration(
@@ -373,6 +350,7 @@ class _ApprovalKpi extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _RequestsPanel extends StatelessWidget {
@@ -381,42 +359,48 @@ class _RequestsPanel extends StatelessWidget {
     required this.employee,
     required this.status,
     required this.dateRange,
+    required this.period,
     required this.employees,
     required this.leaveCount,
     required this.extraCount,
     required this.requests,
+    required this.searchQuery,
+    required this.onSearch,
     required this.onTabChanged,
     required this.onEmployeeChanged,
     required this.onStatusChanged,
     required this.onDateChanged,
+    required this.onPeriodChanged,
     required this.onReset,
     required this.onApprove,
     required this.onReject,
   });
 
   final bool leaveRequests;
-  final String employee, status, dateRange;
+  final String employee, status, dateRange, period;
   final List<String> employees;
   final int leaveCount, extraCount;
   final List<_ApprovalRequest> requests;
+  final String searchQuery;
+  final ValueChanged<String> onSearch;
   final ValueChanged<bool> onTabChanged;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
+  final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    return Container(
         padding: EdgeInsets.fromLTRB(
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          20,
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          18,
+          mobile ? 0 : 28, mobile ? 0 : 20, mobile ? 0 : 28, mobile ? 0 : 18,
         ),
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xFFE4E7EE)),
+          color: mobile ? Colors.transparent : Colors.white,
+          border: mobile ? null : Border.all(color: const Color(0xFFE4E7EE)),
           borderRadius: BorderRadius.circular(14),
-          boxShadow: const [
+          boxShadow: mobile ? const [] : const [
             BoxShadow(
                 color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))
           ],
@@ -429,18 +413,22 @@ class _RequestsPanel extends StatelessWidget {
                 leaveCount: leaveCount,
                 extraCount: extraCount,
                 onChanged: onTabChanged),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _ApprovalFilters(
               employee: employee,
               employees: employees,
               status: status,
               dateRange: dateRange,
+              period: period,
               onEmployeeChanged: onEmployeeChanged,
               onStatusChanged: onStatusChanged,
               onDateChanged: onDateChanged,
+              onPeriodChanged: onPeriodChanged,
               onReset: onReset,
+              searchQuery: searchQuery,
+              onSearch: onSearch,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             if (MediaQuery.sizeOf(context).width < 600)
               _MobileApprovalList(
                   requests: requests, onApprove: onApprove, onReject: onReject)
@@ -469,6 +457,7 @@ class _RequestsPanel extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _MobileApprovalList extends StatelessWidget {
@@ -604,22 +593,12 @@ class _ApprovalTabs extends StatelessWidget {
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
         return SizedBox(
-          width: constraints.maxWidth < 600 ? constraints.maxWidth : 426,
-          child: Row(children: [
-            Expanded(
-                child: _TabButton(
-                    label: 'Leave Requests',
-                    count: leaveCount,
-                    active: leaveRequests,
-                    onTap: () => onChanged(true))),
-            const SizedBox(width: 6),
-            Expanded(
-                child: _TabButton(
-                    label: 'Extra Hours',
-                    count: extraCount,
-                    active: !leaveRequests,
-                    onTap: () => onChanged(false))),
-          ]),
+          width: constraints.maxWidth < 600 ? constraints.maxWidth : 220,
+          child: _TabButton(
+              label: 'Leave Requests',
+              count: leaveCount,
+              active: true,
+              onTap: () => onChanged(true)),
         );
       });
 }
@@ -683,22 +662,50 @@ class _ApprovalFilters extends StatelessWidget {
       {required this.employee,
       required this.status,
       required this.dateRange,
+      required this.period,
       required this.employees,
       required this.onEmployeeChanged,
       required this.onStatusChanged,
       required this.onDateChanged,
-      required this.onReset});
-  final String employee, status, dateRange;
+      required this.onPeriodChanged,
+      required this.onReset,
+      required this.searchQuery,
+      required this.onSearch});
+  final String employee, status, dateRange, period;
   final List<String> employees;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
+  final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
+  final String searchQuery;
+  final ValueChanged<String> onSearch;
 
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
-        final width = constraints.maxWidth < 900 ? constraints.maxWidth : 350.0;
+        final mobile = MediaQuery.sizeOf(context).width < 600;
+        // Keep the complete desktop filter toolbar on one balanced row.
+        final width = ((constraints.maxWidth - 590) / 3).clamp(210.0, 270.0);
+        if (mobile) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              onChanged: onSearch,
+              decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(hintText: 'Search requests', contentPadding: const EdgeInsets.symmetric(vertical: 16)),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              OutlinedButton.icon(
+                onPressed: () => _showMobileFilters(context),
+                icon: const Icon(Icons.tune_rounded, size: 19),
+                label: const Text('Filter'),
+                style: OutlinedButton.styleFrom(foregroundColor: _ApprovalsColors.blue, side: const BorderSide(color: _ApprovalsColors.blue), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13)),
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(onPressed: onReset, icon: const Icon(Icons.restart_alt_rounded), color: _ApprovalsColors.blue, tooltip: 'Reset filters'),
+            ]),
+          ]);
+        }
         return Wrap(
-          spacing: 44,
+          spacing: 18,
           runSpacing: 14,
           crossAxisAlignment: WrapCrossAlignment.end,
           children: [
@@ -741,6 +748,27 @@ class _ApprovalFilters extends StatelessWidget {
                         .map((item) =>
                             DropdownMenuItem(value: item, child: Text(item)))
                         .toList())),
+            _FilterField(
+                label: 'Period',
+                width: 280,
+                child: SizedBox(
+                  width: 280,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'Today', label: Text('Today', softWrap: false)),
+                      ButtonSegment(value: 'This Month', label: Text('This Month', softWrap: false)),
+                    ],
+                    selected: {period},
+                    onSelectionChanged: (value) => onPeriodChanged(value.first),
+                    style: ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 10, vertical: 12)),
+                      backgroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? _ApprovalsColors.blue : Colors.white),
+                      foregroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? Colors.white : _ApprovalsColors.navy),
+                      side: const WidgetStatePropertyAll(BorderSide(color: Color(0xFFD2DCEC))),
+                    ),
+                  ),
+                )),
             OutlinedButton.icon(
               onPressed: onReset,
               icon: const Icon(Icons.refresh_rounded),
@@ -756,6 +784,22 @@ class _ApprovalFilters extends StatelessWidget {
           ],
         );
       });
+
+  void _showMobileFilters(BuildContext context) {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFD8E1F0), borderRadius: BorderRadius.circular(4)))),
+        const SizedBox(height: 16), const Text('Filter requests', style: TextStyle(color: _ApprovalsColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
+        _FilterField(label: 'Employee', width: double.infinity, child: DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration(), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList())),
+        const SizedBox(height: 12),
+        _FilterField(label: 'Status', width: double.infinity, child: DropdownButtonFormField<String>(initialValue: status, onChanged: onStatusChanged, decoration: _fieldDecoration(), items: const ['All Status', 'Pending', 'Approved', 'Rejected'].map((item) => DropdownMenuItem(value: item, child: Text(item))).toList())),
+        const SizedBox(height: 18),
+        FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters')),
+      ]),
+    )));
+  }
 }
 
 class _FilterField extends StatelessWidget {
@@ -1031,6 +1075,19 @@ class _PaginationButton extends StatelessWidget {
                 style: TextStyle(
                     color: active ? Colors.white : _ApprovalsColors.navy)),
       );
+}
+
+bool _matchesPeriod(_ApprovalRequest request, String period) {
+  if (period == 'All') return true;
+  final match = RegExp(r'(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})').firstMatch(request.dates);
+  if (match == null) return true;
+  const months = <String, int>{'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12};
+  final date = DateTime.tryParse('${match.group(3)}-${months[match.group(2)!.toLowerCase().substring(0, 3)]?.toString().padLeft(2, '0')}-${match.group(1)!.padLeft(2, '0')}');
+  if (date == null) return true;
+  final now = DateTime.now();
+  return period == 'Today'
+      ? date.year == now.year && date.month == now.month && date.day == now.day
+      : date.year == now.year && date.month == now.month;
 }
 
 class _ApprovalRequest {

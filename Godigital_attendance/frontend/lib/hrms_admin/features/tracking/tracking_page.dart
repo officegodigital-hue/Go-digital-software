@@ -9,6 +9,7 @@ import '../../../services/hrms_tracking_api.dart';
 import '../../../services/office_address_search.dart';
 import '../../shared/widgets/admin_top_nav.dart';
 import 'widgets/home_locations_dialog.dart';
+import 'admin_tracking_comments_panel.dart';
 
 abstract final class HrmsColors {
   static const blue = Color(0xFF075EF7);
@@ -41,8 +42,6 @@ class _TrackingPageState extends State<TrackingPage> {
   bool loading = true;
   String? error;
   DateTime? lastLoadedAt;
-  Map<String, dynamic>? officeSettings;
-  List<Map<String, dynamic>> homeLocations = [];
   Timer? _pollTimer;
 
   @override
@@ -95,7 +94,7 @@ class _TrackingPageState extends State<TrackingPage> {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getString(_modeStorageKey);
     if (!mounted || saved == null) return;
-    if (saved == 'Office' || saved == 'Home' || saved == 'Field') {
+    if (saved == 'Office' || saved == 'Field' || saved == 'Hybrid') {
       setState(() => mode = saved);
     }
   }
@@ -117,12 +116,7 @@ class _TrackingPageState extends State<TrackingPage> {
       });
     }
     try {
-      final liveRequest = HrmsTrackingApi.live();
-      final settingsRequest = HrmsTrackingApi.trackingSettings();
-      final homeLocationsRequest = HrmsTrackingApi.homeLocations();
-      final data = await liveRequest;
-      final settings = await settingsRequest;
-      final homes = await homeLocationsRequest;
+      final data = await HrmsTrackingApi.live();
       final countsJson = Map<String, dynamic>.from(
         data['counts'] as Map? ?? {},
       );
@@ -136,8 +130,6 @@ class _TrackingPageState extends State<TrackingPage> {
       setState(() {
         employees = items;
         counts = _TrackingCounts.fromApi(countsJson);
-        officeSettings = settings;
-        homeLocations = homes;
         loading = false;
         error = null;
         lastLoadedAt = DateTime.now();
@@ -168,6 +160,9 @@ class _TrackingPageState extends State<TrackingPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: HrmsColors.page,
+      bottomNavigationBar: mobile
+          ? const AdminMobileBottomNav(activeRoute: '/admin/tracking')
+          : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/tracking'),
@@ -205,16 +200,25 @@ class _TrackingPageState extends State<TrackingPage> {
                           _TrackingErrorState(message: error!, onRetry: _load)
                         else ...[
                           _TrackingKpis(counts: counts),
+                          if (mobile) ...[
+                            const SizedBox(height: 16),
+                            _TrackingMobileActions(
+                              onOfficeLocation: _openOfficeLocation,
+                              onManageWaiting: _openFieldWaitingSettings,
+                              onHomeApprovals: _openHomeApprovals,
+                              onRefresh: _load,
+                            ),
+                          ],
                           const SizedBox(height: 20),
                           _TrackingWorkspace(
                             mode: mode,
                             employees: _visibleEmployees,
-                            officeSettings: officeSettings,
-                            homeLocations: homeLocations,
                             lastLoadedAt: lastLoadedAt,
                             onModeChanged: (value) => _setMode(value),
                             onViewRoute: _viewRoute,
                           ),
+                          const SizedBox(height: 20),
+                          const AdminTrackingCommentsPanel(),
                         ],
                       ],
                     ),
@@ -227,6 +231,27 @@ class _TrackingPageState extends State<TrackingPage> {
       ),
     );
   }
+}
+
+class _TrackingMobileActions extends StatelessWidget {
+  const _TrackingMobileActions({required this.onOfficeLocation, required this.onManageWaiting, required this.onHomeApprovals, required this.onRefresh});
+  final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 72,
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFC9D9F3)), borderRadius: BorderRadius.circular(18)),
+    child: Row(children: [
+      _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
+      _tool(Icons.timer_outlined, 'Field', onManageWaiting),
+      _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
+      _tool(Icons.refresh, 'Refresh', () => onRefresh()),
+    ]),
+  );
+
+  Widget _tool(IconData icon, String label, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(14), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: HrmsColors.blue, size: 22), const SizedBox(height: 4), Text(label, style: const TextStyle(color: HrmsColors.navy, fontSize: 11, fontWeight: FontWeight.w700))])));
 }
 
 
@@ -374,7 +399,7 @@ class _TrackingKpis extends StatelessWidget {
         HrmsColors.blue,
       ),
       _TrackingKpi(
-        'Home',
+        'Field',
         '${counts.home}',
         'Tracked employees',
         Icons.home_outlined,
@@ -569,16 +594,12 @@ class _TrackingWorkspace extends StatelessWidget {
   const _TrackingWorkspace({
     required this.mode,
     required this.employees,
-    required this.officeSettings,
-    required this.homeLocations,
     required this.lastLoadedAt,
     required this.onModeChanged,
     required this.onViewRoute,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
-  final Map<String, dynamic>? officeSettings;
-  final List<Map<String, dynamic>> homeLocations;
   final DateTime? lastLoadedAt;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
@@ -604,8 +625,6 @@ class _TrackingWorkspace extends StatelessWidget {
         final map = _MapPanel(
           mode: mode,
           employees: employees,
-          officeSettings: officeSettings,
-          homeLocations: homeLocations,
           onModeChanged: onModeChanged,
           onViewRoute: onViewRoute,
           fillHeight: !stacked,
@@ -644,16 +663,12 @@ class _MapPanel extends StatelessWidget {
   const _MapPanel({
     required this.mode,
     required this.employees,
-    required this.officeSettings,
-    required this.homeLocations,
     required this.onModeChanged,
     required this.onViewRoute,
     this.fillHeight = false,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
-  final Map<String, dynamic>? officeSettings;
-  final List<Map<String, dynamic>> homeLocations;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
   final bool fillHeight;
@@ -669,7 +684,7 @@ class _MapPanel extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 340),
             child: Row(
               children: [
-                for (final item in ['Office', 'Home', 'Field']) ...[
+                for (final item in ['Office', 'Field']) ...[
                   if (item != 'Office') const SizedBox(width: 10),
                   Expanded(
                     child: _ModeButton(
@@ -686,24 +701,12 @@ class _MapPanel extends StatelessWidget {
         const SizedBox(height: 15),
         if (fillHeight)
           Expanded(
-            child: _LiveMap(
-              employees: employees,
-              officeSettings: officeSettings,
-              mode: mode,
-              homeLocations: homeLocations,
-              onViewRoute: onViewRoute,
-            ),
+            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
           )
         else
           AspectRatio(
             aspectRatio: 1.44,
-            child: _LiveMap(
-              employees: employees,
-              officeSettings: officeSettings,
-              mode: mode,
-              homeLocations: homeLocations,
-              onViewRoute: onViewRoute,
-            ),
+            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
           ),
       ],
     ),
@@ -714,17 +717,8 @@ class _MapPanel extends StatelessWidget {
 /// at least one GPS ping recorded are shown as pins — an employee who has
 /// only set a status but never sent a location has nothing to plot yet.
 class _LiveMap extends StatelessWidget {
-  const _LiveMap({
-    required this.employees,
-    required this.officeSettings,
-    required this.mode,
-    required this.homeLocations,
-    required this.onViewRoute,
-  });
+  const _LiveMap({required this.employees, required this.onViewRoute});
   final List<_TrackedEmployee> employees;
-  final Map<String, dynamic>? officeSettings;
-  final String mode;
-  final List<Map<String, dynamic>> homeLocations;
   final ValueChanged<_TrackedEmployee> onViewRoute;
 
   static const _delhiCenter = LatLng(28.6139, 77.2090);
@@ -734,65 +728,15 @@ class _LiveMap extends StatelessWidget {
     final located = employees
         .where((e) => e.lat != null && e.lng != null)
         .toList();
-    final homes = homeLocations
-        .where((home) =>
-            double.tryParse('${home['latitude']}') != null &&
-            double.tryParse('${home['longitude']}') != null)
-        .toList();
-    final officeLatitude = double.tryParse('${officeSettings?['office_latitude']}');
-    final officeLongitude = double.tryParse('${officeSettings?['office_longitude']}');
-    final officeCenter = officeLatitude != null && officeLongitude != null
-        ? LatLng(officeLatitude, officeLongitude)
-        : null;
-    final homeCenter = homes.isNotEmpty
-        ? LatLng(
-            double.parse('${homes.first['latitude']}'),
-            double.parse('${homes.first['longitude']}'),
-          )
-        : null;
-    final center = mode == 'Home'
-        ? homeCenter ?? _delhiCenter
-        : located.isNotEmpty
+    final center = located.isNotEmpty
         ? LatLng(located.first.lat!, located.first.lng!)
-        : mode == 'Office'
-        ? officeCenter ?? _delhiCenter
         : _delhiCenter;
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: GoogleMap(
-        key: ValueKey('tracking-map-$mode-${center.latitude}-${center.longitude}'),
         initialCameraPosition: CameraPosition(target: center, zoom: 11),
         mapToolbarEnabled: false,
-        markers: {
-          if (mode == 'Office' && officeCenter != null)
-            Marker(
-              markerId: const MarkerId('office-location'),
-              position: officeCenter,
-              infoWindow: InfoWindow(
-                title: '${officeSettings?['office_name'] ?? 'Office'}',
-                snippet: '${officeSettings?['office_address'] ?? 'Office location'}',
-              ),
-              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-            ),
-          if (mode == 'Home')
-            ...homes.map(
-              (home) => Marker(
-                markerId: MarkerId('home-${home['employee_user_id']}'),
-                position: LatLng(
-                  double.parse('${home['latitude']}'),
-                  double.parse('${home['longitude']}'),
-                ),
-                infoWindow: InfoWindow(
-                  title: '${home['full_name'] ?? 'Employee home'}',
-                  snippet: '${home['address'] ?? 'Home location'}',
-                ),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueGreen,
-                ),
-              ),
-            )
-          else
-            ...located
+        markers: located
             .map(
               (employee) => Marker(
                 markerId: MarkerId(employee.id),
@@ -807,15 +751,15 @@ class _LiveMap extends StatelessWidget {
                 ),
                 onTap: () => onViewRoute(employee),
               ),
-            ),
-        },
+            )
+            .toSet(),
       ),
     );
   }
 
   double _markerHue(String mode) => switch (mode) {
     'Office' => BitmapDescriptor.hueAzure,
-    'Home' => BitmapDescriptor.hueGreen,
+    'Hybrid' => BitmapDescriptor.hueViolet,
     _ => BitmapDescriptor.hueOrange,
   };
 }

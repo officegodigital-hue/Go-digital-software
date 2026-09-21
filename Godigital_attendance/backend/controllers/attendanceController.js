@@ -47,6 +47,29 @@ function parseMonthParam(value) {
   return String(value);
 }
 
+function shiftDurationMinutes(shiftStart, shiftEnd) {
+  const toMinutes = function (value) {
+    const parts = String(value || '').split(':').map(Number);
+    return Number(parts[0] || 0) * 60 + Number(parts[1] || 0);
+  };
+  const start = toMinutes(shiftStart);
+  let end = toMinutes(shiftEnd);
+  if (end <= start) end += 24 * 60;
+  return Math.max(0, end - start);
+}
+
+function workingDaysInMonth(month) {
+  const parts = String(month).split('-').map(Number);
+  const year = parts[0];
+  const monthIndex = parts[1] - 1;
+  const days = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  let count = 0;
+  for (let day = 1; day <= days; day += 1) {
+    if (new Date(Date.UTC(year, monthIndex, day)).getUTCDay() !== 0) count += 1;
+  }
+  return count;
+}
+
 function normalizeMethod(value) {
   const method = String(value || 'mobile').toLowerCase();
   if (method === 'wifi' || method === 'office_wifi') return 'wifi';
@@ -73,6 +96,14 @@ async function breakMinutes(attendanceId) {
     if (error.code === 'ER_NO_SUCH_TABLE') return 0;
     throw error;
   }
+}
+
+async function persistedWorkedMinutes(record) {
+  const stored = Number(record && record.working_minutes || 0);
+  if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
+  const completedBreakMinutes = await breakMinutes(record.id);
+  return Math.max(0,
+    policy.minutesBetween(sqlDateTime(record.check_in_at), sqlDateTime(record.check_out_at)) - completedBreakMinutes);
 }
 
 async function getRecord(employeeId, date, executor = db, lock = false) {
@@ -105,6 +136,7 @@ function serializeRecord(row, person) {
     id: row.id,
     employeeId: row.employee_id,
     employeeName: person ? person.full_name : null,
+    staffId: person ? person.staff_id : null,
     role: person ? person.role : null,
     date: sqlDate(row.attendance_date),
     checkIn: policy.formatDisplayTime(sqlDateTime(row.check_in_at)),
@@ -291,6 +323,66 @@ async function dashboard(req, res) {
   }
 }
 
+async function clockLogs(req, res) {
+  try {
+    const view = req.query.view === 'day' ? 'day' : 'month';
+    let start, end;
+    if (view === 'day') {
+      const date = parseDateParam(req.query.date);
+      if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
+      start = date;
+      end = date;
+    } else {
+      const month = parseMonthParam(req.query.month);
+      if (!month) return fail(res, 400, 'month must be YYYY-MM');
+      const parts = month.split('-').map(Number);
+      const daysInMonth = new Date(Date.UTC(parts[0], parts[1], 0)).getUTCDate();
+      start = month + '-01';
+      end = month + '-' + String(daysInMonth).padStart(2, '0');
+    }
+
+    const employees = await staff.listActiveStaff(db);
+    const employeeIdFilter = req.query.employeeId ? Number(req.query.employeeId) : null;
+    const scopedEmployees = employeeIdFilter
+      ? employees.filter(function (person) { return person.id === employeeIdFilter; })
+      : employees;
+    const ids = scopedEmployees.map(function (person) { return person.id; });
+
+    const [records] = ids.length
+      ? await db.query(
+          'SELECT * FROM attendance_records WHERE attendance_date BETWEEN ? AND ? AND employee_id IN (?) ORDER BY attendance_date DESC, check_in_at DESC',
+          [start, end, ids]
+        )
+      : [[]];
+
+    const items = records
+      .filter(function (row) { return row.check_in_at; })
+      .map(function (row) {
+        const person = scopedEmployees.find(function (p) { return p.id === row.employee_id; });
+        return serializeRecord(row, person);
+      });
+
+    return ok(res, {
+      view: view,
+      start: start,
+      end: end,
+      employees: scopedEmployees.map(function (person) {
+        return {
+          id: person.id,
+          employeeId: person.id,
+          employeeName: person.full_name,
+          staffId: person.staff_id,
+          role: person.role
+        };
+      }),
+      items: items
+    });
+  } catch (error) {
+    console.error('GET /attendance/clock-logs', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 async function myHistory(req, res) {
   try {
     const month = parseMonthParam(req.query.month);
@@ -307,12 +399,23 @@ async function myHistory(req, res) {
     let absentCount = 0;
     let late = 0;
     let earlyExit = 0;
+
+    const calendarData = {};
     const records = rows.map(function (row) {
       const item = serializeRecord(row);
       if (item.status === 'Present') present += 1;
       if (item.status === 'Absent') absentCount += 1;
       if (item.status === 'Late') late += 1;
       if (item.status === 'Early Exit') earlyExit += 1;
+
+      calendarData[item.date] = {
+        status: item.status,
+        checkIn: item.checkIn,
+        checkOut: item.checkOut,
+        isLate: item.isLate,
+        workingMinutes: item.workingMinutes
+      };
+
       return item;
     });
 
@@ -324,6 +427,7 @@ async function myHistory(req, res) {
     return ok(res, {
       month: month,
       summary: { present: present, absent: absentCount, late: late, earlyExit: earlyExit },
+      calendarData: calendarData,
       records: records,
       requests: permissions.map(function (row) {
         return {
@@ -341,9 +445,6 @@ async function myHistory(req, res) {
   }
 }
 
-// The employee portal and the admin portal deliberately use the same
-// attendance_records rows.  This keeps a clock-in/out visible to the admin
-// dashboard immediately, instead of maintaining a second employee-only table.
 async function employeeDashboard(req, res) {
   try {
     const employeeId = req.user.id;
@@ -360,23 +461,61 @@ async function employeeDashboard(req, res) {
     const record = await getRecord(employeeId, date);
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
     const checkedOut = Boolean(record && record.check_out_at);
+
     const [monthRows] = await db.query(
-    `SELECT check_in_at, is_late, attendance_status
-    FROM attendance_records
-    WHERE employee_id = ?
-     AND attendance_date >= ?
-     AND attendance_date <= LAST_DAY(?)`,
-    [employeeId, month + '-01', month + '-01']
+      `SELECT id, employee_id, attendance_date, check_in_at, check_out_at, is_late, attendance_status
+       FROM attendance_records
+       WHERE employee_id = ?
+         AND attendance_date >= ?
+         AND attendance_date <= LAST_DAY(?)
+       ORDER BY attendance_date ASC`,
+      [employeeId, month + '-01', month + '-01']
     );
-    const presentDays = monthRows.filter(function (row) { return Boolean(row.check_in_at) && String(row.attendance_status) !== 'absent'; }).length;
-    const lateDays = monthRows.filter(function (row) { return Boolean(Number(row.is_late)) && String(row.attendance_status) !== 'absent'; }).length;
+
+    const presentDays = monthRows.filter(function (row) {
+      return Boolean(row.check_in_at) && String(row.attendance_status) !== 'absent';
+    }).length;
+
+    const lateDays = monthRows.filter(function (row) {
+      return Boolean(Number(row.is_late)) && String(row.attendance_status) !== 'absent';
+    }).length;
+
     const absentDays = monthRows.filter(function (row) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
+    const timeSettings = await policy.getTimeSettings(db);
+    const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
+    const monthlyWorkingDays = workingDaysInMonth(month);
+    const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
+    const completedMinutes = await Promise.all(monthRows.map(persistedWorkedMinutes));
+    let actualMinutes = completedMinutes.reduce(function (sum, minutes) {
+      return sum + minutes;
+    }, 0);
+
+    // Keep a date-keyed representation as well as the list. Older employee
+    // clients use the keyed form, while newer ones use month_records.
+    const calendarData = {};
+    const monthRecords = monthRows.map(function (row) {
+      const item = {
+        id: row.id,
+        work_date: sqlDate(row.attendance_date),
+        clock_in_at: row.check_in_at ? sqlDateTime(row.check_in_at) : null,
+        clock_out_at: row.check_out_at ? sqlDateTime(row.check_out_at) : null,
+        is_late: Boolean(Number(row.is_late)),
+        attendance_status: row.attendance_status || (row.check_in_at ? 'present' : 'absent'),
+      };
+      calendarData[item.work_date] = item;
+      return item;
+    });
+
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
     if (checkedIn) {
-      workedSeconds = Math.max(0, policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime())) * 60;
+      const completedBreakMinutes = await breakMinutes(record.id);
+      const liveMinutes = Math.max(0,
+        policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+      workedSeconds = liveMinutes * 60;
+      if (month === date.slice(0, 7)) actualMinutes += liveMinutes;
     }
 
     return ok(res, {
@@ -398,8 +537,21 @@ async function employeeDashboard(req, res) {
         month: month,
         present_days: presentDays,
         absent_days: absentDays,
-        late_days: lateDays
-      }
+        late_days: lateDays,
+        work_time: {
+          actual_minutes: actualMinutes,
+          target_minutes: targetMinutes,
+          daily_target_minutes: dailyTargetMinutes,
+          working_days: monthlyWorkingDays,
+          overtime_minutes: Math.max(0, actualMinutes - targetMinutes),
+          remaining_minutes: Math.max(0, targetMinutes - actualMinutes),
+          shift_start: timeSettings.shiftStart,
+          shift_end: timeSettings.shiftEnd,
+          is_live: checkedIn && month === date.slice(0, 7)
+        }
+      },
+      month_records: monthRecords,
+      calendarData: calendarData
     });
   } catch (error) {
     console.error('GET /attendance/dashboard (employee)', error);
@@ -430,14 +582,36 @@ async function checkIn(req, res) {
     const date = policy.todayIstDate();
     const at = policy.nowIstDateTime();
     const method = normalizeMethod((req.body && (req.body.method || req.body.check_in_method)));
-    const late = policy.isLateCheckIn(at);
-    const absent = policy.isAbsentCheckIn(at);
+    const [[profile]] = await db.query(
+      'SELECT gender FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
+      [employeeId]
+    );
+    const gender = profile && profile.gender ? profile.gender : 'Male';
+    const late = policy.isLateCheckIn(at, gender);
+    const absent = policy.isAbsentCheckIn(at, gender);
     connection = await db.getConnection();
     await connection.beginTransaction();
-    // Profile first: registration, approval and clock-in use the same lock order.
-    // Neither a client-supplied work mode nor the preflight result is trusted here.
     const rules = await locationPolicy.getCheckInPolicy(connection, employeeId, true);
-    const locationFix = locationPolicy.validateCheckIn(rules, req.body || {});
+    let hybridTrackingActive = false;
+    if (rules.workMode === 'Hybrid') {
+      const [tracking] = await connection.query(
+        'SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1',
+        [employeeId]
+      );
+      hybridTrackingActive = tracking.length > 0;
+    }
+    if (rules.workMode === 'Field') {
+      const [tracking] = await connection.query(
+        'SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1',
+        [employeeId]
+      );
+      if (!tracking.length) {
+        throw new locationPolicy.LocationPolicyError(403, 'Start live tracking before clocking in as a Field employee.');
+      }
+    }
+    if (!(rules.workMode === 'Hybrid' && hybridTrackingActive)) {
+      locationPolicy.validateCheckIn(rules, req.body || {});
+    }
     const existing = await getRecord(employeeId, date, connection, true);
     if (existing && existing.check_in_at) {
       throw new locationPolicy.LocationPolicyError(409, 'Already checked in today');
@@ -457,20 +631,11 @@ async function checkIn(req, res) {
     }
 
     if (rules.requiresLocation) {
-      // Office/Home clock-in is a confirmed GPS event. Persist it so the
-      // Admin Tracking screen can show the current location immediately.
-      await connection.query(
-        `INSERT INTO hrms_location_pings
-          (employee_user_id, latitude, longitude, accuracy_meters)
-         VALUES (?, ?, ?, ?)`,
-        [employeeId, locationFix.latitude, locationFix.longitude, locationFix.accuracy]
-      );
-      const trackingStatus = rules.workMode === 'Home' ? 'home' : 'office';
       await connection.query(
         `INSERT INTO hrms_employee_location_status (employee_user_id, status)
          VALUES (?, ?)
          ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = CURRENT_TIMESTAMP`,
-        [employeeId, trackingStatus]
+        [employeeId, rules.workMode.toLowerCase()]
       );
     }
     const record = await getRecord(employeeId, date, connection);
@@ -506,7 +671,7 @@ async function checkOut(req, res) {
       attendance_status: record.attendance_status
     });
 
-        await db.query(
+    await db.query(
       "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ?",
       [at, workingMinutes, status, record.id]
     );
@@ -525,6 +690,27 @@ async function checkOut(req, res) {
   } catch (error) {
     console.error('POST /attendance/check-out', error);
     return fail(res, 500, error.message);
+  }
+}
+
+async function heartbeat(req, res) {
+  try {
+    const employeeId = req.user.id;
+    const record = await getRecord(employeeId, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'There is no active work session.');
+    }
+    const completedBreakMinutes = await breakMinutes(record.id);
+    const workingMinutes = Math.max(0,
+      policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes);
+    await db.query(
+      "UPDATE attendance_records SET working_minutes = ? WHERE id = ? AND check_out_at IS NULL",
+      [workingMinutes, record.id]
+    );
+    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes });
+  } catch (error) {
+    console.error('POST /attendance/heartbeat', error);
+    return fail(res, 500, 'Unable to save current work time.');
   }
 }
 
@@ -690,11 +876,13 @@ async function myExport(req, res) {
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
+  clockLogs: clockLogs,
   employeeDashboard: employeeDashboard,
   myHistory: myHistory,
   checkInPolicy: checkInPolicy,
   checkIn: checkIn,
   checkOut: checkOut,
+  heartbeat: heartbeat,
   myPermissions: myPermissions,
   createPermission: createPermission,
   adminPermissions: adminPermissions,

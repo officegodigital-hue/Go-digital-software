@@ -74,23 +74,19 @@ class _AttendanceViewState extends State<_AttendanceView> {
 
   int? _extractDay(dynamic rawWorkDate) {
     if (rawWorkDate == null) return null;
-    final str = rawWorkDate.toString();
-    try {
-      final dateOnly = str.split('T').first;
-      final parts = dateOnly.split('-');
-      if (parts.length == 3) {
-        final parsedYear = int.tryParse(parts[0]);
-        final parsedMonth = int.tryParse(parts[1]);
-        final parsedDay = int.tryParse(parts[2]);
-        if (parsedYear == year && parsedMonth == month) {
-          return parsedDay;
-        }
-      }
-      final parsedDt = DateTime.tryParse(str);
-      if (parsedDt != null) {
-        return parsedDt.day;
-      }
-    } catch (_) {}
+    final str = rawWorkDate.toString().trim();
+    final match = RegExp(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})').firstMatch(str);
+    if (match != null) {
+      final recordYear = int.tryParse(match.group(1)!);
+      final recordMonth = int.tryParse(match.group(2)!);
+      final recordDay = int.tryParse(match.group(3)!);
+      if (recordYear == year && recordMonth == month) return recordDay;
+    }
+
+    final parsed = DateTime.tryParse(str.replaceFirst(' ', 'T'));
+    if (parsed != null && parsed.year == year && parsed.month == month) {
+      return parsed.day;
+    }
     return null;
   }
 
@@ -100,8 +96,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
 
     setState(() => _loading = true);
     try {
-      final url = Uri.parse(
-          '${ApiConfig.baseUrl}/attendance/dashboard?month=$monthQuery');
+      final url = Uri.parse('${ApiConfig.baseUrl}/attendance/dashboard?month=$monthQuery');
       final response = await http.get(url, headers: {
         'Authorization': 'Bearer $token',
         'Accept': 'application/json',
@@ -112,53 +107,77 @@ class _AttendanceViewState extends State<_AttendanceView> {
         if (body['success'] == true && body['data'] != null) {
           final data = body['data'];
           final overview = data['month_overview'] as Map?;
-          _presentCount = (overview?['present_days'] as num?)?.toInt() ?? 0;
-          _absentCount = (overview?['absent_days'] as num?)?.toInt() ?? 0;
-          _lateCount = (overview?['late_days'] as num?)?.toInt() ?? 0;
-
           final Map<int, Map<String, dynamic>> daysMap = {};
 
-          final approvedLeaves = data['approved_leaves'] as List?;
-          if (approvedLeaves != null) {
-            for (final leave in approvedLeaves) {
-              final from = DateTime.tryParse(leave['from_date']?.toString() ?? '');
-              final to = DateTime.tryParse(leave['to_date']?.toString() ?? '');
-              if (from == null || to == null) continue;
-              final status = leave['duration_type']?.toString() == 'Half Day' ? 'HL' : 'LV';
-              for (var day = from; !day.isAfter(to); day = day.add(const Duration(days: 1))) {
-                if (day.year == year && day.month == month) {
-                  daysMap[day.day] = {'status': status, 'clock_in': null};
-                }
-              }
-            }
-          }
-
-          final records = data['month_records'] as List?;
-          if (records != null && records.isNotEmpty) {
+          final records = data['month_records'] as List? ?? data['records'] as List?;
+          if (records != null) {
             for (final item in records) {
-              final dayNum = _extractDay(item['work_date']);
+              final dayNum = _extractDay(item['work_date'] ?? item['date']);
               if (dayNum != null) {
+                final isLate = item['is_late'] == 1 || item['is_late'] == true || item['isLate'] == true;
+                final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
+                final isAbsent = statusStr == 'absent';
                 daysMap[dayNum] = {
-                  'status': (item['is_late'] == 1 || item['is_late'] == true) ? 'L' : 'P',
-                  'clock_in': item['clock_in_at'],
+                  'status': isAbsent ? 'A' : (isLate ? 'L' : 'P'),
+                  'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
             }
           }
 
-          final currentSession = data['session'] as Map?;
-          if (currentSession != null && currentSession['work_date'] != null) {
-            final dayNum = _extractDay(currentSession['work_date']);
-            if (dayNum != null) {
+          final calendarData = data['calendarData'] as Map?;
+          if (calendarData != null) {
+            calendarData.forEach((rawDate, rawRecord) {
+              if (rawRecord is! Map) return;
+              final dayNum = _extractDay(rawDate);
+              if (dayNum == null || daysMap.containsKey(dayNum)) return;
+              final statusStr = (rawRecord['status']?.toString() ?? '').toLowerCase();
+              final isLate = rawRecord['isLate'] == true || statusStr == 'late';
               daysMap[dayNum] = {
-                'status': (currentSession['is_late'] == 1 || currentSession['is_late'] == true) ? 'L' : 'P',
-                'clock_in': currentSession['clock_in_at'] ?? currentSession['punch_in'],
+                'status': statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'),
+                'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
               };
+            });
+          }
+
+          // Older backend instances return only the dashboard totals. Load the
+          // employee's month history in that case so historical check-ins are
+          // still read from attendance_records and shown in the calendar.
+          if (daysMap.isEmpty) {
+            final historyUrl = Uri.parse(
+                '${ApiConfig.baseUrl}/attendance/me?month=$monthQuery');
+            final historyResponse = await http.get(historyUrl, headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            }).timeout(const Duration(seconds: 15));
+
+            if (historyResponse.statusCode == 200) {
+              final historyBody = jsonDecode(historyResponse.body);
+              final history = historyBody['data'];
+              final historyRecords = history is Map ? history['records'] as List? : null;
+              if (historyRecords != null) {
+                for (final item in historyRecords) {
+                  final dayNum = _extractDay(item['date'] ?? item['work_date']);
+                  if (dayNum == null) continue;
+                  final statusStr =
+                      (item['status']?.toString() ?? '').toLowerCase();
+                  final isLate = item['isLate'] == true || statusStr == 'late';
+                  daysMap[dayNum] = {
+                    'status': statusStr == 'absent'
+                        ? 'A'
+                        : (isLate ? 'L' : 'P'),
+                    'clock_in': item['checkInAt'] ?? item['clock_in_at'],
+                  };
+                }
+              }
             }
           }
 
           if (mounted) {
             setState(() {
+              _presentCount = (overview?['present_days'] as num?)?.toInt() ?? 0;
+              _absentCount = (overview?['absent_days'] as num?)?.toInt() ?? 0;
+              _lateCount = (overview?['late_days'] as num?)?.toInt() ?? 0;
               _monthDays = daysMap;
             });
           }
@@ -410,7 +429,9 @@ class _CalendarDay extends StatelessWidget {
   String? get formattedTime {
     if (clockIn == null || clockIn!.isEmpty) return null;
     try {
-      final dt = DateTime.parse(clockIn!).toLocal();
+      // Force space format into strict ISO so Dart parse doesn't crash
+      final safeClockIn = clockIn!.replaceFirst(' ', 'T');
+      final dt = DateTime.parse(safeClockIn).toLocal();
       return DateFormat('hh:mm a').format(dt);
     } catch (_) {
       return clockIn;
@@ -600,12 +621,19 @@ class _RecentAttendanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasSession = session != null;
+    final hasSession = session != null && session!['clock_in'] != null;
     final status = hasSession ? (session!['status'] == 'L' ? 'Late' : 'Present') : 'None';
     final color = hasSession ? (session!['status'] == 'L' ? employeeOrange : employeeBlue) : employeeMuted;
-    final time = hasSession && session!['clock_in'] != null
-        ? DateFormat('hh:mm a').format(DateTime.parse(session!['clock_in']).toLocal())
-        : '—';
+
+    String timeStr = '—';
+    if (hasSession && session!['clock_in'] != null) {
+      try {
+        final safeClockIn = session!['clock_in'].toString().replaceFirst(' ', 'T');
+        timeStr = DateFormat('hh:mm a').format(DateTime.parse(safeClockIn).toLocal());
+      } catch (_) {
+        timeStr = session!['clock_in'];
+      }
+    }
 
     return EmployeeCard(
       padding: const EdgeInsets.all(16),
@@ -616,7 +644,7 @@ class _RecentAttendanceCard extends StatelessWidget {
                 fontSize: 20,
                 fontWeight: FontWeight.w800)),
         const SizedBox(height: 10),
-        _RecentAttendanceRow('Today', status, time, color),
+        _RecentAttendanceRow('Today', status, timeStr, color),
       ]),
     );
   }

@@ -75,11 +75,12 @@ LIMIT 1
       });
     }
 
-    // New employee accounts store a bcrypt hash.  Keep legacy plain-text
-    // records working until they are reset through the application.
-    const passwordMatch = String(user.password || '').startsWith('$2')
-      ? await bcrypt.compare(password, user.password)
-      : password === user.password;
+    // Employee creation stores bcrypt hashes; compare the submitted password
+    // against that hash instead of comparing plaintext strings.
+    const storedPassword = String(user.password || '');
+    const passwordMatch = storedPassword.startsWith('$2')
+      ? await bcrypt.compare(String(password), storedPassword)
+      : String(password) === storedPassword;
 
     // if (!passwordMatch) {
     //   console.log(`❌ Login failed: Invalid password for "${email}"`);
@@ -169,6 +170,21 @@ router.get('/verify', authenticateToken, (req, res) => {
   });
 });
 
+// Read the signed-in employee's current profile from employee_users.
+router.get('/me', authenticateToken, (req, res) => {
+  return res.json({
+    success: true,
+    data: {
+      id: req.user.id,
+      fullName: req.user.fullName,
+      staffId: req.user.staffId,
+      email: req.user.email,
+      role: req.user.role,
+      userType: req.user.userType,
+    },
+  });
+});
+
 // POST /api/auth/refresh — Refresh JWT token
 router.post('/refresh', authenticateToken, (req, res) => {
   const newToken = jwt.sign(
@@ -201,7 +217,7 @@ function authenticateToken(req, res, next) {
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, async (err, user) => {
     if (err) {
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({
@@ -215,10 +231,21 @@ function authenticateToken(req, res, next) {
       });
     }
 
-    req.user = user;
-    next();
+    try {
+      const [[account]] = await db.query('SELECT id, full_name, staff_id, email, role, user_type, is_active FROM employee_users WHERE id = ?', [user.id]);
+      if (!account || !Number(account.is_active)) {
+        return res.status(401).json({ success: false, message: 'Employee account is unavailable. Please sign in again.' });
+      }
+      req.user = { ...user, id: account.id, fullName: account.full_name, staffId: account.staff_id,
+        email: account.email, role: account.role, userType: account.user_type };
+      next();
+    } catch (error) {
+      return res.status(503).json({ success: false, message: 'Unable to verify employee account' });
+    }
   });
 }
 
 module.exports = router;
 module.exports.authenticateToken = authenticateToken;
+// Shared so every auth layer verifies against the exact key login signs with.
+module.exports.JWT_SECRET = JWT_SECRET;
