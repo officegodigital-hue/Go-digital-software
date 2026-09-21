@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
+import '../../../screens/admin_dashboard/helpers/csv_export.dart';
 import '../../../services/hrms_dashboard_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
 import 'widgets/attendance_grid.dart';
@@ -45,6 +49,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   final ScrollController _tableScrollController = ScrollController();
   bool _monthly = true;
+  bool _showSummary = true;
   late String _month;
   late int _year;
   int _weeklyOffDay = DateTime.sunday;
@@ -124,6 +129,119 @@ class _DashboardPageState extends State<DashboardPage> {
   int _asInt(dynamic value) =>
       value is int ? value : int.tryParse('$value') ?? 0;
 
+  static String _hex(Color color) =>
+      '#${color.toARGB32().toRadixString(16).substring(2)}';
+
+  String _dayMarkColor(String code) {
+    switch (code) {
+      case 'P':
+        return _hex(_green);
+      case 'A':
+        return _hex(_red);
+      case 'L':
+        return _hex(_orange);
+      case 'HL':
+      case 'LV':
+        return _hex(_purple);
+      default:
+        return _hex(_muted); // OFF, –, blank
+    }
+  }
+
+  Future<void> _exportAttendanceCsv() async {
+    final month = _monthCodes.indexOf(_month) + 1;
+    final dayCount = DateTime(_year, month + 1, 0).day;
+    const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final monthLabel = '${_fullMonthName(_month)} $_year';
+    final logoBytes = (await rootBundle.load('assets/images/godigital_logo.png')).buffer.asUint8List();
+    final logoData = base64Encode(logoBytes);
+
+    final html = StringBuffer();
+    html.writeln('''
+      <html>
+      <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 18px; color: ${_hex(_navy)}; }
+        .brand { border-bottom: 2px solid #0767F2; padding-bottom: 12px; margin-bottom: 10px; }
+        .brand img { width: 110px; height: auto; vertical-align: middle; margin-right: 16px; }
+        .brand-title { display: inline-block; vertical-align: middle; font-size: 18px; font-weight: bold; color: ${_hex(_navy)}; }
+        .brand-subtitle { display: block; font-size: 11px; font-weight: normal; color: ${_hex(_muted)}; margin-top: 3px; }
+        .title { font-size: 16px; font-weight: bold; color: ${_hex(_navy)}; padding: 8px 4px; }
+        .legend td { font-size: 10px; font-weight: bold; padding: 4px 8px; color: ${_hex(_navy)}; }
+        table.data { border-collapse: collapse; margin-top: 6px; }
+        table.data th { background-color: #EAF1FF; font-size: 10px; font-weight: 700; padding: 7px 6px; border: 1px solid ${_hex(_line)}; color: ${_hex(_navy)}; text-align: center; white-space: nowrap; }
+        table.data td { font-size: 10px; padding: 7px 6px; border: 1px solid ${_hex(_line)}; text-align: center; color: ${_hex(_navy)}; }
+        td.name { text-align: left; font-weight: 700; }
+        td.designation { text-align: left; color: ${_hex(_muted)}; font-weight: 400; }
+      </style>
+      </head>
+      <body>
+      <table class="brand"><tr><td><img src="data:image/png;base64,$logoData"><span class="brand-title">GO DIGITAL<span class="brand-subtitle">Employee Attendance Directory</span></span></td><td style="text-align:right; color:${_hex(_muted)}; font-size:10px;">Generated ${DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())}</td></tr></table>
+      <table>
+        <tr><td class="title">$monthLabel Attendance</td></tr>
+      </table>
+      <table class="legend">
+        <tr>
+          <td style="color:${_hex(_green)}">● Present</td>
+          <td style="color:${_hex(_red)}">● Absent</td>
+          <td style="color:${_hex(_orange)}">● Late</td>
+          <td style="color:${_hex(_purple)}">● Holiday</td>
+          <td style="color:${_hex(_purple)}">● Leave</td>
+          <td style="color:${_hex(_purple)}">● Half Leave</td>
+          <td style="color:${_hex(_muted)}">○ Weekly Off</td>
+        </tr>
+      </table>
+      <table class="data">
+        <tr>
+          <th>Employee Name</th>
+          <th>Designation</th>
+    ''');
+    for (var day = 1; day <= dayCount; day++) {
+      html.write(
+          '<th>$day<br>${weekdayNames[DateTime(_year, month, day).weekday - 1]}</th>');
+    }
+    html.writeln('''
+          <th style="color:${_hex(_green)}">Present</th>
+          <th style="color:${_hex(_orange)}">Late</th>
+          <th style="color:${_hex(_purple)}">Leave</th>
+          <th style="color:${_hex(_purple)}">Half Leave</th>
+          <th style="color:${_hex(_blue)}">Earned Leave</th>
+          <th>Salary Per Month</th>
+          <th>Absent Deduction</th>
+          <th>Updated Salary</th>
+        </tr>
+    ''');
+
+    for (final employee in _employees) {
+      html.write('<tr><td class="name">${employee.name}</td>'
+          '<td class="designation">${employee.designation}</td>');
+      for (var i = 0; i < dayCount; i++) {
+        final mark = i < employee.days.length ? employee.days[i] : '';
+        final display = mark.isEmpty ? '–' : (mark == 'LV' ? 'L' : mark);
+        html.write('<td style="color:${_dayMarkColor(mark)}">$display</td>');
+      }
+      html.writeln('''
+          <td style="color:${_hex(_green)}; font-weight:700;">${employee.present}</td>
+          <td style="color:${_hex(_orange)}; font-weight:700;">${employee.late}</td>
+          <td style="color:${_hex(_purple)}; font-weight:700;">${employee.approvedLeave}</td>
+          <td style="color:${_hex(_purple)}; font-weight:700;">${employee.halfLeave}</td>
+          <td style="color:${_hex(_blue)}; font-weight:700;">${employee.earnedLeave}</td>
+          <td>${employee.salary}</td>
+          <td>${employee.daysPaid} ${employee.afterLeaves}</td>
+          <td>${employee.updatedSalary}</td>
+        </tr>
+      ''');
+    }
+
+    html.writeln('</table></body></html>');
+
+    final fileName =
+        'GoDigital_Attendance_$_month${_year}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
+    final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(html.toString())];
+    await saveAndShareCsv(bytes, fileName);
+  }
+
   Future<void> _openManageTime() async {
     await showManageTimeDialog(context);
   }
@@ -155,6 +273,7 @@ class _DashboardPageState extends State<DashboardPage> {
         },
         onManageTime: _openManageTime,
         onManageCalendar: _openManageCalendar,
+        onExport: _exportAttendanceCsv,
         month: _month,
         employees: _employees,
         total: _kpiTotal,
@@ -241,15 +360,19 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           children: [
             SizedBox(
-              height: 68,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_month_outlined,
-                        color: _blue, size: 25),
-                    const SizedBox(width: 18),
-                    Text(
+              height: 76,
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.calendar_month_outlined,
+                      color: _blue, size: 25),
+                  const SizedBox(width: 12),
+                  Text(
                       _monthly
                           ? '${_monthName(_month)} $_year Attendance'
                           : '$_year Yearly Attendance',
@@ -258,37 +381,81 @@ class _DashboardPageState extends State<DashboardPage> {
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                       ),
-                    ),
-                    const SizedBox(width: 30),
-                    const Expanded(child: _AttendanceLegend()),
-                    const SizedBox(width: 14),
-                    OutlinedButton.icon(
-                      onPressed: _openManageTime,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _navy,
-                        side: const BorderSide(color: Color(0xFFBFD2F2)),
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  const SizedBox(width: 24),
+                  const _AttendanceLegend(),
+                  const SizedBox(width: 24),
+                  if (_monthly) ...[
+                    Tooltip(
+                      message: _showSummary
+                          ? 'Hide payroll summary columns'
+                          : 'Show payroll summary columns',
+                      child: OutlinedButton(
+                        onPressed: () =>
+                            setState(() => _showSummary = !_showSummary),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _showSummary ? _blue : _muted,
+                          backgroundColor: _showSummary
+                              ? const Color(0xFFEAF2FF)
+                              : Colors.white,
+                          side: BorderSide(
+                              color: _showSummary
+                                  ? _blue
+                                  : const Color(0xFFBFD2F2)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6)),
+                        ),
+                        child: Icon(
+                            _showSummary
+                                ? Icons.view_column
+                                : Icons.view_column_outlined,
+                            size: 20),
                       ),
-                      icon: const Icon(Icons.schedule_rounded, size: 23),
-                      label: const Text('Manage Time', style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
-                    const SizedBox(width: 10),
-                    OutlinedButton.icon(
-                      onPressed: _openManageCalendar,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _blue,
-                        side: const BorderSide(color: _blue),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 15),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6)),
-                      ),
-                      icon: const Icon(Icons.edit_calendar_outlined, size: 23),
-                      label: const Text('Manage Calendar',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
+                    const SizedBox(width: 8),
                   ],
+                  OutlinedButton.icon(
+                    onPressed: _exportAttendanceCsv,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _navy,
+                      side: const BorderSide(color: Color(0xFFBFD2F2)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.file_download_outlined, size: 20),
+                    label: const Text('Export', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _openManageTime,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _navy,
+                      side: const BorderSide(color: Color(0xFFBFD2F2)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.schedule_rounded, size: 20),
+                    label: const Text('Manage Time', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _openManageCalendar,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _blue,
+                      side: const BorderSide(color: _blue),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.edit_calendar_outlined, size: 20),
+                    label: const Text('Manage Calendar',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                ],
+                  ),
                 ),
               ),
             ),
@@ -321,6 +488,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               weeklyOffDay: _weeklyOffDay,
                               overrides: _calendarOverrides,
                               employees: _employees,
+                              showSummary: _showSummary,
                             )
                           : _YearlyAttendanceSummary(employees: _employees),
             ),
@@ -418,7 +586,7 @@ class _KpiRow extends StatelessWidget {
             child: _KpiCard(
               label: 'Present',
               value: '$present',
-              subtitle: monthly ? 'This Month' : 'This Year',
+              subtitle: 'Today',
               color: _green,
               icon: Icons.check_rounded,
             ),
@@ -428,7 +596,7 @@ class _KpiRow extends StatelessWidget {
             child: _KpiCard(
               label: 'Absent',
               value: '$absent',
-              subtitle: monthly ? 'This Month' : 'This Year',
+              subtitle: 'Today',
               color: _red,
               icon: Icons.person_off_outlined,
             ),
@@ -438,7 +606,7 @@ class _KpiRow extends StatelessWidget {
             child: _KpiCard(
               label: 'Late',
               value: '$late',
-              subtitle: monthly ? 'This Month' : 'This Year',
+              subtitle: 'Today',
               color: _orange,
               icon: Icons.schedule_rounded,
             ),
@@ -455,6 +623,7 @@ class _AttendanceTable extends StatelessWidget {
     required this.weeklyOffDay,
     required this.overrides,
     required this.employees,
+    required this.showSummary,
   });
 
   final ScrollController horizontalController;
@@ -463,6 +632,7 @@ class _AttendanceTable extends StatelessWidget {
   final int weeklyOffDay;
   final List<Map<String, dynamic>> overrides;
   final List<_EmployeeAttendance> employees;
+  final bool showSummary;
 
   @override
   Widget build(BuildContext context) {
@@ -473,6 +643,7 @@ class _AttendanceTable extends StatelessWidget {
       return const Center(child: Text('No employees to show.'));
     }
     return AttendanceGrid(
+      showSummary: showSummary,
       days: days,
       dayLabels: [
         for (final day in days)
@@ -499,6 +670,8 @@ class _AttendanceTable extends StatelessWidget {
             excused: employee.excused,
             unexcused: employee.unexcused,
             halfLeave: employee.halfLeave,
+            earnedLeave: employee.earnedLeave,
+            approvedLeave: employee.approvedLeave,
             salaryPerMonth: employee.salary,
             totalSalaryAfterLeaves:
                 '${employee.daysPaid} ${employee.afterLeaves}',
@@ -573,6 +746,8 @@ class _EmployeeAttendance {
     required this.present,
     required this.late,
     required this.halfLeave,
+    required this.earnedLeave,
+    required this.approvedLeave,
     required this.excused,
     required this.unexcused,
     required this.salary,
@@ -587,6 +762,8 @@ class _EmployeeAttendance {
   final int present;
   final int late;
   final int halfLeave;
+  final int earnedLeave;
+  final int approvedLeave;
   final int excused;
   final int unexcused;
   final String salary;
@@ -604,6 +781,8 @@ class _EmployeeAttendance {
       present: asInt(json['present']),
       late: asInt(json['late']),
       halfLeave: asInt(json['halfLeave']),
+      earnedLeave: asInt(json['earnedLeave']),
+      approvedLeave: asInt(json['approvedLeave']),
       excused: asInt(json['excused']),
       unexcused: asInt(json['unexcused']),
       salary: (json['salary'] ?? 'Not Set').toString(),
@@ -625,6 +804,7 @@ class _MobileDashboard extends StatelessWidget {
     required this.onYearChanged,
     required this.onManageTime,
     required this.onManageCalendar,
+    required this.onExport,
     required this.month,
     required this.employees,
     required this.total,
@@ -641,6 +821,7 @@ class _MobileDashboard extends StatelessWidget {
   final ValueChanged<int> onYearChanged;
   final VoidCallback onManageTime;
   final VoidCallback onManageCalendar;
+  final VoidCallback onExport;
   final String month;
   final List<_EmployeeAttendance> employees;
   final int total, present, absent, late;
@@ -749,6 +930,7 @@ class _MobileDashboard extends StatelessWidget {
                           employees: employees,
                           onManageTime: onManageTime,
                           onManageCalendar: onManageCalendar,
+                          onExport: onExport,
                         ),
                       ],
                     ),
@@ -851,6 +1033,7 @@ class _MobileAttendanceRecords extends StatelessWidget {
     required this.employees,
     required this.onManageTime,
     required this.onManageCalendar,
+    required this.onExport,
   });
 
   final bool monthly;
@@ -859,6 +1042,7 @@ class _MobileAttendanceRecords extends StatelessWidget {
   final List<_EmployeeAttendance> employees;
   final VoidCallback onManageTime;
   final VoidCallback onManageCalendar;
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -870,6 +1054,7 @@ class _MobileAttendanceRecords extends StatelessWidget {
             const Icon(Icons.calendar_month_outlined, color: _blue, size: 22),
             const SizedBox(width: 9),
             Expanded(child: Text(monthly ? '${_fullMonthName(month)} $year Attendance' : '$year Yearly Attendance', style: const TextStyle(color: _navy, fontSize: 16, fontWeight: FontWeight.w800))),
+            IconButton(onPressed: onExport, icon: const Icon(Icons.file_download_outlined, color: _navy), tooltip: 'Export'),
             IconButton(onPressed: onManageTime, icon: const Icon(Icons.schedule_rounded, color: _navy), tooltip: 'Manage Time'),
             IconButton(onPressed: onManageCalendar, icon: const Icon(Icons.edit_calendar_outlined, color: _blue), tooltip: 'Manage Calendar'),
           ]),
@@ -902,7 +1087,9 @@ class _MobileYearlySummary extends StatelessWidget {
                 Expanded(flex: 4, child: Padding(padding: EdgeInsets.only(left: 10), child: Text('Employee', style: TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w700)))),
                 Expanded(child: Center(child: Text('P', style: TextStyle(color: _green, fontWeight: FontWeight.w800)))),
                 Expanded(child: Center(child: Text('L', style: TextStyle(color: _orange, fontWeight: FontWeight.w800)))),
-                Expanded(child: Center(child: Text('Leave', style: TextStyle(color: _purple, fontSize: 10, fontWeight: FontWeight.w800)))),
+                Expanded(child: Center(child: Text('Leave', style: TextStyle(color: _purple, fontSize: 10, fontWeight: FontWeight.w800), textAlign: TextAlign.center))),
+                Expanded(child: Center(child: Text('Half\nLv', style: TextStyle(color: _purple, fontSize: 10, fontWeight: FontWeight.w800), textAlign: TextAlign.center))),
+                Expanded(child: Center(child: Text('Earn\nLv', style: TextStyle(color: _blue, fontSize: 10, fontWeight: FontWeight.w800), textAlign: TextAlign.center))),
                 Expanded(flex: 2, child: Center(child: Text('Salary', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w800)))),
               ]),
             ),
@@ -914,7 +1101,9 @@ class _MobileYearlySummary extends StatelessWidget {
                   Expanded(flex: 4, child: Padding(padding: const EdgeInsets.only(left: 10), child: Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600)))),
                   Expanded(child: Center(child: Text('${employee.present}', style: const TextStyle(color: _green, fontWeight: FontWeight.w700)))),
                   Expanded(child: Center(child: Text('${employee.late}', style: const TextStyle(color: _orange, fontWeight: FontWeight.w700)))),
+                  Expanded(child: Center(child: Text('${employee.approvedLeave}', style: const TextStyle(color: _purple, fontWeight: FontWeight.w700)))),
                   Expanded(child: Center(child: Text('${employee.halfLeave}', style: const TextStyle(color: _purple, fontWeight: FontWeight.w700)))),
+                  Expanded(child: Center(child: Text('${employee.earnedLeave}', style: const TextStyle(color: _blue, fontWeight: FontWeight.w700)))),
                   Expanded(flex: 2, child: Center(child: Text(employee.updatedSalary, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 10, fontWeight: FontWeight.w600)))),
                 ]),
               ),
@@ -937,8 +1126,8 @@ class _MobileCalendarScroll extends StatelessWidget {
     final dayCount = DateTime(year, monthNumber + 1, 0).day;
     const employeeWidth = 142.0;
     const dayWidth = 38.0;
-    const summaryWidths = [46.0, 40.0, 48.0, 82.0, 82.0, 82.0];
-    const summaryLabels = ['Present', 'Late', 'Half\nLeave', 'Salary\nper month', 'Absent\ndeduction', 'Updated\nsalary'];
+    const summaryWidths = [46.0, 40.0, 56.0, 48.0, 52.0, 82.0, 82.0, 82.0];
+    const summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nper month', 'Absent\ndeduction', 'Updated\nsalary'];
     final weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final tableWidth = employeeWidth + dayCount * dayWidth + summaryWidths.reduce((a, b) => a + b);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -977,10 +1166,12 @@ class _MobileCalendarScroll extends StatelessWidget {
                           SizedBox(width: dayWidth, child: Center(child: _CalendarMark(value: index < employee.days.length ? employee.days[index] : ''))),
                         _summaryCell('${employee.present}', _green, summaryWidths[0]),
                         _summaryCell('${employee.late}', _orange, summaryWidths[1]),
-                        _summaryCell('${employee.halfLeave}', _purple, summaryWidths[2]),
-                        _summaryCell(employee.salary, _navy, summaryWidths[3]),
-                        _summaryCell(employee.afterLeaves, _navy, summaryWidths[4]),
-                        _summaryCell(employee.updatedSalary, _navy, summaryWidths[5]),
+                        _summaryCell('${employee.approvedLeave}', _purple, summaryWidths[2]),
+                        _summaryCell('${employee.halfLeave}', _purple, summaryWidths[3]),
+                        _summaryCell('${employee.earnedLeave}', _blue, summaryWidths[4]),
+                        _summaryCell(employee.salary, _navy, summaryWidths[5]),
+                        _summaryCell(employee.afterLeaves, _navy, summaryWidths[6]),
+                        _summaryCell(employee.updatedSalary, _navy, summaryWidths[7]),
                       ]),
                     ),
                 ]),
@@ -1293,10 +1484,9 @@ class _AttendanceLegend extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
             for (final item in items) ...[
               Container(
                 width: item.$1.length > 2 ? 25 : 20,
@@ -1321,8 +1511,7 @@ class _AttendanceLegend extends StatelessWidget {
                   style: const TextStyle(color: _navy, fontSize: 10)),
               const SizedBox(width: 20),
             ],
-          ],
-        ),
+        ],
       );
 }
 
@@ -1342,7 +1531,9 @@ class _YearlyHeaderRow extends StatelessWidget {
             _YearHeaderCell('Present', flex: 11, color: _green),
             _YearHeaderCell('Absent', flex: 11, color: _red),
             _YearHeaderCell('Late', flex: 11, color: _orange),
+            _YearHeaderCell('Leave', flex: 11, color: _purple),
             _YearHeaderCell('Half Leave', flex: 11, color: _purple),
+            _YearHeaderCell('Earned Leave', flex: 11, color: _blue),
             _YearHeaderCell('Annual Salary', flex: 14),
           ],
         ),
@@ -1385,7 +1576,9 @@ class _YearlyEmployeeRow extends StatelessWidget {
             _YearStatCell('${employee.present}', _green, 11),
             _YearStatCell('${employee.unexcused}', _red, 11),
             _YearStatCell('${employee.late}', _orange, 11),
+            _YearStatCell('${employee.approvedLeave}', _purple, 11),
             _YearStatCell('${employee.halfLeave}', _purple, 11),
+            _YearStatCell('${employee.earnedLeave}', _blue, 11),
             _YearBodyCell(
               flex: 14,
               child: Text(

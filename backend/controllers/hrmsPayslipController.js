@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { buildPayslipPdf } = require('../lib/payslipPdf');
 
 const ok = (res, data, message) => res.json({ success: true, message: message || 'OK', data });
 const fail = (res, status, message) => res.status(status).json({ success: false, message });
@@ -130,13 +131,55 @@ async function download(req, res) {
     await ensureTable();
     const payrollId = Number(req.params.payrollId);
     const [[row]] = await db.query(`
-      SELECT p.*, a.status AS request_status FROM hrms_payroll_items p
+      SELECT p.*, a.status AS request_status, e.full_name, e.employee_code, e.department
+      FROM hrms_payroll_items p
+      JOIN hrms_employee_profiles e ON e.id = p.profile_id AND e.employee_user_id = p.employee_user_id
       JOIN hrms_payslip_requests request ON request.payroll_item_id = p.id AND request.employee_user_id = p.employee_user_id
       JOIN hrms_payslip_approval_links link ON link.payslip_request_id = request.id
       JOIN attendance_permission_requests a ON a.id = link.approval_request_id
       WHERE p.id = ? AND p.employee_user_id = ?`, [payrollId, req.user.id]);
     if (!row || row.request_status !== 'approved') return fail(res, 403, 'Admin approval is required before download');
-    res.type('text/plain').send(`PAYSLIP\nPeriod: ${row.pay_month}/${row.pay_year}\nGross Salary: ${row.monthly_salary}\nLeave Deduction: ${row.deductions}\nNet Pay: ${row.net_pay}`);
+    const generatedPdf = await buildPayslipPdf(row);
+    res.set('Content-Disposition', `attachment; filename="Salary-Slip-${row.pay_month}-${row.pay_year}.pdf"`);
+    res.type('application/pdf').send(generatedPdf);
+    return;
+    const money = (value) => `Rs. ${Number(value || 0).toLocaleString('en-IN')}`;
+    const employeeName = row.employee_name || row.name || 'Employee';
+    const pdfText = (value) => String(value ?? '').replace(/[\\()]/g, '\\$&');
+    const lines = [
+      'GO DIGITAL', `SALARY SLIP FOR THE MONTH - ${row.pay_month}/${row.pay_year}`,
+      `Employee Name: ${employeeName}`, `Employee Code: ${row.employee_code || row.employee_user_id || '-'}`,
+      `Gross Earnings (A): ${money(row.monthly_salary)}`, `Leave Deduction: ${money(row.deductions)}`,
+      `Total Deductions (B): ${money(row.deductions)}`, `TOTAL NET PAYABLE (A-B): ${money(row.net_pay)}`,
+      'This is a system generated pay slip and hence company signature is not required.'
+    ];
+    let y = 770;
+    const commands = ['BT /F1 16 Tf 50 800 Td'];
+    lines.forEach((line, index) => { commands.push(`/F1 ${index < 2 ? 16 : 11} Tf 0 -${index === 0 ? 28 : 25} Td (${pdfText(line)}) Tj`); });
+    commands.push('ET');
+    const stream = commands.join('\n');
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`
+    ];
+    let pdf = '%PDF-1.4\n'; const offsets = [0];
+    objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, 'utf8')); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+    const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`; offsets.slice(1).forEach((offset) => { pdf += `${String(offset).padStart(10, '0')} 00000 n \n`; }); pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    res.set('Content-Disposition', `attachment; filename="Salary-Slip-${row.pay_month}-${row.pay_year}.pdf"`);
+    res.type('application/pdf').send(Buffer.from(pdf, 'utf8'));
+    return;
+    res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><style>
+      body{font-family:Arial,sans-serif;color:#172554;margin:0;padding:32px;background:#f5f7fb}
+      .sheet{max-width:760px;margin:auto;background:#fff;border:1px solid #dbe3f0;border-radius:12px;overflow:hidden}
+      .head{background:#0b3b8f;color:#fff;padding:26px 32px}.brand{font-size:22px;font-weight:700;letter-spacing:.5px}.title{font-size:18px;margin-top:8px;opacity:.9}
+      .meta{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;padding:22px 32px;border-bottom:1px solid #e5eaf2}.label{color:#64748b;font-size:12px;text-transform:uppercase}.value{font-weight:700;margin-top:5px}
+      table{width:calc(100% - 64px);margin:24px 32px;border-collapse:collapse}th,td{padding:10px 12px;border:1px solid #dbe3f0;text-align:left}th{background:#eef3fb}td:nth-child(even),th:nth-child(even){text-align:right}
+      .net{margin:0 32px 30px;padding:20px;background:#eaf2ff;border-left:5px solid #1261e8;display:flex;justify-content:space-between;font-size:20px;font-weight:700}.foot{padding:16px 32px;color:#64748b;font-size:12px;border-top:1px solid #e5eaf2}
+    </style></head><body><section class="sheet"><header class="head"><div class="brand">GO DIGITAL</div><div class="title">Salary Slip</div></header>
+      <div class="meta"><div><div class="label">Employee Name</div><div class="value">${employeeName}</div></div><div><div class="label">Employee Code</div><div class="value">${row.employee_code || row.employee_user_id || '—'}</div></div><div><div class="label">Pay period</div><div class="value">${row.pay_month}/${row.pay_year}</div></div><div><div class="label">Net days payable</div><div class="value">${row.paid_days || '—'}</div></div></div>
+      <table><tr><th>Earnings</th><th>Amount (INR)</th><th>Deductions</th><th>Amount (INR)</th></tr><tr><td>Gross Salary</td><td>${money(row.monthly_salary)}</td><td>Leave Deduction</td><td>${money(row.deductions)}</td></tr><tr><td>Other Earnings</td><td>${money(0)}</td><td>Other Deductions</td><td>${money(0)}</td></tr><tr><th>Total Earnings (A)</th><th>${money(row.monthly_salary)}</th><th>Total Deductions (B)</th><th>${money(row.deductions)}</th></tr></table>
+      <div class="net"><span>Total Net Payable (A − B)</span><span>${money(row.net_pay)}</span></div><div class="foot">This is a system generated pay slip and hence company signature is not required.</div></section></body></html>`);
   } catch (error) { return fail(res, 500, error.message); }
 }
 

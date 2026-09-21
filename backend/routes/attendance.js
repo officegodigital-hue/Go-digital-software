@@ -4,6 +4,10 @@ const { authenticateToken } = require('./auth');
 const attendance = require('../controllers/attendanceController');
 
 router.use(authenticateToken);
+const leavePolicies = require('../controllers/leavePolicies');
+router.use('/leave/policies', attendance.requireAdmin);
+router.get('/leave/policies', attendance.requireAdmin, leavePolicies.list);
+router.put('/leave/policies/:id', attendance.requireAdmin, leavePolicies.save);
 
 // Both portals keep their existing URL.  The signed-in user determines the
 // response shape, while both response paths read the same attendance_records.

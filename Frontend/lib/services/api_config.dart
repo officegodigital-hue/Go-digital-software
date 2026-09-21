@@ -4,24 +4,24 @@ class ApiConfig {
   static String get baseUrl {
     if (kIsWeb) {
       if (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1') {
-        return 'http://localhost:5000/api';
+        return 'http://localhost:3001/api';
       }
 
       return '/api';
     }
 
-    return 'http://10.0.2.2:5000/api';
+    return 'http://10.0.2.2:3001/api';
   }
 
   static String get socketUrl {
     if (kIsWeb) {
       if (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1') {
-        return 'http://localhost:5000';
+        return 'http://localhost:3001';
       }
 
       return Uri.base.origin;
     }
 
-    return 'http://10.0.2.2:5000';
+    return 'http://10.0.2.2:3001';
   }
 }
