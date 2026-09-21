@@ -167,12 +167,15 @@ int _getMaxAllowedRowsForClient(String clientName) {
       'video_editor',
       'developer',
       'ui_ux_designer',
+      'website_designer',
     ];
 
     for (final roleColumn in roleColumns) {
       final String taskField =
           roleColumn == 'page_handling'
               ? 'pages_platform'
+              : roleColumn == 'website_designer'
+                  ? 'website_designer_tasks'
               : '${roleColumn}_tasks';
 
       final taskValues =
@@ -570,14 +573,23 @@ void _prefillRoleFieldsForClient(
     // UI UX
     //---------------------------------------------
     final uiuxEmployee =
-        (task['ui_ux_designer'] ?? '')
-            .toString()
-            .trim()
-            .toUpperCase();
+        (task['ui_ux_designer'] ?? '').toString().trim().toUpperCase();
 
     if (uiuxEmployee == myName && nextIndex <= 6) {
       row['deliverables_$nextIndex'] =
           (task['ui_ux_tasks'] ?? '').toString();
+      nextIndex++;
+    }
+
+    //---------------------------------------------
+    // WEBSITE DESIGNER
+    //---------------------------------------------
+    final websiteDesignerEmployee =
+        (task['website_designer'] ?? '').toString().trim().toUpperCase();
+
+    if (websiteDesignerEmployee == myName && nextIndex <= 6) {
+      row['deliverables_$nextIndex'] =
+          (task['website_designer_tasks'] ?? '').toString();
       nextIndex++;
     }
   }
@@ -592,16 +604,18 @@ void _prefillRoleFieldsForClient(
   for (final task in addTasks) {
     if (nextIndex > 6) break;
 
-    final total = int.tryParse(
-          task['no_of_rows'].toString(),
-        ) ??
-        1;
+    final total =
+        int.tryParse(task['no_of_rows'].toString()) ?? 1;
 
-    final taskName = (task['deliverables'] ?? '').toString();
+    final taskName =
+        (task['deliverables'] ?? '').toString();
 
-    row['deliverables_$nextIndex'] = "$taskName ($total)";
+    row['deliverables_$nextIndex'] =
+        "$taskName ($total)";
+
     row['complete_deliverables_$nextIndex'] =
         "$taskName (0/$total)";
+
     row['balanced_deliverables_$nextIndex'] =
         "$taskName ($total/$total)";
 
@@ -611,8 +625,9 @@ void _prefillRoleFieldsForClient(
   //---------------------------------------------
   // DEFAULT COMPLETE / BALANCE
   //---------------------------------------------
-for (int i = 1; i <= 6; i++) {
-    final deliverable = (row['deliverables_$i'] ?? '').toString().trim();
+  for (int i = 1; i <= 6; i++) {
+    final deliverable =
+        (row['deliverables_$i'] ?? '').toString().trim();
 
     if (deliverable.isNotEmpty) {
       final deliverableList = deliverable
@@ -625,17 +640,32 @@ for (int i = 1; i <= 6; i++) {
       final balancedList = <String>[];
 
       for (final taskName in deliverableList) {
-        // Parse e.g. "POSTER (1)" -> name="POSTER", total=1
-        final match = RegExp(r'^(.*?)\s*\((\d+)\)\s*$').firstMatch(taskName);
-        final name = match != null ? match.group(1)!.trim() : taskName;
-        final total = match != null ? int.tryParse(match.group(2)!) ?? 1 : 1;
+        // Parse e.g. "POSTER (1)"
+        // name = POSTER
+        // total = 1
+        final match = RegExp(
+          r'^(.*?)\s*\((\d+)\)\s*$',
+        ).firstMatch(taskName);
+
+        final name =
+            match != null
+                ? match.group(1)!.trim()
+                : taskName;
+
+        final total =
+            match != null
+                ? int.tryParse(match.group(2)!) ?? 1
+                : 1;
 
         completeList.add('$name (0/$total)');
         balancedList.add('$name ($total/$total)');
       }
 
-      row['complete_deliverables_$i'] = completeList.join(', ');
-      row['balanced_deliverables_$i'] = balancedList.join(', ');
+      row['complete_deliverables_$i'] =
+          completeList.join(', ');
+
+      row['balanced_deliverables_$i'] =
+          balancedList.join(', ');
     }
   }
 }
@@ -742,7 +772,7 @@ String _formatMaintenanceDate(String value) {
         // each row — same matching logic AssignedTasksContent already uses.
         const roleColumns = [
           'designer', 'videographer', 'video_editor',
-          'ads_handling', 'page_handling', 'ui_ux_designer', 'developer',
+          'ads_handling', 'page_handling', 'ui_ux_designer', 'developer','website_designer',
         ];
 
         final uniqueClients = <String>{};
