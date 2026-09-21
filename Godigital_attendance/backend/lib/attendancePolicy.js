@@ -6,7 +6,11 @@ const defaults = Object.freeze({
   lateAfter: process.env.ATTENDANCE_LATE_AFTER || '10:00:00',
   absentAfter: process.env.ATTENDANCE_ABSENT_AFTER || '12:00:00',
 });
-let settings = { ...defaults };
+let settings = { ...defaults, male: { ...defaults }, female: { ...defaults } };
+function scheduleFor(gender) {
+  const key = String(gender || '').toLowerCase() === 'female' ? 'female' : 'male';
+  return settings[key] || settings;
+}
 
 function partsInZone(date, timeZone) {
   date = date || new Date();
@@ -25,9 +29,9 @@ function partsInZone(date, timeZone) {
 function todayIstDate() { return partsInZone().date; }
 function nowIstDateTime() { return partsInZone().dateTime; }
 function timeToSeconds(hhmmss) { const p = String(hhmmss).split(':'); return (Number(p[0]) || 0) * 3600 + (Number(p[1]) || 0) * 60 + (Number(p[2]) || 0); }
-function isLateCheckIn(dateTimeSql) { const time = String(dateTimeSql).slice(11, 19); return timeToSeconds(time) > timeToSeconds(settings.lateAfter); }
+function isLateCheckIn(dateTimeSql, gender) { const time = String(dateTimeSql).slice(11, 19); return timeToSeconds(time) > timeToSeconds(scheduleFor(gender).lateAfter); }
 function isLateAt(date, timeZone) { return timeToSeconds(partsInZone(date, timeZone).time) > timeToSeconds(settings.lateAfter); }
-function isAbsentCheckIn(dateTimeSql) { const time = String(dateTimeSql).slice(11, 19); return timeToSeconds(time) > timeToSeconds(settings.absentAfter); }
+function isAbsentCheckIn(dateTimeSql, gender) { const time = String(dateTimeSql).slice(11, 19); return timeToSeconds(time) > timeToSeconds(scheduleFor(gender).absentAfter); }
 function isAbsentAt(date, timeZone) { return timeToSeconds(partsInZone(date, timeZone).time) > timeToSeconds(settings.absentAfter); }
 function minutesBetween(startSql, endSql) { const start = new Date(String(startSql).replace(' ', 'T')); const end = new Date(String(endSql).replace(' ', 'T')); if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0; return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000)); }
 function isEarlyExit(workingMinutes) { return Number(workingMinutes || 0) < REQUIRED_MINUTES; }

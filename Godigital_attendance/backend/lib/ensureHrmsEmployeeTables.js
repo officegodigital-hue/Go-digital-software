@@ -20,7 +20,8 @@ async function ensureHrmsEmployeeTables(db) {
     "COALESCE(NULLIF(u.role, ''), 'Engineering'), 'Office', " +
     "CASE WHEN u.is_active = 1 THEN 'Active' ELSE 'Inactive' END " +
     "FROM employee_users u LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = u.id " +
-    "WHERE p.id IS NULL AND LOWER(u.user_type) = 'employee'"
+    "WHERE p.id IS NULL AND LOWER(u.user_type) = 'employee' " +
+    "AND NOT EXISTS (SELECT 1 FROM hrms_employee_profiles existing WHERE existing.employee_code = COALESCE(NULLIF(u.staff_id, ''), CONCAT('EMP', LPAD(u.id, 4, '0'))))"
   );
 }
 

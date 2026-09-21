@@ -8,11 +8,10 @@ router.use(hrms.requireAdmin);
 
 router.get('/summary', hrms.summary);
 router.get('/export', hrms.exportCsv);
-router.post('/roles', hrms.createRole);
 router.get('/', hrms.list);
 router.post('/', hrms.create);
+router.post('/:id/password-reset', hrms.resetPassword);
 router.put('/:id', hrms.update);
-router.post('/:id/reset-password', hrms.resetPassword);
 router.patch('/:id/status', hrms.updateStatus);
 router.delete('/:id', hrms.remove);
 

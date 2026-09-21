@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../services/attendance_location.dart';
 import '../../services/hrms_tracking_api.dart';
@@ -17,7 +16,6 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
   final _addressController = TextEditingController();
   Map<String, dynamic>? _home;
   Position? _position;
-  LatLng? _pin;
   bool _loading = true;
   bool _capturing = false;
   bool _saving = false;
@@ -51,11 +49,6 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
       setState(() {
         _home = home;
         _addressController.text = home?['address']?.toString() ?? '';
-        final latitude = double.tryParse('${home?['latitude']}');
-        final longitude = double.tryParse('${home?['longitude']}');
-        _pin = latitude != null && longitude != null
-            ? LatLng(latitude, longitude)
-            : null;
         _loading = false;
       });
     } catch (error) {
@@ -79,10 +72,7 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
     try {
       final position = await AttendanceLocation.currentPosition();
       if (!mounted) return;
-      setState(() {
-        _position = position;
-        _pin = LatLng(position.latitude, position.longitude);
-      });
+      setState(() => _position = position);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -94,8 +84,8 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
   }
 
   Future<void> _submit() async {
-    final point = _pin;
-    if (_busy || point == null) return;
+    final position = _position;
+    if (_busy || position == null) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -103,18 +93,18 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
     });
     try {
       await HrmsTrackingApi.submitHomeLocation(
-        latitude: point.latitude,
-        longitude: point.longitude,
-        accuracy: _position?.accuracy ?? 0,
-        capturedAt: (_position?.timestamp ?? DateTime.now()).toUtc().toIso8601String(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        capturedAt: position.timestamp.toUtc().toIso8601String(),
         address: _addressController.text.trim(),
       );
       if (!mounted) return;
       setState(() {
         _home = {
           ...?_home,
-          'latitude': point.latitude,
-          'longitude': point.longitude,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
           'address': _addressController.text.trim(),
           'approval_status': 'pending',
           'rejection_reason': null,
@@ -187,8 +177,8 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
                       if (!_loadFailed) ...[
                         const SizedBox(height: 16),
                         const Text(
-                          'Capture your current GPS location, or tap the map '
-                          'to place a pin at your home address.',
+                          'When you are at home, capture your current '
+                          'GPS location and submit it for approval.',
                         ),
                         if (status == 'approved') ...[
                           const SizedBox(height: 8),
@@ -210,56 +200,6 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
                             border: OutlineInputBorder(),
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Tap the map to place or move your home pin.',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 230,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: GoogleMap(
-                              key: ValueKey(
-                                'home-pin-${_pin?.latitude}-${_pin?.longitude}',
-                              ),
-                              initialCameraPosition: CameraPosition(
-                                target: _pin ?? const LatLng(20.5937, 78.9629),
-                                zoom: _pin == null ? 5 : 16,
-                              ),
-                              mapToolbarEnabled: false,
-                              onTap: _busy
-                                  ? null
-                                  : (point) => setState(() {
-                                      _pin = point;
-                                      _position = null;
-                                      _notice = null;
-                                    }),
-                              markers: _pin == null
-                                  ? const <Marker>{}
-                                  : {
-                                      Marker(
-                                        markerId: const MarkerId('home-pin'),
-                                        position: _pin!,
-                                        draggable: !_busy,
-                                        onDragEnd: (point) => setState(() {
-                                          _pin = point;
-                                          _position = null;
-                                          _notice = null;
-                                        }),
-                                      ),
-                                    },
-                            ),
-                          ),
-                        ),
-                        if (_pin != null) ...[
-                          const SizedBox(height: 8),
-                          SelectableText(
-                            'Selected pin: ${_coordinates(_pin!.latitude, _pin!.longitude)}',
-                          ),
-                        ],
-                        const SizedBox(height: 10),
                         OutlinedButton.icon(
                           onPressed: _busy ? null : _capture,
                           icon: const Icon(Icons.my_location),
@@ -312,7 +252,7 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
             child: const Text('Close'),
           ),
           FilledButton(
-            onPressed: _loading || _loadFailed || _busy || _pin == null
+            onPressed: _loading || _loadFailed || _busy || _position == null
                 ? null
                 : _submit,
             child: Text(

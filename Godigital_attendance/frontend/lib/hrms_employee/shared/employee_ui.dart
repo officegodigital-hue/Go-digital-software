@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_storage.dart';
+import '../../screens/login_screen.dart';
 
 const employeeBlue = Color(0xFF0767F2);
 const employeeNavy = Color(0xFF07143F);
@@ -38,9 +40,10 @@ class EmployeeScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     if (MediaQuery.sizeOf(context).width < 600) {
       return Scaffold(
+        bottomNavigationBar: EmployeeMobileBottomNav(route: route),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             child: mobile,
           ),
         ),
@@ -68,7 +71,7 @@ class EmployeeScaffold extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (desktopHeaderAction != null) desktopHeaderAction!,
+                      ?desktopHeaderAction,
                     ],
                   ),
                   if (subtitle.isNotEmpty) ...[
@@ -92,6 +95,69 @@ class EmployeeScaffold extends StatelessWidget {
       ),
     );
   }
+}
+
+class EmployeeMobileBottomNav extends StatelessWidget {
+  const EmployeeMobileBottomNav({super.key, required this.route});
+  final String route;
+
+  static const _items = <_NavItem>[
+    _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
+    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
+    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
+    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
+    _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
+    _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+        child: Container(
+          height: 62,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF172554),
+            borderRadius: BorderRadius.circular(34),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: _items.map((item) {
+              final active = item.route == route;
+              return Expanded(
+                child: Tooltip(
+                  message: item.label,
+                  child: InkWell(
+                    onTap: active
+                        ? null
+                        : () => Navigator.of(context).pushReplacementNamed(item.route),
+                    borderRadius: BorderRadius.circular(25),
+                    child: Center(
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: active ? const Color(0xFF2563EB) : Colors.transparent,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(item.icon, color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      );
 }
 
 class EmployeeSidebar extends StatelessWidget {
@@ -185,15 +251,20 @@ class EmployeeSidebar extends StatelessWidget {
         const Spacer(),
         InkWell(
           onTap: () async {
-            Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+            await AuthService().logout();
+            if (!context.mounted) return;
+            Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (_) => false,
+            );
           },
           child: const Padding(
             padding: EdgeInsets.all(24),
             child: Row(
               children: [
-                Icon(Icons.grid_view_rounded, size: 17, color: employeeMuted),
+                Icon(Icons.logout_rounded, size: 17, color: employeeMuted),
                 SizedBox(width: 8),
-                Text('Workspace', style: TextStyle(color: employeeMuted)),
+                Text('Logout', style: TextStyle(color: employeeMuted)),
               ],
             ),
           ),
@@ -309,6 +380,7 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
   void initState() {
     super.initState();
     _updateClock();
+    _loadStoredIdentity();
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => _updateClock(),
@@ -317,7 +389,10 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       const Duration(seconds: 15),
       (_) => _fetchHeaderStatus(),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchHeaderStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchProfile();
+      _fetchHeaderStatus();
+    });
   }
 
   @override
@@ -335,8 +410,51 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     }
   }
 
+  void _applyIdentity(String? name, String? id) {
+    final resolvedName = (name ?? '').trim();
+    if (resolvedName.isEmpty) return;
+    _fullName = resolvedName;
+    _staffId = (id ?? '').trim().isEmpty ? 'EMP' : (id ?? '').trim();
+    final parts = _fullName.split(RegExp(r'\s+'));
+    _staffInitials = parts.length > 1
+        ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
+        : _fullName.substring(0, _fullName.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
+  Future<void> _loadStoredIdentity() async {
+    try {
+      final raw = await AuthStorage.getString('user_data');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw);
+      if (data is Map && mounted) {
+        setState(() => _applyIdentity(
+          data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
+          data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
+        ));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchProfile() async {
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+      final body = jsonDecode(response.body);
+      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      final profile = Map<String, dynamic>.from(body['data'] as Map);
+      setState(() => _applyIdentity(
+        profile['fullName']?.toString() ?? profile['full_name']?.toString(),
+        profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
+      ));
+    } catch (_) {}
+  }
+
   Future<void> _fetchHeaderStatus() async {
-    final token = context.read<AuthService>().token;
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
@@ -360,16 +478,8 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
             final data = body['data'];
             setState(() {
               _isCheckedIn = data['is_checked_in'] == true;
-              _fullName = data['full_name']?.toString() ?? 'Employee';
-              _staffId = data['staff_id']?.toString() ?? 'EMP';
+              _applyIdentity(data['full_name']?.toString(), data['staff_id']?.toString());
               _unreadNotifications = data['unread_count'] ?? 0;
-
-              final parts = _fullName.trim().split(RegExp(r'\s+'));
-              _staffInitials = parts.length > 1
-                  ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
-                  : _fullName
-                        .substring(0, _fullName.length >= 2 ? 2 : 1)
-                        .toUpperCase();
 
               if (data['notifications'] is List) {
                 _notifications = (data['notifications'] as List)
@@ -696,11 +806,13 @@ class EmployeeProfileMenu extends StatelessWidget {
     color: Colors.white,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     onSelected: (value) async {
-      if (value == 'logout') {
-        await context.read<AuthService>().logout();
-        if (context.mounted) {
-          Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
-        }
+      if (value == 'workspace') {
+        await AuthService().logout();
+        if (!context.mounted) return;
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+        );
       }
     },
     itemBuilder: (_) => [
@@ -725,15 +837,15 @@ class EmployeeProfileMenu extends StatelessWidget {
       ),
       const PopupMenuDivider(),
       const PopupMenuItem<String>(
-        value: 'logout',
+        value: 'workspace',
         child: Row(
           children: [
-            Icon(Icons.logout_rounded, size: 18, color: Color(0xFFD92D20)),
+            Icon(Icons.logout_rounded, size: 18, color: employeeBlue),
             SizedBox(width: 10),
             Text(
               'Logout',
               style: TextStyle(
-                color: Color(0xFFD92D20),
+                color: employeeBlue,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -821,7 +933,7 @@ class SectionTitle extends StatelessWidget {
           ],
         ),
       ),
-      if (trailing != null) trailing!,
+      ?trailing,
     ],
   );
 }
@@ -863,7 +975,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     decoration: BoxDecoration(
-      color: color.withOpacity(.11),
+      color: color.withValues(alpha: .11),
       borderRadius: BorderRadius.circular(20),
     ),
     child: Text(
@@ -899,7 +1011,7 @@ class MetricCard extends StatelessWidget {
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: color.withOpacity(.1),
+            color: color.withValues(alpha: .1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color),
@@ -1070,7 +1182,7 @@ class InfoBanner extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: color.withOpacity(.08),
+      color: color.withValues(alpha: .08),
       borderRadius: BorderRadius.circular(10),
     ),
     child: Row(
@@ -1105,7 +1217,7 @@ class EmployeePageTitle extends StatelessWidget {
           ),
         ),
       ),
-      if (trailing != null) trailing!,
+      ?trailing,
     ],
   );
 }

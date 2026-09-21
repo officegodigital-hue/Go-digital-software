@@ -210,10 +210,12 @@ class _ClockViewState extends State<_ClockView> {
       if (!mounted || token != _getToken()) return;
       await _fetchTodayStatus();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error is AttendanceLocationError ? error.message
             : 'Could not reach attendance. Refresh attendance before retrying.')),
       );
+      }
     } finally {
       client.close();
       if (mounted) setState(() => _actionLoading = false);

@@ -241,6 +241,18 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
 
     app.post(`${prefix}/clock-in`, authMiddleware, async (req, res, next) => {
       try {
+        const [[profile]] = await pool.execute(
+          'SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
+          [req.employee.id],
+        );
+        const mode = String(profile?.work_mode || 'Office').toLowerCase();
+        if (mode === 'field') {
+          const [sessions] = await pool.execute(
+            'SELECT id FROM employee_tracking_sessions WHERE employee_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1',
+            [req.employee.id],
+          );
+          if (!sessions.length) return res.status(400).json({ success: false, message: 'Start live tracking before clocking in as a Field employee.' });
+        }
         const data = await service.punch(req.employee.id, 'in');
         await recordClockInLocation(req.employee.id, req.body);
         res.json({ success: true, message: 'Clocked in successfully', data });

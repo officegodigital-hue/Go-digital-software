@@ -63,36 +63,21 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> policy() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers());
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> policy) async {
+    final response = await http.put(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers(), body: jsonEncode(policy));
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> markPaid(int id) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$id'),
       headers: await _headers(),
       body: jsonEncode({'status': 'paid'}),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> paidLeavePolicy() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/leave-policy'),
-      headers: await _headers(),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> updatePaidLeavePolicy({
-    required num weeklyLimit,
-    required num monthlyLimit,
-    required num yearlyLimit,
-  }) async {
-    final response = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/leave-policy'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'weeklyLimit': weeklyLimit,
-        'monthlyLimit': monthlyLimit,
-        'yearlyLimit': yearlyLimit,
-      }),
     );
     return _decode(response);
   }

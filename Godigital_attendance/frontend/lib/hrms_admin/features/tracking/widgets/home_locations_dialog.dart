@@ -71,8 +71,9 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
       final settings = await HrmsTrackingApi.trackingSettings();
       if (!mounted) return;
       final radius = settings['office_radius_meters'];
-      if (radius == null)
+      if (radius == null) {
         throw Exception('Office/Home radius is not configured.');
+      }
       setState(() {
         _radiusController.text = '$radius';
         _loadingRadius = false;

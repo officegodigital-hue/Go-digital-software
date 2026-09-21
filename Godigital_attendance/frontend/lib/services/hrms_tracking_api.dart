@@ -190,7 +190,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'accuracy': ?accuracy,
       }),
     );
 
@@ -206,22 +206,6 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> fieldSessionSummary() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/summary'),
-      headers: await _headers(),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> trackingPermissions() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/permissions'),
-      headers: await _headers(),
-    );
-    return _decode(response);
-  }
-
   static Future<Map<String, dynamic>> startFieldSession({
     required double latitude,
     required double longitude,
@@ -233,7 +217,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'accuracy': ?accuracy,
       }),
     );
 
@@ -249,9 +233,9 @@ class HrmsTrackingApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/stop'),
       headers: await _headers(),
       body: jsonEncode({
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (accuracy != null) 'accuracy': accuracy,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracy': ?accuracy,
       }),
     );
 
