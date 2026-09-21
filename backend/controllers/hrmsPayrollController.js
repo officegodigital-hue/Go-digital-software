@@ -260,8 +260,13 @@ async function computeRows(year, month, today) {
     const netPay = Math.max(0, salaryNumber - deductions);
 
     const saved = savedMap.get(Number(profile.id));
-    if (saved && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
-        (saved.status === 'paid' && !(Number(saved.monthly_salary) > 0)))) {
+    // Only a *paid* row's inconsistency is an audit concern requiring a human
+    // correction — that state is final and shouldn't be silently rewritten.
+    // A pending/draft row with a stale employee_user_id (e.g. left over from
+    // before other employees were added) is safe to self-heal the next time
+    // payroll is generated, so it must not be flagged here.
+    if (saved && saved.status === 'paid' && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
+        !(Number(saved.monthly_salary) > 0))) {
       return { id: saved.id, profileId: profile.id, employeeUserId: profile.employee_user_id,
         name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
         department: profile.department, monthlySalary: salaryNumber || null, salary: formatSalary(salaryNumber || null),
@@ -399,6 +404,24 @@ async function generate(req, res) {
 }
 
 async function generatePayrollRun(year, month, today) {
+    // Heal stale employee_user_id on ALL non-paid rows before computing anything.
+    // This runs unconditionally so employees with no salary set are also corrected,
+    // preventing permanent "Review required" on pending rows with wrong ownership.
+    await db.query(`
+      UPDATE hrms_payroll_items pi
+      JOIN hrms_employee_profiles ep ON ep.id = pi.profile_id
+      SET pi.employee_user_id = ep.employee_user_id
+      WHERE pi.status != 'paid'
+        AND (pi.employee_user_id IS NULL OR pi.employee_user_id != ep.employee_user_id)
+    `);
+    // Reset any 'paid' row that has no salary — these are audit anomalies that
+    // block the employee indefinitely and must be reopened so payroll can regenerate.
+    await db.query(`
+      UPDATE hrms_payroll_items
+      SET status = 'pending', paid_at = NULL
+      WHERE status = 'paid' AND (monthly_salary IS NULL OR monthly_salary <= 0)
+    `);
+
     const allItems = await computeRows(year, month, today);
     const items = allItems.filter(function (item) { return Number(item.monthlySalary) > 0 && !item.integrityError && item.employeeUserId; });
     for (const item of items) {
@@ -409,6 +432,7 @@ async function generatePayrollRun(year, month, today) {
            working_days, paid_days, lop_days, deductions, net_pay, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
          ON DUPLICATE KEY UPDATE
+           employee_user_id = IF(status = 'paid', employee_user_id, VALUES(employee_user_id)),
            monthly_salary = IF(status = 'paid', monthly_salary, VALUES(monthly_salary)),
            working_days = IF(status = 'paid', working_days, VALUES(working_days)),
            paid_days = IF(status = 'paid', paid_days, VALUES(paid_days)),
