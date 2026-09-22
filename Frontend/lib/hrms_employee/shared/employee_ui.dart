@@ -375,13 +375,12 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     super.initState();
     _updateClock();
     _loadStoredIdentity();
+    // The header must never refresh the whole employee app continuously.
+    // Time changes only by the minute, and attendance state refreshes after
+    // explicit employee actions or when the page is opened again.
     _clockTimer = Timer.periodic(
-      const Duration(seconds: 1),
+      const Duration(minutes: 1),
       (_) => _updateClock(),
-    );
-    _pollingTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _fetchHeaderStatus(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchProfile();

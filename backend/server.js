@@ -9,6 +9,7 @@ const cron = require('node-cron');
 const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
+const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 
 
@@ -276,6 +277,7 @@ server.listen(PORT, async () => {
     await ensureAuthSchema(db);
     console.log('Login schema is ready');
     console.log('Attendance tables are ready');
+    await ensureAttendancePolicyTables();
     await attendancePolicy.getTimeSettings(db);
     console.log('Attendance time settings are ready');
     await ensureHrmsEmployeeTables(db);
