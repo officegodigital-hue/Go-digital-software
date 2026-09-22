@@ -213,15 +213,21 @@ async function reverseGeocode(latitude, longitude) {
     return cached.address;
   }
 
-  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    const url = 'https://maps.googleapis.com/maps/api/geocode/json'
-      + '?latlng=' + encodeURIComponent(latitude + ',' + longitude)
-      + '&key=' + apiKey;
-    const response = await fetch(url);
+    const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
+    const url = apiKey
+      ? 'https://maps.googleapis.com/maps/api/geocode/json?latlng=' + encodeURIComponent(latitude + ',' + longitude) + '&key=' + apiKey
+      : 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&lat=' + encodeURIComponent(latitude) + '&lon=' + encodeURIComponent(longitude);
+    const headers = apiKey ? {} : { 'User-Agent': 'GoDigital-Attendance/1.0' };
+    const response = await fetch(url, { headers: headers });
     const data = await response.json();
+
+    if (!apiKey) {
+      const address = data && data.display_name;
+      if (!address) return null;
+      geocodeCache.set(key, { address: address, expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS });
+      return address;
+    }
 
     if (data.status !== 'OK' || !data.results || !data.results.length) {
       return null;
@@ -421,7 +427,7 @@ async function ping(req, res) {
 async function liveOverview(req, res) {
   try {
     const [profiles] = await db.query(`
-      SELECT id, employee_user_id, full_name, employee_code, work_mode
+      SELECT id, employee_user_id, full_name, employee_code
       FROM hrms_employee_profiles
       WHERE employment_status <> 'Inactive'
     `);
@@ -460,16 +466,7 @@ async function liveOverview(req, res) {
 
     const items = profiles.map(function (profile) {
       const uid = profile.employee_user_id ? Number(profile.employee_user_id) : null;
-      // Before an employee sends a live status, show them under their
-      // admin-configured work mode instead of incorrectly defaulting to Office.
-      const configuredStatus = String(profile.work_mode || 'Office').toLowerCase();
-      const fallbackStatus = configuredStatus === 'home' ? 'home' : 'office';
-      const liveStatus = uid && statusMap.get(uid);
-      // A stale `office` status must not move a Home employee into the Office
-      // list. Field is the only live state that temporarily overrides Home.
-      const status = configuredStatus === 'home'
-        ? (liveStatus === 'field' ? 'field' : 'home')
-        : liveStatus || fallbackStatus;
+      const status = (uid && statusMap.get(uid)) || 'office';
       const ping = uid ? pingMap.get(uid) : null;
       counts[status] = (counts[status] || 0) + 1;
 
@@ -837,74 +834,6 @@ async function getMyFieldSession(req, res) {
   }
 }
 
-async function getMyFieldSessionSummary(req, res) {
-  try {
-    const employeeUserId = req.user && req.user.id;
-    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    const [sessions] = await db.query(
-      `SELECT id, started_at, stopped_at, is_active
-       FROM hrms_field_tracking_sessions
-       WHERE employee_user_id = ?
-       ORDER BY started_at DESC LIMIT 1`,
-      [employeeUserId]
-    );
-    if (!sessions.length) return ok(res, { hasSession: false });
-    const session = sessions[0];
-    const endAt = session.stopped_at || new Date();
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND recorded_at >= ? AND recorded_at <= ?
-       ORDER BY recorded_at ASC`,
-      [employeeUserId, session.started_at, endAt]
-    );
-    let distance = 0;
-    for (let index = 1; index < pings.length; index += 1) {
-      distance += distanceMeters(
-        Number(pings[index - 1].latitude), Number(pings[index - 1].longitude),
-        Number(pings[index].latitude), Number(pings[index].longitude)
-      );
-    }
-    const durationSeconds = Math.max(0,
-      Math.round((new Date(endAt).getTime() - new Date(session.started_at).getTime()) / 1000));
-    const distanceKm = distance / 1000;
-    return ok(res, {
-      hasSession: true,
-      isActive: Number(session.is_active) === 1,
-      durationSeconds: durationSeconds,
-      distanceKm: Number(distanceKm.toFixed(3)),
-      averageSpeedKmph: durationSeconds > 0
-        ? Number((distanceKm / (durationSeconds / 3600)).toFixed(2))
-        : 0,
-      pingCount: pings.length
-    });
-  } catch (error) {
-    console.error('GET /hrms/tracking/field-session/summary', error);
-    return fail(res, 500, error.message);
-  }
-}
-
-async function getMyTrackingPermissions(req, res) {
-  try {
-    const employeeUserId = req.user && req.user.id;
-    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    const [profiles] = await db.query(
-      'SELECT work_mode, department, field_tracking_enabled FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
-      [employeeUserId]
-    );
-    if (!profiles.length) return fail(res, 403, 'An employee profile must be configured by admin');
-    return ok(res, {
-      workMode: profiles[0].work_mode,
-      department: profiles[0].department,
-      homeLocationEnabled: String(profiles[0].department || '').toLowerCase() !== 'sales',
-      fieldTrackingEnabled: Number(profiles[0].field_tracking_enabled) === 1
-    });
-  } catch (error) {
-    console.error('GET /hrms/tracking/permissions', error);
-    return fail(res, 500, error.message);
-  }
-}
-
 async function startFieldTracking(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
@@ -922,14 +851,14 @@ async function startFieldTracking(req, res) {
     }
 
     const [profiles] = await db.query(
-      `SELECT work_mode, field_tracking_enabled
+      `SELECT work_mode
        FROM hrms_employee_profiles
        WHERE employee_user_id = ?`,
       [employeeUserId]
     );
 
-    if (!profiles.length || Number(profiles[0].field_tracking_enabled) !== 1) {
-      return fail(res, 403, 'Field live tracking is not enabled for your employee account');
+    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) {
+      return fail(res, 403, 'Live tracking is available only for Field or Hybrid employees');
     }
 
     const [activeSessions] = await db.query(
@@ -1143,6 +1072,34 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
+async function addTrackingComment(req, res) {
+  try {
+    const employeeUserId = Number(req.user && req.user.id);
+    const text = String((req.body && req.body.comment) || '').trim();
+    if (!text) return fail(res, 400, 'Comment is required');
+    if (text.length > 2000) return fail(res, 400, 'Comment is too long');
+    const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
+    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) return fail(res, 403, 'Comments are available only to Field and Hybrid employees');
+    const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
+    await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
+    return ok(res, null, 'Comment saved');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function myTrackingComments(req, res) {
+  try {
+    const [rows] = await db.query(`SELECT id, comment_text AS comment, latitude, longitude, address, created_at AS createdAt FROM hrms_employee_tracking_comments WHERE employee_user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY created_at DESC`, [req.user.id]);
+    return ok(res, { items: rows });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function adminTrackingComments(req, res) {
+  try {
+    const [rows] = await db.query(`SELECT c.id, c.employee_user_id AS employeeUserId, p.full_name AS employeeName, p.employee_code AS employeeCode, c.comment_text AS comment, c.latitude, c.longitude, c.address, c.created_at AS createdAt FROM hrms_employee_tracking_comments c INNER JOIN employee_users u ON u.id = c.employee_user_id INNER JOIN hrms_employee_profiles p ON p.employee_user_id = c.employee_user_id WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY c.created_at DESC`);
+    return ok(res, { items: rows });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1157,12 +1114,13 @@ module.exports = {
   listHomeLocations,
   reviewHomeLocation,
   getMyFieldSession,
-  getMyFieldSessionSummary,
-  getMyTrackingPermissions,
 startFieldTracking,
 stopFieldTracking,
 getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
 reviewFieldWaitingReason,
+  addTrackingComment,
+  myTrackingComments,
+  adminTrackingComments,
 };

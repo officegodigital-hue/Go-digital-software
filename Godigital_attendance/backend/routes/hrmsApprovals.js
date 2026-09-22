@@ -8,8 +8,6 @@ router.use(hrms.requireAdmin);
 
 router.get('/notifications', hrms.notifications);
 router.patch('/notifications/read-all', hrms.markAllNotificationsRead);
-router.get('/leave-policies', hrms.leavePolicies);
-router.put('/leave-policies', hrms.updateLeavePolicies);
 router.get('/', hrms.list);
 router.patch('/:id', hrms.review);
 

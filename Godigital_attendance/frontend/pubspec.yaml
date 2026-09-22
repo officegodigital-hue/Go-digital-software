@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   url_launcher: ^6.3.1
+  image_picker: ^1.1.2
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -50,18 +51,17 @@ dependencies:
   share_plus: ^7.0.0
   path_provider: ^2.1.0
   socket_io_client: ^3.1.6
-  file_picker: ^11.0.3
   emoji_picker_flutter: ^4.5.3
   universal_html: ^2.3.0
   geolocator: ^14.0.2
   google_maps_flutter: ^2.18.0
+  excel: ^4.0.6
+  archive: ^3.6.1
   hrms_design_system:
     path: hrms_packages/hrms_design_system
   hrms_responsive:
     path: hrms_packages/hrms_responsive
-  
-  
-
+  file_picker: ^11.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -119,5 +119,3 @@ flutter:
     - assets/images/
     - assets/sounds/
 
-
-    

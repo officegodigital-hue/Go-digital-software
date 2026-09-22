@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../services/hrms_tracking_api.dart';
+import '../../services/attendance_api.dart';
+import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
 
@@ -26,7 +28,7 @@ class EmployeeTrackingPage extends StatelessWidget {
   }
 }
 
-enum _WorkMode { office, home, field }
+enum _WorkMode { office, hybrid, field }
 
 class _TrackingView extends StatefulWidget {
   const _TrackingView({required this.mobile, required this.routeHistory});
@@ -41,6 +43,7 @@ class _TrackingViewState extends State<_TrackingView> {
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
+  bool clockedIn = false;
   Timer? _locationTimer;
   Timer? _waitingAlertTimer;
   Position? _lastPosition;
@@ -49,8 +52,6 @@ class _TrackingViewState extends State<_TrackingView> {
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
-  bool _fieldTrackingEnabled = false;
-  bool _homeLocationEnabled = true;
   String? _homeError;
 
   String distance = '—';
@@ -70,8 +71,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadFieldSession();
-      _loadTripSummary();
-      _loadTrackingPermissions();
+      _loadClockStatus();
       _checkWaitingAlert();
       _loadHomeLocation();
       _loadOfficeSettings();
@@ -83,24 +83,18 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
-  Future<void> _loadTrackingPermissions() async {
+  Future<void> _loadClockStatus() async {
     try {
-      final permissions = await HrmsTrackingApi.trackingPermissions();
-      if (!mounted) return;
-      setState(() {
-        _fieldTrackingEnabled = permissions['fieldTrackingEnabled'] == true ||
-            permissions['field_tracking_enabled'] == true ||
-            permissions['fieldTrackingEnabled'].toString() == '1';
-        _homeLocationEnabled = permissions['homeLocationEnabled'] != false;
-        if (!_fieldTrackingEnabled && mode == _WorkMode.field) {
-          mode = _WorkMode.office;
-        }
-        if (!_homeLocationEnabled && mode == _WorkMode.home) {
-          mode = _WorkMode.office;
-        }
-      });
+      final data = await AttendanceApi.dashboard(DateTime.now());
+      final status = '${data['status'] ?? ''}'.toLowerCase();
+      final value = data['checkedIn'] ?? data['checked_in'] ??
+          data['isCheckedIn'] ?? data['is_checked_in'] ??
+          data['clockedIn'] ?? data['clocked_in'];
+      final active = status == 'checked_in' || value == true || value == 1 ||
+          value == '1' || value == 'true';
+      if (mounted) setState(() => clockedIn = active);
     } catch (_) {
-      // Field tracking remains unavailable unless the admin permission loads.
+      // The tracking page remains usable if attendance status is unavailable.
     }
   }
 
@@ -196,7 +190,8 @@ class _TrackingViewState extends State<_TrackingView> {
         trackingActive = active;
 
         if (active) {
-          mode = _WorkMode.field;
+          final savedMode = '${session['work_mode'] ?? session['workMode'] ?? ''}'.toLowerCase();
+          if (savedMode == 'hybrid') mode = _WorkMode.hybrid;
           updated = 'Live tracking active';
         }
       });
@@ -207,29 +202,6 @@ class _TrackingViewState extends State<_TrackingView> {
       }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
-    }
-  }
-
-  Future<void> _loadTripSummary() async {
-    try {
-      final summary = await HrmsTrackingApi.fieldSessionSummary();
-      if (!mounted || summary['hasSession'] != true) return;
-      final seconds = (summary['durationSeconds'] as num?)?.toInt() ?? 0;
-      final minutes = seconds ~/ 60;
-      final hours = minutes ~/ 60;
-      final remainingMinutes = minutes % 60;
-      final distanceKm = (summary['distanceKm'] as num?)?.toDouble() ?? 0;
-      final averageSpeed =
-          (summary['averageSpeedKmph'] as num?)?.toDouble() ?? 0;
-      setState(() {
-        duration = hours > 0
-            ? '${hours}h ${remainingMinutes}m'
-            : '${minutes} min';
-        distance = '${distanceKm.toStringAsFixed(2)} km';
-        avgSpeed = '${averageSpeed.toStringAsFixed(1)} km/h';
-      });
-    } catch (_) {
-      // Keep placeholders when no field session has been recorded yet.
     }
   }
 
@@ -300,7 +272,6 @@ class _TrackingViewState extends State<_TrackingView> {
 
         setState(() {
           trackingActive = true;
-          mode = _WorkMode.field;
           _lastPosition = position;
           updated = 'Updated just now';
           activities = [
@@ -312,7 +283,6 @@ class _TrackingViewState extends State<_TrackingView> {
         });
 
         _startLocationTimer();
-        await _loadTripSummary();
 
         ScaffoldMessenger.of(
           context,
@@ -341,8 +311,6 @@ class _TrackingViewState extends State<_TrackingView> {
           ];
         });
 
-        await _loadTripSummary();
-
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking stopped.')));
@@ -364,7 +332,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
   String get modeLabel => switch (mode) {
     _WorkMode.office => 'Office',
-    _WorkMode.home => 'Home',
+    _WorkMode.hybrid => 'Hybrid',
     _WorkMode.field => 'Field',
   };
 
@@ -383,7 +351,7 @@ class _TrackingViewState extends State<_TrackingView> {
       ].where((value) => value.isNotEmpty).join('\n');
     }
 
-    if (mode == _WorkMode.home) {
+    if (mode == _WorkMode.hybrid) {
       if (_homeLoading) return 'Loading home location...';
       if (_homeError != null) return _homeError!;
       if (_homeLocation == null) {
@@ -421,8 +389,6 @@ class _TrackingViewState extends State<_TrackingView> {
 
     final modes = _ModeTabs(
       selected: mode,
-      homeEnabled: _homeLocationEnabled,
-      fieldEnabled: _fieldTrackingEnabled,
       onChanged: (value) => setState(() => mode = value),
     );
 
@@ -432,7 +398,7 @@ class _TrackingViewState extends State<_TrackingView> {
       color: activeColor,
       onRefresh: mode == _WorkMode.office
           ? _loadOfficeSettings
-          : mode == _WorkMode.home
+          : mode == _WorkMode.hybrid
           ? _loadHomeLocation
           : refreshLocation,
     );
@@ -470,6 +436,11 @@ class _TrackingViewState extends State<_TrackingView> {
       onToggle: toggleTracking,
     );
 
+    final comments = TrackingCommentsSection(
+      workMode: modeLabel,
+      clockedIn: clockedIn,
+    );
+
     if (widget.mobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,7 +452,7 @@ class _TrackingViewState extends State<_TrackingView> {
           modes,
           const SizedBox(height: 14),
           status,
-          if (mode == _WorkMode.home) ...[
+          if (mode == _WorkMode.hybrid) ...[
             const SizedBox(height: 12),
             homeAction,
           ],
@@ -517,7 +488,9 @@ class _TrackingViewState extends State<_TrackingView> {
           const SizedBox(height: 12),
           timeline,
           const SizedBox(height: 18),
-          if (_fieldTrackingEnabled) live,
+          live,
+          const SizedBox(height: 18),
+          comments,
         ],
       );
     }
@@ -528,7 +501,7 @@ class _TrackingViewState extends State<_TrackingView> {
         modes,
         const SizedBox(height: 18),
         status,
-        if (mode == _WorkMode.home) ...[const SizedBox(height: 12), homeAction],
+        if (mode == _WorkMode.hybrid) ...[const SizedBox(height: 12), homeAction],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -574,7 +547,9 @@ class _TrackingViewState extends State<_TrackingView> {
                   const SizedBox(height: 12),
                   timeline,
                   const SizedBox(height: 18),
-                  if (_fieldTrackingEnabled) live,
+                  live,
+                  const SizedBox(height: 18),
+                  comments,
                 ],
               ),
             ),
@@ -794,15 +769,8 @@ class _RouteHistoryCard extends StatelessWidget {
 }
 
 class _ModeTabs extends StatelessWidget {
-  const _ModeTabs({
-    required this.selected,
-    required this.homeEnabled,
-    required this.fieldEnabled,
-    required this.onChanged,
-  });
+  const _ModeTabs({required this.selected, required this.onChanged});
   final _WorkMode selected;
-  final bool homeEnabled;
-  final bool fieldEnabled;
   final ValueChanged<_WorkMode> onChanged;
 
   @override
@@ -814,24 +782,13 @@ class _ModeTabs extends StatelessWidget {
         active: selected == _WorkMode.office,
         onTap: () => onChanged(_WorkMode.office),
       ),
-      if (homeEnabled) ...[
-        const SizedBox(width: 8),
-        _ModeTab(
-          icon: Icons.home_outlined,
-          label: 'Home',
-          active: selected == _WorkMode.home,
-          onTap: () => onChanged(_WorkMode.home),
-        ),
-      ],
-      if (fieldEnabled) ...[
-        const SizedBox(width: 8),
-        _ModeTab(
-          icon: Icons.person_outline_rounded,
-          label: 'Field',
-          active: selected == _WorkMode.field,
-          onTap: () => onChanged(_WorkMode.field),
-        ),
-      ],
+      const SizedBox(width: 8),
+      _ModeTab(
+        icon: Icons.person_outline_rounded,
+        label: 'Field',
+        active: selected == _WorkMode.field,
+        onTap: () => onChanged(_WorkMode.field),
+      ),
     ],
   );
 }
@@ -1004,13 +961,13 @@ class _RouteMap extends StatelessWidget {
 
     final center = mode == _WorkMode.field && livePoint != null
         ? livePoint
-        : mode == _WorkMode.home && homePoint != null
+        : mode == _WorkMode.hybrid && homePoint != null
         ? homePoint
         : officePoint;
 
     final markerColor = mode == _WorkMode.field
         ? BitmapDescriptor.hueRed
-        : mode == _WorkMode.home
+        : mode == _WorkMode.hybrid
         ? BitmapDescriptor.hueGreen
         : BitmapDescriptor.hueAzure;
 
@@ -1036,7 +993,7 @@ class _RouteMap extends StatelessWidget {
                 BitmapDescriptor.hueAzure,
               ),
             ),
-            if (mode == _WorkMode.home && homePoint != null)
+            if (mode == _WorkMode.hybrid && homePoint != null)
               Marker(
                 markerId: const MarkerId('registered-home'),
                 position: homePoint,

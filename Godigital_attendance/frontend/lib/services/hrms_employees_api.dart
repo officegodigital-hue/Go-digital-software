@@ -18,7 +18,7 @@ class HrmsEmployeesApi {
 
   static Future<Map<String, dynamic>> createRole(String role) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/roles'),
+      Uri.parse('${ApiConfig.baseUrl}/hrms/roles'),
       headers: await _headers(),
       body: jsonEncode({'role': role}),
     );
@@ -95,24 +95,21 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> resetPassword(
-    int id,
-    String password,
-  ) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id/reset-password'),
-      headers: await _headers(),
-      body: jsonEncode({'password': password}),
-    );
-    return _decode(response);
-  }
-
   static Future<void> delete(int id) async {
     final response = await http.delete(
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id'),
       headers: await _headers(),
     );
     _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> resetPassword(int id, String password) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id/password-reset'),
+      headers: await _headers(),
+      body: jsonEncode({'password': password}),
+    );
+    return _decode(response);
   }
 
   static Future<String> exportCsv() async {

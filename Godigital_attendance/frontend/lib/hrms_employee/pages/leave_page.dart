@@ -225,14 +225,14 @@ class _LeaveBalance extends StatelessWidget {
                 spacing: 16,
                 runSpacing: 16,
                 children: balances.map((b) {
-                  final total = (b['total'] as num?) ?? 0;
-                  final used = (b['used'] as num?) ?? 0;
+                  final total = (b['total'] as num?)?.toInt() ?? 0;
+                  final used = (b['used'] as num?)?.toInt() ?? 0;
                   final type = b['type']?.toString() ?? 'Leave';
                   return SizedBox(
                     width: boxWidth,
                     child: _BalanceBox(
-                      label: b['isPaidLeave'] == true ? '$type (Paid)' : type,
-                      remaining: (total - used).clamp(0, total),
+                      label: type,
+                      remaining: (total - used).clamp(0, total).toInt(),
                       total: total,
                       color: _colorFor(type),
                     ),
@@ -280,8 +280,8 @@ class _BalanceBox extends StatelessWidget {
   });
 
   final String label;
-  final num remaining;
-  final num total;
+  final int remaining;
+  final int total;
   final Color color;
 
   @override
@@ -310,7 +310,7 @@ class _BalanceBox extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '${_days(remaining)} / ${_days(total)} days',
+          '$remaining / $total days',
           style: TextStyle(
             color: color,
             fontSize: 21,
@@ -321,10 +321,6 @@ class _BalanceBox extends StatelessWidget {
     ),
   );
 }
-
-String _days(num value) => value == value.roundToDouble()
-    ? value.toInt().toString()
-    : value.toStringAsFixed(1);
 
 class _RequestList extends StatelessWidget {
   const _RequestList({required this.requests, required this.onCancel});
@@ -520,7 +516,6 @@ class _LeaveFormState extends State<_LeaveForm> {
         .toList();
 
     bool ok = false;
-    String? submitError;
     for (final base in candidateUrls) {
       try {
         final res = await http.post(
@@ -531,13 +526,8 @@ class _LeaveFormState extends State<_LeaveForm> {
           },
           body: jsonEncode(payload),
         );
-        final body = jsonDecode(res.body);
-        if (res.statusCode == 200 && body is Map && body['success'] != false) {
+        if (res.statusCode == 200) {
           ok = true;
-          break;
-        }
-        if (body is Map && body['message'] != null) {
-          submitError = body['message'].toString();
           break;
         }
       } catch (_) {}
@@ -555,7 +545,9 @@ class _LeaveFormState extends State<_LeaveForm> {
         widget.onSuccess();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(submitError ?? 'Failed to submit leave. Check connection.')),
+          const SnackBar(
+            content: Text('Failed to submit leave. Check connection.'),
+          ),
         );
       }
     }
@@ -607,13 +599,6 @@ class _LeaveFormState extends State<_LeaveForm> {
               'Full Day',
               'Half Day',
             ], (v) => setState(() => duration = v!)),
-          ],
-          if (type == 'Earned Leave') ...[
-            const SizedBox(height: 8),
-            const Text(
-              'Earned Leave is paid leave. Your company paid-leave rules apply to this request.',
-              style: TextStyle(color: employeeBlue, fontWeight: FontWeight.w600, fontSize: 12),
-            ),
           ],
           const SizedBox(height: 14),
           if (widget.desktop)
@@ -798,7 +783,7 @@ class _DropdownField extends StatelessWidget {
       ),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           filled: true,
           fillColor: const Color(0xFFFBFCFE),

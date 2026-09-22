@@ -25,7 +25,7 @@ class EmployeeClockPage extends StatelessWidget {
 }
 
 class _ClockView extends StatefulWidget {
-  const _ClockView({required this.mobile, this.client});
+  const _ClockView({required this.mobile}) : client = null;
   final bool mobile;
   final http.Client? client;
 
