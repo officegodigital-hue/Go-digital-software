@@ -274,6 +274,10 @@ Future<void> _fetchEmployeeSummaryList() async {
           final name = (e['full_name'] ?? '').toString().trim().toUpperCase();
           if (name.isEmpty) continue;
 
+          // 🟢 FIX: don't show inactive employees on the employee side
+          final isEmployeeActive = (e['is_active'] == 1 || e['is_active'] == true);
+          if (!isEmployeeActive) continue;
+
           final clientsAssigned = empClients[name] ?? {};
           final roleClients = empRoleClients[name] ?? {};
 

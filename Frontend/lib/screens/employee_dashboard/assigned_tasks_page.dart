@@ -1245,37 +1245,109 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
         }).toList();
       }
 
-      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
-      if (trRes.statusCode == 200) {
-        final trBody = jsonDecode(trRes.body);
-        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
+      final trRes = await http.get(
+  Uri.parse(
+    '$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}',
+  ),
+);
 
-        for (var tl in taskLists) {
-          // 🟢 Ensure task list matches the exact task_assignment_id
-          if (targetAssignmentId != null && tl['task_assignment_id'] != null) {
-            if (tl['task_assignment_id'].toString() != targetAssignmentId.toString()) {
-              continue;
-            }
-          }
+if (trRes.statusCode == 200) {
+  final trBody = jsonDecode(trRes.body);
+  final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-          final tListId = tl['id'];
-          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+  for (final tl in taskLists) {
+    // ------------------------------------------------------------
+    // IMPORTANT:
+    // Only the exact assignment/cycle is allowed.
+    // Never mix another task_assignment_id.
+    // ------------------------------------------------------------
+    if (targetAssignmentId == null) {
+      continue;
+    }
 
-          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
-          if (itemsRes.statusCode == 200) {
-            final itemsBody = jsonDecode(itemsRes.body);
-            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+    final tlAssignmentId = tl['task_assignment_id'];
 
-            int completedRows = items.where((item) {
-              final st = (item['status'] ?? '').toString().toUpperCase();
-              return st == 'COMPLETED' || st == 'REJECTED';
-            }).length;
+    if (tlAssignmentId == null ||
+        tlAssignmentId.toString() !=
+            targetAssignmentId.toString()) {
+      continue;
+    }
 
-            // 🟢 Fix: Use += instead of = so multiple task lists don't overwrite each other
-            dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
-          }
-        }
+    final tListId = tl['id'];
+
+    if (tListId == null) {
+      continue;
+    }
+
+    final deliverables = (tl['deliverables'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    if (deliverables.isEmpty) {
+      continue;
+    }
+
+    try {
+      final itemsRes = await http.get(
+        Uri.parse(
+          '$_baseUrl/tracking-items/by-task-list/$tListId',
+        ),
+      );
+
+      if (itemsRes.statusCode != 200) {
+        debugPrint(
+          '⚠️ Tracking items failed for taskListId=$tListId '
+          'status=${itemsRes.statusCode}',
+        );
+        continue;
       }
+
+      final itemsBody = jsonDecode(itemsRes.body);
+
+      final items = List<dynamic>.from(
+        itemsBody['data'] ?? [],
+      );
+
+      // Count ALL completed/rejected history rows
+      // belonging to this exact task_list.
+      final completedRows = items.where((item) {
+        final status = (item['status'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+
+        return status == 'COMPLETED' ||
+            status == 'REJECTED';
+      }).length;
+
+      // ------------------------------------------------------------
+      // IMPORTANT FIX:
+      // Do NOT overwrite an existing count.
+      //
+      // If the same assignment/task has multiple task_list records,
+      // add all their completed history rows together.
+      // ------------------------------------------------------------
+      dbTaskProgressCounts[deliverables] =
+          (dbTaskProgressCounts[deliverables] ?? 0) +
+              completedRows;
+
+      debugPrint(
+        '📊 Task Summary | '
+        'assignment=$targetAssignmentId | '
+        'taskList=$tListId | '
+        'task=$deliverables | '
+        'completed=$completedRows | '
+        'totalAccumulated=${dbTaskProgressCounts[deliverables]}',
+      );
+    } catch (e) {
+      debugPrint(
+        '❌ Failed loading tracking history '
+        'for taskListId=$tListId: $e',
+      );
+    }
+  }
+}
     } catch (e) {
       debugPrint('Error fetching client summary: $e');
     }
@@ -1453,10 +1525,12 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
                                                   final tName = parsed['name'] as String;
                                                   final totalR = parsed['count'] as int;
 
-                                                  int compR = dbTaskProgressCounts[tName.trim().toLowerCase()] ?? 0;
-                                                  if (compR == 0) {
-                                                    compR = _calculateTaskProgress(clientName, tName);
-                                                  }
+                                                  // int compR = dbTaskProgressCounts[tName.trim().toLowerCase()] ?? 0;
+                                                  // if (compR == 0) {
+                                                  //   compR = _calculateTaskProgress(clientName, tName);
+                                                  // }
+                                                  final normalizedTaskName = tName.trim().toLowerCase(); 
+                                                  final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
 
                                                   final isCompleted = totalR > 0 && compR >= totalR;
                                                   final progressText = '$compR/$totalR';
