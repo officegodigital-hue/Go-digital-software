@@ -1271,7 +1271,8 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
               return st == 'COMPLETED' || st == 'REJECTED';
             }).length;
 
-            dbTaskProgressCounts[deliverables] = completedRows;
+            // 🟢 Fix: Use += instead of = so multiple task lists don't overwrite each other
+            dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
           }
         }
       }
