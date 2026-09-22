@@ -387,38 +387,68 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           final trBody = jsonDecode(trRes.body);
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-          for (var tl in taskLists) {
-            if (tl['task_assignment_id'] != null && assignmentId != null) {
-              if (tl['task_assignment_id'].toString() != assignmentId.toString()) {
-                continue;
-              }
+          for (final tl in taskLists) {
+            // Only the exact assignment/cycle is allowed.
+            final tlAssignmentId = tl['task_assignment_id'];
+            if (assignmentId == null ||
+                tlAssignmentId == null ||
+                tlAssignmentId.toString() != assignmentId.toString()) {
+              continue;
             }
 
             final tListId = tl['id'];
-            final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+            if (tListId == null) continue;
 
-            final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
+            final deliverables = (tl['deliverables'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            if (deliverables.isEmpty) continue;
+
+            final itemsRes = await http.get(
+              Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'),
+            );
             if (itemsRes.statusCode == 200) {
               final itemsBody = jsonDecode(itemsRes.body);
               final items = List<dynamic>.from(itemsBody['data'] ?? []);
 
-              int completedRows = items.where((item) {
-                final st = (item['status'] ?? '').toString().toUpperCase();
+              final completedRows = items.where((item) {
+                final st = (item['status'] ?? '')
+                    .toString()
+                    .trim()
+                    .toUpperCase();
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              dbTaskProgressCounts['${assignmentId}_$deliverables'] = completedRows;
+              // Accumulate when one assignment has multiple task_list rows.
+              final assignmentTaskKey =
+                  '${assignmentId}_$deliverables';
+              dbTaskProgressCounts[assignmentTaskKey] =
+                  (dbTaskProgressCounts[assignmentTaskKey] ?? 0) +
+                      completedRows;
 
-              for (var item in items) {
-                final desc = (item['task_description'] ?? '').toString().trim().toLowerCase();
-                if (desc.isNotEmpty) {
-                  final completedSubCount = items.where((i) {
-                    final iDesc = (i['task_description'] ?? '').toString().trim().toLowerCase();
-                    final iSt = (i['status'] ?? '').toString().toUpperCase();
-                    return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
-                  }).length;
-                  dbTaskProgressCounts['${assignmentId}_$desc'] = completedSubCount;
+              // Also keep exact sub-task/description progress assignment-scoped.
+              final Map<String, int> subCounts = {};
+              for (final item in items) {
+                final desc = (item['task_description'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                if (desc.isEmpty) continue;
+
+                final status = (item['status'] ?? '')
+                    .toString()
+                    .trim()
+                    .toUpperCase();
+                if (status == 'COMPLETED' || status == 'REJECTED') {
+                  subCounts[desc] = (subCounts[desc] ?? 0) + 1;
                 }
+              }
+
+              for (final entry in subCounts.entries) {
+                final key = '${assignmentId}_${entry.key}';
+                dbTaskProgressCounts[key] =
+                    (dbTaskProgressCounts[key] ?? 0) + entry.value;
               }
             }
           }
@@ -586,8 +616,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                               final totalR = match != null ? int.parse(match.group(2)!) : 1;
 
                                               // 🟢 Fetch exact count using assignmentId and task name
-                                              int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
-                                                          dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
+                                              final int compR =
+                                                  dbTaskProgressCounts[
+                                                    '${assignmentId}_${tName.toLowerCase()}'
+                                                  ] ?? 0;
 
                                               // Color coding rules: 
                                               // 0/12 -> Grey, 1 to N-1 -> Blue, 12/12 (Complete) -> Green
@@ -800,7 +832,8 @@ void _navigateToEmployeeDetailView(String employeeName) async {
               return st == 'COMPLETED' || st == 'REJECTED';
             }).length;
 
-            dbTaskProgressCounts[deliverables] = completedRows;
+            dbTaskProgressCounts[deliverables] =
+                (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
           }
         }
       }
