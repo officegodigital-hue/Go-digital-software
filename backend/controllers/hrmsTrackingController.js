@@ -213,21 +213,15 @@ async function reverseGeocode(latitude, longitude) {
     return cached.address;
   }
 
-  try {
-    const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
-    const url = apiKey
-      ? 'https://maps.googleapis.com/maps/api/geocode/json?latlng=' + encodeURIComponent(latitude + ',' + longitude) + '&key=' + apiKey
-      : 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&lat=' + encodeURIComponent(latitude) + '&lon=' + encodeURIComponent(longitude);
-    const headers = apiKey ? {} : { 'User-Agent': 'GoDigital-Attendance/1.0' };
-    const response = await fetch(url, { headers: headers });
-    const data = await response.json();
+  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
+  if (!apiKey) return null;
 
-    if (!apiKey) {
-      const address = data && data.display_name;
-      if (!address) return null;
-      geocodeCache.set(key, { address: address, expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS });
-      return address;
-    }
+  try {
+    const url = 'https://maps.googleapis.com/maps/api/geocode/json'
+      + '?latlng=' + encodeURIComponent(latitude + ',' + longitude)
+      + '&key=' + apiKey;
+    const response = await fetch(url);
+    const data = await response.json();
 
     if (data.status !== 'OK' || !data.results || !data.results.length) {
       return null;
@@ -857,8 +851,8 @@ async function startFieldTracking(req, res) {
       [employeeUserId]
     );
 
-    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) {
-      return fail(res, 403, 'Live tracking is available only for Field or Hybrid employees');
+    if (!profiles.length || profiles[0].work_mode !== 'Field') {
+      return fail(res, 403, 'Field live tracking is only available for Field employees');
     }
 
     const [activeSessions] = await db.query(
@@ -1072,34 +1066,6 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
-async function addTrackingComment(req, res) {
-  try {
-    const employeeUserId = Number(req.user && req.user.id);
-    const text = String((req.body && req.body.comment) || '').trim();
-    if (!text) return fail(res, 400, 'Comment is required');
-    if (text.length > 2000) return fail(res, 400, 'Comment is too long');
-    const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
-    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) return fail(res, 403, 'Comments are available only to Field and Hybrid employees');
-    const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
-    await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
-    return ok(res, null, 'Comment saved');
-  } catch (error) { return fail(res, 500, error.message); }
-}
-
-async function myTrackingComments(req, res) {
-  try {
-    const [rows] = await db.query(`SELECT id, comment_text AS comment, latitude, longitude, address, created_at AS createdAt FROM hrms_employee_tracking_comments WHERE employee_user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY created_at DESC`, [req.user.id]);
-    return ok(res, { items: rows });
-  } catch (error) { return fail(res, 500, error.message); }
-}
-
-async function adminTrackingComments(req, res) {
-  try {
-    const [rows] = await db.query(`SELECT c.id, c.employee_user_id AS employeeUserId, p.full_name AS employeeName, p.employee_code AS employeeCode, c.comment_text AS comment, c.latitude, c.longitude, c.address, c.created_at AS createdAt FROM hrms_employee_tracking_comments c INNER JOIN employee_users u ON u.id = c.employee_user_id INNER JOIN hrms_employee_profiles p ON p.employee_user_id = c.employee_user_id WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY c.created_at DESC`);
-    return ok(res, { items: rows });
-  } catch (error) { return fail(res, 500, error.message); }
-}
-
 module.exports = {
   requireAdmin,
   list,
@@ -1120,7 +1086,4 @@ getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
 reviewFieldWaitingReason,
-  addTrackingComment,
-  myTrackingComments,
-  adminTrackingComments,
 };
