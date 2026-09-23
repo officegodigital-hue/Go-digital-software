@@ -12,6 +12,21 @@ async function ensureHrmsEmployeeTables(db) {
   } catch (error) {
     if (error.code !== 'ER_DUP_FIELDNAME') throw error;
   }
+  try {
+    await db.query("ALTER TABLE hrms_employee_profiles ADD COLUMN salary_type ENUM('Standard','Flexible') NOT NULL DEFAULT 'Standard' AFTER monthly_salary");
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
+  try {
+    await db.query('ALTER TABLE hrms_employee_profiles ADD COLUMN flexible_cycle_start_day TINYINT UNSIGNED NULL AFTER salary_type');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
+  try {
+    await db.query('ALTER TABLE hrms_employee_profiles ADD COLUMN flexible_cycle_end_day TINYINT UNSIGNED NULL AFTER flexible_cycle_start_day');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
 
   await db.query(
     "INSERT INTO hrms_employee_profiles (employee_user_id, employee_code, full_name, email, department, work_mode, employment_status) " +

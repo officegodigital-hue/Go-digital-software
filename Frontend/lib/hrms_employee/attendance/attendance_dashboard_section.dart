@@ -40,21 +40,6 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     super.initState();
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (!mounted) return;
-      if (_data?['status'] == 'checked_in') setState(() {});
-      if (++_ticks % 60 == 0 && !_loading && !_punching) {
-        final token = _token;
-        if (_data?['status'] == 'checked_in' && token != null) {
-          try {
-            await _call('heartbeat', token, post: true);
-          } catch (_) {
-            // The live display still runs; the next dashboard refresh retries.
-          }
-        }
-        if (mounted) _load();
-      }
-    });
   }
 
   @override
@@ -137,7 +122,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   String _durationLabel(int minutes) =>
       '${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m';
 
-  Future<void> _load() async {
+  Future<void> _load({bool background = false}) async {
     var token = _token;
     final request = ++_request;
     if (token == null || token.isEmpty) {
@@ -157,7 +142,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       });
       return;
     }
-    setState(() => _loading = true);
+    if (!background) setState(() => _loading = true);
     try {
       final data = await _call('dashboard', token);
       if (!mounted || request != _request || token != _token) return;
@@ -172,7 +157,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       if (!mounted || request != _request || token != _token) return;
       setState(() => _error = _message(error));
     } finally {
-      if (mounted && request == _request && token == _token) {
+      if (!background && mounted && request == _request && token == _token) {
         setState(() => _loading = false);
       }
     }
@@ -182,6 +167,17 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    if (clockOut) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('End your shift now?'),
+          content: const Text('Your checkout time and worked hours will be recorded.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clock Out'))],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     setState(() => _punching = true);
     String message;
     try {
@@ -212,6 +208,25 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _toggleBreak() async {
+    final token = _token;
+    if (token == null || _loading || _punching || _error != null) return;
+    final active = (_data?['break'] as Map?)?['active'] == true;
+    setState(() => _punching = true);
+    try {
+      final payload = active
+          ? await AttendanceLocation.checkInPayload(client: _client, token: token)
+          : <String, dynamic>{};
+      await _call(active ? 'break-out' : 'break-in', token, post: true, payload: payload);
+      if (mounted) await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(active ? 'Break ended.' : 'Break started.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_message(error))));
+    } finally {
+      if (mounted) setState(() => _punching = false);
+    }
   }
 
   String _formatPunchTime(dynamic rawTimestamp) {
@@ -262,6 +277,15 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final actions = data['actions'] as Map;
     final checkedIn = data['status'] == 'checked_in';
     final checkedOut = data['status'] == 'checked_out';
+    final breakInfo = data['break'] as Map? ?? const <String, dynamic>{};
+    final onBreak = breakInfo['active'] == true;
+    final breakPolicy = data['break_policy'] as Map? ?? const <String, dynamic>{};
+    final breakLimit = (breakPolicy['break_calculation_mode'] == 'fixed_schedule'
+            ? breakPolicy['fixed_break_minutes']
+            : breakPolicy['max_break_minutes']) as num? ?? 60;
+    final breakStarted = DateTime.tryParse('${breakInfo['started_at'] ?? ''}'.replaceFirst(' ', 'T'));
+    final breakElapsed = breakStarted == null ? 0 : DateTime.now().difference(breakStarted.toLocal()).inMinutes;
+    final breakRemaining = (breakLimit.toInt() - breakElapsed).clamp(0, breakLimit.toInt());
     final seconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
     final worked = seconds + (checkedIn ? _elapsed.elapsed.inSeconds : 0);
     final today = DateTime.parse(data['date'] as String);
@@ -490,10 +514,26 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                         ),
                       ),
                     ],
+                    if (onBreak) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        'Break active · $breakRemaining min remaining',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 10),
+              if (checkedIn) ...[
+                OutlinedButton.icon(
+                  onPressed: _loading || _punching || _error != null ? null : _toggleBreak,
+                  icon: Icon(onBreak ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 18),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white, disabledForegroundColor: Colors.white70, side: const BorderSide(color: Colors.white)),
+                  label: Text(onBreak ? 'End Break' : 'Break'),
+                ),
+                const SizedBox(width: 10),
+              ],
               OutlinedButton(
                 onPressed:
                     _loading ||

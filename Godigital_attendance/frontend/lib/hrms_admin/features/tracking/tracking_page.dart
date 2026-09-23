@@ -1447,6 +1447,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   final _latitude = TextEditingController();
   final _longitude = TextEditingController();
   final _radius = TextEditingController();
+  final _outsideGrace = TextEditingController();
+  final _lunchBreakLimit = TextEditingController();
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -1467,6 +1469,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
     _latitude.dispose();
     _longitude.dispose();
     _radius.dispose();
+    _outsideGrace.dispose();
+    _lunchBreakLimit.dispose();
     super.dispose();
   }
 
@@ -1481,6 +1485,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         _latitude.text = '${data['office_latitude'] ?? ''}';
         _longitude.text = '${data['office_longitude'] ?? ''}';
         _radius.text = '${data['office_radius_meters'] ?? 100}';
+        _outsideGrace.text = '${data['outside_radius_grace_minutes'] ?? 2}';
+        _lunchBreakLimit.text = '${data['lunch_break_limit_minutes'] ?? 70}';
         final lat = double.tryParse(_latitude.text);
         final lng = double.tryParse(_longitude.text);
         _pin = lat != null && lng != null && lat.isFinite && lng.isFinite
@@ -1622,6 +1628,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
     final latitude = double.tryParse(_latitude.text.trim());
     final longitude = double.tryParse(_longitude.text.trim());
     final radius = int.tryParse(_radius.text.trim());
+    final outsideGrace = int.tryParse(_outsideGrace.text.trim());
+    final lunchBreakLimit = int.tryParse(_lunchBreakLimit.text.trim());
     if (name.isEmpty ||
         address.isEmpty ||
         latitude == null ||
@@ -1633,7 +1641,11 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         longitude < -180 ||
         longitude > 180 ||
         radius == null ||
-        radius < 1) {
+        radius < 1 ||
+        outsideGrace == null ||
+        outsideGrace < 1 ||
+        lunchBreakLimit == null ||
+        lunchBreakLimit < 1) {
       setState(
         () => _error =
             'Enter an office name and address, select its map pin, and enter a valid radius.',
@@ -1651,6 +1663,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         officeLatitude: latitude,
         officeLongitude: longitude,
         officeRadiusMeters: radius,
+        outsideRadiusGraceMinutes: outsideGrace,
+        lunchBreakLimitMinutes: lunchBreakLimit,
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -1745,6 +1759,28 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
                       labelText: 'Allowed Clock In radius (metres)',
                       border: OutlineInputBorder(),
                       helperText: 'This distance also applies to approved home locations.',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _outsideGrace,
+                    enabled: !_saving,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Outside-radius grace period (minutes)',
+                      border: OutlineInputBorder(),
+                      helperText: 'Clock out after this many continuous minutes outside the office radius.',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _lunchBreakLimit,
+                    enabled: !_saving,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Lunch break limit (minutes)',
+                      border: OutlineInputBorder(),
+                      helperText: 'Employee must submit a reason to Admin after this limit is exceeded.',
                     ),
                   ),
                   if (_error != null) ...[

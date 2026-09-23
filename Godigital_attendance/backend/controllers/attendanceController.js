@@ -98,6 +98,16 @@ async function breakMinutes(attendanceId) {
   }
 }
 
+async function activeBreak(attendanceId) {
+  const [rows] = await db.query(
+    `SELECT id, started_at, exceeded_comment, exceeded_comment_at FROM attendance_breaks
+     WHERE attendance_id = ? AND status = 'active'
+     ORDER BY id DESC LIMIT 1`,
+    [attendanceId]
+  );
+  return rows[0] || null;
+}
+
 async function persistedWorkedMinutes(record) {
   const stored = Number(record && record.working_minutes || 0);
   if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
@@ -461,6 +471,25 @@ async function employeeDashboard(req, res) {
     const record = await getRecord(employeeId, date);
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
     const checkedOut = Boolean(record && record.check_out_at);
+    const currentBreak = checkedIn ? await activeBreak(record.id) : null;
+    const [completedBreakRows] = record && record.check_in_at
+      ? await db.query(
+          `SELECT id FROM attendance_breaks
+           WHERE attendance_id = ? AND status IN ('completed', 'auto_closed')
+           ORDER BY id DESC LIMIT 1`,
+          [record.id]
+        )
+      : [[]];
+    const [trackingSettings] = await db.query(
+      'SELECT lunch_break_limit_minutes FROM hrms_tracking_settings WHERE id = 1'
+    );
+    const lunchBreakLimitMinutes = Number((trackingSettings[0] && trackingSettings[0].lunch_break_limit_minutes) || 70);
+    const activeBreakMinutes = currentBreak
+      ? Math.max(0, policy.minutesBetween(sqlDateTime(currentBreak.started_at), policy.nowIstDateTime()))
+      : 0;
+    const breakCommentRequired = Boolean(currentBreak) &&
+      activeBreakMinutes >= lunchBreakLimitMinutes &&
+      !String(currentBreak.exceeded_comment || '').trim();
 
     const [monthRows] = await db.query(
       `SELECT id, employee_id, attendance_date, check_in_at, check_out_at, is_late, attendance_status
@@ -533,6 +562,14 @@ async function employeeDashboard(req, res) {
         is_late: Boolean(Number(record.is_late))
       } : null,
       actions: { can_clock_in: !record || !record.check_in_at, can_clock_out: checkedIn },
+      active_break: currentBreak ? {
+        id: currentBreak.id,
+        started_at: sqlDateTime(currentBreak.started_at),
+        limit_minutes: lunchBreakLimitMinutes,
+        elapsed_minutes: activeBreakMinutes,
+        comment_required: breakCommentRequired
+      } : null,
+      break_completed: completedBreakRows.length > 0,
       month_overview: {
         month: month,
         present_days: presentDays,
@@ -660,6 +697,12 @@ async function checkOut(req, res) {
     if (!record || !record.check_in_at) return fail(res, 409, 'Check in before checking out');
     if (record.check_out_at) return fail(res, 409, 'Already checked out today');
 
+    await db.query(
+      `UPDATE attendance_breaks
+       SET ended_at = ?, duration_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, started_at, ?)), status = 'auto_closed'
+       WHERE attendance_id = ? AND status = 'active'`,
+      [at, at, record.id]
+    );
     const breaks = await breakMinutes(record.id);
     const rawMinutes = policy.minutesBetween(sqlDateTime(record.check_in_at), at);
     const workingMinutes = Math.max(0, rawMinutes - breaks);
@@ -690,6 +733,88 @@ async function checkOut(req, res) {
   } catch (error) {
     console.error('POST /attendance/check-out', error);
     return fail(res, 500, error.message);
+  }
+}
+
+async function startBreak(req, res) {
+  try {
+    const record = await getRecord(req.user.id, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'Clock in before starting a break.');
+    }
+    const existing = await activeBreak(record.id);
+    if (existing) return fail(res, 409, 'A break is already active.');
+    const [completed] = await db.query(
+      `SELECT id FROM attendance_breaks
+       WHERE attendance_id = ? AND status IN ('completed', 'auto_closed')
+       LIMIT 1`,
+      [record.id]
+    );
+    if (completed.length) return fail(res, 409, 'Today\'s break is already completed.');
+    const startedAt = policy.nowIstDateTime();
+    const [result] = await db.query(
+      `INSERT INTO attendance_breaks (attendance_id, started_at, status)
+       VALUES (?, ?, 'active')`,
+      [record.id, startedAt]
+    );
+    return ok(res, { id: result.insertId, started_at: startedAt }, 'Break started.');
+  } catch (error) {
+    console.error('POST /attendance/break-in', error);
+    return fail(res, 500, 'Unable to start break.');
+  }
+}
+
+async function endBreak(req, res) {
+  try {
+    const record = await getRecord(req.user.id, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'There is no active attendance session.');
+    }
+    const current = await activeBreak(record.id);
+    if (!current) return fail(res, 409, 'There is no active break.');
+    const endedAt = policy.nowIstDateTime();
+    const minutes = Math.max(0, policy.minutesBetween(sqlDateTime(current.started_at), endedAt));
+    await db.query(
+      `UPDATE attendance_breaks
+       SET ended_at = ?, duration_minutes = ?, status = 'completed'
+       WHERE id = ? AND status = 'active'`,
+      [endedAt, minutes, current.id]
+    );
+    return ok(res, { id: current.id, ended_at: endedAt, duration_minutes: minutes }, 'Break ended.');
+  } catch (error) {
+    console.error('POST /attendance/break-out', error);
+    return fail(res, 500, 'Unable to end break.');
+  }
+}
+
+async function submitExceededBreakComment(req, res) {
+  try {
+    const comment = String((req.body && req.body.comment) || '').trim();
+    if (comment.length < 3 || comment.length > 1000) {
+      return fail(res, 400, 'Enter a break reason between 3 and 1000 characters.');
+    }
+    const record = await getRecord(req.user.id, policy.todayIstDate());
+    if (!record || !record.check_in_at || record.check_out_at) {
+      return fail(res, 409, 'There is no active attendance session.');
+    }
+    const current = await activeBreak(record.id);
+    if (!current) return fail(res, 409, 'There is no active break.');
+    const [settings] = await db.query(
+      'SELECT lunch_break_limit_minutes FROM hrms_tracking_settings WHERE id = 1'
+    );
+    const limit = Number((settings[0] && settings[0].lunch_break_limit_minutes) || 70);
+    const elapsed = Math.max(0, policy.minutesBetween(sqlDateTime(current.started_at), policy.nowIstDateTime()));
+    if (elapsed < limit) return fail(res, 409, 'The configured lunch-break limit has not been exceeded.');
+    await db.query(
+      `UPDATE attendance_breaks
+       SET exceeded_comment = ?, exceeded_comment_at = ?
+       WHERE id = ? AND status = 'active'`,
+      [comment, policy.nowIstDateTime(), current.id]
+    );
+    return ok(res, { break_id: current.id }, 'Your break explanation was sent to Admin.');
+  } catch (error) {
+    console.error('POST /attendance/break-exceeded-comment', error);
+    return fail(res, 500, 'Unable to submit your break explanation.');
   }
 }
 
@@ -882,6 +1007,9 @@ module.exports = {
   checkInPolicy: checkInPolicy,
   checkIn: checkIn,
   checkOut: checkOut,
+  startBreak: startBreak,
+  endBreak: endBreak,
+  submitExceededBreakComment: submitExceededBreakComment,
   heartbeat: heartbeat,
   myPermissions: myPermissions,
   createPermission: createPermission,
