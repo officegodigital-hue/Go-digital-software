@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS hrms_employee_profiles (
   employment_status VARCHAR(32) NOT NULL DEFAULT 'Active',
   field_tracking_enabled TINYINT(1) NOT NULL DEFAULT 0,
   monthly_salary DECIMAL(12,2) NULL,
+  salary_type ENUM('Standard', 'Flexible') NOT NULL DEFAULT 'Standard',
+  flexible_cycle_start_day TINYINT UNSIGNED NULL,
+  flexible_cycle_end_day TINYINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

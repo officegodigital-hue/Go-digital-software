@@ -37,6 +37,21 @@ function parseSalary(value) {
   return Number(digits);
 }
 
+function salaryCycle(body) {
+  const salaryType = String(body.salaryType || body.salary_type || 'Standard').trim();
+  if (!['Standard', 'Flexible'].includes(salaryType)) {
+    return { error: 'salaryType must be Standard or Flexible' };
+  }
+  if (salaryType === 'Standard') return { salaryType: salaryType, cycleStartDay: null, cycleEndDay: null };
+  const cycleStartDay = Number(body.flexibleCycleStartDay || body.flexible_cycle_start_day);
+  const cycleEndDay = Number(body.flexibleCycleEndDay || body.flexible_cycle_end_day);
+  if (!Number.isInteger(cycleStartDay) || cycleStartDay < 1 || cycleStartDay > 31 ||
+      !Number.isInteger(cycleEndDay) || cycleEndDay < 1 || cycleEndDay > 31) {
+    return { error: 'Flexible salary requires cycle start and end days from 1 to 31' };
+  }
+  return { salaryType: salaryType, cycleStartDay: cycleStartDay, cycleEndDay: cycleEndDay };
+}
+
 async function recordCompensation(profile, salary, adminId) {
   if (salary === null || salary === undefined) return;
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_compensation (
@@ -68,6 +83,9 @@ function toUi(row) {
     gender: row.gender || 'Male',
     salary: formatSalary(row.monthly_salary),
     monthlySalary: row.monthly_salary,
+    salaryType: row.salary_type || 'Standard',
+    flexibleCycleStartDay: row.flexible_cycle_start_day == null ? null : Number(row.flexible_cycle_start_day),
+    flexibleCycleEndDay: row.flexible_cycle_end_day == null ? null : Number(row.flexible_cycle_end_day),
     status: row.employment_status,
     modeColor: modeColor(row.work_mode),
       email: row.email || '',
@@ -179,6 +197,8 @@ async function create(req, res) {
     if (!['Male', 'Female'].includes(gender)) return fail(res, 400, 'Gender must be Male or Female');
     const status = String(body.status || body.employment_status || 'Active').trim();
     const salary = parseSalary(body.salary || body.monthly_salary);
+    const cycle = salaryCycle(body);
+    if (cycle.error) return fail(res, 400, cycle.error);
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
     const email = String(body.email || '').trim() || null;
@@ -191,8 +211,8 @@ async function create(req, res) {
       [name.split(/\s+/)[0], name.split(/\s+/).slice(1).join(' '), name, email, username, hashedPassword, department, code, name.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 3).toUpperCase()]
     );
     const [result] = await db.query(
-      'INSERT INTO hrms_employee_profiles (employee_user_id, employee_code, full_name, email, department, work_mode, gender, employment_status, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userResult.insertId, code, name, email, department, workMode, gender, status, salary]
+      'INSERT INTO hrms_employee_profiles (employee_user_id, employee_code, full_name, email, department, work_mode, gender, employment_status, monthly_salary, salary_type, flexible_cycle_start_day, flexible_cycle_end_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userResult.insertId, code, name, email, department, workMode, gender, status, salary, cycle.salaryType, cycle.cycleStartDay, cycle.cycleEndDay]
     );
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [result.insertId]);
     await recordCompensation(rows[0], salary, req.user && req.user.id);
@@ -232,11 +252,13 @@ async function update(req, res) {
     if (!['Male', 'Female'].includes(gender)) return fail(res, 400, 'Gender must be Male or Female');
     const status = String(body.status || body.employment_status || '').trim();
     const salary = parseSalary(body.salary || body.monthly_salary);
+    const cycle = salaryCycle(body);
+    if (cycle.error) return fail(res, 400, cycle.error);
     const email = String(body.email || '').trim() || null;
 
     const [result] = await db.query(
-      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, gender = ?, employment_status = ?, monthly_salary = ? WHERE id = ?',
-      [code, name, email, department, workMode, gender, status, salary, id]
+      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, gender = ?, employment_status = ?, monthly_salary = ?, salary_type = ?, flexible_cycle_start_day = ?, flexible_cycle_end_day = ? WHERE id = ?',
+      [code, name, email, department, workMode, gender, status, salary, cycle.salaryType, cycle.cycleStartDay, cycle.cycleEndDay, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);

@@ -32,6 +32,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   String? _error;
   bool _loading = true;
   bool _punching = false;
+  bool _breakCommentDialogOpen = false;
   int _request = 0;
   int _ticks = 0;
 
@@ -168,6 +169,10 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           ..reset()
           ..start();
       });
+      final activeBreak = data['active_break'];
+      if (activeBreak is Map && activeBreak['comment_required'] == true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showBreakCommentDialog());
+      }
     } catch (error) {
       if (!mounted || request != _request || token != _token) return;
       setState(() => _error = _message(error));
@@ -182,6 +187,26 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(clockOut ? 'Clock out?' : 'Clock in?'),
+        content: Text(clockOut
+            ? 'Confirm that you want to end your work session.'
+            : 'Confirm that you want to start your work session.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(clockOut ? 'Clock Out' : 'Clock In'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _punching = true);
     String message;
     try {
@@ -212,6 +237,107 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _toggleBreak() async {
+    final token = _token;
+    if (token == null || _loading || _punching || _error != null) return;
+    final activeBreak = _data?['active_break'] != null;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(activeBreak ? 'Resume work?' : 'Start break?'),
+        content: Text(activeBreak
+            ? 'Confirm that you want to end your break and resume your work session.'
+            : 'Confirm that you want to start your lunch break.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(activeBreak ? 'Resume' : 'Start Break'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _punching = true);
+    String message;
+    try {
+      await _call(activeBreak ? 'break-out' : 'break-in', token, post: true);
+      message = activeBreak ? 'Break ended. You are back at work.' : 'Break started. You remain checked in.';
+    } catch (error) {
+      message = _message(error);
+    }
+    if (!mounted || token != _token) return;
+    await _load();
+    if (!mounted || token != _token) return;
+    setState(() => _punching = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _showBreakCommentDialog() async {
+    if (!mounted || _breakCommentDialogOpen) return;
+    final token = _token;
+    if (token == null) return;
+    _breakCommentDialogOpen = true;
+    final controller = TextEditingController();
+    var submitting = false;
+    String? error;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Lunch break limit exceeded'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Enter the reason for exceeding the allowed lunch-break time. This will be sent to Admin.'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                enabled: !submitting,
+                maxLength: 1000,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: submitting ? null : () async {
+                final comment = controller.text.trim();
+                if (comment.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
+                }
+                setDialogState(() { submitting = true; error = null; });
+                try {
+                  await _call('break-exceeded-comment', token, post: true, payload: {'comment': comment});
+                  if (!mounted) return;
+                  Navigator.of(dialogContext).pop();
+                  await _load();
+                } catch (e) {
+                  setDialogState(() { submitting = false; error = _message(e); });
+                }
+              },
+              child: Text(submitting ? 'Sending…' : 'Send to Admin'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    _breakCommentDialogOpen = false;
   }
 
   String _formatPunchTime(dynamic rawTimestamp) {
@@ -261,6 +387,30 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         : (actualMinutes / targetMinutes).clamp(0.0, 1.0);
     final actions = data['actions'] as Map;
     final checkedIn = data['status'] == 'checked_in';
+    final onBreak = data['active_break'] != null;
+    final breakCompleted = data['break_completed'] == true;
+    final activeBreak = data['active_break'] as Map?;
+    var breakTimeLeftLabel = '';
+    var breakStartedLabel = '';
+    if (onBreak && activeBreak != null) {
+      try {
+        final started = DateTime.parse(
+          activeBreak['started_at'].toString().replaceFirst(' ', 'T'),
+        ).toLocal();
+        breakStartedLabel = 'Break started: ${DateFormat('hh:mm a').format(started)}';
+        final limitSeconds =
+            ((activeBreak['limit_minutes'] as num?)?.toInt() ?? 70) * 60;
+        final remainingSeconds = limitSeconds -
+            DateTime.now().difference(started).inSeconds;
+        final safeSeconds = remainingSeconds < 0 ? 0 : remainingSeconds;
+        final minutes = safeSeconds ~/ 60;
+        final seconds = safeSeconds % 60;
+        breakTimeLeftLabel =
+            'Break time left: ${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
+      } catch (_) {
+        breakTimeLeftLabel = 'Break is active';
+      }
+    }
     final checkedOut = data['status'] == 'checked_out';
     final seconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
     final worked = seconds + (checkedIn ? _elapsed.elapsed.inSeconds : 0);
@@ -489,11 +639,48 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      if (onBreak) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          breakTimeLeftLabel,
+                          style: const TextStyle(
+                            color: Color(0xFFFFE08A),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          breakStartedLabel,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ],
                   ],
                 ),
               ),
               const SizedBox(width: 10),
+              if (checkedIn)
+                OutlinedButton.icon(
+                  onPressed: _loading || _punching || _error != null || breakCompleted
+                      ? null
+                      : _toggleBreak,
+                  icon: Icon(
+                    onBreak ? Icons.play_arrow : (breakCompleted ? Icons.check : Icons.pause),
+                    size: 18,
+                  ),
+                  label: Text(onBreak ? 'Resume' : (breakCompleted ? 'Break Over' : 'Break')),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    disabledForegroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white),
+                  ),
+                ),
+              if (checkedIn) const SizedBox(width: 10),
               OutlinedButton(
                 onPressed:
                     _loading ||
