@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
 import '../../../../services/hrms_clock_logs_api.dart';
+import 'attendance_policy_dialog.dart';
 
 const _blue = Color(0xFF1264F5);
 const _navy = Color(0xFF081C67);
@@ -179,6 +180,10 @@ class _MobileLogCard extends StatelessWidget {
         const SizedBox(height: 12),
         Row(children: [
           _LogTime(label: 'Check in', value: item['checkIn']?.toString() ?? '-'),
+          _divider(),
+          _LogTime(label: 'Break Begins', value: item['breakStart']?.toString() ?? '-'),
+          _divider(),
+          _LogTime(label: 'Break Ends', value: item['breakEnd']?.toString() ?? '-'),
           _divider(),
           _LogTime(label: 'Check out', value: item['checkOut']?.toString() ?? '-'),
           _divider(),
@@ -358,6 +363,10 @@ class _ClockValues extends StatelessWidget {
     return Row(children: [
       _LogTime(label: 'Check in', value: item['checkIn']?.toString() ?? '-'),
       Container(width: 1, height: 28, color: _line),
+      _LogTime(label: 'Break Begins', value: item['breakStart']?.toString() ?? '-'),
+      Container(width: 1, height: 28, color: _line),
+      _LogTime(label: 'Break Ends', value: item['breakEnd']?.toString() ?? '-'),
+      Container(width: 1, height: 28, color: _line),
       _LogTime(label: 'Check out', value: item['checkOut']?.toString() ?? '-'),
       Container(width: 1, height: 28, color: _line),
       _LogTime(label: 'Worked', value: worked),
@@ -366,6 +375,22 @@ class _ClockValues extends StatelessWidget {
 }
 
 class _ClockLogsPageState extends State<ClockLogsPage> {
+  Widget _policyButton() => OutlinedButton.icon(
+    onPressed: () async {
+      final changed = await showDialog<bool>(context: context, builder: (_) => const AttendancePolicyDialog());
+      if (changed == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Attendance policy saved.')));
+      }
+    },
+    icon: const Icon(Icons.tune_rounded),
+    label: const Text('Attendance Policy'),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: _navy,
+      side: const BorderSide(color: _line),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  );
   final _employeeSearchController = TextEditingController();
   DateTime _date = DateTime.now();
   bool _monthly = true;
@@ -447,11 +472,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             constraints: const BoxConstraints(maxWidth: 1900),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (!narrow) ...[
-                const AdminPageHeader(title: 'Employee Clock Logs', breadcrumb: 'Clock Logs'),
-                const SizedBox(height: 8),
+                AdminPageHeader(title: 'Employee Clock Logs', breadcrumb: 'Clock Logs', trailing: _policyButton()),
               ],
-              const Text('Review employee check-in and check-out records from attendance data.', style: TextStyle(color: Color(0xFF52638E), fontSize: 15)),
-              const SizedBox(height: 18),
+              if (narrow) ...[Align(alignment: Alignment.centerRight, child: _policyButton()), const SizedBox(height: 18)] else const SizedBox(height: 20),
               _summary(),
               const SizedBox(height: 18),
               _filters(narrow),
@@ -583,7 +606,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
 
   Widget _table() => LayoutBuilder(
     builder: (_, constraints) {
-      final tableWidth = constraints.maxWidth < 1100 ? 1100.0 : constraints.maxWidth;
+      final tableWidth = constraints.maxWidth < 1380 ? 1380.0 : constraints.maxWidth;
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: _line), borderRadius: BorderRadius.circular(14)),
@@ -594,7 +617,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             width: tableWidth,
             child: Column(
               children: [
-                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Status', 'Method'], header: true),
+                _row(const ['Employee', 'Date', 'Check In', 'Break Begins', 'Break Ends', 'Check Out', 'Worked', 'Status', 'Method'], header: true),
                 if (_visibleLogs.isEmpty) const Padding(padding: EdgeInsets.all(40), child: Text('No clock logs found for the selected period.')),
                 ..._visibleLogs.map(_logRow),
               ],
@@ -608,7 +631,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Widget _logRow(Map<String, dynamic> item) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
-    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
+    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['breakStart']?.toString() ?? '-', item['breakEnd']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
   }
 
   Widget _row(List<dynamic> values, {bool header = false}) => Container(
@@ -616,7 +639,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
     child: Row(
       children: List.generate(values.length, (i) => Expanded(
-        flex: const [24, 13, 13, 13, 12, 15, 13][i],
+        flex: const [24, 12, 12, 12, 12, 12, 11, 14, 11][i],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(

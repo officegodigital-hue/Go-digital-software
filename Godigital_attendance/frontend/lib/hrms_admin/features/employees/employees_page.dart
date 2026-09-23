@@ -361,6 +361,26 @@ class _EmployeesPageState extends State<EmployeesPage> {
           ? ''
           : employee?.salary.replaceAll(RegExp(r'[^0-9]'), '') ?? '',
     );
+    final cycleToday = DateTime.now();
+    DateTimeRange? flexibleCycleRange;
+    if (employee?.flexibleCycleStartDay != null &&
+        employee?.flexibleCycleEndDay != null) {
+      final start = DateTime(
+        cycleToday.year,
+        cycleToday.month,
+        employee!.flexibleCycleStartDay!,
+      );
+      var end = DateTime(
+        cycleToday.year,
+        cycleToday.month,
+        employee.flexibleCycleEndDay!,
+      );
+      if (end.isBefore(start)) {
+        end = DateTime(cycleToday.year, cycleToday.month + 1,
+            employee.flexibleCycleEndDay!);
+      }
+      flexibleCycleRange = DateTimeRange(start: start, end: end);
+    }
     final username = TextEditingController(text: employee == null ? '' : '');
     final email = TextEditingController();
     final password = TextEditingController();
@@ -376,6 +396,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
     var selectedMode = employee?.workMode ?? 'Office';
     var selectedGender = employee?.gender ?? 'Male';
     var selectedStatus = employee?.status ?? 'Active';
+    var selectedSalaryType = employee?.salaryType ?? 'Standard';
     final formKey = GlobalKey<FormState>();
 
     final saved = await showDialog<bool>(
@@ -465,6 +486,43 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    _formDropdown(
+                      'Salary type',
+                      selectedSalaryType,
+                      const ['Standard', 'Flexible'],
+                      (value) => setDialogState(() => selectedSalaryType = value!),
+                    ),
+                    if (selectedSalaryType == 'Flexible') ...[
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () async {
+                          final picked = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2100),
+                            initialDateRange: flexibleCycleRange,
+                            helpText: 'Select salary cycle dates',
+                          );
+                          if (picked != null) {
+                            setDialogState(() => flexibleCycleRange = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Salary cycle dates',
+                            helperText: 'Select the recurring flexible salary period.',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.calendar_month_outlined),
+                          ),
+                          child: Text(
+                            flexibleCycleRange == null
+                                ? 'Select start and end date'
+                                : '${DateFormat('d MMM yyyy').format(flexibleCycleRange!.start)} – ${DateFormat('d MMM yyyy').format(flexibleCycleRange!.end)}',
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -496,6 +554,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
       'gender': selectedGender,
       'status': selectedStatus,
       'salary': salary.text.trim(),
+      'salaryType': selectedSalaryType,
+      if (selectedSalaryType == 'Flexible')
+        'flexibleCycleStartDay': flexibleCycleRange?.start.day,
+      if (selectedSalaryType == 'Flexible')
+        'flexibleCycleEndDay': flexibleCycleRange?.end.day,
       if (employee == null) 'username': username.text.trim(),
       if (employee == null) 'email': email.text.trim(),
       if (employee == null) 'password': password.text,
@@ -1751,11 +1814,17 @@ class _Employee {
     this.status,
     this.modeColor,
     this.username,
+    this.salaryType,
+    this.flexibleCycleStartDay,
+    this.flexibleCycleEndDay,
   );
   final int profileId;
   final String name, id, department, workMode, gender, salary, status;
   final int modeColor;
   final String username;
+  final String salaryType;
+  final int? flexibleCycleStartDay;
+  final int? flexibleCycleEndDay;
 
   factory _Employee.fromApi(Map<String, dynamic> json) {
     final profileId = json['id'] is int
@@ -1775,6 +1844,13 @@ class _Employee {
       (json['status'] ?? 'Active').toString(),
       color is int ? color : _modeColor(mode),
       (json['username'] ?? '').toString(),
+      (json['salaryType'] ?? 'Standard').toString(),
+      json['flexibleCycleStartDay'] is num
+          ? (json['flexibleCycleStartDay'] as num).toInt()
+          : int.tryParse('${json['flexibleCycleStartDay'] ?? ''}'),
+      json['flexibleCycleEndDay'] is num
+          ? (json['flexibleCycleEndDay'] as num).toInt()
+          : int.tryParse('${json['flexibleCycleEndDay'] ?? ''}'),
     );
   }
 }

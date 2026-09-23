@@ -134,6 +134,48 @@ class _PayrollPageState extends State<PayrollPage> {
     }
   }
 
+  Future<void> _overrideCycle(_PayrollRow row) async {
+    if (row.salaryType != 'Flexible') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only Flexible employees can have a custom payroll cycle.')),
+      );
+      return;
+    }
+    final initial = DateTimeRange(
+      start: DateTime.parse(row.periodStart),
+      end: DateTime.parse(row.periodEnd),
+    );
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDateRange: initial,
+      helpText: 'Custom payroll cycle for ${row.name}',
+    );
+    if (picked == null || !mounted) return;
+    try {
+      await HrmsPayrollApi.saveCycleOverride(
+        profileId: row.profileId,
+        year: year,
+        month: month,
+        periodStart: picked.start,
+        periodEnd: picked.end,
+      );
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Custom payroll cycle saved.')),
+        );
+      }
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
@@ -215,6 +257,7 @@ class _PayrollPageState extends State<PayrollPage> {
                                     _load();
                                   },
                                   onMarkPaid: _markPaid,
+                                  onCycleOverride: _overrideCycle,
                                 ),
                               ],
                             ),
@@ -479,6 +522,7 @@ class _PayrollPanel extends StatelessWidget {
     required this.onStatusChanged,
     required this.onReset,
     required this.onMarkPaid,
+    required this.onCycleOverride,
   });
 
   final String monthKey;
@@ -489,6 +533,7 @@ class _PayrollPanel extends StatelessWidget {
   final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -538,7 +583,7 @@ class _PayrollPanel extends StatelessWidget {
             if (MediaQuery.sizeOf(context).width < 600)
               _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
             else
-              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid),
+              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, onCycleOverride: onCycleOverride),
             const SizedBox(height: 16),
             Text(
               rows.isEmpty
@@ -777,9 +822,10 @@ class _MobilePayrollList extends StatelessWidget {
 }
 
 class _PayrollTable extends StatelessWidget {
-  const _PayrollTable({required this.rows, required this.onMarkPaid});
+  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.onCycleOverride});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -802,7 +848,7 @@ class _PayrollTable extends StatelessWidget {
                               'No payroll rows match these filters.')))
                 else
                   ...rows.map((row) =>
-                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid)),
+                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, onCycleOverride: onCycleOverride)),
               ],
             ),
           ),
@@ -832,9 +878,10 @@ class _PayrollTableHeader extends StatelessWidget {
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({required this.row, required this.onMarkPaid});
+  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.onCycleOverride});
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -892,20 +939,34 @@ class _PayrollTableRow extends StatelessWidget {
             _Cell(width: 120, child: _PayStatus(status: row.status)),
             _Cell(
               width: 140,
-              child: row.status != 'Pending'
-                  ? const Text('–',
-                      style: TextStyle(color: Color(0xFF596176)))
-                  : FilledButton(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (row.salaryType == 'Flexible')
+                    TextButton(
+                      onPressed: row.status == 'Paid' ? null : () => onCycleOverride(row),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                      child: const Text('Custom cycle', style: TextStyle(fontSize: 11)),
+                    ),
+                  if (row.status == 'Pending')
+                    FilledButton(
                       onPressed: () => onMarkPaid(row),
                       style: FilledButton.styleFrom(
                         backgroundColor: _PayrollColors.blue,
                         visualDensity: VisualDensity.compact,
-                        minimumSize: const Size(0, 32),
+                        minimumSize: const Size(0, 26),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
-                      child: const Text('Mark paid',
-                          style: TextStyle(fontSize: 12)),
-                    ),
+                      child: const Text('Mark paid', style: TextStyle(fontSize: 12)),
+                    )
+                  else if (row.salaryType != 'Flexible')
+                    const Text('–', style: TextStyle(color: Color(0xFF596176))),
+                ],
+              ),
             ),
           ],
         ),
@@ -946,6 +1007,7 @@ class _PayStatus extends StatelessWidget {
 class _PayrollRow {
   const _PayrollRow({
     required this.itemId,
+    required this.profileId,
     required this.name,
     required this.code,
     required this.department,
@@ -956,11 +1018,16 @@ class _PayrollRow {
     required this.deductions,
     required this.netPay,
     required this.status,
+    required this.salaryType,
+    required this.periodStart,
+    required this.periodEnd,
   });
 
   final int? itemId;
+  final int profileId;
   final String name, code, department, salary, deductions, netPay, status;
   final int workingDays, paidDays, lopDays;
+  final String salaryType, periodStart, periodEnd;
 
   factory _PayrollRow.fromApi(Map<String, dynamic> json) {
     int asInt(dynamic value) =>
@@ -968,6 +1035,7 @@ class _PayrollRow {
     final rawId = json['id'];
     return _PayrollRow(
       itemId: rawId == null ? null : asInt(rawId),
+      profileId: asInt(json['profileId']),
       name: (json['name'] ?? '').toString(),
       code: (json['employeeCode'] ?? '').toString(),
       department: (json['department'] ?? '').toString(),
@@ -978,6 +1046,9 @@ class _PayrollRow {
       deductions: (json['deductionsLabel'] ?? '–').toString(),
       netPay: (json['netPayLabel'] ?? '–').toString(),
       status: (json['status'] ?? 'Draft').toString(),
+      salaryType: (json['salaryType'] ?? 'Standard').toString(),
+      periodStart: (json['periodStart'] ?? '').toString(),
+      periodEnd: (json['periodEnd'] ?? '').toString(),
     );
   }
 }
