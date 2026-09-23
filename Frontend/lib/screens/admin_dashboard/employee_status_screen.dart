@@ -388,10 +388,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
           for (var tl in taskLists) {
-            if (tl['task_assignment_id'] != null && assignmentId != null) {
-              if (tl['task_assignment_id'].toString() != assignmentId.toString()) {
-                continue;
-              }
+            // 🟢 STRICT MATCHING
+            final tlAssignmentId = tl['task_assignment_id']?.toString();
+            if (tlAssignmentId == null || tlAssignmentId != assignmentId?.toString()) {
+              continue;
             }
 
             final tListId = tl['id'];
@@ -407,7 +407,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              dbTaskProgressCounts['${assignmentId}_$deliverables'] = completedRows;
+              // 🟢 FIX: Use += instead of =
+              dbTaskProgressCounts['${assignmentId}_$deliverables'] = 
+                  (dbTaskProgressCounts['${assignmentId}_$deliverables'] ?? 0) + completedRows;
 
               for (var item in items) {
                 final desc = (item['task_description'] ?? '').toString().trim().toLowerCase();
@@ -417,7 +419,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                     final iSt = (i['status'] ?? '').toString().toUpperCase();
                     return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
                   }).length;
-                  dbTaskProgressCounts['${assignmentId}_$desc'] = completedSubCount;
+                  
+                  // 🟢 FIX: Use += instead of =
+                  dbTaskProgressCounts['${assignmentId}_$desc'] = 
+                      (dbTaskProgressCounts['${assignmentId}_$desc'] ?? 0) + completedSubCount;
                 }
               }
             }
@@ -589,8 +594,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                               int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
                                                           dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
 
-                                              // Color coding rules: 
-                                              // 0/12 -> Grey, 1 to N-1 -> Blue, 12/12 (Complete) -> Green
                                               final bool isFullyCompleted = totalR > 0 && compR >= totalR;
                                               final bool isInProgress = compR > 0 && compR < totalR;
 
@@ -713,24 +716,25 @@ void _navigateToEmployeeDetailView(String employeeName) async {
     );
   }
 
+  
  Map<String, dynamic> _mapRow(dynamic row) {
-  String status = row['status'] ?? 'Processing';
-  if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
-    status = 'Processing';
+    String status = row['status'] ?? 'Processing';
+    if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
+      status = 'Processing';
+    }
+    return {
+      "taskListId": row['taskListId'],
+      "taskAssignmentId": row['taskAssignmentId'] ?? row['task_assignment_id'] ?? row['taskListId'] ?? row['id'],
+      "client": row['clientName'] ?? row['client_name'] ?? '',
+      "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
+      "task": row['task'] ?? '',
+      "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
+      "date": row['submissionDate'] ?? row['deadline'] ?? '',
+      "formattedDate": _formatDate((row['submissionDate'] ?? row['deadline']) as String?),
+      "month": _extractMonth((row['submissionDate'] ?? row['deadline']) as String?),
+      "status": status,
+    };
   }
-  return {
-    "taskListId": row['taskListId'],
-    "taskAssignmentId": row['taskAssignmentId'] ?? row['task_assignment_id'] ?? row['id'],
-    "client": row['clientName'] ?? row['client_name'] ?? '',
-    "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
-    "task": row['task'] ?? '',
-    "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
-    "date": row['submissionDate'] ?? row['deadline'] ?? '',
-    "formattedDate": _formatDate((row['submissionDate'] ?? row['deadline']) as String?),
-    "month": _extractMonth((row['submissionDate'] ?? row['deadline']) as String?),
-    "status": status,
-  };
-}
 
   String _formatOnlyDay(dynamic rawDate) {
     if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
@@ -776,13 +780,12 @@ void _navigateToTaskDetailViewForSpecificRow(
   String clientName,
   Map<String, dynamic> targetRow,
 ) async {
-  final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString();
+  final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString() ?? targetRow['id']?.toString();
   
   List<Map<String, dynamic>> clientAssignments = [];
   Map<String, int> dbTaskProgressCounts = {};
 
   try {
-    // 1. Fetch exact task assignment row directly from backend /tasks API if rawTasksList is empty
     final tasksRes = await http.get(Uri.parse('$_baseUrl/tasks'));
     if (tasksRes.statusCode == 200) {
       final tasksBody = jsonDecode(tasksRes.body);
@@ -804,7 +807,6 @@ void _navigateToTaskDetailViewForSpecificRow(
       clientAssignments = [targetRow];
     }
 
-    // 2. Fetch tracking progress items
     if (targetAssignmentId != null && targetAssignmentId.isNotEmpty) {
       final trRes = await http.get(
         Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'),
@@ -815,8 +817,9 @@ void _navigateToTaskDetailViewForSpecificRow(
         final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
         for (final tl in taskLists) {
+          // 🟢 STRICT MATCHING: Pazhaya tasks (orphan) remove cheyyuka
           final tlAssignmentId = tl['task_assignment_id']?.toString();
-          if (tlAssignmentId != null && tlAssignmentId != targetAssignmentId) {
+          if (tlAssignmentId == null || tlAssignmentId != targetAssignmentId) {
             continue;
           }
 
@@ -838,6 +841,7 @@ void _navigateToTaskDetailViewForSpecificRow(
 
             final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
             if (deliverables.isNotEmpty) {
+              // 🟢 SAFELY ADD
               dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
             }
           }
@@ -1123,6 +1127,7 @@ void _navigateToTaskDetailViewForSpecificRow(
     },
   );
 }
+
 
   @override
   Widget build(BuildContext context) {

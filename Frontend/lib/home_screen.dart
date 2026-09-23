@@ -94,19 +94,37 @@ class _HomeScreenState extends State<HomeScreen> {
   // ATTENDANCE
   // ═══════════════════════════════════════════════════════════════
 
+  // void _openAttendance() {
+  //   final userType =
+  //       context.read<AuthService>().userType?.toLowerCase().trim() ?? '';
+
+  //  Navigator.pushNamed(
+  //     context,
+  //     userType == 'admin' ? '/attendance' : '/employee/dashboard',
+  //   );
+  // }
+
   void _openAttendance() {
-    final userType =
-        context.read<AuthService>().userType?.toLowerCase().trim() ?? '';
+  final authService = context.read<AuthService>();
+  final userType = authService.userType?.toLowerCase().trim() ?? '';
+  final user = authService.user;
 
-    // Employee attendance stays on the main employee navigator.  Sending an
-    // employee through the shared entry route previously rebuilt a second
-    // navigation tree and could show Login again.
-    Navigator.pushNamed(
-      context,
-      userType == 'admin' ? '/attendance' : '/employee/dashboard',
-    );
-  }
+  // Check pannuvom ithu main admin-a illaya nu
+  final bool isMainAdmin = user != null && (
+    user['is_main_admin'] == true || 
+    user['is_main_admin'] == 1 || 
+    user['is_main_admin'] == '1' ||
+    user['isMainAdmin'] == true ||
+    user['isMainAdmin'] == 1
+  );
 
+  // Main Admin-ku mattum admin attendance (/attendance) poganum.
+  // Non-main admin mattum employees employee/dashboard-ku poganum.
+  Navigator.pushNamed(
+    context,
+    (userType == 'admin' && isMainAdmin) ? '/attendance' : '/employee/dashboard',
+  );
+}
   // ═══════════════════════════════════════════════════════════════
   // CLIENT REPOSITORY
   // ═══════════════════════════════════════════════════════════════
