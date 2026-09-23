@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -165,7 +166,32 @@ class _AdminTopBarState extends State<AdminTopBar> {
       }
 
       setState(() {
-        _notifications = notifications;
+        _notifications = notifications.where((n) {
+          final msg = n['message']?.toString() ?? '';
+          // Exclude task planner and day planner notifications
+          try {
+            final decoded = jsonDecode(msg);
+            if (decoded is Map) {
+              final payload = decoded['payload'];
+              if (payload is Map) {
+                final type = payload['type']?.toString() ?? '';
+                if (type.startsWith('TASK_PLANNER') ||
+                    type.startsWith('DAY_PLANNER')) {
+                  return false;
+                }
+              }
+            }
+          } catch (_) {
+            // plain text — check for known non-asset keywords
+            final lower = msg.toLowerCase();
+            if (lower.contains('task planner') ||
+                lower.contains('day planner') ||
+                lower.contains('morning day planner')) {
+              return false;
+            }
+          }
+          return true;
+        }).toList();
       });
     } catch (error) {
       if (!mounted) {
@@ -432,9 +458,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
             item['title']?.toString().trim() ??
                 'Notification';
 
-        final message =
-            item['message']?.toString().trim() ??
-                '';
+        final message = _notificationPreview(item['message']);
 
         final isRead =
             item['is_read'] == true;
@@ -442,11 +466,9 @@ class _AdminTopBarState extends State<AdminTopBar> {
         final id =
             item['id'];
 
-        final createdAt =
-            item['created_at']
-                ?.toString()
-                .trim() ??
-                '';
+        final createdAt = _formatNotificationTime(
+          item['created_at']?.toString().trim() ?? '',
+        );
 
         return Container(
           padding:
@@ -654,6 +676,53 @@ class _AdminTopBarState extends State<AdminTopBar> {
         );
       },
     );
+  }
+
+  String _notificationPreview(dynamic rawMessage) {
+    final message = rawMessage?.toString().trim() ?? '';
+    if (message.isEmpty) return '';
+
+    // Try full JSON decode first
+    try {
+      final decoded = jsonDecode(message);
+      if (decoded is Map) {
+        final preview = decoded['preview']?.toString().trim() ?? '';
+        if (preview.isNotEmpty) return preview;
+        final payload = decoded['payload'];
+        if (payload is Map) {
+          final content = payload['content']?.toString().trim() ?? '';
+          if (content.isNotEmpty) return content;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: regex-extract "preview":"..." even if JSON is malformed
+    final previewMatch = RegExp(r'"preview"\s*:\s*"([^"]+)"').firstMatch(message);
+    if (previewMatch != null) {
+      final val = previewMatch.group(1)?.trim() ?? '';
+      if (val.isNotEmpty) return val;
+    }
+
+    // Last resort: return plain text as-is (old notifications)
+    return message;
+  }
+
+  String _formatNotificationTime(String value) {
+    final timestamp = DateTime.tryParse(value)?.toLocal();
+    if (timestamp == null) {
+      return value;
+    }
+
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final hour = timestamp.hour % 12 == 0 ? 12 : timestamp.hour % 12;
+    final minute = timestamp.minute.toString().padLeft(2, '0');
+    final period = timestamp.hour >= 12 ? 'PM' : 'AM';
+
+    return '${timestamp.day} ${months[timestamp.month - 1]} '
+        '${timestamp.year}, $hour:$minute $period';
   }
 
   // ============================================================

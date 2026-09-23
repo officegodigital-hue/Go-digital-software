@@ -902,7 +902,11 @@ class _ApprovalRow extends StatelessWidget {
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => _showReasonDialog(context, request, onApprove, onReject),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Container(
         height: 64,
         decoration: const BoxDecoration(
             border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
@@ -969,7 +973,13 @@ class _ApprovalRow extends StatelessWidget {
             _ApprovalCell(
                 width: 115, child: Text(request.duration, style: _cellStyle)),
             _ApprovalCell(
-                width: 200, child: Text(request.reason, style: _cellStyle)),
+                width: 200,
+                child: Text(
+                  request.reason,
+                  style: _cellStyle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                )),
             _ApprovalCell(
                 width: 140, child: _RequestStatus(status: request.status)),
             _ApprovalCell(
@@ -1017,7 +1027,7 @@ class _ApprovalRow extends StatelessWidget {
             ),
           ],
         ),
-      );
+      )));
 }
 
 class _ApprovalCell extends StatelessWidget {
@@ -1134,6 +1144,146 @@ class _ApprovalRequest {
       color: json['color'] is int ? json['color'] as int : 0xFF7137E8,
     );
   }
+}
+
+void _showReasonDialog(
+  BuildContext context,
+  _ApprovalRequest request,
+  void Function(_ApprovalRequest) onApprove,
+  void Function(_ApprovalRequest) onReject,
+) {
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // header
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Leave Request',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                            color: Color(0xFF8A94A6), letterSpacing: .06)),
+                        const SizedBox(height: 4),
+                        Text('${request.name} · ${request.type}',
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700,
+                            color: Color(0xFF061457))),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => Navigator.pop(ctx),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F6FB),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.close, size: 16, color: Color(0xFF8A94A6)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // meta chips
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                children: [
+                  _MetaChip(label: 'Date', value: request.dates),
+                  _MetaChip(label: 'Duration', value: request.duration),
+                  _MetaChip(label: 'Employee ID', value: request.id),
+                  _MetaChip(label: 'Status', value: request.status,
+                    valueColor: request.status == 'Pending'
+                        ? const Color(0xFFD97706)
+                        : request.status == 'Approved'
+                            ? const Color(0xFF148B1A)
+                            : const Color(0xFFD42B2B)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // reason
+              const Text('REASON',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                  color: Color(0xFF8A94A6), letterSpacing: .06)),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F6FB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(request.reason,
+                  style: const TextStyle(fontSize: 14, height: 1.65,
+                    color: Color(0xFF1a2340))),
+              ),
+              if (request.status == 'Pending') ...[
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () { Navigator.pop(ctx); onReject(request); },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFD42B2B),
+                        side: const BorderSide(color: Color(0xFFD42B2B)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                      child: const Text('Reject', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton(
+                      onPressed: () { Navigator.pop(ctx); onApprove(request); },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF075EF7),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                      child: const Text('Approve', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.value, this.valueColor});
+  final String label, value;
+  final Color? valueColor;
+  @override
+  Widget build(BuildContext context) => RichText(
+    text: TextSpan(
+      style: const TextStyle(fontSize: 12, color: Color(0xFF8A94A6)),
+      children: [
+        TextSpan(text: '$label: '),
+        TextSpan(text: value,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: valueColor ?? const Color(0xFF061457),
+          )),
+      ],
+    ),
+  );
 }
 
 const _headStyle = TextStyle(

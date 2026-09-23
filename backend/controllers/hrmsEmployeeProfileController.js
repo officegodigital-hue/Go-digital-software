@@ -43,7 +43,12 @@ function formatSalary(value) {
 }
 
 function workedMinutes(record) {
-  if (!record || !record.check_in_at || !record.check_out_at) return 0;
+  if (!record || !record.check_in_at) return 0;
+  // Use stored working_minutes first (set at checkout) — most accurate
+  const stored = Number(record.working_minutes || 0);
+  if (stored > 0) return stored;
+  // Fall back to calculating from timestamps when stored value is missing
+  if (!record.check_out_at) return 0;
   try {
     return Math.max(0, policy.minutesBetween
       ? policy.minutesBetween(String(record.check_in_at), String(record.check_out_at))
