@@ -35,6 +35,8 @@ router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
 router.post('/break-in', attendance.startBreak);
 router.post('/break-out', attendance.endBreak);
+router.get('/breaks/:id/review', attendance.requireAdmin, attendance.getBreakReview);
+router.patch('/breaks/:id/review', attendance.requireAdmin, attendance.reviewBreak);
 router.post('/checkout/undo', attendance.undoCheckout);
 router.post('/checkout/correction-request', attendance.requestCheckoutCorrection);
 router.get('/permissions/mine', attendance.myPermissions);

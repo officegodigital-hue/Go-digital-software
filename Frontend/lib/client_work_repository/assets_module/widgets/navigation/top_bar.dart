@@ -36,7 +36,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
   List<dynamic> _notifications = [];
 
-  String _adminName = 'Admin User';
+  String _adminName = '';
   String _adminEmail = '';
   String _adminRole = 'Administrator';
   String? _adminPhotoUrl;
@@ -73,61 +73,23 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
   Future<void> _loadLoggedInAdminProfile() async {
     try {
-      final cachedName =
-          await ApiService.getLoggedInUserName();
-      final cachedEmail =
-          await ApiService.getLoggedInUserEmail();
-
+      // Show the authenticated session data immediately, then replace it with
+      // the current database record below.
+      final cachedName = await ApiService.getLoggedInUserName();
+      final cachedEmail = await ApiService.getLoggedInUserEmail();
+      final cachedRole = await ApiService.getLoggedInUserRole();
       if (mounted) {
         setState(() {
-          if (cachedName != null &&
-              cachedName.trim().isNotEmpty) {
-            _adminName = cachedName.trim();
-          }
-
-          if (cachedEmail != null &&
-              cachedEmail.trim().isNotEmpty) {
-            _adminEmail = cachedEmail.trim();
-          }
+          if (cachedName != null && cachedName.trim().isNotEmpty) _adminName = cachedName.trim();
+          if (cachedEmail != null && cachedEmail.trim().isNotEmpty) _adminEmail = cachedEmail.trim();
+          if (cachedRole != null && cachedRole.trim().isNotEmpty) _adminRole = cachedRole.trim();
         });
       }
-
-      // Fetch the authoritative Admin profile so the
-      // email/photo shown in the profile dialog stays current.
-      final users = await ApiService.getUsers();
-
-      dynamic matchedUser;
-      for (final item in users) {
-        if (item is! Map) {
-          continue;
-        }
-
-        final userEmail =
-            item['email']?.toString().trim() ?? '';
-
-        if (_adminEmail.isNotEmpty &&
-            userEmail.toLowerCase() ==
-                _adminEmail.toLowerCase()) {
-          matchedUser = item;
-          break;
-        }
-      }
-
-      if (matchedUser == null) {
-        return;
-      }
-
-      final photoUrl =
-          matchedUser['profile_photo_url']
-              ?.toString()
-              .trim();
-
-      final name =
-          matchedUser['name']?.toString().trim();
-      final email =
-          matchedUser['email']?.toString().trim();
-      final role =
-          matchedUser['role']?.toString().trim();
+      final profile = await ApiService.getMyProfile();
+      final photoUrl = profile['profile_photo_url']?.toString().trim();
+      final name = profile['name']?.toString().trim();
+      final email = profile['email']?.toString().trim();
+      final role = profile['role']?.toString().trim();
 
       if (!mounted) {
         return;
@@ -155,7 +117,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                 : null;
       });
     } catch (_) {
-      // Keep the cached profile information and fallback UI.
+      // Retain the most recently loaded profile if the API is temporarily unavailable.
     }
   }
 
@@ -1617,90 +1579,18 @@ class _AdminTopBarState extends State<AdminTopBar> {
             width: 18,
           ),
 
-          PopupMenuButton<String>(
-            tooltip: 'Admin account',
-            onSelected: (value) {
-              switch (value) {
-                case 'profile':
-                  _showAdminProfile();
-                  break;
-                case 'logout':
-                  _handleLogout();
-                  break;
-              }
-            },
-            offset: const Offset(0, 52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.person_outline,
-                      size: 20,
-                      color: AppColors.textSecondary,
-                    ),
-                    SizedBox(width: 10),
-                    Text(
-                      'Profile',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.logout,
-                      size: 20,
-                      color: AppColors.danger,
-                    ),
-                    SizedBox(width: 10),
-                    Text(
-                      'Logout',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.danger,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildAdminTopBarAvatar(
-                  size: 44,
-                ),
-                const SizedBox(width: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  child: Text(
-                    _adminName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.keyboard_arrow_down,
-                ),
-              ],
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(
+              context,
+              rootNavigator: true,
+            ).pushNamedAndRemoveUntil('/home', (route) => false),
+            icon: const Icon(Icons.grid_view_rounded, size: 19),
+            label: const Text('Workspace'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              side: const BorderSide(color: AppColors.border),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           ),
         ],

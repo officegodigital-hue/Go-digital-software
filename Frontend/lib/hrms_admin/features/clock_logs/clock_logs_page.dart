@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
 import '../../../../services/hrms_clock_logs_api.dart';
-import 'attendance_policy_dialog.dart';
+import '../employees/employee_profile_page.dart';
 
 const _blue = Color(0xFF1264F5);
 const _navy = Color(0xFF081C67);
@@ -375,22 +375,6 @@ class _ClockValues extends StatelessWidget {
 }
 
 class _ClockLogsPageState extends State<ClockLogsPage> {
-  Widget _policyButton() => OutlinedButton.icon(
-    onPressed: () async {
-      final changed = await showDialog<bool>(context: context, builder: (_) => const AttendancePolicyDialog());
-      if (changed == true && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Attendance policy saved.')));
-      }
-    },
-    icon: const Icon(Icons.tune_rounded),
-    label: const Text('Attendance Policy'),
-    style: OutlinedButton.styleFrom(
-      foregroundColor: _navy,
-      side: const BorderSide(color: _line),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    ),
-  );
   final _employeeSearchController = TextEditingController();
   DateTime _date = DateTime.now();
   bool _monthly = true;
@@ -471,10 +455,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
           child: Center(child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1900),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (!narrow) ...[
-                AdminPageHeader(title: 'Employee Clock Logs', breadcrumb: 'Clock Logs', trailing: _policyButton()),
-              ],
-              if (narrow) ...[Align(alignment: Alignment.centerRight, child: _policyButton()), const SizedBox(height: 18)] else const SizedBox(height: 20),
+              const AdminPageHeader(title: 'Employee Clock Logs', breadcrumb: 'Clock Logs'),
+              const SizedBox(height: 20),
               _summary(),
               const SizedBox(height: 18),
               _filters(narrow),
@@ -617,7 +599,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             width: tableWidth,
             child: Column(
               children: [
-                _row(const ['Employee', 'Date', 'Check In', 'Break Begins', 'Break Ends', 'Check Out', 'Worked', 'Status', 'Method'], header: true),
+                _row(const ['Employee', 'Date', 'Check In', 'Break Begins', 'Break Ends', 'Break Review', 'Check Out', 'Worked', 'Status', 'Method'], header: true),
                 if (_visibleLogs.isEmpty) const Padding(padding: EdgeInsets.all(40), child: Text('No clock logs found for the selected period.')),
                 ..._visibleLogs.map(_logRow),
               ],
@@ -631,7 +613,10 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Widget _logRow(Map<String, dynamic> item) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
-    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['breakStart']?.toString() ?? '-', item['breakEnd']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
+    // profileId = HRMS profiles table id; employeeUserId = fallback for staff not yet in HRMS
+    final profileId = item['profileId'] is num ? (item['profileId'] as num).toInt() : 0;
+    final employeeUserId = item['employeeId'] is num ? (item['employeeId'] as num).toInt() : null;
+    return _row([_employeeCellTappable(name, staffId, profileId, employeeUserId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['breakStart']?.toString() ?? '-', item['breakEnd']?.toString() ?? '-', _breakReview(item), item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
   }
 
   Widget _row(List<dynamic> values, {bool header = false}) => Container(
@@ -639,7 +624,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
     child: Row(
       children: List.generate(values.length, (i) => Expanded(
-        flex: const [24, 12, 12, 12, 12, 12, 11, 14, 11][i],
+        flex: const [22, 11, 11, 11, 11, 13, 11, 10, 13, 10][i],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(
@@ -658,6 +643,41 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       )),
     ),
   );
+
+  Widget _breakReview(Map<String, dynamic> item) {
+    final breaks = (item['breaks'] as List? ?? const []);
+    var overdue = 0;
+    for (final entry in breaks) {
+      if (entry is Map) overdue += (entry['overdueMinutes'] as num?)?.toInt() ?? 0;
+    }
+    if (overdue == 0) return const Text('-');
+    final overdueBreaks = breaks.whereType<Map>().where((e) => ((e['overdueMinutes'] as num?)?.toInt() ?? 0) > 0).toList();
+    if (overdueBreaks.isEmpty) return const Text('-');
+    final entry = overdueBreaks.first;
+    final breakId = (entry['id'] as num?)?.toInt();
+    final isReviewed = entry['reviewedAt'] != null;
+    return InkWell(
+      onTap: breakId == null ? null : () => _showBreakReviewPanel(context, breakId, entry, overdue),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        decoration: BoxDecoration(
+          color: isReviewed ? const Color(0xFFE6F4EA) : const Color(0xFFFFEBEB),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          isReviewed ? 'Reviewed · ${overdue}m' : 'Extended · ${overdue}m',
+          style: TextStyle(color: isReviewed ? const Color(0xFF1A7F37) : const Color(0xFFF04438), fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  void _showBreakReviewPanel(BuildContext context, int breakId, Map entry, int overdue) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _BreakReviewDialog(breakId: breakId, entry: entry, overdue: overdue, onReviewed: () => setState(() {})),
+    );
+  }
   
   Widget _employeeCell(String name, String id) {
     final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
@@ -676,6 +696,29 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         Text(id, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF52638E), fontSize: 12)),
       ])),
     ]);
+  }
+
+  Widget _employeeCellTappable(String name, String id, int profileId, int? employeeUserId) {
+    final cell = _employeeCell(name, id);
+    // Always tappable — even if not in HRMS profiles yet, we use employeeUserId fallback
+    if (profileId == 0 && employeeUserId == null) return cell;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EmployeeProfilePage(
+            profileId: profileId,
+            initialName: name,
+            employeeUserId: employeeUserId,
+          ),
+        ),
+      ),
+      child: Tooltip(
+        message: 'View full profile',
+        child: cell,
+      ),
+    );
   }
   
   Widget _status(String value) { 
@@ -700,4 +743,154 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   String _worked(dynamic minutes) { final value = _asInt(minutes); return '${value ~/ 60}h ${(value % 60).toString().padLeft(2, '0')}m'; }
   String _monthLabel(DateTime date) => '${const ['January','February','March','April','May','June','July','August','September','October','November','December'][date.month - 1]} ${date.year}';
   String _dayLabel(DateTime date) => '${date.day.toString().padLeft(2, '0')} ${_monthLabel(date).split(' ').first} ${date.year}';
+}
+
+class _BreakReviewDialog extends StatefulWidget {
+  final int breakId;
+  final Map entry;
+  final int overdue;
+  final VoidCallback onReviewed;
+  const _BreakReviewDialog({required this.breakId, required this.entry, required this.overdue, required this.onReviewed});
+  @override
+  State<_BreakReviewDialog> createState() => _BreakReviewDialogState();
+}
+
+class _BreakReviewDialogState extends State<_BreakReviewDialog> {
+  bool _submitting = false;
+  String? _error;
+  final _clarificationController = TextEditingController();
+  bool _showClarificationField = false;
+  bool _done = false;
+  String _doneMessage = '';
+
+  @override
+  void dispose() {
+    _clarificationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit(String action) async {
+    setState(() { _submitting = true; _error = null; });
+    try {
+      await HrmsClockLogsApi.reviewBreak(widget.breakId, action: action, clarification: _clarificationController.text.trim().isEmpty ? null : _clarificationController.text.trim());
+      widget.onReviewed();
+      if (mounted) setState(() { _done = true; _doneMessage = action == 'reviewed' ? 'Break marked as reviewed.' : 'Clarification requested from employee.'; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final allowed = (entry['allowedMinutes'] as num?)?.toInt() ?? 0;
+    final actual = (entry['durationMinutes'] as num?)?.toInt() ?? 0;
+    final overdue = widget.overdue;
+    final reason = entry['employeeReason']?.toString() ?? '';
+    final reviewedAt = entry['reviewedAt']?.toString();
+    final isAlreadyReviewed = reviewedAt != null;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: _done
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.check_circle_outline, color: Color(0xFF1A7F37), size: 40),
+                  const SizedBox(height: 12),
+                  Text(_doneMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
+                  const SizedBox(height: 20),
+                  FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+                ])
+              : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.timer_off_outlined, color: Color(0xFFF04438), size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Extended Break Review', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                    const Spacer(),
+                    IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => Navigator.pop(context)),
+                  ]),
+                  const Divider(height: 20),
+                  _reviewRow('Allowed break', '$allowed min'),
+                  _reviewRow('Actual break', '$actual min'),
+                  _reviewRow('Overdue', '$overdue min', valueColor: const Color(0xFFF04438), bold: true),
+                  if (reason.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text('Employee reason', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFF64748B))),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFF), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFD8E1F0))),
+                      child: Text(reason, style: const TextStyle(fontSize: 13)),
+                    ),
+                  ] else
+                    _reviewRow('Employee reason', 'No reason provided', valueColor: const Color(0xFF94A3B8)),
+                  if (isAlreadyReviewed) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0xFFE6F4EA), borderRadius: BorderRadius.circular(8)),
+                      child: Row(children: [
+                        const Icon(Icons.check_circle, color: Color(0xFF1A7F37), size: 16),
+                        const SizedBox(width: 8),
+                        Text('Reviewed on ${reviewedAt.substring(0, 10)}', style: const TextStyle(color: Color(0xFF1A7F37), fontSize: 13, fontWeight: FontWeight.w600)),
+                      ]),
+                    ),
+                  ],
+                  if (_showClarificationField) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _clarificationController,
+                      autofocus: true,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: 'Clarification message to employee', border: OutlineInputBorder()),
+                    ),
+                  ],
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(_error!, style: const TextStyle(color: Color(0xFFF04438), fontSize: 13)),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    if (!_showClarificationField) ...[
+                      OutlinedButton.icon(
+                        onPressed: _submitting ? null : () => setState(() => _showClarificationField = true),
+                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: const Text('Request clarification'),
+                      ),
+                      const SizedBox(width: 10),
+                    ] else ...[
+                      OutlinedButton(onPressed: _submitting ? null : () => setState(() { _showClarificationField = false; _clarificationController.clear(); }), child: const Text('Cancel')),
+                      const SizedBox(width: 10),
+                      FilledButton(onPressed: _submitting ? null : () => _submit('clarification_requested'), child: const Text('Send')),
+                      const SizedBox(width: 10),
+                    ],
+                    const Spacer(),
+                    if (!_showClarificationField)
+                      FilledButton.icon(
+                        onPressed: _submitting ? null : () => _submit('reviewed'),
+                        icon: _submitting ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check, size: 16),
+                        label: const Text('Mark reviewed'),
+                      ),
+                  ]),
+                ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _reviewRow(String label, String value, {Color? valueColor, bool bold = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(children: [
+      SizedBox(width: 130, child: Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)))),
+      Text(value, style: TextStyle(fontSize: 13, color: valueColor, fontWeight: bold ? FontWeight.w700 : FontWeight.normal)),
+    ]),
+  );
 }

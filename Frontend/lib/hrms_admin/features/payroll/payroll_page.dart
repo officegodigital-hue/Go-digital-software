@@ -194,6 +194,8 @@ class _PayrollPageState extends State<PayrollPage> {
                                   status: status,
                                   employees: employeeNames,
                                   rows: rows,
+                                  year: year,
+                                  month: month,
                                   onMonthChanged: (value) {
                                     if (value == null) return;
                                     final parts = value.split('-');
@@ -474,6 +476,8 @@ class _PayrollPanel extends StatelessWidget {
     required this.status,
     required this.employees,
     required this.rows,
+    required this.year,
+    required this.month,
     required this.onMonthChanged,
     required this.onEmployeeChanged,
     required this.onStatusChanged,
@@ -486,6 +490,7 @@ class _PayrollPanel extends StatelessWidget {
   final String employee, status;
   final List<String> employees;
   final List<_PayrollRow> rows;
+  final int year, month;
   final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
   final ValueChanged<_PayrollRow> onMarkPaid;
@@ -538,7 +543,7 @@ class _PayrollPanel extends StatelessWidget {
             if (MediaQuery.sizeOf(context).width < 600)
               _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
             else
-              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid),
+              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, year: year, month: month),
             const SizedBox(height: 16),
             Text(
               rows.isEmpty
@@ -777,9 +782,10 @@ class _MobilePayrollList extends StatelessWidget {
 }
 
 class _PayrollTable extends StatelessWidget {
-  const _PayrollTable({required this.rows, required this.onMarkPaid});
+  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.year, required this.month});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final int year, month;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -790,7 +796,7 @@ class _PayrollTable extends StatelessWidget {
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: 1480,
+            width: 1590,
             child: Column(
               children: [
                 const _PayrollTableHeader(),
@@ -802,7 +808,7 @@ class _PayrollTable extends StatelessWidget {
                               'No payroll rows match these filters.')))
                 else
                   ...rows.map((row) =>
-                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid)),
+                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, year: year, month: month)),
               ],
             ),
           ),
@@ -820,6 +826,7 @@ class _PayrollTableHeader extends StatelessWidget {
           _Cell(width: 250, child: Text('Employee', style: _headStyle)),
           _Cell(width: 150, child: Text('Department', style: _headStyle)),
           _Cell(width: 140, child: Text('Monthly salary', style: _headStyle)),
+          _Cell(width: 150, child: Text('Period', style: _headStyle)),
           _Cell(width: 110, child: Text('Working', style: _headStyle)),
           _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
           _Cell(width: 90, child: Text('LOP', style: _headStyle)),
@@ -832,9 +839,10 @@ class _PayrollTableHeader extends StatelessWidget {
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({required this.row, required this.onMarkPaid});
+  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.year, required this.month});
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final int year, month;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -875,6 +883,19 @@ class _PayrollTableRow extends StatelessWidget {
             _Cell(width: 150, child: Text(row.department, style: _cellStyle)),
             _Cell(width: 140, child: Text(row.salary, style: _cellStyle)),
             _Cell(
+              width: 150,
+              child: row.periodLabel != null
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F0FE),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(row.periodLabel!, style: const TextStyle(color: _PayrollColors.blue, fontSize: 11, fontWeight: FontWeight.w600)),
+                    )
+                  : Text(_formatPeriod(row.periodStart, row.periodEnd), style: const TextStyle(color: Color(0xFF596176), fontSize: 12)),
+            ),
+            _Cell(
                 width: 110,
                 child: Text('${row.workingDays}', style: _cellStyle)),
             _Cell(
@@ -891,11 +912,9 @@ class _PayrollTableRow extends StatelessWidget {
                         fontSize: 13))),
             _Cell(width: 120, child: _PayStatus(status: row.status)),
             _Cell(
-              width: 140,
-              child: row.status != 'Pending'
-                  ? const Text('–',
-                      style: TextStyle(color: Color(0xFF596176)))
-                  : FilledButton(
+              width: 180,
+              child: row.status == 'Pending'
+                  ? FilledButton(
                       onPressed: () => onMarkPaid(row),
                       style: FilledButton.styleFrom(
                         backgroundColor: _PayrollColors.blue,
@@ -903,13 +922,31 @@ class _PayrollTableRow extends StatelessWidget {
                         minimumSize: const Size(0, 32),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
-                      child: const Text('Mark paid',
-                          style: TextStyle(fontSize: 12)),
-                    ),
+                      child: const Text('Mark paid', style: TextStyle(fontSize: 12)),
+                    )
+                  : const Text('–', style: TextStyle(color: Color(0xFF596176))),
             ),
           ],
         ),
       );
+
+  // Converts 'YYYY-MM-DD' to 'M/DD' display, e.g. '2026-09-30' → '9/30'
+  String _formatPeriod(String? start, String? end) {
+    String fmt(String? d) {
+      if (d == null || d.length < 10) return '–';
+      final m = int.tryParse(d.substring(5, 7)) ?? 0;
+      final day = d.substring(8, 10);
+      return '$m/$day';
+    }
+    return '${fmt(start)} – ${fmt(end)}';
+  }
+
+  void _showCustomCycleDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _CustomCycleDialog(row: row, year: year, month: month),
+    );
+  }
 }
 
 class _Cell extends StatelessWidget {
@@ -946,6 +983,7 @@ class _PayStatus extends StatelessWidget {
 class _PayrollRow {
   const _PayrollRow({
     required this.itemId,
+    required this.profileId,
     required this.name,
     required this.code,
     required this.department,
@@ -956,18 +994,26 @@ class _PayrollRow {
     required this.deductions,
     required this.netPay,
     required this.status,
+    this.salaryType = 'standard',
+    this.periodLabel,
+    this.periodStart,
+    this.periodEnd,
   });
 
-  final int? itemId;
+  final int? itemId, profileId;
   final String name, code, department, salary, deductions, netPay, status;
   final int workingDays, paidDays, lopDays;
+  final String salaryType;
+  final String? periodLabel, periodStart, periodEnd;
 
   factory _PayrollRow.fromApi(Map<String, dynamic> json) {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     final rawId = json['id'];
+    final rawProfileId = json['profileId'];
     return _PayrollRow(
       itemId: rawId == null ? null : asInt(rawId),
+      profileId: rawProfileId == null ? null : asInt(rawProfileId),
       name: (json['name'] ?? '').toString(),
       code: (json['employeeCode'] ?? '').toString(),
       department: (json['department'] ?? '').toString(),
@@ -978,6 +1024,10 @@ class _PayrollRow {
       deductions: (json['deductionsLabel'] ?? '–').toString(),
       netPay: (json['netPayLabel'] ?? '–').toString(),
       status: (json['status'] ?? 'Draft').toString(),
+      salaryType: (json['salaryType'] ?? 'standard').toString(),
+      periodLabel: json['periodLabel']?.toString(),
+      periodStart: json['periodStart']?.toString(),
+      periodEnd: json['periodEnd']?.toString(),
     );
   }
 }
@@ -985,3 +1035,151 @@ class _PayrollRow {
 const _headStyle = TextStyle(
     color: Color(0xFF11131A), fontSize: 13, fontWeight: FontWeight.w600);
 const _cellStyle = TextStyle(color: Color(0xFF272B35), fontSize: 13);
+
+class _CustomCycleDialog extends StatefulWidget {
+  const _CustomCycleDialog({required this.row, required this.year, required this.month});
+  final _PayrollRow row;
+  final int year, month;
+
+  @override
+  State<_CustomCycleDialog> createState() => _CustomCycleDialogState();
+}
+
+class _CustomCycleDialogState extends State<_CustomCycleDialog> {
+  late TextEditingController _startCtrl;
+  late TextEditingController _endCtrl;
+  bool _loading = false;
+  bool _saved = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCtrl = TextEditingController();
+    _endCtrl = TextEditingController();
+    _fetchExisting();
+  }
+
+  @override
+  void dispose() {
+    _startCtrl.dispose();
+    _endCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchExisting() async {
+    if (widget.row.profileId == null) return;
+    setState(() => _loading = true);
+    try {
+      final data = await HrmsPayrollApi.getCustomCycle(
+        widget.row.profileId!,
+        year: widget.year,
+        month: widget.month,
+      );
+      if (!mounted) return;
+      if (data != null) {
+        _startCtrl.text = data['periodStart']?.toString() ?? '';
+        _endCtrl.text = data['periodEnd']?.toString() ?? '';
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _save() async {
+    if (widget.row.profileId == null) return;
+    final start = _startCtrl.text.trim();
+    final end = _endCtrl.text.trim();
+    if (start.isEmpty || end.isEmpty) {
+      setState(() => _error = 'Both dates are required');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await HrmsPayrollApi.setCustomCycle(
+        widget.row.profileId!,
+        year: widget.year,
+        month: widget.month,
+        periodStart: start,
+        periodEnd: end,
+      );
+      if (!mounted) return;
+      setState(() { _loading = false; _saved = true; });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() { _loading = false; _error = err.toString().replaceFirst('Exception: ', ''); });
+    }
+  }
+
+  Future<void> _pickDate(TextEditingController ctrl) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(ctrl.text) ?? DateTime(widget.year, widget.month, 1),
+      firstDate: DateTime(widget.year - 1),
+      lastDate: DateTime(widget.year + 1),
+    );
+    if (picked != null && mounted) {
+      ctrl.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Custom cycle – ${widget.row.name}'),
+      content: SizedBox(
+        width: 360,
+        child: _saved
+            ? const Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.check_circle, color: Color(0xFF188226), size: 40),
+                SizedBox(height: 8),
+                Text('Custom period saved. Regenerate payroll to apply.', textAlign: TextAlign.center),
+              ])
+            : Column(mainAxisSize: MainAxisSize.min, children: [
+                if (_loading) const LinearProgressIndicator(minHeight: 2),
+                const SizedBox(height: 8),
+                const Text(
+                  'Override the pay period for this employee for this month only.',
+                  style: TextStyle(color: Color(0xFF596176), fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _startCtrl,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Period start (YYYY-MM-DD)',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today_outlined),
+                  ),
+                  onTap: () => _pickDate(_startCtrl),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _endCtrl,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Period end (YYYY-MM-DD)',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today_outlined),
+                  ),
+                  onTap: () => _pickDate(_endCtrl),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ],
+              ]),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(_saved ? 'Close' : 'Cancel'),
+        ),
+        if (!_saved)
+          FilledButton(
+            onPressed: _loading ? null : _save,
+            child: const Text('Save'),
+          ),
+      ],
+    );
+  }
+}

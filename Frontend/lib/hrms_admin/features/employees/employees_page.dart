@@ -371,6 +371,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
             : 'Engineering');
     var selectedMode = employee?.workMode ?? 'Office';
     var selectedStatus = employee?.status ?? 'Active';
+    var salaryType = employee?.salaryType ?? 'standard';
+    var cycleStartDay = employee?.salaryStartDay ?? 26;
+    var cycleEndDay = employee?.salaryEndDay ?? 25;
     final formKey = GlobalKey<FormState>();
 
     final saved = await showDialog<bool>(
@@ -450,6 +453,60 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    _formDropdown(
+                      'Salary cycle type',
+                      salaryType == 'flexible' ? 'Flexible' : 'Standard',
+                      const ['Standard', 'Flexible'],
+                      (value) => setDialogState(() => salaryType = value == 'Flexible' ? 'flexible' : 'standard'),
+                    ),
+                    if (salaryType == 'flexible') ...[
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: '$cycleStartDay',
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Cycle start day',
+                              hintText: '1–28',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (v) {
+                              final n = int.tryParse(v ?? '');
+                              if (n == null || n < 1 || n > 28) return '1–28';
+                              return null;
+                            },
+                            onChanged: (v) { final n = int.tryParse(v); if (n != null && n >= 1 && n <= 28) setDialogState(() => cycleStartDay = n); },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: '$cycleEndDay',
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Cycle end day',
+                              hintText: '1–28',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (v) {
+                              final n = int.tryParse(v ?? '');
+                              if (n == null || n < 1 || n > 28) return '1–28';
+                              return null;
+                            },
+                            onChanged: (v) { final n = int.tryParse(v); if (n != null && n >= 1 && n <= 28) setDialogState(() => cycleEndDay = n); },
+                          ),
+                        ),
+                      ]),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'e.g. Day $cycleStartDay of previous month → Day $cycleEndDay of pay month',
+                          style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -480,6 +537,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
       'workMode': selectedMode,
       'status': selectedStatus,
       'salary': salary.text.trim(),
+      'salaryType': salaryType,
+      if (salaryType == 'flexible') 'salaryStartDay': cycleStartDay,
+      if (salaryType == 'flexible') 'salaryEndDay': cycleEndDay,
     };
     await _runAction(() async {
       if (employee == null) {
@@ -1669,11 +1729,16 @@ class _Employee {
     this.workMode,
     this.salary,
     this.status,
-    this.modeColor,
-  );
+    this.modeColor, {
+    this.salaryType = 'standard',
+    this.salaryStartDay,
+    this.salaryEndDay,
+  });
   final int profileId;
   final String name, id, department, workMode, salary, status;
   final int modeColor;
+  final String salaryType;
+  final int? salaryStartDay, salaryEndDay;
 
   factory _Employee.fromApi(Map<String, dynamic> json) {
     final profileId = json['id'] is int
@@ -1691,6 +1756,9 @@ class _Employee {
       (json['salary'] ?? 'Not Set').toString(),
       (json['status'] ?? 'Active').toString(),
       color is int ? color : _modeColor(mode),
+      salaryType: (json['salaryType'] ?? 'standard').toString(),
+      salaryStartDay: json['salaryStartDay'] is int ? json['salaryStartDay'] as int : int.tryParse('${json['salaryStartDay'] ?? ''}'),
+      salaryEndDay: json['salaryEndDay'] is int ? json['salaryEndDay'] as int : int.tryParse('${json['salaryEndDay'] ?? ''}'),
     );
   }
 }

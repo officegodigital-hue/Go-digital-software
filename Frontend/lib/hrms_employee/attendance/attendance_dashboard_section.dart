@@ -25,7 +25,6 @@ class AttendanceDashboardSection extends StatefulWidget {
 class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     with WidgetsBindingObserver {
   late final http.Client _client;
-  final _elapsed = Stopwatch();
   Timer? _timer;
   String? _token;
   Map<String, dynamic>? _data;
@@ -33,13 +32,18 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   bool _loading = true;
   bool _punching = false;
   int _request = 0;
-  int _ticks = 0;
 
   @override
   void initState() {
     super.initState();
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
+    // This redraws only the local attendance card for elapsed work and break
+    // countdowns. It deliberately makes no HTTP request, preventing UI flicker.
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _data?['status'] != 'checked_in') return;
+      setState(() {});
+    });
   }
 
   @override
@@ -149,9 +153,6 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       setState(() {
         _data = data;
         _error = null;
-        _elapsed
-          ..reset()
-          ..start();
       });
     } catch (error) {
       if (!mounted || request != _request || token != _token) return;
@@ -219,6 +220,19 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       final payload = active
           ? await AttendanceLocation.checkInPayload(client: _client, token: token)
           : <String, dynamic>{};
+      if (active) {
+        final breakInfo = _data?['break'] as Map? ?? const {};
+        final policy = _data?['break_policy'] as Map? ?? const {};
+        final started = DateTime.tryParse('${breakInfo['started_at'] ?? ''}'.replaceFirst(' ', 'T'));
+        final allowed = (policy['max_break_minutes'] as num?)?.toInt() ?? 60;
+        final overdue = started == null ? 0 : DateTime.now().difference(started.toLocal()).inMinutes - allowed;
+        if (overdue > 0) {
+          final controller = TextEditingController();
+          final reason = await showDialog<String>(context: context, builder: (context) => AlertDialog(title: const Text('Reason for extended break'), content: TextField(controller: controller, autofocus: true, maxLength: 500, decoration: InputDecoration(hintText: 'Break overdue by $overdue min. Enter reason.')), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('End Break'))]));
+          if (reason == null || reason.trim().isEmpty) return;
+          payload['reason'] = reason.trim();
+        }
+      }
       await _call(active ? 'break-out' : 'break-in', token, post: true, payload: payload);
       if (mounted) await _load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(active ? 'Break ended.' : 'Break started.')));
@@ -286,8 +300,24 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final breakStarted = DateTime.tryParse('${breakInfo['started_at'] ?? ''}'.replaceFirst(' ', 'T'));
     final breakElapsed = breakStarted == null ? 0 : DateTime.now().difference(breakStarted.toLocal()).inMinutes;
     final breakRemaining = (breakLimit.toInt() - breakElapsed).clamp(0, breakLimit.toInt());
-    final seconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
-    final worked = seconds + (checkedIn ? _elapsed.elapsed.inSeconds : 0);
+    final breakOverdue = breakElapsed - breakLimit.toInt();
+    final workedSeconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
+    // The circle is an elapsed-day clock, so it keeps running during a break.
+    // Payroll and monthly "Worked" totals continue to come from the server and
+    // exclude recorded break duration.
+    final elapsedStart = DateTime.tryParse(
+      '${session?['punch_in'] ?? session?['clock_in_at'] ?? ''}'
+          .replaceFirst(' ', 'T'),
+    );
+    final elapsedEnd = checkedOut
+        ? DateTime.tryParse(
+            '${session?['punch_out'] ?? session?['clock_out_at'] ?? ''}'
+                .replaceFirst(' ', 'T'),
+          )
+        : DateTime.now();
+    final elapsedSeconds = elapsedStart == null || elapsedEnd == null
+        ? workedSeconds
+        : elapsedEnd.difference(elapsedStart).inSeconds.clamp(0, 1 << 31);
     final today = DateTime.parse(data['date'] as String);
     final overnight = session != null && session['work_date'] != data['date'];
 
@@ -324,14 +354,14 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${worked ~/ 3600}h ${(worked % 3600) ~/ 60}m',
+                      '${elapsedSeconds ~/ 3600}h ${(elapsedSeconds % 3600) ~/ 60}m',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const Text(
-                      'Worked',
+                      'Elapsed',
                       style: TextStyle(color: employeeMuted, fontSize: 12),
                     ),
                   ],
@@ -517,8 +547,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                     if (onBreak) ...[
                       const SizedBox(height: 3),
                       Text(
-                        'Break active · $breakRemaining min remaining',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600),
+                        breakOverdue > 0
+                            ? 'Break overdue by $breakOverdue min · Return and end break'
+                            : breakRemaining == 0
+                                ? 'Break limit reached · Return and end break'
+                                : 'Break active · $breakRemaining min remaining',
+                        style: TextStyle(color: breakOverdue > 0 ? const Color(0xFFFFB4B4) : Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ],
                   ],
