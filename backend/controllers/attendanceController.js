@@ -115,9 +115,12 @@ async function ensureAttendanceBreakTable() {
     if (!indexes.length) await db.query('ALTER TABLE attendance_breaks ADD PRIMARY KEY (id)');
     await db.query('ALTER TABLE attendance_breaks MODIFY COLUMN id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT');
   }
+  const additions = ['ADD COLUMN allowed_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 60','ADD COLUMN overdue_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 0','ADD COLUMN employee_reason VARCHAR(500) NULL','ADD COLUMN alert_created_at DATETIME NULL','ADD COLUMN reviewed_by BIGINT UNSIGNED NULL','ADD COLUMN reviewed_at DATETIME NULL','ADD COLUMN return_latitude DECIMAL(10,7) NULL','ADD COLUMN return_longitude DECIMAL(10,7) NULL','ADD COLUMN return_accuracy_meters DECIMAL(8,2) NULL'];
+  for (const addition of additions) { try { await db.query(`ALTER TABLE attendance_breaks ${addition}`); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; } }
 }
 
 async function ensureAttendanceSafetyTables() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_break_alerts (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, attendance_break_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, overdue_minutes SMALLINT UNSIGNED NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'open', reason VARCHAR(500) NULL, reviewed_by BIGINT UNSIGNED NULL, reviewed_at DATETIME NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_break_alert (attendance_break_id))`);
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_checkout_audit (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     attendance_id BIGINT UNSIGNED NOT NULL,
@@ -402,13 +405,23 @@ async function clockLogs(req, res) {
         )
       : [[]];
 
+    // Profile ID lookup (hrms_employee_profiles.id) keyed by employee_user_id
+    const [profileRows] = ids.length
+      ? await db.query(
+          'SELECT id AS profile_id, employee_user_id FROM hrms_employee_profiles WHERE employee_user_id IN (?) AND employment_status <> \'Inactive\'',
+          [ids]
+        ).catch(function () { return [[]]; })
+      : [[]];
+    const profileIdByUserId = new Map();
+    profileRows.forEach(function (r) { profileIdByUserId.set(Number(r.employee_user_id), Number(r.profile_id)); });
+
     // A shift can contain several breaks. Fetch their persistent records in
     // one query and attach them to the matching clock-log row.
     await ensureAttendanceBreakTable();
     const recordIds = records.map(function (row) { return row.id; });
     const [breakRows] = recordIds.length
       ? await db.query(
-          "SELECT attendance_id, id, started_at, ended_at, duration_minutes, status FROM attendance_breaks WHERE attendance_id IN (?) ORDER BY attendance_id, started_at, id",
+          "SELECT attendance_id, id, started_at, ended_at, duration_minutes, allowed_minutes, overdue_minutes, employee_reason, alert_created_at, reviewed_at, status FROM attendance_breaks WHERE attendance_id IN (?) ORDER BY attendance_id, started_at, id",
           [recordIds]
         )
       : [[]];
@@ -423,6 +436,11 @@ async function clockLogs(req, res) {
         start: policy.formatDisplayTime(sqlDateTime(breakRow.started_at)),
         end: policy.formatDisplayTime(sqlDateTime(breakRow.ended_at)),
         durationMinutes: Number(breakRow.duration_minutes || 0),
+        allowedMinutes: Number(breakRow.allowed_minutes || 60),
+        overdueMinutes: Number(breakRow.overdue_minutes || 0),
+        employeeReason: breakRow.employee_reason || null,
+        alertCreatedAt: sqlDateTime(breakRow.alert_created_at),
+        reviewedAt: sqlDateTime(breakRow.reviewed_at),
         status: breakRow.status
       });
     });
@@ -437,6 +455,7 @@ async function clockLogs(req, res) {
         item.breakStart = breaks.length ? breaks[0].start : '-';
         item.breakEnd = completed.length ? completed[completed.length - 1].end : '-';
         item.breaks = breaks;
+        item.profileId = profileIdByUserId.get(Number(row.employee_id)) || null;
         return item;
       });
 
@@ -569,11 +588,11 @@ async function employeeDashboard(req, res) {
     }).length;
 
     const timeSettings = await policy.getTimeSettings(db);
-    let breakPolicy = { break_calculation_mode: 'actual_break', fixed_break_minutes: 60, max_break_minutes: 60 };
-    try {
-      const [policies] = await db.query("SELECT break_calculation_mode, fixed_break_minutes, max_break_minutes FROM hrms_attendance_policies WHERE scope_type = 'global' AND scope_id IS NULL AND is_active = 1 AND effective_from <= CURDATE() ORDER BY effective_from DESC, id DESC LIMIT 1");
-      if (policies[0]) breakPolicy = policies[0];
-    } catch (_) {}
+    const breakPolicy = {
+      break_calculation_mode: 'actual_break',
+      fixed_break_minutes: Number(timeSettings.breakMinutes || 60),
+      max_break_minutes: Number(timeSettings.breakMinutes || 60),
+    };
     const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
     const monthlyWorkingDays = workingDaysInMonth(month);
     const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
@@ -582,10 +601,27 @@ async function employeeDashboard(req, res) {
       return sum + minutes;
     }, 0);
 
+    // Fetch breaks for all attendance records in this month in one query.
+    const attendanceIds = monthRows.map(function (row) { return row.id; }).filter(Boolean);
+    const breaksByAttendance = {};
+    if (attendanceIds.length) {
+      const [breakRows] = await db.query(
+        "SELECT id, attendance_id, started_at, ended_at, allowed_minutes, duration_minutes, overdue_minutes, status FROM attendance_breaks WHERE attendance_id IN (?) ORDER BY id ASC",
+        [attendanceIds]
+      );
+      breakRows.forEach(function (brk) {
+        const aid = Number(brk.attendance_id);
+        if (!breaksByAttendance[aid]) breaksByAttendance[aid] = [];
+        breaksByAttendance[aid].push(brk);
+      });
+    }
+
     // Keep a date-keyed representation as well as the list. Older employee
     // clients use the keyed form, while newer ones use month_records.
     const calendarData = {};
     const monthRecords = monthRows.map(function (row) {
+      const rowBreaks = breaksByAttendance[row.id] || [];
+      const firstBreak = rowBreaks[0] || null;
       const item = {
         id: row.id,
         work_date: sqlDate(row.attendance_date),
@@ -593,6 +629,9 @@ async function employeeDashboard(req, res) {
         clock_out_at: row.check_out_at ? sqlDateTime(row.check_out_at) : null,
         is_late: Boolean(Number(row.is_late)),
         attendance_status: row.attendance_status || (row.check_in_at ? 'present' : 'absent'),
+        break_in_at: firstBreak ? sqlDateTime(firstBreak.started_at) : null,
+        break_out_at: firstBreak && firstBreak.ended_at ? sqlDateTime(firstBreak.ended_at) : null,
+        break_overdue_minutes: firstBreak ? Number(firstBreak.overdue_minutes || 0) : 0,
       };
       calendarData[item.work_date] = item;
       return item;
@@ -735,15 +774,18 @@ async function checkOut(req, res) {
     const rawMinutes = policy.minutesBetween(sqlDateTime(record.check_in_at), at);
     const workingMinutes = Math.max(0, rawMinutes - breaks);
     const timeSettings = await policy.getTimeSettings(db);
-    const requiredWorkMinutes = Number(timeSettings.requiredWorkMinutes || 480);
+    const requiredWorkMinutes = Number(timeSettings.requiredWorkMinutes || 540);
     const checkInDate = new Date(sqlDateTime(record.check_in_at).replace(' ', 'T'));
-    const eligibleCheckoutAt = new Date(
-      checkInDate.getTime() + ((requiredWorkMinutes + breaks) * 60000),
-    );
+    // The shift target is elapsed time. Breaks are recorded for payroll but
+    // never extend the scheduled checkout time.
+    const eligibleCheckoutAt = new Date(checkInDate.getTime() + (requiredWorkMinutes * 60000));
+    if (new Date(at.replace(' ', 'T')).getTime() < eligibleCheckoutAt.getTime()) {
+      return fail(res, 409, `Your 9-hour shift completes at ${policy.formatDisplayTime(policy.partsInZone(eligibleCheckoutAt).dateTime)}.`);
+    }
     const status = computeStatus({
       check_in_at: record.check_in_at,
       check_out_at: at,
-      working_minutes: workingMinutes,
+      working_minutes: rawMinutes,
       is_late: record.is_late,
       attendance_status: record.attendance_status
     });
@@ -785,11 +827,18 @@ async function startBreak(req, res) {
     await ensureAttendanceBreakTable();
     const record = await getRecord(req.user.id, policy.todayIstDate());
     if (!record || !record.check_in_at || record.check_out_at) return fail(res, 409, 'Check in before starting a break');
-    const [active] = await db.query("SELECT id FROM attendance_breaks WHERE attendance_id = ? AND status = 'active' LIMIT 1", [record.id]);
-    if (active.length) return fail(res, 409, 'A break is already active');
+    const [existingBreaks] = await db.query("SELECT id, status FROM attendance_breaks WHERE attendance_id = ? ORDER BY id DESC LIMIT 1", [record.id]);
+    if (existingBreaks.length) {
+      return fail(res, 409, existingBreaks[0].status === 'active'
+        ? 'A break is already active'
+        : 'Your break has already been used for this shift');
+    }
+    const settings = await policy.getTimeSettings(db);
+    const allowed = Number(settings.breakMinutes || 60);
+    if (allowed < 1) return fail(res, 409, 'Breaks are not enabled for this shift');
     const at = policy.nowIstDateTime();
-    const [result] = await db.query("INSERT INTO attendance_breaks (attendance_id, started_at, status) VALUES (?, ?, 'active')", [record.id, at]);
-    return ok(res, { id: result.insertId, attendance_id: record.id, started_at: at, status: 'active' }, 'Break started');
+    const [result] = await db.query("INSERT INTO attendance_breaks (attendance_id, started_at, allowed_minutes, status) VALUES (?, ?, ?, 'active')", [record.id, at, allowed]);
+    return ok(res, { id: result.insertId, attendance_id: record.id, started_at: at, allowed_minutes: allowed, status: 'active' }, 'Break started');
   } catch (error) {
     console.error('POST /attendance/break-in', error);
     return fail(res, 500, error.message);
@@ -802,13 +851,24 @@ async function endBreak(req, res) {
     const record = await getRecord(req.user.id, policy.todayIstDate());
     if (!record || !record.check_in_at || record.check_out_at) return fail(res, 409, 'There is no active work session');
     const locationRules = await locationPolicy.getCheckInPolicy(db, req.user.id, true);
-    locationPolicy.validateCheckIn(locationRules, req.body || {});
-    const [rows] = await db.query("SELECT id, started_at FROM attendance_breaks WHERE attendance_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1", [record.id]);
+    const fix = locationPolicy.validateCheckIn(locationRules, req.body || {});
+    const [rows] = await db.query("SELECT id, started_at, allowed_minutes FROM attendance_breaks WHERE attendance_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1", [record.id]);
     if (!rows.length) return fail(res, 409, 'There is no active break');
     const at = policy.nowIstDateTime();
     const duration = policy.minutesBetween(sqlDateTime(rows[0].started_at), at);
-    await db.query("UPDATE attendance_breaks SET ended_at = ?, duration_minutes = ?, status = 'completed' WHERE id = ?", [at, duration, rows[0].id]);
-    return ok(res, { id: rows[0].id, attendance_id: record.id, started_at: sqlDateTime(rows[0].started_at), ended_at: at, duration_minutes: duration, status: 'completed' }, 'Break ended');
+    const overdue = Math.max(0, duration - Number(rows[0].allowed_minutes || 60));
+    const timeSettings = await policy.getTimeSettings(db);
+    const graceMinutes = Number(timeSettings.breakGraceMinutes ?? 5);
+    const reason = String(req.body && req.body.reason || '').trim().slice(0, 500);
+    if (overdue > graceMinutes && !reason) return fail(res, 400, 'A reason is required after the extended-break grace period');
+    const needsAlert = overdue > graceMinutes;
+    const alertAt = needsAlert ? at : null;
+    await db.query("UPDATE attendance_breaks SET ended_at=?, duration_minutes=?, overdue_minutes=?, employee_reason=?, alert_created_at=?, return_latitude=?, return_longitude=?, return_accuracy_meters=?, status='completed' WHERE id=?", [at,duration,overdue,reason||null,alertAt,fix&&fix.latitude,fix&&fix.longitude,fix&&fix.accuracy,rows[0].id]);
+    if (needsAlert) {
+      await ensureAttendanceSafetyTables();
+      await db.query("INSERT INTO hrms_attendance_break_alerts (attendance_break_id, employee_id, overdue_minutes, status, reason) VALUES (?, ?, ?, 'open', ?) ON DUPLICATE KEY UPDATE overdue_minutes=VALUES(overdue_minutes), reason=VALUES(reason)", [rows[0].id, req.user.id, overdue, reason||null]);
+    }
+    return ok(res, { id: rows[0].id, attendance_id: record.id, started_at: sqlDateTime(rows[0].started_at), ended_at: at, duration_minutes: duration, overdue_minutes: overdue, employee_reason: reason || null, status: 'completed' }, overdue > 0 ? 'Extended break recorded for admin review' : 'Break ended');
   } catch (error) {
     console.error('POST /attendance/break-out', error);
     return fail(res, 500, error.message);
@@ -1025,6 +1085,39 @@ async function myExport(req, res) {
   }
 }
 
+async function reviewBreak(req, res) {
+  try {
+    await ensureAttendanceSafetyTables();
+    const breakId = Number(req.params.id);
+    const action = String(req.body && req.body.action || '').trim();
+    const clarification = String(req.body && req.body.clarification || '').trim().slice(0, 500);
+    if (!breakId) return fail(res, 400, 'Break ID is required');
+    if (action !== 'reviewed' && action !== 'clarification_requested') return fail(res, 400, 'action must be reviewed or clarification_requested');
+    const [[brk]] = await db.query('SELECT b.*, a.status AS alert_status FROM attendance_breaks b LEFT JOIN hrms_attendance_break_alerts a ON a.attendance_break_id = b.id WHERE b.id = ?', [breakId]);
+    if (!brk) return fail(res, 404, 'Break not found');
+    const now = policy.nowIstDateTime();
+    await db.query('UPDATE attendance_breaks SET reviewed_by = ?, reviewed_at = ? WHERE id = ?', [req.user.id, now, breakId]);
+    await db.query("INSERT INTO hrms_attendance_break_alerts (attendance_break_id, employee_id, overdue_minutes, status, reason, reviewed_by, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status=VALUES(status), reviewed_by=VALUES(reviewed_by), reviewed_at=VALUES(reviewed_at), reason=IF(VALUES(reason) != '', VALUES(reason), reason)", [breakId, brk.employee_id || brk.attendance_id, brk.overdue_minutes || 0, action, clarification || null, req.user.id, now]);
+    return ok(res, { break_id: breakId, action, reviewed_by: req.user.id, reviewed_at: now }, action === 'reviewed' ? 'Break marked as reviewed' : 'Clarification requested from employee');
+  } catch (error) {
+    console.error('PATCH /attendance/breaks/:id/review', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function getBreakReview(req, res) {
+  try {
+    await ensureAttendanceSafetyTables();
+    const breakId = Number(req.params.id);
+    if (!breakId) return fail(res, 400, 'Break ID is required');
+    const [[brk]] = await db.query(`SELECT b.id, b.attendance_id, b.started_at, b.ended_at, b.allowed_minutes, b.duration_minutes, b.overdue_minutes, b.employee_reason, b.alert_created_at, b.reviewed_by, b.reviewed_at, b.return_latitude, b.return_longitude, b.return_accuracy_meters, a.status AS alert_status, a.reason AS clarification_message, u.full_name AS reviewer_name FROM attendance_breaks b LEFT JOIN hrms_attendance_break_alerts a ON a.attendance_break_id = b.id LEFT JOIN hrms_employee_profiles u ON u.employee_user_id = b.reviewed_by WHERE b.id = ?`, [breakId]);
+    if (!brk) return fail(res, 404, 'Break not found');
+    return ok(res, brk);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
@@ -1036,6 +1129,8 @@ module.exports = {
   checkOut: checkOut,
   startBreak: startBreak,
   endBreak: endBreak,
+  reviewBreak: reviewBreak,
+  getBreakReview: getBreakReview,
   undoCheckout: undoCheckout,
   requestCheckoutCorrection: requestCheckoutCorrection,
   heartbeat: heartbeat,

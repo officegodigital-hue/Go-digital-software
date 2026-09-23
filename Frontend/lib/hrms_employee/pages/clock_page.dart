@@ -414,6 +414,8 @@ class _RecentRecordHeader extends StatelessWidget {
         child: Row(children: [
           Expanded(flex: 3, child: Text('DATE', style: _recordHeaderStyle)),
           Expanded(flex: 2, child: Text('CHECK IN', style: _recordHeaderStyle)),
+          Expanded(flex: 2, child: Text('BREAK IN', style: _recordHeaderStyle)),
+          Expanded(flex: 2, child: Text('BREAK OUT', style: _recordHeaderStyle)),
           Expanded(flex: 2, child: Text('CHECK OUT', style: _recordHeaderStyle)),
           Expanded(flex: 2, child: Text('WORKED', style: _recordHeaderStyle)),
           Expanded(flex: 2, child: Text('STATUS', style: _recordHeaderStyle)),
@@ -460,6 +462,10 @@ class _RecentRecordRow extends StatelessWidget {
     final color = late ? employeeOrange : active ? employeeBlue : const Color(0xFF0AA85A);
     final background = late ? const Color(0xFFFFF3E9) : active ? const Color(0xFFEAF2FF) : const Color(0xFFEAF8F0);
     final statusChip = Align(alignment: Alignment.centerLeft, child: Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5), decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(99)), child: Text(status, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700))));
+    final overdue = (record['break_overdue_minutes'] as num?)?.toInt() ?? 0;
+    final breakInLabel = _timeLabel(record['break_in_at']);
+    final breakOutLabel = _timeLabel(record['break_out_at']);
+    final breakColor = overdue > 0 ? const Color(0xFFF04438) : employeeNavy;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -468,11 +474,23 @@ class _RecentRecordRow extends StatelessWidget {
           ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_value(_dateLabel(), bold: true), statusChip]),
               const SizedBox(height: 10),
-              Row(children: [Expanded(child: _compactValue('Check in', _timeLabel(record['clock_in_at']))), Expanded(child: _compactValue('Check out', _timeLabel(record['clock_out_at']))), Expanded(child: _compactValue('Worked', _duration()))]),
+              Row(children: [
+                Expanded(child: _compactValue('Check in', _timeLabel(record['clock_in_at']))),
+                Expanded(child: _compactValue('Break in', breakInLabel, valueColor: breakColor)),
+                Expanded(child: _compactValue('Break out', breakOutLabel, valueColor: breakColor)),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _compactValue('Check out', _timeLabel(record['clock_out_at']))),
+                Expanded(child: _compactValue('Worked', _duration())),
+                Expanded(child: const SizedBox()),
+              ]),
             ])
           : Row(children: [
               Expanded(flex: 3, child: _value(_dateLabel(), bold: true)),
               Expanded(flex: 2, child: _value(_timeLabel(record['clock_in_at']))),
+              Expanded(flex: 2, child: _value(breakInLabel, color: breakColor)),
+              Expanded(flex: 2, child: _value(breakOutLabel, color: overdue > 0 ? breakColor : null, suffix: overdue > 0 ? ' +${overdue}m' : null)),
               Expanded(flex: 2, child: _value(_timeLabel(record['clock_out_at']))),
               Expanded(flex: 2, child: _value(_duration())),
               Expanded(flex: 2, child: statusChip),
@@ -480,8 +498,17 @@ class _RecentRecordRow extends StatelessWidget {
     );
   }
 
-  Widget _value(String value, {bool bold = false}) => Text(value, style: TextStyle(color: employeeNavy, fontSize: 13, fontWeight: bold ? FontWeight.w700 : FontWeight.w500));
-  Widget _compactValue(String label, String value) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: _recordHeaderStyle), const SizedBox(height: 3), _value(value)]);
+  Widget _value(String value, {bool bold = false, Color? color, String? suffix}) {
+    if (suffix != null && suffix.isNotEmpty) {
+      return Row(children: [
+        Text(value, style: TextStyle(color: color ?? employeeNavy, fontSize: 13, fontWeight: bold ? FontWeight.w700 : FontWeight.w500)),
+        Text(suffix, style: const TextStyle(color: Color(0xFFF04438), fontSize: 11, fontWeight: FontWeight.w700)),
+      ]);
+    }
+    return Text(value, style: TextStyle(color: color ?? employeeNavy, fontSize: 13, fontWeight: bold ? FontWeight.w700 : FontWeight.w500));
+  }
+
+  Widget _compactValue(String label, String value, {Color? valueColor}) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: _recordHeaderStyle), const SizedBox(height: 3), Text(value, style: TextStyle(color: valueColor ?? employeeNavy, fontSize: 13, fontWeight: FontWeight.w500))]);
 }
 
 class _SessionMetric extends StatelessWidget {

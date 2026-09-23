@@ -58,6 +58,13 @@ async function ensureClientRepositoryTables(db) {
   await addColumnIfMissing(db, 'assets', 'link', 'TEXT NULL');
   await addColumnIfMissing(db, 'assets', 'username', 'VARCHAR(255) NULL');
   await addColumnIfMissing(db, 'assets', 'password', 'TEXT NULL');
+  await addColumnIfMissing(db, 'assets', 'created_by_employee_id', 'BIGINT NULL');
+
+  // Older repository installs used a fixed ENUM for section and made type
+  // mandatory. That blocked new admin-defined sections and link-only assets.
+  // Keep every existing value and make both fields flexible/database-driven.
+  await db.query('ALTER TABLE `assets` MODIFY COLUMN `section` VARCHAR(80) NULL');
+  await db.query('ALTER TABLE `assets` MODIFY COLUMN `type` VARCHAR(100) NULL');
 
   // asset_id must match assets.id (BIGINT UNSIGNED) and employee_id must
   // match employee_users.id (INT) exactly, or MySQL refuses the foreign key.
@@ -76,7 +83,28 @@ async function ensureClientRepositoryTables(db) {
     employee_id INT NOT NULL PRIMARY KEY,
     granted_by INT NULL,
     granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    can_view TINYINT(1) NOT NULL DEFAULT 1,
+    can_create TINYINT(1) NOT NULL DEFAULT 0,
+    can_edit TINYINT(1) NOT NULL DEFAULT 0,
+    can_delete TINYINT(1) NOT NULL DEFAULT 0,
+    can_download TINYINT(1) NOT NULL DEFAULT 1,
+    can_create_company TINYINT(1) NOT NULL DEFAULT 0,
     FOREIGN KEY (employee_id) REFERENCES employee_users(id) ON DELETE CASCADE
   )`);
+
+  // Add explicit, per-user permissions to databases created by the initial
+  // access-only version. Existing granted employees retain read/download
+  // access; administrators configure the remaining actions from the UI.
+  await addColumnIfMissing(db, 'client_repository_access', 'can_view', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await addColumnIfMissing(db, 'client_repository_access', 'can_create', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, 'client_repository_access', 'can_edit', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, 'client_repository_access', 'can_delete', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, 'client_repository_access', 'can_download', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await addColumnIfMissing(db, 'client_repository_access', 'can_create_company', 'TINYINT(1) NOT NULL DEFAULT 0');
+
+  // The repository Users page stores a contact number and profile photo.
+  // These are additive migrations so current employee records stay intact.
+  await addColumnIfMissing(db, 'employee_users', 'mobile', 'VARCHAR(40) NULL');
+  await addColumnIfMissing(db, 'employee_users', 'profile_photo_url', 'VARCHAR(500) NULL');
 }
 module.exports = { ensureClientRepositoryTables };

@@ -2,8 +2,10 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../services/auth_service.dart';
 import '../services/api_service.dart';
 
 import '../core/theme/app_theme.dart';
@@ -53,6 +55,7 @@ class _UserLayoutState extends State<UserLayout> {
   String? _profilePhotoUrl;
   Uint8List? _profilePhotoBytes;
   bool _isUploadingProfilePhoto = false;
+  String _userRole = 'Employee';
 
   @override
   void initState() {
@@ -72,8 +75,11 @@ class _UserLayoutState extends State<UserLayout> {
 
   Future<void> _loadLoggedInUserProfile() async {
     try {
-      final name = await ApiService.getLoggedInUserName();
-      final email = await ApiService.getLoggedInUserEmail();
+      final profile = await ApiService.getMyProfile();
+      final name = profile['name']?.toString();
+      final email = profile['email']?.toString();
+      final role = profile['role']?.toString();
+      final photoUrl = profile['profile_photo_url']?.toString();
 
       if (!mounted) {
         return;
@@ -86,6 +92,13 @@ class _UserLayoutState extends State<UserLayout> {
                 : '';
 
         _emailController.text = email?.trim() ?? '';
+        _mobileController.text = profile['mobile']?.toString().trim() ?? '';
+        _userRole = role != null && role.trim().isNotEmpty
+            ? role.trim()
+            : 'Employee';
+        _profilePhotoUrl = photoUrl != null && photoUrl.trim().isNotEmpty
+            ? photoUrl.trim()
+            : _profilePhotoUrl;
       });
     } catch (_) {
       // Keep the fields empty if the saved logged-in
@@ -437,102 +450,18 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildDesktopUserInfo() {
-    return PopupMenuButton<String>(
-      tooltip: 'Account menu',
-      onSelected: (value) {
-        switch (value) {
-          case 'profile':
-            _selectPage(2);
-            break;
-          case 'logout':
-            _confirmLogout();
-            break;
-        }
-      },
-      offset: const Offset(0, 52),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
-      itemBuilder: (context) => [
-        const PopupMenuItem<String>(
-          value: 'profile',
-          child: Row(
-            children: [
-              Icon(
-                Icons.person_outline,
-                size: 20,
-                color: AppColors.textSecondary,
-              ),
-              SizedBox(width: 10),
-              Text(
-                'Profile',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const PopupMenuItem<String>(
-          value: 'logout',
-          child: Row(
-            children: [
-              Icon(
-                Icons.logout,
-                size: 20,
-                color: AppColors.danger,
-              ),
-              SizedBox(width: 10),
-              Text(
-                'Logout',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.danger,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-      child: Row(
-        children: [
-          _buildUserAvatar(),
-          const SizedBox(width: 10),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _nameController.text.trim().isNotEmpty
-                    ? _nameController.text.trim()
-                    : 'User',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              const Text(
-                'User Account',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 4),
-          const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            size: 19,
-            color: AppColors.textSecondary,
-          ),
-        ],
+    return OutlinedButton.icon(
+      onPressed: () => Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pushNamedAndRemoveUntil('/home', (route) => false),
+      icon: const Icon(Icons.grid_view_rounded, size: 19),
+      label: const Text('Workspace'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.textPrimary,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        side: const BorderSide(color: AppColors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -545,7 +474,7 @@ class _UserLayoutState extends State<UserLayout> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Image.asset(
-        'assets/images/client_logo.png',
+        'assets/images/godigital_logo.png',
         width: 52,
         height: 52,
         fit: BoxFit.contain,
@@ -664,7 +593,7 @@ class _UserLayoutState extends State<UserLayout> {
                   ),
                 )
               : Text(
-                  'U',
+                  _initialsFromName(_nameController.text),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: fontSize,
@@ -672,6 +601,168 @@ class _UserLayoutState extends State<UserLayout> {
                   ),
                 ),
     );
+  }
+
+  String _initialsFromName(String value) {
+    final parts = value.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) return 'U';
+    return parts.length == 1
+        ? parts.first.substring(0, 1).toUpperCase()
+        : '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  bool get _hasProfilePhoto =>
+      _profilePhotoBytes != null || (_profilePhotoUrl?.trim().isNotEmpty ?? false);
+
+  void _showProfilePhotoPreview() {
+    if (!_hasProfilePhoto) {
+      _showMessage('No profile photo is available yet.');
+      return;
+    }
+
+    final photoBytes = _profilePhotoBytes;
+    final photoUrl = _profilePhotoUrl?.trim();
+    final name = _nameController.text.trim().isEmpty
+        ? 'Profile photo'
+        : _nameController.text.trim();
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.66),
+      builder: (dialogContext) {
+        final screen = MediaQuery.sizeOf(dialogContext);
+        final photoSize = (screen.shortestSide * 0.62).clamp(220.0, 420.0).toDouble();
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(24),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.topCenter,
+            children: [
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: photoSize,
+                    height: photoSize,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black38, blurRadius: 28, offset: Offset(0, 12)),
+                      ],
+                    ),
+                    child: photoBytes != null
+                        ? Image.memory(photoBytes, fit: BoxFit.cover)
+                        : Image.network(
+                            _profilePhotoNetworkUrl(photoUrl!),
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, progress) => progress == null
+                                ? child
+                                : const Center(child: CircularProgressIndicator(color: Colors.white)),
+                            errorBuilder: (context, error, stackTrace) => const ColoredBox(
+                              color: AppColors.textSecondary,
+                              child: Center(
+                                child: Icon(Icons.broken_image_outlined, size: 48, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _userRole,
+                    style: const TextStyle(color: Color(0xFFD8E1F1), fontSize: 15),
+                  ),
+                  const SizedBox(height: 22),
+                  TextButton.icon(
+                    onPressed: _isUploadingProfilePhoto
+                        ? null
+                        : () async {
+                            Navigator.of(dialogContext).pop();
+                            await _confirmAndRemoveProfilePhoto();
+                          },
+                    icon: const Icon(Icons.delete_outline_rounded, size: 19),
+                    label: const Text('Remove photo'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFFF7D7D),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                right: -8,
+                top: -8,
+                child: Material(
+                  color: const Color(0x33111C2E),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmAndRemoveProfilePhoto() async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove profile photo?'),
+        content: const Text('Your profile will show your initials until you upload another photo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldRemove != true || !mounted) return;
+
+    setState(() => _isUploadingProfilePhoto = true);
+    try {
+      await ApiService.removeProfilePhoto();
+      await context.read<AuthService>().updateProfileCache({
+        'name': _nameController.text.trim(),
+        'fullName': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
+        'profile_photo_url': null,
+      });
+      final email = await ApiService.getLoggedInUserEmail();
+      if (email != null && email.trim().isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_profilePhotoStorageKey(email));
+      }
+      if (!mounted) return;
+      setState(() {
+        _profilePhotoBytes = null;
+        _profilePhotoUrl = null;
+        _isUploadingProfilePhoto = false;
+      });
+      _showMessage('Profile photo removed');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isUploadingProfilePhoto = false);
+      _showMessage(error.toString().replaceFirst('Exception: ', ''));
+    }
   }
 
   // ============================================================
@@ -1207,9 +1298,16 @@ class _UserLayoutState extends State<UserLayout> {
                       Stack(
                         alignment: Alignment.bottomRight,
                         children: [
-                          _buildAvatar(
-                            size: 82,
-                            fontSize: 32,
+                          Semantics(
+                            button: true,
+                            label: 'View profile photo',
+                            child: GestureDetector(
+                              onTap: _showProfilePhotoPreview,
+                              child: _buildAvatar(
+                                size: 82,
+                                fontSize: 32,
+                              ),
+                            ),
                           ),
                           Material(
                             color: Colors.white,
@@ -1243,7 +1341,8 @@ class _UserLayoutState extends State<UserLayout> {
 
                       const SizedBox(height: 10),
 
-                      OutlinedButton.icon(
+                      if (false)
+                        OutlinedButton.icon(
                         onPressed: _isUploadingProfilePhoto
                             ? null
                             : _pickAndUploadProfilePhoto,
@@ -1704,7 +1803,7 @@ class _UserLayoutState extends State<UserLayout> {
   // UPDATE PROFILE
   // ============================================================
 
-  void _updateProfile() {
+  Future<void> _updateProfile() async {
     final name =
         _nameController.text.trim();
     final email =
@@ -1733,15 +1832,26 @@ class _UserLayoutState extends State<UserLayout> {
       return;
     }
 
-    // UI update for now.
-    // Backend profile API will be connected
-    // in the next step.
-
     FocusScope.of(context).unfocus();
-
-    _showMessage(
-      'Profile updated successfully',
-    );
+    try {
+      final profile = await ApiService.updateMyProfile(
+        name: name,
+        email: email,
+        mobile: mobile,
+      );
+      if (!mounted) return;
+      await context.read<AuthService>().updateProfileCache(profile);
+      if (!mounted) return;
+      setState(() {
+        _nameController.text = profile['name']?.toString() ?? name;
+        _emailController.text = profile['email']?.toString() ?? email;
+        _mobileController.text = profile['mobile']?.toString() ?? mobile;
+      });
+      _showMessage('Profile updated across your GoDigital workspaces.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(error.toString().replaceFirst('Exception: ', ''));
+    }
   }
 
   // ============================================================

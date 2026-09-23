@@ -65,32 +65,68 @@ class ApiService {
 
   static Future<String?>
       getLoggedInUserName() async {
-    final prefs =
-        await SharedPreferences.getInstance();
-
-    return prefs.getString(
-      'logged_in_user_name',
-    );
+    final user = await _storedUser();
+    if (user != null) {
+      return user['fullName']?.toString() ?? user['name']?.toString();
+    }
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_name');
   }
 
   static Future<String?>
       getLoggedInUserEmail() async {
-    final prefs =
-        await SharedPreferences.getInstance();
-
-    return prefs.getString(
-      'logged_in_user_email',
-    );
+    final user = await _storedUser();
+    if (user != null) return user['email']?.toString();
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_email');
   }
 
   static Future<String?>
       getLoggedInUserRole() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final user = await _storedUser();
+    if (user != null) return user['role']?.toString();
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_role');
+  }
 
-    return prefs.getString(
-      'logged_in_user_role',
+  static Future<Map<String, dynamic>?> _storedUser() async {
+    final raw = await AuthStorage.getString('user_data');
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map ? Map<String, dynamic>.from(value) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns the current authenticated employee from the database.
+  static Future<Map<String, dynamic>> getMyProfile() async {
+    final token = await _requiredToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/profile/me'),
+      headers: {'Authorization': 'Bearer $token'},
     );
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
+  }
+
+  static Future<Map<String, dynamic>> updateMyProfile({
+    required String name,
+    required String email,
+    required String mobile,
+  }) async {
+    final token = await _requiredToken();
+    final response = await http.put(
+      Uri.parse('$baseUrl/profile/me'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'name': name, 'email': email, 'mobile': mobile}),
+    );
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
   }
 
   // ============================================================
@@ -164,6 +200,15 @@ class ApiService {
     return Map<String, dynamic>.from(
       data['data'] ?? {},
     );
+  }
+
+  static Future<void> removeProfilePhoto() async {
+    final token = await _requiredToken();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/users/me/photo'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    await _jsonResponse(response);
   }
 
   // ============================================================
