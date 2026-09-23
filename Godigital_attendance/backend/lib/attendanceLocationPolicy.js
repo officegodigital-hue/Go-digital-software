@@ -70,7 +70,7 @@ async function profileFor(db, employeeId, lock = false) {
 
 async function settingsFor(db, lock = false) {
   const [rows] = await db.query(
-    `SELECT office_latitude, office_longitude, office_radius_meters
+    `SELECT office_latitude, office_longitude, office_radius_meters, outside_radius_grace_minutes
      FROM hrms_tracking_settings WHERE id = 1${lock ? ' FOR UPDATE' : ''}`);
   if (rows.length !== 1) {
     throw new LocationPolicyError(503, 'Office and Home location settings are unavailable. Contact admin.');
@@ -79,7 +79,7 @@ async function settingsFor(db, lock = false) {
   if (!Number.isSafeInteger(radiusMeters) || radiusMeters < 1) {
     throw new LocationPolicyError(503, 'Admin must configure a valid Office/Home radius.');
   }
-  return { ...rows[0], radiusMeters };
+  return { ...rows[0], radiusMeters, outsideRadiusGraceMinutes: Math.max(1, Number(rows[0].outside_radius_grace_minutes || 2)) };
 }
 
 async function getCheckInPolicy(db, employeeId, lock = false) {

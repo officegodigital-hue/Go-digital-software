@@ -81,4 +81,26 @@ class HrmsPayrollApi {
     );
     return _decode(response);
   }
+
+  static Future<Map<String, dynamic>> saveCycleOverride({
+    required int profileId,
+    required int year,
+    required int month,
+    required DateTime periodStart,
+    required DateTime periodEnd,
+  }) async {
+    String ymd(DateTime value) =>
+        '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$profileId/cycle-override'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'year': year,
+        'month': month,
+        'periodStart': ymd(periodStart),
+        'periodEnd': ymd(periodEnd),
+      }),
+    );
+    return _decode(response);
+  }
 }

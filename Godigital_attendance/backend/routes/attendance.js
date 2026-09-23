@@ -26,6 +26,9 @@ router.get('/me/export', attendance.myExport);
 router.get('/check-in-policy', attendance.checkInPolicy);
 router.post('/check-in', attendance.checkIn);
 router.post('/check-out', attendance.checkOut);
+router.post('/break-in', attendance.startBreak);
+router.post('/break-out', attendance.endBreak);
+router.post('/break-exceeded-comment', attendance.submitExceededBreakComment);
 router.post('/heartbeat', attendance.heartbeat);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);

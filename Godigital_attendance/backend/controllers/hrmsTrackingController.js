@@ -405,6 +405,82 @@ async function ping(req, res) {
     );
     const pingId = result.insertId;
 
+    // Enforce office-radius rules from the server. Hybrid employees may stay
+    // checked in outside the office only while live tracking is active.
+    const [profiles] = await db.query(
+      `SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?`,
+      [employeeUserId]
+    );
+    const workMode = profiles[0] && profiles[0].work_mode;
+    if (workMode === 'Office' || workMode === 'Hybrid') {
+      const settings = await locationPolicy.settingsFor(db, false);
+      const distance = locationPolicy.distanceMeters(
+        { latitude: settings.office_latitude, longitude: settings.office_longitude },
+        { latitude, longitude }
+      );
+      const [activeTracking] = await db.query(
+        `SELECT id FROM hrms_field_tracking_sessions
+         WHERE employee_user_id = ? AND is_active = 1 LIMIT 1`,
+        [employeeUserId]
+      );
+      const allowedOutside = workMode === 'Hybrid' && activeTracking.length > 0;
+      const [breakRows] = await db.query(
+        `SELECT b.id, TIMESTAMPDIFF(MINUTE, b.started_at, CURRENT_TIMESTAMP) AS break_minutes
+         FROM attendance_breaks b
+         INNER JOIN attendance_records a ON a.id = b.attendance_id
+         WHERE a.employee_id = ? AND a.attendance_date = ?
+           AND a.check_in_at IS NOT NULL AND a.check_out_at IS NULL
+           AND b.status = 'active'
+         ORDER BY b.id DESC LIMIT 1`,
+        [employeeUserId, policy.todayIstDate()]
+      );
+      const breakProtected = breakRows.length && Number(breakRows[0].break_minutes) < 70;
+      if (breakProtected) {
+        await db.query(
+          `UPDATE attendance_records SET outside_radius_since = NULL
+           WHERE employee_id = ? AND attendance_date = ? AND check_out_at IS NULL`,
+          [employeeUserId, policy.todayIstDate()]
+        );
+      } else if (distance > Number(settings.radiusMeters) && !allowedOutside) {
+        const [activeAttendance] = await db.query(
+          `SELECT id, check_in_at, outside_radius_since FROM attendance_records
+           WHERE employee_id = ? AND attendance_date = ?
+             AND check_in_at IS NOT NULL AND check_out_at IS NULL
+           ORDER BY id DESC LIMIT 1`,
+          [employeeUserId, policy.todayIstDate()]
+        );
+        if (activeAttendance.length) {
+          const attendance = activeAttendance[0];
+          if (!attendance.outside_radius_since) {
+            await db.query(`UPDATE attendance_records SET outside_radius_since = CURRENT_TIMESTAMP WHERE id = ? AND check_out_at IS NULL`, [attendance.id]);
+            return ok(res, { locationRecorded: true, outsideRadius: true, gracePeriodStarted: true }, 'You are outside the office radius. Return within 2 minutes or you will be clocked out.');
+          }
+          const [expired] = await db.query(
+            `SELECT id FROM attendance_records WHERE id = ? AND check_out_at IS NULL AND outside_radius_since <= (CURRENT_TIMESTAMP - INTERVAL ? MINUTE)`,
+            [attendance.id, settings.outsideRadiusGraceMinutes]
+          );
+          if (expired.length) {
+            await db.query(
+              `UPDATE attendance_records SET check_out_at = CURRENT_TIMESTAMP, working_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, check_in_at, CURRENT_TIMESTAMP)), outside_radius_since = NULL, session_status = 'completed' WHERE id = ? AND check_out_at IS NULL`,
+              [attendance.id]
+            );
+            await db.query(
+              `UPDATE attendance_breaks
+               SET ended_at = CURRENT_TIMESTAMP,
+                   duration_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP)),
+                   status = 'auto_closed'
+               WHERE attendance_id = ? AND status = 'active'`,
+              [attendance.id]
+            );
+            return ok(res, { locationRecorded: true, autoClockedOut: true }, `You remained outside the permitted office radius for ${settings.outsideRadiusGraceMinutes} minutes and were automatically clocked out.`);
+          }
+          return ok(res, { locationRecorded: true, outsideRadius: true, gracePeriodActive: true }, 'You are outside the office radius. Return within the remaining grace period.');
+        }
+      } else {
+        await db.query(`UPDATE attendance_records SET outside_radius_since = NULL WHERE employee_id = ? AND attendance_date = ? AND check_in_at IS NOT NULL AND check_out_at IS NULL`, [employeeUserId, policy.todayIstDate()]);
+      }
+    }
+
     detectFieldWaitingTime(employeeUserId, latitude, longitude).catch(
   function (error) {
     console.error('Field waiting-time detection failed', error.message);
@@ -581,6 +657,9 @@ async function updateTrackingSettings(req, res) {
     const officeRadiusMeters =
         Number(req.body.officeRadiusMeters ?? current.office_radius_meters);
 
+    const outsideRadiusGraceMinutes =
+        Number(req.body.outsideRadiusGraceMinutes ?? current.outside_radius_grace_minutes ?? 2);
+
     const fieldPingIntervalMinutes =
         Number(req.body.fieldPingIntervalMinutes ??
             current.field_ping_interval_minutes);
@@ -588,6 +667,9 @@ async function updateTrackingSettings(req, res) {
     const fieldWaitingMinutes =
         Number(req.body.fieldWaitingMinutes ??
             current.field_waiting_minutes);
+
+    const lunchBreakLimitMinutes =
+        Number(req.body.lunchBreakLimitMinutes ?? current.lunch_break_limit_minutes ?? 70);
 
     const stationaryRadiusMeters =
         Number(req.body.stationaryRadiusMeters ??
@@ -603,8 +685,10 @@ async function updateTrackingSettings(req, res) {
       officeLongitude < -180 ||
       officeLongitude > 180 ||
       officeRadiusMeters < 1 ||
+      outsideRadiusGraceMinutes < 1 ||
       fieldPingIntervalMinutes < 1 ||
       fieldWaitingMinutes < 1 ||
+      lunchBreakLimitMinutes < 1 ||
       stationaryRadiusMeters < 1
     ) {
       return fail(res, 400, 'Invalid tracking settings');
@@ -617,8 +701,10 @@ async function updateTrackingSettings(req, res) {
            office_latitude = ?,
            office_longitude = ?,
            office_radius_meters = ?,
+           outside_radius_grace_minutes = ?,
            field_ping_interval_minutes = ?,
            field_waiting_minutes = ?,
+           lunch_break_limit_minutes = ?,
            stationary_radius_meters = ?,
            updated_by = ?
        WHERE id = 1`,
@@ -628,8 +714,10 @@ async function updateTrackingSettings(req, res) {
         officeLatitude,
         officeLongitude,
         officeRadiusMeters,
+        outsideRadiusGraceMinutes,
         fieldPingIntervalMinutes,
         fieldWaitingMinutes,
+        lunchBreakLimitMinutes,
         stationaryRadiusMeters,
         req.user.id,
       ]
@@ -952,6 +1040,20 @@ async function stopFieldTracking(req, res) {
         Number.isFinite(longitude) ? longitude : null,
         sessionId,
       ]
+    );
+
+    // Stopping live tracking ends the attendance session for Field employees
+    // and Hybrid employees working in field mode.
+    await db.query(
+      `UPDATE attendance_records
+       SET check_out_at = CURRENT_TIMESTAMP,
+           working_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, check_in_at, CURRENT_TIMESTAMP)),
+           session_status = 'completed'
+       WHERE employee_id = ?
+         AND attendance_date = ?
+         AND check_in_at IS NOT NULL
+         AND check_out_at IS NULL`,
+      [employeeUserId, policy.todayIstDate()]
     );
 
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
