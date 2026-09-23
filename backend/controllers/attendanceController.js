@@ -773,15 +773,6 @@ async function checkOut(req, res) {
     const breaks = await breakMinutes(record.id);
     const rawMinutes = policy.minutesBetween(sqlDateTime(record.check_in_at), at);
     const workingMinutes = Math.max(0, rawMinutes - breaks);
-    const timeSettings = await policy.getTimeSettings(db);
-    const requiredWorkMinutes = Number(timeSettings.requiredWorkMinutes || 540);
-    const checkInDate = new Date(sqlDateTime(record.check_in_at).replace(' ', 'T'));
-    // The shift target is elapsed time. Breaks are recorded for payroll but
-    // never extend the scheduled checkout time.
-    const eligibleCheckoutAt = new Date(checkInDate.getTime() + (requiredWorkMinutes * 60000));
-    if (new Date(at.replace(' ', 'T')).getTime() < eligibleCheckoutAt.getTime()) {
-      return fail(res, 409, `Your 9-hour shift completes at ${policy.formatDisplayTime(policy.partsInZone(eligibleCheckoutAt).dateTime)}.`);
-    }
     const status = computeStatus({
       check_in_at: record.check_in_at,
       check_out_at: at,
@@ -811,10 +802,7 @@ async function checkOut(req, res) {
     const updated = await getRecord(employeeId, date);
     return ok(res, {
       ...serializeRecord(updated),
-      required_work_minutes: requiredWorkMinutes,
       completed_break_minutes: breaks,
-      eligible_checkout_at: policy.partsInZone(eligibleCheckoutAt).dateTime,
-      eligible_for_checkout: new Date(at.replace(' ', 'T')).getTime() >= eligibleCheckoutAt.getTime(),
     }, 'Checked out');
   } catch (error) {
     console.error('POST /attendance/check-out', error);
