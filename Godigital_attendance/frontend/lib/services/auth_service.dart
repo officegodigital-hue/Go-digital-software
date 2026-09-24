@@ -214,6 +214,24 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates the signed-in session after a profile edit.  Widgets in the
+  /// attendance and task areas listen to this service, so they receive the
+  /// same identity immediately without another login.
+  Future<void> updateProfileCache(Map<String, dynamic> profile) async {
+    if (_user == null) return;
+    final name = profile['name']?.toString().trim();
+    final email = profile['email']?.toString().trim();
+    if (name != null && name.isNotEmpty) {
+      _user!['fullName'] = name;
+      _user!['name'] = name;
+    }
+    if (email != null && email.isNotEmpty) {
+      _user!['email'] = email;
+    }
+    await AuthStorage.setString('user_data', jsonEncode(_user));
+    notifyListeners();
+  }
+
   Future<bool> verifyToken() async {
     if (_token == null || _token!.isEmpty) {
       return false;
@@ -306,9 +324,20 @@ class AuthService extends ChangeNotifier {
         final oldUser =
             _user ?? <String, dynamic>{};
 
+        // 🟢 Profile photo, avatar color, matrum full name-ai rendu variations-layum map seiyungal
+        final profilePhoto = refreshedUser['profile_photo'] ?? refreshedUser['profilePhoto'];
+        final avatarColor = refreshedUser['avatar_color'] ?? refreshedUser['avatarColor'];
+        final fullName = refreshedUser['full_name'] ?? refreshedUser['fullName'] ?? refreshedUser['name'];
+
         _user = {
           ...oldUser,
           ...refreshedUser,
+          if (profilePhoto != null) 'profile_photo': profilePhoto,
+          if (profilePhoto != null) 'profilePhoto': profilePhoto,
+          if (avatarColor != null) 'avatar_color': avatarColor,
+          if (avatarColor != null) 'avatarColor': avatarColor,
+          if (fullName != null) 'fullName': fullName,
+          if (fullName != null) 'name': fullName,
         };
 
         await AuthStorage.setString(
@@ -324,4 +353,5 @@ class AuthService extends ChangeNotifier {
       );
     }
   }
+
 }
