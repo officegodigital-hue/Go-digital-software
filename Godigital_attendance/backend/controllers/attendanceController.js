@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('./auth');
+// const { authenticateToken } = require('./auth');
+const { authenticateToken } = require('../routes/auth');
 const attendance = require('../controllers/attendanceController');
 
 router.use(authenticateToken);
