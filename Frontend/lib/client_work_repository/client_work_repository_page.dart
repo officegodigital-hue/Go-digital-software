@@ -40,7 +40,16 @@ class _ClientWorkRepositoryPageState extends State<ClientWorkRepositoryPage> {
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final data = body['data'] as Map<String, dynamic>?;
-      return data?['userType']?.toString().trim().toLowerCase() == 'admin';
+      final userType = data?['userType']?.toString().trim().toLowerCase() ?? '';
+      final role = data?['role']?.toString().trim().toLowerCase() ?? '';
+      // Accept either userType=='admin' or role=='admin' (covers older JWT tokens
+      // that may not carry userType in their payload).
+      if (userType == 'admin' || role == 'admin') return true;
+      // If API returned 200 but neither field says admin, trust the response.
+      if (userType.isNotEmpty || role.isNotEmpty) return false;
+      // Fields were both empty — fall back to cached value.
+      return context.read<AuthService>().userType?.trim().toLowerCase() ==
+          'admin';
     } catch (_) {
       // Use the existing cached login only if the local server is unavailable.
       return context.read<AuthService>().userType?.trim().toLowerCase() ==

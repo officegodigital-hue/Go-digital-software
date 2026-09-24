@@ -124,6 +124,25 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
       route: '/employee/leave',
       title: 'Leave',
       subtitle: '',
+      desktopHeaderAction: mode == 'requests' ? null : GestureDetector(
+        onTap: () => _showLeaveHistoryDialog(context, _requests),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F5FF),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFD0E1FF)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.history_rounded, size: 13, color: Color(0xFF0B72F5)),
+              SizedBox(width: 6),
+              Text('View History', style: TextStyle(fontSize: 12, color: Color(0xFF0B72F5), fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ),
       desktop: _DesktopLeave(
         mode: mode,
         loading: _loading,
@@ -177,6 +196,7 @@ class _DesktopLeave extends StatelessWidget {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _LeaveBalance(balances: balances),
         const SizedBox(height: 20),
@@ -184,6 +204,129 @@ class _DesktopLeave extends StatelessWidget {
       ],
     );
   }
+}
+
+void _showLeaveHistoryDialog(BuildContext context, List<dynamic> requests) {
+  String _statusLabel(String status) {
+    switch (status.toUpperCase()) {
+      case 'APPROVED': return 'Approved';
+      case 'DENIED':
+      case 'CANCELLED': return 'Rejected';
+      default: return 'Pending';
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toUpperCase()) {
+      case 'APPROVED': return employeeGreen;
+      case 'DENIED':
+      case 'CANCELLED': return const Color(0xFFF12B46);
+      default: return employeeOrange;
+    }
+  }
+
+  String _fmtDate(String? v) {
+    final dt = DateTime.tryParse(v ?? '');
+    return dt == null ? (v ?? '--') : DateFormat('dd/MM/yyyy').format(dt);
+  }
+
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.history_rounded, color: employeePurple, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Leave History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close, size: 18),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4F6FB),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 4),
+              const Text('Past and pending leave requests', style: TextStyle(fontSize: 12, color: employeeMuted)),
+              const SizedBox(height: 16),
+              if (requests.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: Text('No leave requests found.', style: TextStyle(color: employeeMuted))),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: requests.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final r = requests[i];
+                      final status = r['status']?.toString() ?? 'Pending';
+                      final color = _statusColor(status);
+                      final dateStr = _fmtDate(r['from_date']?.toString());
+                      final leaveType = r['leave_type']?.toString() ?? '';
+                      final durationType = r['duration_type']?.toString() ?? 'Full Day';
+                      String dateRange = '--';
+                      try {
+                        final from = DateTime.parse(r['from_date'].toString());
+                        final to = DateTime.parse(r['to_date'].toString());
+                        dateRange = from == to
+                            ? DateFormat('d MMM yyyy').format(from)
+                            : '${DateFormat('d MMM').format(from)} – ${DateFormat('d MMM yyyy').format(to)}';
+                      } catch (_) {}
+                      final reason = r['reason']?.toString() ?? '';
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.shield_outlined, color: employeePurple, size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(dateStr, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                                  Text(
+                                    '$leaveType · $durationType · $dateRange',
+                                    style: const TextStyle(color: employeeMuted, fontSize: 11),
+                                  ),
+                                  if (reason.isNotEmpty)
+                                    Text(reason, style: const TextStyle(color: employeeMuted, fontSize: 11)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: .10),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Text(_statusLabel(status), style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _LeaveBalance extends StatelessWidget {
@@ -286,7 +429,6 @@ class _BalanceBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 126,
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.07),
@@ -301,7 +443,7 @@ class _BalanceBox extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        const Spacer(),
+        const SizedBox(height: 14),
         Text(
           label,
           maxLines: 1,
@@ -333,13 +475,13 @@ class _RequestList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionTitle(
-          'My Requests',
-          subtitle: 'Recent and pending leave requests',
+          'Leave History',
+          subtitle: 'Past and pending leave requests',
         ),
         const SizedBox(height: 14),
         if (requests.isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
+            padding: EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Text(
                 'No leave requests found.',
@@ -348,14 +490,14 @@ class _RequestList extends StatelessWidget {
             ),
           )
         else
-          ...requests.map((r) => _DesktopRequestRow(r: r, onCancel: onCancel)),
+          ...requests.map((r) => _LeaveHistoryRow(r: r, onCancel: onCancel)),
       ],
     ),
   );
 }
 
-class _DesktopRequestRow extends StatelessWidget {
-  const _DesktopRequestRow({required this.r, required this.onCancel});
+class _LeaveHistoryRow extends StatelessWidget {
+  const _LeaveHistoryRow({required this.r, required this.onCancel});
   final dynamic r;
   final ValueChanged<dynamic> onCancel;
 
@@ -371,50 +513,54 @@ class _DesktopRequestRow extends StatelessWidget {
     }
   }
 
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'APPROVED': return 'Approved';
+      case 'DENIED': return 'Rejected';
+      case 'CANCELLED': return 'Cancelled';
+      default: return 'Pending';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     DateTime? fromDt;
+    DateTime? toDt;
     try {
       fromDt = DateTime.parse(r['from_date'].toString());
+      toDt = DateTime.parse(r['to_date'].toString());
     } catch (_) {}
 
-    final dayStr = fromDt != null ? DateFormat('dd').format(fromDt) : '--';
-    final monthStr = fromDt != null
-        ? DateFormat('MMM').format(fromDt).toUpperCase()
-        : '---';
+    final dateStr = fromDt != null
+        ? DateFormat('dd/MM/yyyy').format(fromDt)
+        : '--';
+    final dateRange = fromDt != null && toDt != null
+        ? (fromDt == toDt
+            ? DateFormat('d MMM yyyy').format(fromDt)
+            : '${DateFormat('d MMM').format(fromDt)} – ${DateFormat('d MMM yyyy').format(toDt)}')
+        : '--';
     final status = r['status']?.toString() ?? 'PENDING';
     final color = _statusColor(status);
+    final leaveType = r['leave_type']?.toString() ?? '';
+    final durationType = r['duration_type']?.toString() ?? 'Full Day';
+    final reason = r['reason']?.toString() ?? '';
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: employeeLine)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 48,
-            height: 48,
+            margin: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F6FB),
-              borderRadius: BorderRadius.circular(8),
+              color: employeePurple.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  dayStr,
-                  style: const TextStyle(
-                    color: employeeNavy,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  monthStr,
-                  style: const TextStyle(color: employeeMuted, fontSize: 10),
-                ),
-              ],
-            ),
+            child: Icon(Icons.shield_outlined, size: 16, color: employeePurple),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -422,32 +568,63 @@ class _DesktopRequestRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${r['leave_type']} · ${r['duration_type'] ?? 'Full Day'}',
+                  dateStr,
                   style: const TextStyle(
                     color: employeeNavy,
                     fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  '${r['reason'] ?? 'No reason provided'} · ${r['from_date']} to ${r['to_date']}',
+                  '$leaveType · $durationType · $dateRange',
                   style: const TextStyle(color: employeeMuted, fontSize: 12),
                 ),
+                if (reason.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    reason,
+                    style: const TextStyle(color: employeeMuted, fontSize: 12),
+                  ),
+                ],
               ],
             ),
           ),
-          StatusPill(status, color),
-          if (status == 'PENDING') ...[
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(
-                Icons.close_rounded,
-                color: Color(0xFFF12B46),
-                size: 18,
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _statusLabel(status),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              tooltip: 'Cancel Request',
-              onPressed: () => onCancel(r['id']),
-            ),
-          ],
+              if (status == 'PENDING') ...[
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: () => onCancel(r['id']),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFF12B46),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );

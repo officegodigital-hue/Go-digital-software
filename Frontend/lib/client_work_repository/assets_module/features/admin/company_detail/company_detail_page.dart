@@ -150,9 +150,14 @@ class _CompanyDetailPageState
             link: link,
             username: username,
             password: password,
+            description: _nullableString(data['description']),
+            filePath: filePath,
+            fileName: _nullableString(data['file_name'] ?? data['fileName']),
+            mimeType: _nullableString(data['mime_type'] ?? data['mimeType']),
+            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            createdByEmployeeId: _nullableString(data['created_by_employee_id'] ?? data['createdByEmployeeId']),
             createdAt: createdAt,
             updatedAt: updatedAt,
-            filePath: filePath,
           ),
         );
       }
@@ -617,64 +622,131 @@ class _CompanyDetailPageState
       text: widget.company.name,
     );
 
-    final newName =
-        await showDialog<String>(
+    final selectedSections = <String>{
+      ...widget.company.allSections.isNotEmpty
+          ? widget.company.allSections
+          : (widget.company.section != null
+              ? [widget.company.section!]
+              : []),
+    };
+
+    final result =
+        await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'Edit Company Name',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: SizedBox(
-            width: 420,
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              decoration:
-                  const InputDecoration(
-                labelText: 'Company Name',
-                hintText:
-                    'Enter company name',
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Edit Company',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                );
-              },
-              child:
-                  const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final name =
-                    controller.text.trim();
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sections',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      for (final sectionOption in [
+                        AppConstants.digitalMarketing,
+                        AppConstants.softwareDevelopment,
+                      ])
+                        CheckboxListTile(
+                          value: selectedSections.contains(sectionOption),
+                          onChanged: (checked) {
+                            setDialogState(() {
+                              if (checked == true) {
+                                selectedSections.add(sectionOption);
+                              } else {
+                                selectedSections.remove(sectionOption);
+                              }
+                            });
+                          },
+                          title: Text(
+                            sectionOption,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        decoration:
+                            const InputDecoration(
+                          labelText: 'Company Name',
+                          hintText:
+                              'Enter company name',
+                        ),
+                        onSubmitted: (value) {
+                          if (value.trim().isNotEmpty) {
+                            Navigator.pop(dialogContext, {
+                              'name': value.trim(),
+                              'sections': selectedSections.toList(),
+                            });
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = controller.text.trim();
 
-                if (name.isEmpty) {
-                  return;
-                }
+                    if (name.isEmpty) {
+                      return;
+                    }
 
-                Navigator.pop(
-                  dialogContext,
-                  name,
-                );
-              },
-              child:
-                  const Text('Save'),
-            ),
-          ],
+                    if (selectedSections.isEmpty) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select at least one section.'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(dialogContext, {
+                      'name': name,
+                      'sections': selectedSections.toList(),
+                    });
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
 
     controller.dispose();
+
+    final newName = result?['name'] as String?;
+    final newSections = result?['sections'] as List<String>?;
 
     if (newName == null ||
         newName.trim().isEmpty) {
@@ -685,6 +757,7 @@ class _CompanyDetailPageState
       await ApiService.updateCompany(
         companyId: widget.company.id,
         name: newName.trim(),
+        sections: newSections,
       );
 
       if (!mounted) {
@@ -1732,23 +1805,19 @@ class _CompanyDetailPageState
     try {
       await ApiService.updateAsset(
         assetId: asset.id,
-        companyId:
-            updatedAsset.companyId,
-        companyName:
-            updatedAsset.companyName,
-        section:
-            updatedAsset.section,
-        type:
-            updatedAsset.type,
-        name:
-            updatedAsset.name,
-        description: null,
-        link:
-            updatedAsset.link,
-        username:
-            updatedAsset.username,
-        password:
-            updatedAsset.password,
+        companyId: updatedAsset.companyId,
+        companyName: updatedAsset.companyName,
+        section: updatedAsset.section,
+        type: updatedAsset.type,
+        name: updatedAsset.name,
+        description: updatedAsset.description,
+        link: updatedAsset.link,
+        username: updatedAsset.username,
+        password: updatedAsset.password,
+        fileName: updatedAsset.pendingFileBytes != null ? updatedAsset.fileName : null,
+        fileBytes: updatedAsset.pendingFileBytes != null
+            ? Uint8List.fromList(updatedAsset.pendingFileBytes!)
+            : null,
       );
 
       await _loadAssets();

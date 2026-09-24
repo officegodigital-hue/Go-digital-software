@@ -426,6 +426,7 @@ class ApiService {
       createCompany(
     String name, {
     String? section,
+    List<String>? sections,
     String? logoFileName,
     Uint8List? logoBytes,
   }) async {
@@ -448,11 +449,17 @@ class ApiService {
             'name'] =
         name.trim();
 
-    if (section != null &&
-        section.trim().isNotEmpty) {
-      request.fields[
-              'section'] =
-          section.trim();
+    final effectiveSections =
+        sections != null && sections.isNotEmpty
+            ? sections
+            : (section != null && section.trim().isNotEmpty
+                ? [section.trim()]
+                : null);
+
+    if (effectiveSections != null &&
+        effectiveSections.isNotEmpty) {
+      request.fields['section'] =
+          effectiveSections.join('|');
     }
 
     if (logoBytes != null &&
@@ -494,9 +501,18 @@ class ApiService {
       updateCompany({
     required String companyId,
     required String name,
+    List<String>? sections,
   }) async {
     final token =
         await _requiredToken();
+
+    final body = <String, dynamic>{
+      'name': name,
+    };
+
+    if (sections != null && sections.isNotEmpty) {
+      body['section'] = sections.join('|');
+    }
 
     final response =
         await http.put(
@@ -509,9 +525,7 @@ class ApiService {
         'Authorization':
             'Bearer $token',
       },
-      body: jsonEncode({
-        'name': name,
-      }),
+      body: jsonEncode(body),
     );
 
     final data =

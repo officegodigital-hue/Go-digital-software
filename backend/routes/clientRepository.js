@@ -124,7 +124,7 @@ router.delete('/companies/:id', requirePermission('can_delete'), async (req, res
 });
 
 router.get('/assets', requirePermission('can_view'), async (_req, res, next) => {
-  try { const [rows] = await db.query('SELECT id,company_id,company_name,section,type,name,description,link,file_url,file_name,mime_type,file_size,created_at FROM assets ORDER BY created_at DESC'); res.json({ success: true, data: rows }); } catch (error) { next(error); }
+  try { const [rows] = await db.query('SELECT id,company_id,company_name,section,type,name,description,link,username,password,file_url,file_name,mime_type,file_size,created_by_employee_id,created_at,updated_at FROM assets ORDER BY created_at DESC'); res.json({ success: true, data: rows }); } catch (error) { next(error); }
 });
 router.post('/assets', requirePermission('can_create'), upload.single('file'), async (req, res, next) => {
   try {
@@ -230,7 +230,20 @@ router.put('/permissions/user/:id', requireAdmin, async (req, res, next) => {
   try {
     const values = permissions.map((key) => req.body[key] ? 1 : 0);
     await db.query(`INSERT INTO client_repository_access (employee_id,granted_by,${permissions.join(',')}) VALUES (?, ?, ${permissions.map(() => '?').join(',')}) ON DUPLICATE KEY UPDATE granted_by=VALUES(granted_by),${permissions.map((key) => `${key}=VALUES(${key})`).join(',')}`, [req.params.id, req.user.id, ...values]);
-    res.json({ success: true, data: Object.fromEntries(permissions.map((key, index) => [key, Boolean(values[index])])) });
+    const permData = Object.fromEntries(permissions.map((key, index) => [key, Boolean(values[index])]));
+
+    // Notify the user about their updated client repository access.
+    const canAccess = values.some(Boolean);
+    const message = canAccess
+      ? 'Your access to the Client Repository has been updated by an administrator.'
+      : 'Your Client Repository access has been removed by an administrator.';
+    await db.query(
+      `INSERT INTO client_repository_notifications (recipient_id, recipient_name, sender_name, message)
+       SELECT id, full_name, ?, ? FROM employee_users WHERE id=?`,
+      [req.user.fullName, message, req.params.id],
+    ).catch(() => {}); // non-fatal — don't fail the permission update if notify fails
+
+    res.json({ success: true, data: permData });
   } catch (error) { next(error); }
 });
 router.get('/downloads', requirePermission('can_download'), async (req, res, next) => {
@@ -243,19 +256,72 @@ router.get('/downloads', requirePermission('can_download'), async (req, res, nex
 router.get('/notifications', async (req, res, next) => {
   try {
     const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100));
-    const [rows] = await db.query(`SELECT id, sender_name, message, created_at, is_seen FROM notifications
-      WHERE recipient_name=? ORDER BY created_at DESC LIMIT ?`, [req.user.fullName, limit]);
+    const [rows] = await db.query(
+      `SELECT id, sender_name, message, created_at, is_seen FROM client_repository_notifications
+       WHERE recipient_id=? ORDER BY created_at DESC LIMIT ?`,
+      [req.user.id, limit],
+    );
     res.json({ success: true, data: rows.map((row) => ({ id: row.id, title: row.sender_name, message: row.message, created_at: row.created_at, is_read: Boolean(row.is_seen) })) });
   } catch (error) { next(error); }
 });
 router.get('/notifications/unread-count', async (req, res, next) => {
-  try { const [[row]] = await db.query('SELECT COUNT(*) AS unread_count FROM notifications WHERE recipient_name=? AND COALESCE(is_seen,0)=0', [req.user.fullName]); res.json({ success: true, data: row }); } catch (error) { next(error); }
+  try {
+    const [[row]] = await db.query(
+      'SELECT COUNT(*) AS unread_count FROM client_repository_notifications WHERE recipient_id=? AND COALESCE(is_seen,0)=0',
+      [req.user.id],
+    );
+    res.json({ success: true, data: row });
+  } catch (error) { next(error); }
 });
 router.put('/notifications/:id/read', async (req, res, next) => {
-  try { await db.query('UPDATE notifications SET is_seen=1 WHERE id=? AND recipient_name=?', [req.params.id, req.user.fullName]); res.json({ success: true }); } catch (error) { next(error); }
+  try {
+    await db.query(
+      'UPDATE client_repository_notifications SET is_seen=1 WHERE id=? AND recipient_id=?',
+      [req.params.id, req.user.id],
+    );
+    res.json({ success: true });
+  } catch (error) { next(error); }
 });
 router.put('/notifications/read-all', async (req, res, next) => {
-  try { await db.query('UPDATE notifications SET is_seen=1 WHERE recipient_name=?', [req.user.fullName]); res.json({ success: true }); } catch (error) { next(error); }
+  try {
+    await db.query(
+      'UPDATE client_repository_notifications SET is_seen=1 WHERE recipient_id=?',
+      [req.user.id],
+    );
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+// Admin: send a notification to a specific user or broadcast to all users with access.
+router.post('/notifications/send', requireAdmin, async (req, res, next) => {
+  try {
+    const message = String(req.body.message || '').trim();
+    if (!message) return res.status(400).json({ success: false, message: 'Message is required.' });
+    const recipientId = req.body.recipient_id ? Number(req.body.recipient_id) : null;
+    if (recipientId) {
+      await db.query(
+        `INSERT INTO client_repository_notifications (recipient_id, recipient_name, sender_name, message)
+         SELECT id, full_name, ?, ? FROM employee_users WHERE id=?`,
+        [req.user.fullName, message, recipientId],
+      );
+    } else {
+      // Broadcast to all users who have client repository access.
+      await db.query(
+        `INSERT INTO client_repository_notifications (recipient_id, recipient_name, sender_name, message)
+         SELECT e.id, e.full_name, ?, ? FROM employee_users e INNER JOIN client_repository_access a ON a.employee_id=e.id WHERE e.is_active=1`,
+        [req.user.fullName, message],
+      );
+    }
+    res.status(201).json({ success: true });
+  } catch (error) { next(error); }
+});
+router.delete('/notifications/:id', async (req, res, next) => {
+  try {
+    await db.query(
+      'DELETE FROM client_repository_notifications WHERE id=? AND recipient_id=?',
+      [req.params.id, req.user.id],
+    );
+    res.json({ success: true });
+  } catch (error) { next(error); }
 });
 
 module.exports = router;

@@ -559,6 +559,11 @@ async function employeeDashboard(req, res) {
     const record = await getRecord(employeeId, date);
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
     const checkedOut = Boolean(record && record.check_out_at);
+    let hasPendingCorrection = false;
+    if (checkedOut && record) {
+      const [[pendingCorrection]] = await db.query("SELECT id FROM hrms_attendance_correction_requests WHERE attendance_id = ? AND request_type = 'checkout_correction' AND status = 'pending' LIMIT 1", [record.id]);
+      hasPendingCorrection = Boolean(pendingCorrection);
+    }
     let activeBreak = null;
     if (checkedIn) {
       const [breaks] = await db.query("SELECT id, started_at FROM attendance_breaks WHERE attendance_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1", [record.id]);
@@ -663,7 +668,7 @@ async function employeeDashboard(req, res) {
         worked_seconds: workedSeconds,
         is_late: Boolean(Number(record.is_late))
       } : null,
-      actions: { can_clock_in: !record || !record.check_in_at, can_clock_out: checkedIn },
+      actions: { can_clock_in: !record || !record.check_in_at, can_clock_out: checkedIn, has_pending_correction: hasPendingCorrection },
       break: activeBreak ? { active: true, id: activeBreak.id, started_at: sqlDateTime(activeBreak.started_at) } : { active: false },
       break_policy: breakPolicy,
       month_overview: {
@@ -884,6 +889,8 @@ async function requestCheckoutCorrection(req, res) {
     const reason = String(req.body && req.body.reason || '').trim();
     if (!record || !record.check_out_at) return fail(res, 409, 'A completed checkout is required');
     if (!reason) return fail(res, 400, 'Provide a correction reason');
+    const [[existing]] = await db.query("SELECT id FROM hrms_attendance_correction_requests WHERE attendance_id = ? AND request_type = 'checkout_correction' AND status = 'pending' LIMIT 1", [record.id]);
+    if (existing) return fail(res, 409, 'A correction request is already pending. Wait for admin to review it before submitting another.');
     const [result] = await db.query("INSERT INTO hrms_attendance_correction_requests (attendance_id, employee_id, request_type, reason) VALUES (?, ?, 'checkout_correction', ?)", [record.id, req.user.id, reason.slice(0, 500)]);
     return ok(res, { id: result.insertId }, 'Correction request sent to Admin.');
   } catch (error) { return fail(res, 500, error.message); }
@@ -1106,6 +1113,45 @@ async function getBreakReview(req, res) {
   }
 }
 
+async function listCorrectionRequests(req, res) {
+  try {
+    await ensureAttendanceSafetyTables();
+    const [rows] = await db.query(`
+      SELECT r.id, r.attendance_id, r.reason, r.status, r.created_at,
+             e.full_name, e.staff_id,
+             a.check_in_at, a.check_out_at
+      FROM hrms_attendance_correction_requests r
+      JOIN employee_users e ON e.id = r.employee_id
+      JOIN attendance_records a ON a.id = r.attendance_id
+      WHERE r.request_type = 'checkout_correction'
+      ORDER BY r.created_at DESC
+    `);
+    return ok(res, { items: rows });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function approveCorrectionRequest(req, res) {
+  try {
+    const { id } = req.params;
+    const [[req_row]] = await db.query('SELECT attendance_id FROM hrms_attendance_correction_requests WHERE id = ? AND request_type = ?', [id, 'checkout_correction']);
+    if (!req_row) return fail(res, 404, 'Correction request not found');
+    await db.query('UPDATE attendance_records SET check_out_at = NULL, working_minutes = 0 WHERE id = ?', [req_row.attendance_id]);
+    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, reviewed_at = NOW() WHERE id = ?', ['approved', id]);
+    return ok(res, {}, 'Session restored. Employee can check out again.');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function rejectCorrectionRequest(req, res) {
+  try {
+    const { id } = req.params;
+    const adminNote = String(req.body?.admin_note || '').trim().slice(0, 300);
+    const [[req_row]] = await db.query('SELECT id FROM hrms_attendance_correction_requests WHERE id = ? AND request_type = ?', [id, 'checkout_correction']);
+    if (!req_row) return fail(res, 404, 'Correction request not found');
+    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, admin_note = ?, reviewed_at = NOW() WHERE id = ?', ['rejected', adminNote || null, id]);
+    return ok(res, {}, 'Request rejected.');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
@@ -1121,6 +1167,9 @@ module.exports = {
   getBreakReview: getBreakReview,
   undoCheckout: undoCheckout,
   requestCheckoutCorrection: requestCheckoutCorrection,
+  listCorrectionRequests: listCorrectionRequests,
+  approveCorrectionRequest: approveCorrectionRequest,
+  rejectCorrectionRequest: rejectCorrectionRequest,
   heartbeat: heartbeat,
   myPermissions: myPermissions,
   createPermission: createPermission,

@@ -15,11 +15,13 @@ import '../../../services/download_helper.dart';
 class CompanyAssetsPage extends StatefulWidget {
   final CompanyModel company;
   final String section;
+  final VoidCallback? onBack;
 
   const CompanyAssetsPage({
     super.key,
     required this.company,
     required this.section,
+    this.onBack,
   });
 
   @override
@@ -225,70 +227,143 @@ class _CompanyAssetsPageState
     final controller =
         TextEditingController(text: _companyName);
 
+    final selectedSections = <String>{
+      ...widget.company.allSections.isNotEmpty
+          ? widget.company.allSections
+          : (widget.company.section != null
+              ? [widget.company.section!]
+              : []),
+    };
+
     try {
-      final newName = await showDialog<String>(
+      final result = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text(
-              'Edit Company',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            content: SizedBox(
-              width: 420,
-              child: TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Company Name',
-                  hintText: 'Enter company name',
-                  prefixIcon:
-                      Icon(Icons.business_outlined),
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text(
+                  'Edit Company',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                onSubmitted: (value) {
-                  if (value.trim().isNotEmpty) {
-                    Navigator.of(dialogContext)
-                        .pop(value.trim());
-                  }
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final value =
-                      controller.text.trim();
-
-                  if (value.isEmpty) {
-                    ScaffoldMessenger.of(
-                      dialogContext,
-                    ).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Please enter a company name.',
+                content: SizedBox(
+                  width: 420,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Sections',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                    );
-                    return;
-                  }
+                        const SizedBox(height: 4),
+                        for (final sectionOption in [
+                          AppConstants.digitalMarketing,
+                          AppConstants.softwareDevelopment,
+                        ])
+                          CheckboxListTile(
+                            value: selectedSections
+                                .contains(sectionOption),
+                            onChanged: (checked) {
+                              setDialogState(() {
+                                if (checked == true) {
+                                  selectedSections.add(sectionOption);
+                                } else {
+                                  selectedSections.remove(sectionOption);
+                                }
+                              });
+                            },
+                            title: Text(
+                              sectionOption,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            controlAffinity:
+                                ListTileControlAffinity.leading,
+                          ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Company Name',
+                            hintText: 'Enter company name',
+                            prefixIcon:
+                                Icon(Icons.business_outlined),
+                          ),
+                          onSubmitted: (value) {
+                            if (value.trim().isNotEmpty) {
+                              Navigator.of(dialogContext).pop({
+                                'name': value.trim(),
+                                'sections': selectedSections.toList(),
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      final value = controller.text.trim();
 
-                  Navigator.of(dialogContext)
-                      .pop(value);
-                },
-                child: const Text('Save'),
-              ),
-            ],
+                      if (value.isEmpty) {
+                        ScaffoldMessenger.of(
+                          dialogContext,
+                        ).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Please enter a company name.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
+                      if (selectedSections.isEmpty) {
+                        ScaffoldMessenger.of(
+                          dialogContext,
+                        ).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Please select at least one section.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
+                      Navigator.of(dialogContext).pop({
+                        'name': value,
+                        'sections': selectedSections.toList(),
+                      });
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              );
+            },
           );
         },
       );
+
+      final newName = result?['name'] as String?;
+      final newSections = result?['sections'] as List<String>?;
 
       if (newName == null ||
           newName.trim().isEmpty ||
@@ -299,6 +374,7 @@ class _CompanyAssetsPageState
       await ApiService.updateCompany(
         companyId: widget.company.id,
         name: newName.trim(),
+        sections: newSections,
       );
 
       if (!mounted) {
@@ -519,14 +595,14 @@ class _CompanyAssetsPageState
       password: _nullableString(
         data['password'],
       ),
+      description: _nullableString(data['description']),
+      filePath: _nullableString(data['file_url'] ?? data['file_path'] ?? data['filePath']),
+      fileName: _nullableString(data['file_name'] ?? data['fileName']),
+      mimeType: _nullableString(data['mime_type'] ?? data['mimeType']),
+      fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+      createdByEmployeeId: _nullableString(data['created_by_employee_id'] ?? data['createdByEmployeeId']),
       createdAt: createdAt,
       updatedAt: updatedAt,
-      filePath: _nullableString(
-        data['file_url'] ??
-            data['file_path'] ??
-            data['filePath'] ??
-            data['file_name'],
-      ),
     );
   }
 
@@ -661,7 +737,11 @@ class _CompanyAssetsPageState
             Icons.arrow_back,
           ),
           onPressed: () {
-            Navigator.of(context).pop();
+            if (widget.onBack != null) {
+              widget.onBack!();
+            } else {
+              Navigator.of(context).pop();
+            }
           },
         ),
         title: const Text(
@@ -806,30 +886,7 @@ class _CompanyAssetsPageState
       ),
       child: Row(
         children: [
-          Container(
-            width: mobile ? 54 : 64,
-            height: mobile ? 54 : 64,
-            alignment:
-                Alignment.center,
-            decoration:
-                BoxDecoration(
-              color: lightColor,
-              borderRadius:
-                  BorderRadius.circular(
-                13,
-              ),
-            ),
-            child: Text(
-              firstLetter,
-              style: TextStyle(
-                fontSize:
-                    mobile ? 22 : 26,
-                fontWeight:
-                    FontWeight.w800,
-                color: color,
-              ),
-            ),
-          ),
+          _buildCompanyLogo(mobile, color, lightColor, firstLetter),
 
           const SizedBox(
             width: 15,
@@ -986,6 +1043,43 @@ class _CompanyAssetsPageState
               ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCompanyLogo(bool mobile, Color color, Color lightColor, String firstLetter) {
+    final size = mobile ? 54.0 : 64.0;
+    final logoUrl = widget.company.logoUrl?.trim();
+    if (logoUrl != null && logoUrl.isNotEmpty) {
+      final parsed = Uri.tryParse(logoUrl);
+      final imageUrl = parsed != null && parsed.hasScheme
+          ? logoUrl
+          : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'}';
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F7FA),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            alignment: Alignment.center,
+            color: lightColor,
+            child: Text(firstLetter, style: TextStyle(fontSize: mobile ? 22 : 26, fontWeight: FontWeight.w800, color: color)),
+          ),
+        ),
+      );
+    }
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: lightColor, borderRadius: BorderRadius.circular(13)),
+      child: Text(firstLetter, style: TextStyle(fontSize: mobile ? 22 : 26, fontWeight: FontWeight.w800, color: color)),
     );
   }
 
@@ -1526,6 +1620,7 @@ class _CompanyAssetsPageState
         section: asset.section,
         type: asset.type,
         name: nameController.text.trim(),
+        description: asset.description,
         link: linkController.text.trim().isEmpty
             ? null
             : linkController.text.trim(),
