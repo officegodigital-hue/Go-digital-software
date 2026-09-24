@@ -33,6 +33,7 @@ router.post('/heartbeat', attendance.heartbeat);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
+router.post('/reclock-in-request', attendance.createReclockInRequest);
 router.get('/permissions/mine', attendance.myPermissions);
 router.post('/permissions', attendance.createPermission);
 

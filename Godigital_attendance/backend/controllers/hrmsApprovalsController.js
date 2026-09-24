@@ -19,7 +19,7 @@ function requireAdmin(req, res, next) {
 }
 
 const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
-const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit'];
+const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit', 'reclock_in'];
 
 function displayType(requestType) {
   const value = String(requestType || '').toLowerCase();
@@ -32,13 +32,14 @@ function displayType(requestType) {
   if (value === 'extra_hours') return 'Extra Hours';
   if (value === 'late_entry') return 'Late Entry';
   if (value === 'early_exit') return 'Early Exit';
+  if (value === 'reclock_in') return 'Clock In Request';
   return String(requestType || '').replace(/_/g, ' ');
 }
 
 function iconMeta(typeLabel) {
   if (typeLabel === 'Sick Leave') return { icon: 'medical', color: 0xFFFF4F62 };
   if (typeLabel === 'Personal Leave') return { icon: 'event_busy', color: 0xFFFF6D3A };
-  if (typeLabel === 'Extra Hours' || typeLabel === 'Late Entry' || typeLabel === 'Early Exit') {
+  if (typeLabel === 'Extra Hours' || typeLabel === 'Late Entry' || typeLabel === 'Early Exit' || typeLabel === 'Clock In Request') {
     return { icon: 'more_time', color: 0xFFFF6500 };
   }
   return { icon: 'beach', color: 0xFF7137E8 };
@@ -248,6 +249,15 @@ async function review(req, res) {
     if (status !== 'approved' && status !== 'rejected') {
       return fail(res, 400, 'status must be approved or rejected');
     }
+    const [[pendingRequest]] = await db.query(
+      `SELECT id, employee_id, request_type, request_date
+       FROM attendance_permission_requests WHERE id = ? AND status = 'pending'`,
+      [id]
+    );
+    if (!pendingRequest) return fail(res, 404, 'Pending request not found');
+    // Approval intentionally does not rewrite attendance. It unlocks a single
+    // additional Clock In; that Clock In reopens the same session while keeping
+    // the original Clock In timestamp for the full workday calculation.
     const at = policy.nowIstDateTime();
     const [result] = await db.query(
       `UPDATE attendance_permission_requests
@@ -255,9 +265,6 @@ async function review(req, res) {
        WHERE id = ? AND status = 'pending'`,
       [status, req.user.id, at, id]
     );
-    if (!result.affectedRows) {
-      return fail(res, 404, 'Pending request not found');
-    }
     await db.query(`
       CREATE TABLE IF NOT EXISTS hrms_leave_approval_links (
         leave_id BIGINT UNSIGNED NOT NULL,
@@ -302,5 +309,3 @@ module.exports = {
   markAllNotificationsRead,
   LEAVE_TYPES,
 };
-
-
