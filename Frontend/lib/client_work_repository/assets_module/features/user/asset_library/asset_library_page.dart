@@ -1243,6 +1243,7 @@ class _UserAssetLibraryPageState
     Uint8List? selectedLogoBytes;
     bool companyCreated = false;
 
+    // Section is determined automatically from the current tab — no user selection needed.
     final selectedSections = <String>{section};
 
     try {
@@ -1327,17 +1328,6 @@ class _UserAssetLibraryPageState
                   return;
                 }
 
-                if (selectedSections.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Please select at least one section.',
-                      ),
-                    ),
-                  );
-                  return;
-                }
-
                 setDialogState(() {
                   isCreating = true;
                 });
@@ -1390,42 +1380,6 @@ class _UserAssetLibraryPageState
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Sections',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        for (final sectionOption in [
-                          AppConstants.digitalMarketing,
-                          AppConstants.softwareDevelopment,
-                        ])
-                          CheckboxListTile(
-                            value: selectedSections.contains(sectionOption),
-                            onChanged: isCreating
-                                ? null
-                                : (checked) {
-                                    setDialogState(() {
-                                      if (checked == true) {
-                                        selectedSections.add(sectionOption);
-                                      } else {
-                                        selectedSections.remove(sectionOption);
-                                      }
-                                    });
-                                  },
-                            title: Text(
-                              sectionOption,
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            controlAffinity:
-                                ListTileControlAffinity.leading,
-                          ),
-                        const SizedBox(height: 10),
                         TextField(
                           controller: controller,
                           autofocus: true,

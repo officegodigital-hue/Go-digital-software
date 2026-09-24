@@ -1450,18 +1450,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                   return;
                 }
 
-                if (selectedSections.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Please select at least one section.',
-                      ),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                  return;
-                }
-
                 setDialogState(() {
                   isCreating = true;
                 });
@@ -1529,46 +1517,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Sections',
-                          style: TextStyle(
-                            fontSize: normalTextSize,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        for (final sectionOption in [
-                          AppConstants.digitalMarketing,
-                          AppConstants.softwareDevelopment,
-                        ])
-                          CheckboxListTile(
-                            value: selectedSections
-                                .contains(sectionOption),
-                            onChanged: isCreating
-                                ? null
-                                : (checked) {
-                                    setDialogState(() {
-                                      if (checked == true) {
-                                        selectedSections
-                                            .add(sectionOption);
-                                      } else {
-                                        selectedSections
-                                            .remove(sectionOption);
-                                      }
-                                    });
-                                  },
-                            title: Text(
-                              sectionOption,
-                              style: const TextStyle(
-                                  fontSize: normalTextSize),
-                            ),
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            controlAffinity:
-                                ListTileControlAffinity.leading,
-                          ),
-                        const SizedBox(height: 10),
                         TextField(
                           controller: controller,
                           autofocus: true,
