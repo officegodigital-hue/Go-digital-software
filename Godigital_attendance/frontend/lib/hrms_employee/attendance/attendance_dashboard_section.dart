@@ -239,6 +239,97 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _requestAnotherClockIn({
+    required String date,
+    required String clockIn,
+    required String clockOut,
+  }) async {
+    final token = _token;
+    if (token == null || _loading || _punching || _error != null) return;
+    final controller = TextEditingController();
+    var submitting = false;
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Clock In request'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Send Admin a request to reopen today\'s attendance. After approval, Clock In will be available again.'),
+                const SizedBox(height: 14),
+                Text('Date: $date'),
+                Text('Original Clock In: $clockIn'),
+                Text('Original Clock Out: $clockOut'),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: controller,
+                  enabled: !submitting,
+                  minLines: 3,
+                  maxLines: 5,
+                  maxLength: 350,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for requesting another Clock In',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (error != null)
+                  Text(error!, style: const TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      final reason = controller.text.trim();
+                      if (reason.length < 3) {
+                        setDialogState(() => error = 'Enter at least 3 characters.');
+                        return;
+                      }
+                      setDialogState(() {
+                        submitting = true;
+                        error = null;
+                      });
+                      try {
+                        await _call(
+                          'reclock-in-request',
+                          token,
+                          post: true,
+                          payload: {'reason': reason},
+                        );
+                        if (!mounted) return;
+                        Navigator.of(dialogContext).pop();
+                        await _load();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Clock In request sent to Admin.')),
+                        );
+                      } catch (e) {
+                        setDialogState(() {
+                          submitting = false;
+                          error = _message(e);
+                        });
+                      }
+                    },
+              child: Text(submitting ? 'Sending…' : 'Send request'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
   Future<void> _toggleBreak() async {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
@@ -412,6 +503,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       }
     }
     final checkedOut = data['status'] == 'checked_out';
+    final reclockRequest = data['reclock_in_request'] as Map?;
     final seconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
     final worked = seconds + (checkedIn ? _elapsed.elapsed.inSeconds : 0);
     final today = DateTime.parse(data['date'] as String);
@@ -700,11 +792,38 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                       ? 'Saving…'
                       : checkedIn
                       ? 'Clock Out'
+                      : checkedOut && actions['can_clock_in'] == true
+                      ? 'Clock In'
                       : checkedOut
                       ? 'Completed'
                       : 'Clock In',
                 ),
               ),
+              if (checkedOut) const SizedBox(width: 10),
+              if (checkedOut)
+                OutlinedButton(
+                  onPressed: _loading || _punching || _error != null ||
+                          actions['can_reclock_in_request'] != true
+                      ? null
+                      : () => _requestAnotherClockIn(
+                            date: DateFormat('d MMM yyyy').format(today),
+                            clockIn: punchInDisplay,
+                            clockOut: punchOutDisplay,
+                          ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    disabledForegroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white),
+                  ),
+                  child: Text(
+                    reclockRequest?['status'] == 'Approved' &&
+                            reclockRequest?['reclocked_at'] == null
+                        ? 'Request Approved'
+                        : reclockRequest?['status'] == 'Pending'
+                            ? 'Request Pending'
+                            : 'Clock In Request',
+                  ),
+                ),
             ],
           ),
         ),

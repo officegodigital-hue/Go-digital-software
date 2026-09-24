@@ -199,6 +199,21 @@ class _PermissionContentState extends State<_PermissionContent> {
                 style: TextStyle(color: employeeNavy, fontSize: 28, fontWeight: FontWeight.w800)),
             const SizedBox(height: 18),
           ],
+          if (!widget.logOnly) ...[
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  '/employee/permission',
+                  arguments: 'log',
+                ),
+                icon: const Icon(Icons.history_rounded, size: 18),
+                label: const Text('View History'),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (!widget.logOnly)
             Center(
               child: ConstrainedBox(
