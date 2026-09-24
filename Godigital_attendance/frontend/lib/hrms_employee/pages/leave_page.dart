@@ -178,6 +178,19 @@ class _DesktopLeave extends StatelessWidget {
 
     return Column(
       children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.pushNamed(
+              context,
+              '/employee/leave',
+              arguments: 'requests',
+            ),
+            icon: const Icon(Icons.history_rounded, size: 18),
+            label: const Text('View History'),
+          ),
+        ),
+        const SizedBox(height: 12),
         _LeaveBalance(balances: balances),
         const SizedBox(height: 20),
         _LeaveForm(desktop: true, onSuccess: onRefresh),
@@ -862,6 +875,19 @@ class _MobileLeave extends StatelessWidget {
         const SizedBox(height: 14),
         const EmployeePageTitle(title: 'Leave'),
         const SizedBox(height: 20),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.pushNamed(
+              context,
+              '/employee/leave',
+              arguments: 'requests',
+            ),
+            icon: const Icon(Icons.history_rounded, size: 18),
+            label: const Text('View History'),
+          ),
+        ),
+        const SizedBox(height: 12),
         _LeaveBalance(balances: balances),
         const SizedBox(height: 16),
         _LeaveForm(desktop: false, onSuccess: onRefresh),

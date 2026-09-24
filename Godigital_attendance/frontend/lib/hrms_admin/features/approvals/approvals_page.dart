@@ -590,17 +590,34 @@ class _ApprovalTabs extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) =>
-      LayoutBuilder(builder: (_, constraints) {
-        return SizedBox(
-          width: constraints.maxWidth < 600 ? constraints.maxWidth : 220,
-          child: _TabButton(
-              label: 'Leave Requests',
-              count: leaveCount,
-              active: true,
-              onTap: () => onChanged(true)),
-        );
-      });
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (_, constraints) {
+          final narrow = constraints.maxWidth < 600;
+          final tabs = [
+            Expanded(
+              child: _TabButton(
+                label: 'Leave Requests',
+                count: leaveCount,
+                active: leaveRequests,
+                onTap: () => onChanged(true),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _TabButton(
+                label: 'Attendance Requests',
+                count: extraCount,
+                active: !leaveRequests,
+                onTap: () => onChanged(false),
+              ),
+            ),
+          ];
+          return SizedBox(
+            width: narrow ? constraints.maxWidth : 470,
+            child: Row(children: tabs),
+          );
+        },
+      );
 }
 
 class _TabButton extends StatelessWidget {
