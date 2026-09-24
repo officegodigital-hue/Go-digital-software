@@ -613,6 +613,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
+      // 🟢 Login aanathum fresh-ah user profile data-va refresh seiya ithai add pannalam
+      await authService.refreshUserData();
+
+      if (!mounted) return;
+
       // Start a clean signed-in navigation stack.  This prevents an older
       // login route from appearing again when employees move between the
       // workspace and HRMS screens.

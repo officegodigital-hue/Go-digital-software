@@ -1,3 +1,4 @@
+// name=tasks_assign_screen.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -21,12 +22,6 @@ class TasksAssignScreen extends StatefulWidget {
 class _TasksAssignScreenState extends State<TasksAssignScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // 2050 TABLE SCROLL CONTROLLERS
-  // Separate controllers keep the frozen CLIENT column and the scrollable
-  // columns perfectly aligned without allowing the client column to move
-  // horizontally.
-  // ────────────────────────────────────────────────────────────────────────────
   final ScrollController _horizontalController = ScrollController();
   final ScrollController _verticalController = ScrollController();
   final ScrollController _leftVerticalController = ScrollController();
@@ -41,7 +36,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   List<Map<String, dynamic>> packagesList = [];
   bool _loadingPackages = true;
 
-  List<Map<String, dynamic>> allClientsData = []; // Store full client objects
+  List<Map<String, dynamic>> allClientsData = [];
   
   Map<String, String> taskRoles = {};
   bool _loadingRoles = true;
@@ -70,9 +65,6 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
     _adminName = context.read<AuthService>().user?['fullName'] as String? ?? 'Admin';
 
-    // Keep header + body horizontal positions locked together.
-
-    // Keep the frozen client column vertically aligned with the right-side rows.
     _leftVerticalController.addListener(_syncLeftToRight);
     _verticalController.addListener(_syncRightToLeft);
 
@@ -127,59 +119,30 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     ]);
   }
 
-  // ✅ FIXED: Fetch active clients from /api/clients and filter company_name where is_active == 1
-//   Future<void> _fetchClients() async {
-//   setState(() => _loadingClients = true);
-//   try {
-//     final r = await http.get(Uri.parse('$_baseUrl/clients'));
-//     if (r.statusCode == 200) {
-//       final body = jsonDecode(r.body);
-//       final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
-//       setState(() {
-//         allClientsData = data; // Keep full client data to check status later
-        
-//         // Active clients for dropdowns
-//         clients = data
-//             .where((c) => c['is_active'] == 1 || c['is_active'] == true)
-//             .map((c) => (c['company_name'] ?? '').toString().trim())
-//             .where((name) => name.isNotEmpty)
-//             .toSet()
-//             .toList()
-//           ..sort();
-//         _loadingClients = false;
-//       });
-//     } else {
-//       setState(() => _loadingClients = false);
-//     }
-//   } catch (e) {
-//     setState(() => _loadingClients = false);
-//   }
-// }
-
-Future<void> _fetchClients() async {
-  setState(() => _loadingClients = true);
-  try {
-    final r = await http.get(Uri.parse('$_baseUrl/clients/active-list')); // 🟢 Updated route
-    if (r.statusCode == 200) {
-      final body = jsonDecode(r.body);
-      final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
-      setState(() {
-        allClientsData = data; 
-        clients = data
-            .map((c) => (c['company_name'] ?? '').toString().trim())
-            .where((name) => name.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-        _loadingClients = false;
-      });
-    } else {
+  Future<void> _fetchClients() async {
+    setState(() => _loadingClients = true);
+    try {
+      final r = await http.get(Uri.parse('$_baseUrl/clients/active-list'));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
+        setState(() {
+          allClientsData = data; 
+          clients = data
+              .map((c) => (c['company_name'] ?? '').toString().trim())
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+          _loadingClients = false;
+        });
+      } else {
+        setState(() => _loadingClients = false);
+      }
+    } catch (e) {
       setState(() => _loadingClients = false);
     }
-  } catch (e) {
-    setState(() => _loadingClients = false);
   }
-}
 
   Future<void> _fetchPackagesData() async {
     setState(() => _loadingPackages = true);
@@ -313,26 +276,20 @@ Future<void> _fetchClients() async {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/employees'));
       if (r.statusCode == 200) {
-        // final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
-        // setState(() {
-        //   employees = data.map((e) => (e['full_name'] ?? '').toString().toUpperCase()).toList();
-        //   _loadingEmployees = false;
-        // });
-        final data =
-    List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+        final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
 
-setState(() {
-  employees = data
-      .where((e) =>
-          e['is_active'] == 1 ||
-          e['is_active'] == true)
-      .map((e) =>
-          (e['full_name'] ?? '').toString().toUpperCase())
-      .where((name) => name.isNotEmpty)
-      .toList();
+        setState(() {
+          employees = data
+              .where((e) =>
+                  e['is_active'] == 1 ||
+                  e['is_active'] == true)
+              .map((e) =>
+                  (e['full_name'] ?? '').toString().toUpperCase())
+              .where((name) => name.isNotEmpty)
+              .toList();
 
-  _loadingEmployees = false;
-});
+          _loadingEmployees = false;
+        });
       } else {
         setState(() => _loadingEmployees = false);
       }
@@ -382,1220 +339,1020 @@ setState(() {
     }
   }
 
-  // Future<void> _showTaskMasterDialog() async {
-  //   final roleController = TextEditingController();
-  //   final taskController = TextEditingController();
-  //   String newRoleName = '';
-  //   String selectedRole = taskRoles.entries.isNotEmpty ? taskRoles.entries.first.key : '';
-  //   String taskName = '';
-  //   bool isEditing = false;
-  //   int? editingTaskId;
+  Future<void> _showTaskMasterDialog() async {
+    final roleController = TextEditingController();
+    final taskController = TextEditingController();
 
-  //   await _fetchTaskRoles();
+    String newRoleName = '';
+    String selectedRole = taskRoles.entries.isNotEmpty
+        ? taskRoles.entries.first.key
+        : '';
 
-  //   await showDialog(
-  //     context: context,
-  //     barrierColor: Colors.black12,
-  //     builder: (ctx) => StatefulBuilder(
-  //       builder: (ctx, setDialogState) => Dialog(
-  //         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-  //         child: ConstrainedBox(
-  //           constraints: const BoxConstraints(maxWidth: 550, maxHeight: 750),
-  //           child: Column(
-  //             mainAxisSize: MainAxisSize.min,
-  //             crossAxisAlignment: CrossAxisAlignment.start,
-  //             children: [
-  //               Container(
-  //                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-  //                 decoration: const BoxDecoration(
-  //                   color: Color(0xFF0052CC),
-  //                   borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
-  //                 ),
-  //                 child: Row(
-  //                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  //                   children: [
-  //                     const Text('Task Master Manager', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
-  //                     GestureDetector(onTap: () => Navigator.pop(ctx), child: const Icon(Icons.close, size: 18, color: Colors.white)),
-  //                   ],
-  //                 ), 
-  //               ),
-  //               Expanded(
-  //                 child: SingleChildScrollView(
-  //                   child: Padding(
-  //                     padding: const EdgeInsets.all(16),
-  //                     child: Column(
-  //                       crossAxisAlignment: CrossAxisAlignment.start,
-  //                       children: [
-  //                         Container(
-  //                           padding: const EdgeInsets.all(12),
-  //                           decoration: BoxDecoration(
-  //                             color: const Color(0xFFFFF3CD),
-  //                             border: Border.all(color: const Color(0xFFFFD700)),
-  //                             borderRadius: BorderRadius.circular(6),
-  //                           ),
-  //                           child: Column(
-  //                             crossAxisAlignment: CrossAxisAlignment.start,
-  //                             children: [
-  //                               const Text('📌 Create New Task Role', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF856404))),
-  //                               const SizedBox(height: 12),
-  //                               const Text('Role Name:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-  //                               const SizedBox(height: 8),
-  //                               TextField(
-  //                                 controller: roleController,
-  //                                 onChanged: (val) => setDialogState(() => newRoleName = val),
-  //                                 decoration: InputDecoration(
-  //                                   hintText: 'e.g., Content Creator Task',
-  //                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-  //                                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-  //                                   filled: true,
-  //                                   fillColor: Colors.white,
-  //                                 ),
-  //                                 style: const TextStyle(fontSize: 11),
-  //                               ),
-  //                               const SizedBox(height: 12),
-  //                               Row(
-  //                                 children: [
-  //                                   const Spacer(),
-  //                                   ElevatedButton.icon(
-  //                                     onPressed: newRoleName.trim().isEmpty ? null : () async {
-  //                                       final roleKey = _toSnakeCase(newRoleName);
-  //                                       final success = await _addNewRoleToBackend(newRoleName, roleKey);
-  //                                       if (success) {
-  //                                         setDialogState(() {
-  //                                           roleController.clear();
-  //                                           newRoleName = '';
-  //                                           selectedRole = roleKey;
-  //                                         });
-  //                                       }
-  //                                     },
-  //                                     icon: const Icon(Icons.add, size: 16),
-  //                                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFA500)),
-  //                                     label: const Text('Add New Role', style: TextStyle(color: Colors.white, fontSize: 11)),
-  //                                   ),
-  //                                 ],
-  //                               ),
-  //                             ],
-  //                           ),
-  //                         ),
-  //                       ],
-  //                     ),
-  //                   ),
-  //                 ),
-  //               ),
-  //               Container(
-  //                 padding: const EdgeInsets.all(12),
-  //                 decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
-  //                 child: Row(
-  //                   mainAxisAlignment: MainAxisAlignment.end,
-  //                   children: [
-  //                     TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: Color(0xFF64748B)))),
-  //                   ],
-  //                 ),
-  //               ),
-  //             ],
-  //           ),
-  //         ),
-  //       ),
-  //     ),
-  //   );
-  //   roleController.dispose();
-  //   taskController.dispose();
-  // }
+    String taskName = '';
+    bool isEditing = false;
+    int? editingTaskId;
 
+    await _fetchTaskRoles();
 
-    // ── SHOW TASK MASTER MANAGEMENT DIALOG ──────────────────────────────────
- // ════════════════════════════════════════════════════════════════════════════
-// 2050 TASK MASTER MANAGER
-// Same visual language as User Role Master
-// Responsive + mobile friendly + safe internal scrolling
-// TABLE SCROLL CODE IS NOT TOUCHED
-// ════════════════════════════════════════════════════════════════════════════
-Future<void> _showTaskMasterDialog() async {
-  final roleController = TextEditingController();
-  final taskController = TextEditingController();
+    if (!mounted) return;
 
-  String newRoleName = '';
-  String selectedRole = taskRoles.entries.isNotEmpty
-      ? taskRoles.entries.first.key
-      : '';
+    if (selectedRole.isEmpty && taskRoles.isNotEmpty) {
+      selectedRole = taskRoles.entries.first.key;
+    }
 
-  String taskName = '';
-  bool isEditing = false;
-  int? editingTaskId;
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.48),
+      builder: (dialogContext) {
+        final screenSize = MediaQuery.of(dialogContext).size;
+        final isMobile = screenSize.width < 600;
 
-  await _fetchTaskRoles();
+        final dialogWidth = isMobile
+            ? screenSize.width - 24
+            : screenSize.width > 1000
+                ? 620.0
+                : 560.0;
 
-  if (!mounted) return;
+        final dialogHeight = isMobile
+            ? screenSize.height * 0.88
+            : screenSize.height > 850
+                ? 720.0
+                : screenSize.height * 0.84;
 
-  // After fresh API fetch, make sure selected role is valid.
-  if (selectedRole.isEmpty && taskRoles.isNotEmpty) {
-    selectedRole = taskRoles.entries.first.key;
-  }
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            final roleTaskList = getTasksForRole(selectedRole);
 
-  await showDialog(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.48),
-    builder: (dialogContext) {
-      final screenSize = MediaQuery.of(dialogContext).size;
-      final isMobile = screenSize.width < 600;
-
-      final dialogWidth = isMobile
-          ? screenSize.width - 24
-          : screenSize.width > 1000
-              ? 620.0
-              : 560.0;
-
-      final dialogHeight = isMobile
-          ? screenSize.height * 0.88
-          : screenSize.height > 850
-              ? 720.0
-              : screenSize.height * 0.84;
-
-      return StatefulBuilder(
-        builder: (dialogContext, setDialogState) {
-          final roleTaskList = getTasksForRole(selectedRole);
-
-          return Dialog(
-            insetPadding: EdgeInsets.symmetric(
-              horizontal: isMobile ? 12 : 24,
-              vertical: isMobile ? 14 : 24,
-            ),
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            child: SizedBox(
-              width: dialogWidth,
-              height: dialogHeight,
-              child: Material(
-                color: Colors.white,
-                clipBehavior: Clip.antiAlias,
-                borderRadius: BorderRadius.circular(
-                  isMobile ? 26 : 28,
-                ),
-                child: Column(
-                  children: [
-
-                    // ═══════════════════════════════════════════════════════
-                    // HEADER
-                    // ═══════════════════════════════════════════════════════
-                    Container(
-                      padding: EdgeInsets.fromLTRB(
-                        isMobile ? 18 : 24,
-                        isMobile ? 18 : 20,
-                        isMobile ? 14 : 18,
-                        isMobile ? 18 : 20,
-                      ),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFF0759D5),
-                            Color(0xFF0042A8),
+            return Dialog(
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 12 : 24,
+                vertical: isMobile ? 14 : 24,
+              ),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: SizedBox(
+                width: dialogWidth,
+                height: dialogHeight,
+                child: Material(
+                  color: Colors.white,
+                  clipBehavior: Clip.antiAlias,
+                  borderRadius: BorderRadius.circular(
+                    isMobile ? 26 : 28,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.fromLTRB(
+                          isMobile ? 18 : 24,
+                          isMobile ? 18 : 20,
+                          isMobile ? 14 : 18,
+                          isMobile ? 18 : 20,
+                        ),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Color(0xFF0759D5),
+                              Color(0xFF0042A8),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: isMobile ? 46 : 52,
+                              height: isMobile ? 46 : 52,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.assignment_rounded,
+                                color: Colors.white,
+                                size: 27,
+                              ),
+                            ),
+                            const SizedBox(width: 13),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Task Master Manager',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: -.3,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Create roles and manage tasks',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Close',
+                              onPressed: () {
+                                Navigator.pop(dialogContext);
+                              },
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 27,
+                              ),
+                            ),
                           ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
                         ),
                       ),
-                      child: Row(
-                        children: [
-
-                          Container(
-                            width: isMobile ? 46 : 52,
-                            height: isMobile ? 46 : 52,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(16),
+                      Expanded(
+                        child: Scrollbar(
+                          thumbVisibility: !isMobile,
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.fromLTRB(
+                              isMobile ? 16 : 24,
+                              20,
+                              isMobile ? 16 : 24,
+                              24,
                             ),
-                            child: const Icon(
-                              Icons.assignment_rounded,
-                              color: Colors.white,
-                              size: 27,
-                            ),
-                          ),
-
-                          const SizedBox(width: 13),
-
-                          const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Task Master Manager',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                    letterSpacing: -.3,
+                                _taskMasterSectionCard(
+                                  icon: Icons.push_pin_rounded,
+                                  title: 'Create New Task Role',
+                                  subtitle:
+                                      'Create a new role for organising task types.',
+                                  iconBackground: const Color(0xFFFFF1C7),
+                                  iconColor: const Color(0xFFD97706),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Role Name',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF334155),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 7),
+                                      _taskMasterTextField(
+                                        controller: roleController,
+                                        hint:
+                                            'e.g. Content Creator Task',
+                                        icon: Icons.badge_outlined,
+                                        onChanged: (value) {
+                                          setDialogState(() {
+                                            newRoleName = value;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.auto_awesome_rounded,
+                                            size: 13,
+                                            color: Color(0xFF94A3B8),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          Expanded(
+                                            child: Text(
+                                              newRoleName.trim().isEmpty
+                                                  ? 'Role key will auto-generate in snake_case'
+                                                  : 'Key: ${_toSnakeCase(newRoleName)}',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: Color(0xFF64748B),
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 14),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton.icon(
+                                          onPressed:
+                                              newRoleName.trim().isEmpty
+                                                  ? null
+                                                  : () async {
+                                                      final roleName =
+                                                          newRoleName.trim();
+
+                                                      final roleKey =
+                                                          _toSnakeCase(
+                                                        roleName,
+                                                      );
+
+                                                      final success =
+                                                          await _addNewRoleToBackend(
+                                                        roleName,
+                                                        roleKey,
+                                                      );
+
+                                                      if (!mounted) return;
+
+                                                      if (success) {
+                                                        await _fetchTaskRoles();
+
+                                                        setDialogState(() {
+                                                          roleController.clear();
+                                                          newRoleName = '';
+                                                          selectedRole = roleKey;
+
+                                                          if (!taskRoles
+                                                              .containsKey(
+                                                                  selectedRole)) {
+                                                            selectedRole =
+                                                                taskRoles
+                                                                        .isNotEmpty
+                                                                    ? taskRoles
+                                                                        .entries
+                                                                        .first
+                                                                        .key
+                                                                    : '';
+                                                          }
+                                                        });
+
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              'Role "$roleName" created successfully.',
+                                                            ),
+                                                            backgroundColor:
+                                                                const Color(
+                                                                    0xFF16A34A),
+                                                          ),
+                                                        );
+                                                      }
+                                                    },
+                                          icon: const Icon(
+                                            Icons.add_rounded,
+                                            size: 19,
+                                          ),
+                                          label: const Text(
+                                            'Add New Role',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                const Color(0xFF0052CC),
+                                            foregroundColor: Colors.white,
+                                            disabledBackgroundColor:
+                                                const Color(0xFFE2E8F0),
+                                            disabledForegroundColor:
+                                                const Color(0xFF94A3B8),
+                                            elevation: 0,
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                              vertical: 14,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                SizedBox(height: 3),
-                                Text(
-                                  'Create roles and manage tasks',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.white70,
-                                    fontWeight: FontWeight.w500,
+                                const SizedBox(height: 18),
+                                _taskMasterSectionCard(
+                                  icon: Icons.tune_rounded,
+                                  title: 'Manage Tasks for Role',
+                                  subtitle:
+                                      'Add, edit and remove tasks under a role.',
+                                  iconBackground: const Color(0xFFEFF6FF),
+                                  iconColor: const Color(0xFF0052CC),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Select Task Role',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF334155),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 7),
+                                      Container(
+                                        height: 52,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 13,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFC),
+                                          borderRadius:
+                                              BorderRadius.circular(13),
+                                          border: Border.all(
+                                            color: const Color(0xFFDCE5F0),
+                                          ),
+                                        ),
+                                        child:
+                                            DropdownButtonHideUnderline(
+                                          child: DropdownButton<String>(
+                                            value: taskRoles.containsKey(
+                                              selectedRole,
+                                            )
+                                                ? selectedRole
+                                                : taskRoles.isNotEmpty
+                                                    ? taskRoles
+                                                        .entries
+                                                        .first
+                                                        .key
+                                                    : null,
+                                            isExpanded: true,
+                                            icon: const Icon(
+                                              Icons
+                                                  .keyboard_arrow_down_rounded,
+                                              color: Color(0xFF64748B),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                            dropdownColor: Colors.white,
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                            items: taskRoles.entries
+                                                .map(
+                                                  (entry) =>
+                                                      DropdownMenuItem<String>(
+                                                    value: entry.key,
+                                                    child: Text(
+                                                      entry.value,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
+                                            onChanged: (value) {
+                                              if (value == null) return;
+
+                                              setDialogState(() {
+                                                selectedRole = value;
+                                                taskController.clear();
+                                                taskName = '';
+                                                isEditing = false;
+                                                editingTaskId = null;
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        'Task Name',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF334155),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 7),
+                                      _taskMasterTextField(
+                                        controller: taskController,
+                                        hint:
+                                            'Enter task name e.g. Poster, Video, Reels',
+                                        icon: Icons.task_alt_rounded,
+                                        onChanged: (value) {
+                                          setDialogState(() {
+                                            taskName = value;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 18),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEFF6FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: const Icon(
+                                              Icons.list_alt_rounded,
+                                              size: 17,
+                                              color: Color(0xFF0052CC),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 9),
+                                          const Expanded(
+                                            child: Text(
+                                              'Existing Tasks',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF0F172A),
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                              horizontal: 9,
+                                              vertical: 5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEFF6FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              '${roleTaskList.length}',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w900,
+                                                color: Color(0xFF0052CC),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        constraints: BoxConstraints(
+                                          maxHeight: isMobile ? 250 : 280,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFC),
+                                          borderRadius:
+                                              BorderRadius.circular(15),
+                                          border: Border.all(
+                                            color: const Color(0xFFE2E8F0),
+                                          ),
+                                        ),
+                                        child: roleTaskList.isEmpty
+                                            ? const Center(
+                                                child: Padding(
+                                                  padding:
+                                                      EdgeInsets.all(30),
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons
+                                                            .inventory_2_outlined,
+                                                        size: 34,
+                                                        color:
+                                                            Color(0xFFCBD5E1),
+                                                      ),
+                                                      SizedBox(height: 9),
+                                                      Text(
+                                                        'No tasks yet',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color:
+                                                              Color(0xFF64748B),
+                                                        ),
+                                                      ),
+                                                      SizedBox(height: 3),
+                                                      Text(
+                                                        'Add a task using the field above.',
+                                                        textAlign:
+                                                            TextAlign.center,
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          color:
+                                                              Color(0xFF94A3B8),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              )
+                                            : Scrollbar(
+                                                thumbVisibility: !isMobile,
+                                                child: ListView.separated(
+                                                  padding:
+                                                      const EdgeInsets.all(9),
+                                                  itemCount:
+                                                      roleTaskList.length,
+                                                  separatorBuilder:
+                                                      (_, _) =>
+                                                          const SizedBox(
+                                                              height: 7),
+                                                  itemBuilder:
+                                                      (context, index) {
+                                                    final task =
+                                                        roleTaskList[index];
+
+                                                    final id = task['id'];
+                                                    final name =
+                                                        (task['task_name'] ??
+                                                                '')
+                                                            .toString();
+
+                                                    return Container(
+                                                      padding:
+                                                          const EdgeInsets
+                                                              .symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 10,
+                                                      ),
+                                                      decoration:
+                                                          BoxDecoration(
+                                                        color: Colors.white,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(12),
+                                                        border: Border.all(
+                                                          color: const Color(
+                                                              0xFFE2E8F0),
+                                                        ),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Container(
+                                                            width: 36,
+                                                            height: 36,
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color:
+                                                                  const Color(
+                                                                      0xFFEFF6FF),
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          10),
+                                                            ),
+                                                            child: const Icon(
+                                                              Icons
+                                                                  .checklist_rounded,
+                                                              size: 18,
+                                                              color: Color(
+                                                                  0xFF0052CC),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                              width: 10),
+                                                          Expanded(
+                                                            child: Text(
+                                                              name,
+                                                              maxLines: 2,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style:
+                                                                  const TextStyle(
+                                                                fontSize: 12,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                color: Color(
+                                                                    0xFF0F172A),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                              width: 6),
+                                                          IconButton(
+                                                            tooltip: 'Edit',
+                                                            onPressed: () {
+                                                              setDialogState(
+                                                                () {
+                                                                  taskName =
+                                                                      name;
+                                                                  taskController
+                                                                          .text =
+                                                                      name;
+                                                                  isEditing =
+                                                                      true;
+                                                                  editingTaskId =
+                                                                      id;
+                                                                },
+                                                              );
+                                                            },
+                                                            icon: const Icon(
+                                                              Icons
+                                                                  .edit_rounded,
+                                                              size: 18,
+                                                              color: Color(
+                                                                  0xFF0052CC),
+                                                            ),
+                                                          ),
+                                                          IconButton(
+                                                            tooltip: 'Delete',
+                                                            onPressed: () async {
+                                                              final confirmed =
+                                                                  await showDialog<
+                                                                      bool>(
+                                                                context:
+                                                                    dialogContext,
+                                                                builder:
+                                                                    (confirmContext) {
+                                                                  return AlertDialog(
+                                                                    shape:
+                                                                        RoundedRectangleBorder(
+                                                                      borderRadius:
+                                                                          BorderRadius.circular(
+                                                                              18),
+                                                                    ),
+                                                                    title:
+                                                                        const Text(
+                                                                      'Delete Task?',
+                                                                      style:
+                                                                          TextStyle(
+                                                                        fontSize:
+                                                                            17,
+                                                                        fontWeight:
+                                                                            FontWeight.w800,
+                                                                      ),
+                                                                    ),
+                                                                    content:
+                                                                        Text(
+                                                                      'Remove "$name" from this role?',
+                                                                      style:
+                                                                          const TextStyle(
+                                                                        fontSize:
+                                                                            12,
+                                                                        color: Color(
+                                                                            0xFF64748B),
+                                                                      ),
+                                                                    ),
+                                                                    actions: [
+                                                                      TextButton(
+                                                                        onPressed:
+                                                                            () =>
+                                                                                Navigator.pop(confirmContext, false),
+                                                                        child:
+                                                                            const Text(
+                                                                          'Cancel',
+                                                                        ),
+                                                                      ),
+                                                                      ElevatedButton(
+                                                                        onPressed:
+                                                                            () =>
+                                                                                Navigator.pop(confirmContext, true),
+                                                                        style:
+                                                                            ElevatedButton.styleFrom(
+                                                                          backgroundColor:
+                                                                              const Color(0xFFDC2626),
+                                                                          foregroundColor:
+                                                                              Colors.white,
+                                                                        ),
+                                                                        child:
+                                                                            const Text(
+                                                                          'Delete',
+                                                                        ),
+                                                                      ),
+                                                                    ],
+                                                                  );
+                                                                },
+                                                              );
+
+                                                              if (confirmed !=
+                                                                  true) {
+                                                                return;
+                                                              }
+
+                                                              await _deleteTask(
+                                                                  id);
+                                                              await _fetchTaskMaster();
+
+                                                              setDialogState(() {
+                                                                taskController
+                                                                    .clear();
+                                                                taskName = '';
+                                                                isEditing = false;
+                                                                editingTaskId =
+                                                                    null;
+                                                              });
+                                                            },
+                                                            icon: const Icon(
+                                                              Icons
+                                                                  .delete_outline_rounded,
+                                                              size: 19,
+                                                              color: Color(
+                                                                  0xFFDC2626),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                              ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
                           ),
-
-                          IconButton(
-                            tooltip: 'Close',
-                            onPressed: () {
-                              Navigator.pop(dialogContext);
-                            },
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: Colors.white,
-                              size: 27,
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.fromLTRB(
+                          isMobile ? 16 : 24,
+                          12,
+                          isMobile ? 16 : 24,
+                          14,
+                        ),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          border: Border(
+                            top: BorderSide(
+                              color: Color(0xFFE2E8F0),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-
-                    // ═══════════════════════════════════════════════════════
-                    // SCROLLABLE CONTENT
-                    // ═══════════════════════════════════════════════════════
-                    Expanded(
-                      child: Scrollbar(
-                        thumbVisibility: !isMobile,
-                        child: SingleChildScrollView(
-                          padding: EdgeInsets.fromLTRB(
-                            isMobile ? 16 : 24,
-                            20,
-                            isMobile ? 16 : 24,
-                            24,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                        ),
+                        child: SafeArea(
+                          top: false,
+                          child: Row(
                             children: [
-
-                              // ═══════════════════════════════════════════
-                              // CREATE NEW ROLE
-                              // ═══════════════════════════════════════════
-                              _taskMasterSectionCard(
-                                icon: Icons.push_pin_rounded,
-                                title: 'Create New Task Role',
-                                subtitle:
-                                    'Create a new role for organising task types.',
-                                iconBackground: const Color(0xFFFFF1C7),
-                                iconColor: const Color(0xFFD97706),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-
-                                    const Text(
-                                      'Role Name',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF334155),
-                                      ),
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    Navigator.pop(dialogContext);
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor:
+                                        const Color(0xFF64748B),
+                                    side: const BorderSide(
+                                      color: Color(0xFFD7E0EA),
                                     ),
-
-                                    const SizedBox(height: 7),
-
-                                    _taskMasterTextField(
-                                      controller: roleController,
-                                      hint:
-                                          'e.g. Content Creator Task',
-                                      icon: Icons.badge_outlined,
-                                      onChanged: (value) {
-                                        setDialogState(() {
-                                          newRoleName = value;
-                                        });
-                                      },
+                                    padding:
+                                        const EdgeInsets.symmetric(
+                                      vertical: 13,
                                     ),
-
-                                    const SizedBox(height: 8),
-
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.auto_awesome_rounded,
-                                          size: 13,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Expanded(
-                                          child: Text(
-                                            newRoleName.trim().isEmpty
-                                                ? 'Role key will auto-generate in snake_case'
-                                                : 'Key: ${_toSnakeCase(newRoleName)}',
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                              color: Color(0xFF64748B),
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(12),
                                     ),
-
-                                    const SizedBox(height: 14),
-
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        onPressed:
-                                            newRoleName.trim().isEmpty
-                                                ? null
-                                                : () async {
-                                                    final roleName =
-                                                        newRoleName.trim();
-
-                                                    final roleKey =
-                                                        _toSnakeCase(
-                                                      roleName,
-                                                    );
-
-                                                    final success =
-                                                        await _addNewRoleToBackend(
-                                                      roleName,
-                                                      roleKey,
-                                                    );
-
-                                                    if (!mounted) return;
-
-                                                    if (success) {
-                                                      await _fetchTaskRoles();
-
-                                                      setDialogState(() {
-                                                        roleController.clear();
-                                                        newRoleName = '';
-                                                        selectedRole = roleKey;
-
-                                                        if (!taskRoles
-                                                            .containsKey(
-                                                                selectedRole)) {
-                                                          selectedRole =
-                                                              taskRoles
-                                                                      .isNotEmpty
-                                                                  ? taskRoles
-                                                                      .entries
-                                                                      .first
-                                                                      .key
-                                                                  : '';
-                                                        }
-                                                      });
-
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            'Role "$roleName" created successfully.',
-                                                          ),
-                                                          backgroundColor:
-                                                              const Color(
-                                                                  0xFF16A34A),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                        icon: const Icon(
-                                          Icons.add_rounded,
-                                          size: 19,
-                                        ),
-                                        label: const Text(
-                                          'Add New Role',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              const Color(0xFF0052CC),
-                                          foregroundColor: Colors.white,
-                                          disabledBackgroundColor:
-                                              const Color(0xFFE2E8F0),
-                                          disabledForegroundColor:
-                                              const Color(0xFF94A3B8),
-                                          elevation: 0,
-                                          padding:
-                                              const EdgeInsets.symmetric(
-                                            vertical: 14,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                      ),
+                                  ),
+                                  child: const Text(
+                                    'Close',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  ],
+                                  ),
                                 ),
                               ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                flex: 2,
+                                child: ElevatedButton.icon(
+                                  onPressed: taskName.trim().isEmpty
+                                      ? null
+                                      : () async {
+                                          final currentName =
+                                              taskName.trim();
 
-                              const SizedBox(height: 18),
+                                          final wasEditing = isEditing;
 
-                              // ═══════════════════════════════════════════
-                              // MANAGE TASKS
-                              // ═══════════════════════════════════════════
-                              _taskMasterSectionCard(
-                                icon: Icons.tune_rounded,
-                                title: 'Manage Tasks for Role',
-                                subtitle:
-                                    'Add, edit and remove tasks under a role.',
-                                iconBackground: const Color(0xFFEFF6FF),
-                                iconColor: const Color(0xFF0052CC),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
+                                          if (wasEditing &&
+                                              editingTaskId != null) {
+                                            await _updateTask(
+                                              editingTaskId!,
+                                              currentName,
+                                              selectedRole,
+                                            );
+                                          } else {
+                                            await _addNewTask(
+                                              currentName,
+                                              selectedRole,
+                                            );
+                                          }
 
-                                    const Text(
-                                      'Select Task Role',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF334155),
-                                      ),
-                                    ),
+                                          await _fetchTaskMaster();
 
-                                    const SizedBox(height: 7),
+                                          setDialogState(() {
+                                            taskController.clear();
+                                            taskName = '';
+                                            isEditing = false;
+                                            editingTaskId = null;
+                                          });
 
-                                    Container(
-                                      height: 52,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 13,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF8FAFC),
-                                        borderRadius:
-                                            BorderRadius.circular(13),
-                                        border: Border.all(
-                                          color: const Color(0xFFDCE5F0),
-                                        ),
-                                      ),
-                                      child:
-                                          DropdownButtonHideUnderline(
-                                        child: DropdownButton<String>(
-                                          value: taskRoles.containsKey(
-                                            selectedRole,
-                                          )
-                                              ? selectedRole
-                                              : taskRoles.isNotEmpty
-                                                  ? taskRoles
-                                                      .entries
-                                                      .first
-                                                      .key
-                                                  : null,
-                                          isExpanded: true,
-                                          icon: const Icon(
-                                            Icons
-                                                .keyboard_arrow_down_rounded,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                          dropdownColor: Colors.white,
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                          items: taskRoles.entries
-                                              .map(
-                                                (entry) =>
-                                                    DropdownMenuItem<String>(
-                                                  value: entry.key,
-                                                  child: Text(
-                                                    entry.value,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  wasEditing
+                                                      ? 'Task updated successfully.'
+                                                      : 'Task added successfully.',
                                                 ),
-                                              )
-                                              .toList(),
-                                          onChanged: (value) {
-                                            if (value == null) return;
-
-                                            setDialogState(() {
-                                              selectedRole = value;
-                                              taskController.clear();
-                                              taskName = '';
-                                              isEditing = false;
-                                              editingTaskId = null;
-                                            });
-                                          },
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 16),
-
-                                    // TASK NAME
-                                    const Text(
-                                      'Task Name',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF334155),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 7),
-
-                                    _taskMasterTextField(
-                                      controller: taskController,
-                                      hint:
-                                          'Enter task name e.g. Poster, Video, Reels',
-                                      icon: Icons.task_alt_rounded,
-                                      onChanged: (value) {
-                                        setDialogState(() {
-                                          taskName = value;
-                                        });
-                                      },
-                                    ),
-
-                                    const SizedBox(height: 18),
-
-                                    // EXISTING TASKS HEADER
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 32,
-                                          height: 32,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFEFF6FF),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: const Icon(
-                                            Icons.list_alt_rounded,
-                                            size: 17,
-                                            color: Color(0xFF0052CC),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 9),
-                                        const Expanded(
-                                          child: Text(
-                                            'Existing Tasks',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF0F172A),
-                                            ),
-                                          ),
-                                        ),
-                                        Container(
-                                          padding:
-                                              const EdgeInsets.symmetric(
-                                            horizontal: 9,
-                                            vertical: 5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFEFF6FF),
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                          ),
-                                          child: Text(
-                                            '${roleTaskList.length}',
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w900,
-                                              color: Color(0xFF0052CC),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-
-                                    const SizedBox(height: 10),
-
-                                    // EXISTING TASK LIST
-                                    Container(
-                                      constraints: BoxConstraints(
-                                        maxHeight: isMobile ? 250 : 280,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF8FAFC),
-                                        borderRadius:
-                                            BorderRadius.circular(15),
-                                        border: Border.all(
-                                          color: const Color(0xFFE2E8F0),
-                                        ),
-                                      ),
-                                      child: roleTaskList.isEmpty
-                                          ? const Center(
-                                              child: Padding(
-                                                padding:
-                                                    EdgeInsets.all(30),
-                                                child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Icon(
-                                                      Icons
-                                                          .inventory_2_outlined,
-                                                      size: 34,
-                                                      color:
-                                                          Color(0xFFCBD5E1),
-                                                    ),
-                                                    SizedBox(height: 9),
-                                                    Text(
-                                                      'No tasks yet',
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color:
-                                                            Color(0xFF64748B),
-                                                      ),
-                                                    ),
-                                                    SizedBox(height: 3),
-                                                    Text(
-                                                      'Add a task using the field above.',
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        color:
-                                                            Color(0xFF94A3B8),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
+                                                backgroundColor:
+                                                    const Color(0xFF16A34A),
                                               ),
-                                            )
-                                          : Scrollbar(
-                                              thumbVisibility: !isMobile,
-                                              child: ListView.separated(
-                                                padding:
-                                                    const EdgeInsets.all(9),
-                                                itemCount:
-                                                    roleTaskList.length,
-                                                separatorBuilder:
-                                                    (_, _) =>
-                                                        const SizedBox(
-                                                            height: 7),
-                                                itemBuilder:
-                                                    (context, index) {
-                                                  final task =
-                                                      roleTaskList[index];
-
-                                                  final id = task['id'];
-                                                  final name =
-                                                      (task['task_name'] ??
-                                                              '')
-                                                          .toString();
-
-                                                  return Container(
-                                                    padding:
-                                                        const EdgeInsets
-                                                            .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 10,
-                                                    ),
-                                                    decoration:
-                                                        BoxDecoration(
-                                                      color: Colors.white,
-                                                      borderRadius:
-                                                          BorderRadius
-                                                              .circular(12),
-                                                      border: Border.all(
-                                                        color: const Color(
-                                                            0xFFE2E8F0),
-                                                      ),
-                                                    ),
-                                                    child: Row(
-                                                      children: [
-
-                                                        Container(
-                                                          width: 36,
-                                                          height: 36,
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color:
-                                                                const Color(
-                                                                    0xFFEFF6FF),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        10),
-                                                          ),
-                                                          child: const Icon(
-                                                            Icons
-                                                                .checklist_rounded,
-                                                            size: 18,
-                                                            color: Color(
-                                                                0xFF0052CC),
-                                                          ),
-                                                        ),
-
-                                                        const SizedBox(
-                                                            width: 10),
-
-                                                        Expanded(
-                                                          child: Text(
-                                                            name,
-                                                            maxLines: 2,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style:
-                                                                const TextStyle(
-                                                              fontSize: 12,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              color: Color(
-                                                                  0xFF0F172A),
-                                                            ),
-                                                          ),
-                                                        ),
-
-                                                        const SizedBox(
-                                                            width: 6),
-
-                                                        IconButton(
-                                                          tooltip: 'Edit',
-                                                          onPressed: () {
-                                                            setDialogState(
-                                                              () {
-                                                                taskName =
-                                                                    name;
-                                                                taskController
-                                                                        .text =
-                                                                    name;
-                                                                isEditing =
-                                                                    true;
-                                                                editingTaskId =
-                                                                    id;
-                                                              },
-                                                            );
-                                                          },
-                                                          icon: const Icon(
-                                                            Icons
-                                                                .edit_rounded,
-                                                            size: 18,
-                                                            color: Color(
-                                                                0xFF0052CC),
-                                                          ),
-                                                        ),
-
-                                                        IconButton(
-                                                          tooltip: 'Delete',
-                                                          onPressed: () async {
-                                                            final confirmed =
-                                                                await showDialog<
-                                                                    bool>(
-                                                              context:
-                                                                  dialogContext,
-                                                              builder:
-                                                                  (confirmContext) {
-                                                                return AlertDialog(
-                                                                  shape:
-                                                                      RoundedRectangleBorder(
-                                                                    borderRadius:
-                                                                        BorderRadius.circular(
-                                                                            18),
-                                                                  ),
-                                                                  title:
-                                                                      const Text(
-                                                                    'Delete Task?',
-                                                                    style:
-                                                                        TextStyle(
-                                                                      fontSize:
-                                                                          17,
-                                                                      fontWeight:
-                                                                          FontWeight.w800,
-                                                                    ),
-                                                                  ),
-                                                                  content:
-                                                                      Text(
-                                                                    'Remove "$name" from this role?',
-                                                                    style:
-                                                                        const TextStyle(
-                                                                      fontSize:
-                                                                          12,
-                                                                      color: Color(
-                                                                          0xFF64748B),
-                                                                    ),
-                                                                  ),
-                                                                  actions: [
-                                                                    TextButton(
-                                                                      onPressed:
-                                                                          () =>
-                                                                              Navigator.pop(confirmContext, false),
-                                                                      child:
-                                                                          const Text(
-                                                                        'Cancel',
-                                                                      ),
-                                                                    ),
-                                                                    ElevatedButton(
-                                                                      onPressed:
-                                                                          () =>
-                                                                              Navigator.pop(confirmContext, true),
-                                                                      style:
-                                                                          ElevatedButton.styleFrom(
-                                                                        backgroundColor:
-                                                                            const Color(0xFFDC2626),
-                                                                        foregroundColor:
-                                                                            Colors.white,
-                                                                      ),
-                                                                      child:
-                                                                          const Text(
-                                                                        'Delete',
-                                                                      ),
-                                                                    ),
-                                                                  ],
-                                                                );
-                                                              },
-                                                            );
-
-                                                            if (confirmed !=
-                                                                true) {
-                                                              return;
-                                                            }
-
-                                                            await _deleteTask(
-                                                                id);
-                                                            await _fetchTaskMaster();
-
-                                                            setDialogState(() {
-                                                              taskController
-                                                                  .clear();
-                                                              taskName = '';
-                                                              isEditing = false;
-                                                              editingTaskId =
-                                                                  null;
-                                                            });
-                                                          },
-                                                          icon: const Icon(
-                                                            Icons
-                                                                .delete_outline_rounded,
-                                                            size: 19,
-                                                            color: Color(
-                                                                0xFFDC2626),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ),
+                                            );
+                                          }
+                                        },
+                                  icon: Icon(
+                                    isEditing
+                                        ? Icons.update_rounded
+                                        : Icons.add_task_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    isEditing
+                                        ? 'Update Task'
+                                        : 'Add Task',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
                                     ),
-                                  ],
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor:
+                                        const Color(0xFF0052CC),
+                                    foregroundColor: Colors.white,
+                                    disabledBackgroundColor:
+                                        const Color(0xFFE2E8F0),
+                                    disabledForegroundColor:
+                                        const Color(0xFF94A3B8),
+                                    elevation: 0,
+                                    padding:
+                                        const EdgeInsets.symmetric(
+                                      vertical: 13,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(12),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    roleController.dispose();
+    taskController.dispose();
+  }
+
+  Widget _taskMasterSectionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color iconBackground,
+    required Color iconColor,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: .035),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: iconBackground,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: iconColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
-
-                    // ═══════════════════════════════════════════════════════
-                    // FOOTER
-                    // ═══════════════════════════════════════════════════════
-                    Container(
-                      padding: EdgeInsets.fromLTRB(
-                        isMobile ? 16 : 24,
-                        12,
-                        isMobile ? 16 : 24,
-                        14,
-                      ),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        border: Border(
-                          top: BorderSide(
-                            color: Color(0xFFE2E8F0),
-                          ),
-                        ),
-                      ),
-                      child: SafeArea(
-                        top: false,
-                        child: Row(
-                          children: [
-
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  Navigator.pop(dialogContext);
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor:
-                                      const Color(0xFF64748B),
-                                  side: const BorderSide(
-                                    color: Color(0xFFD7E0EA),
-                                  ),
-                                  padding:
-                                      const EdgeInsets.symmetric(
-                                    vertical: 13,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Close',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(width: 10),
-
-                            Expanded(
-                              flex: 2,
-                              child: ElevatedButton.icon(
-                                onPressed: taskName.trim().isEmpty
-                                    ? null
-                                    : () async {
-                                        final currentName =
-                                            taskName.trim();
-
-                                        final wasEditing = isEditing;
-
-                                        if (wasEditing &&
-                                            editingTaskId != null) {
-                                          await _updateTask(
-                                            editingTaskId!,
-                                            currentName,
-                                            selectedRole,
-                                          );
-                                        } else {
-                                          await _addNewTask(
-                                            currentName,
-                                            selectedRole,
-                                          );
-                                        }
-
-                                        await _fetchTaskMaster();
-
-                                        setDialogState(() {
-                                          taskController.clear();
-                                          taskName = '';
-                                          isEditing = false;
-                                          editingTaskId = null;
-                                        });
-
-                                        if (mounted) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                wasEditing
-                                                    ? 'Task updated successfully.'
-                                                    : 'Task added successfully.',
-                                              ),
-                                              backgroundColor:
-                                                  const Color(0xFF16A34A),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                icon: Icon(
-                                  isEditing
-                                      ? Icons.update_rounded
-                                      : Icons.add_task_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  isEditing
-                                      ? 'Update Task'
-                                      : 'Add Task',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      const Color(0xFF0052CC),
-                                  foregroundColor: Colors.white,
-                                  disabledBackgroundColor:
-                                      const Color(0xFFE2E8F0),
-                                  disabledForegroundColor:
-                                      const Color(0xFF94A3B8),
-                                  elevation: 0,
-                                  padding:
-                                      const EdgeInsets.symmetric(
-                                    vertical: 13,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF94A3B8),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          );
-        },
-      );
-    },
-  );
-
-  // IMPORTANT:
-  // Dispose only AFTER the dialog is completely closed.
-  roleController.dispose();
-  taskController.dispose();
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// TASK MASTER SECTION CARD
-// ════════════════════════════════════════════════════════════════════════════
-Widget _taskMasterSectionCard({
-  required IconData icon,
-  required String title,
-  required String subtitle,
-  required Color iconBackground,
-  required Color iconColor,
-  required Widget child,
-}) {
-  return Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(
-        color: const Color(0xFFE2E8F0),
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
       ),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFF0F172A).withValues(alpha: .035),
-          blurRadius: 16,
-          offset: const Offset(0, 5),
+    );
+  }
+
+  Widget _taskMasterTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    required ValueChanged<String> onChanged,
+  }) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.next,
+      style: const TextStyle(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF0F172A),
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(
+          fontSize: 11.5,
+          color: Color(0xFF94A3B8),
         ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-
-        Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: iconBackground,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Icon(
-                icon,
-                size: 19,
-                color: iconColor,
-              ),
-            ),
-
-            const SizedBox(width: 10),
-
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF94A3B8),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        prefixIcon: Icon(
+          icon,
+          size: 18,
+          color: const Color(0xFF0052CC),
         ),
-
-        const SizedBox(height: 16),
-
-        child,
-      ],
-    ),
-  );
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// TASK MASTER TEXT FIELD
-// ════════════════════════════════════════════════════════════════════════════
-Widget _taskMasterTextField({
-  required TextEditingController controller,
-  required String hint,
-  required IconData icon,
-  required ValueChanged<String> onChanged,
-}) {
-  return TextField(
-    controller: controller,
-    onChanged: onChanged,
-    textInputAction: TextInputAction.next,
-    style: const TextStyle(
-      fontSize: 12.5,
-      fontWeight: FontWeight.w500,
-      color: Color(0xFF0F172A),
-    ),
-    decoration: InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(
-        fontSize: 11.5,
-        color: Color(0xFF94A3B8),
-      ),
-      prefixIcon: Icon(
-        icon,
-        size: 18,
-        color: const Color(0xFF0052CC),
-      ),
-      filled: true,
-      fillColor: const Color(0xFFF8FAFC),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 13,
-        vertical: 14,
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(13),
-        borderSide: const BorderSide(
-          color: Color(0xFFDCE5F0),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 13,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(13),
+          borderSide: const BorderSide(
+            color: Color(0xFFDCE5F0),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(13),
+          borderSide: const BorderSide(
+            color: Color(0xFFDCE5F0),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(13),
+          borderSide: const BorderSide(
+            color: Color(0xFF0052CC),
+            width: 1.5,
+          ),
         ),
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(13),
-        borderSide: const BorderSide(
-          color: Color(0xFFDCE5F0),
-        ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(13),
-        borderSide: const BorderSide(
-          color: Color(0xFF0052CC),
-          width: 1.5,
-        ),
-      ),
-    ),
-  );
-}
+    );
+  }
   
-  // ── ADD NEW TASK TO TASK MASTER ────────────────────────────────────────
   Future<void> _addNewTask(String taskName, String roleKey) async {
     try {
       final response = await http.post(
@@ -1631,7 +1388,6 @@ Widget _taskMasterTextField({
     }
   }
 
-  // ── UPDATE EXISTING TASK ────────────────────────────────────────────────
   Future<void> _updateTask(int taskId, String taskName, String roleKey) async {
     try {
       final response = await http.put(
@@ -1667,7 +1423,6 @@ Widget _taskMasterTextField({
     }
   }
 
-  // ── DELETE TASK FROM TASK MASTER ───────────────────────────────────────
   Future<void> _deleteTask(int taskId) async {
     try {
       final response = await http.delete(Uri.parse('$_baseUrl/task-master/$taskId'));
@@ -1696,8 +1451,6 @@ Widget _taskMasterTextField({
     }
   }
 
-
- // ── SHOW TASK SELECTION POPUP WITH ROLE & COUNT ────────────────────────
   Future<void> _showTaskSelectionPopup({
     required String roleKey,
     required Map<String, dynamic> row,
@@ -1769,8 +1522,6 @@ Widget _taskMasterTextField({
                     ],
                   ),
                 ),
-
-                // ✅ Select All Checkbox Header
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: const BoxDecoration(
@@ -1804,7 +1555,6 @@ Widget _taskMasterTextField({
                     ],
                   ),
                 ),
-
                 Expanded(
                   child: ListView.builder(
                     itemCount: availableTasks.length,
@@ -1877,7 +1627,6 @@ Widget _taskMasterTextField({
                     },
                   ),
                 ),
-
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
@@ -1929,47 +1678,30 @@ Widget _taskMasterTextField({
           'deliverables': row['deliverables'] ?? '',
           'maintenanceDate': row['maintenance_date'] ?? '',
           
-          // Ads Handler fields
           'adsHandling': _cleanRoleValue(row['ads_handling']),
           'adsPlatform': row['ads_platform'] ?? '',
-          // 'adsSubmitDate': row['ads_submit_date'] ?? '',
           
-          // Page Handler fields
           'pageHandling': _cleanRoleValue(row['page_handling']),
           'pagesPlatform': row['pages_platform'] ?? '',
-          // 'pageSubmitDate': row['page_submit_date'] ?? '',
           
-          // Designer fields
           'designer': _cleanRoleValue(row['designer']),
           'designerTasks': row['designer_tasks'] ?? '',
-          // 'designerSubmitDate': row['designer_submit_date'] ?? '',
           
-          // Videographer fields
           'videographer': _cleanRoleValue(row['videographer']),
           'videographerTasks': row['videographer_tasks'] ?? '',
-          // 'videographerSubmitDate': row['videographer_submit_date'] ?? '',
           
-          // Video Editor fields
           'videoEditor': _cleanRoleValue(row['video_editor']),
           'videoEditorTask': row['video_editor_task'] ?? '',
-          // 'videoEditorSubmitDate': row['video_editor_submit_date'] ?? '',
           
-          // UI/UX Designer fields
           'uiUxDesigner': _cleanRoleValue(row['ui_ux_designer']),
           'uiUxTasks': row['ui_ux_tasks'] ?? '',
-          // 'uiUxSubmitDate': row['ui_ux_submit_date'] ?? '',
           
-          // Developer fields
           'developer': _cleanRoleValue(row['developer']),
           'developerTasks': row['developer_tasks'] ?? '',
-          // 'developerSubmitDate': row['developer_submit_date'] ?? '',
           
-          // Website Designer fields
           'websiteDesigner':_cleanRoleValue(row['website_designer']),
           'websiteDesignerTasks':row['website_designer_tasks'] ?? '',
-          // 'websiteDesignerSubmitDate':row['website_designer_submit_date'] ?? '',
           
-          // Others
           'deadline': _cleanRoleValue(row['deadline']),
           'comments': row['comments'] ?? '',
           'isAssigned': row['is_assigned'] == 1 || row['is_assigned'] == true,
@@ -1981,7 +1713,6 @@ Widget _taskMasterTextField({
     }
   }
 
-  
   static const Map<String, String> _requiredRoleFields = {
     'ads_handling': 'Ads Handler',
     'page_handling': 'Page Handler',
@@ -2049,12 +1780,21 @@ Widget _taskMasterTextField({
     }
   }
 
+  // 🟢 Deadline/Date formatting helper function (day/month/year format ku convert seiyum)
   String formatDisplayDate(dynamic value) {
     if (value == null || value.toString().trim().isEmpty) return '—';
+    final val = value.toString().trim();
+    
+    // Already dd/MM/yyyy format la irunthal athaane return pannum
+    if (RegExp(r'^\d{2}/\d{2}/\d{4}$').hasMatch(val)) {
+      return val;
+    }
+
     try {
-      return DateFormat('dd/MM/yyyy').format(DateTime.parse(value.toString()).toLocal());
+      final parsed = DateTime.parse(val);
+      return DateFormat('dd/MM/yyyy').format(parsed.toLocal());
     } catch (e) {
-      return value.toString();
+      return val;
     }
   }
 
@@ -2232,40 +1972,30 @@ Widget _taskMasterTextField({
             ),
           ]),
           const SizedBox(height: 16),
-       if (loading && taskRows.isEmpty)
-  const Center(
-    child: Padding(
-      padding: EdgeInsets.symmetric(vertical: 70),
-      child: CircularProgressIndicator(
-        color: Color(0xFF0052CC),
-      ),
-    ),
-  )
-else
-  _buildResponsiveAssignmentTable(
-    MediaQuery.of(context).size.width,
-  ),
-
+          if (loading && taskRows.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 70),
+                child: CircularProgressIndicator(
+                  color: Color(0xFF0052CC),
+                ),
+              ),
+            )
+          else
+            _buildResponsiveAssignmentTable(
+              MediaQuery.of(context).size.width,
+            ),
         ],
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // 2050 ASSIGNMENT TABLE
-  // • CLIENT NAME is frozen horizontally.
-  // • Header stays fixed while rows scroll vertically.
-  // • Header and body share one horizontal position.
-  // • Left and right columns share one vertical position.
-  // • Horizontal scrollbar is always visible at the bottom.
-  // • Extra rows never get hidden; they are reached with the right scrollbar.
-  // ════════════════════════════════════════════════════════════════════════════
   Widget _buildDesktopAssignmentTable() {
     const double tableWidth = 3240.0;
     const double clientWidth = 200.0;
     const double headerHeight = 50.0;
     const double rowHeight = 60.0;
-    const double rightWidth = tableWidth ;
+    const double rightWidth = tableWidth;
     final double bodyHeight = MediaQuery.of(context).size.width < 700 ? 500.0 : 560.0;
 
     Widget clientColumn() => SizedBox(
@@ -2290,7 +2020,7 @@ else
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(children: [
               ..._visibleRows.map((row) => SizedBox(height: rowHeight, child: _buildClientCell(row))),
-              ...List.generate(4, (_) => SizedBox(width: 4400,height: rowHeight, child: _buildClientCell(null))),
+              ...List.generate(4, (_) => SizedBox(width: 4400, height: rowHeight, child: _buildClientCell(null))),
             ]),
           ),
         ),
@@ -2351,8 +2081,6 @@ else
       ]),
     );
 
-    // A SINGLE horizontal ScrollView owns the right header + right body.
-    // Client column is completely outside it, so CLIENT NAME stays fixed.
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -2407,13 +2135,6 @@ else
     );
   }
 
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // RESPONSIVE ASSIGNMENT VIEW
-  // Desktop keeps the existing wide table.
-  // Mobile uses compact Admin-Panel style cards so no horizontal table scrolling
-  // is required on small screens.
-  // ════════════════════════════════════════════════════════════════════════════
   Widget _buildResponsiveAssignmentTable(double availableWidth) {
     if (availableWidth < 900) {
       return _buildMobileAssignmentList();
@@ -2580,6 +2301,7 @@ else
     final package = (row['deliverables'] ?? '').toString().trim();
     final maintenance = formatDisplayDate(row['maintenance_date']);
     final deadlineRaw = (row['deadline'] ?? '').toString().trim();
+    // 🟢 இაქე  deadline date-ஐ correct-ஆக formatting செய்து show செய்கிறது
     final deadline = deadlineRaw.isEmpty ? 'Not set' : formatDisplayDate(deadlineRaw);
 
     return Container(
@@ -2600,7 +2322,6 @@ else
         borderRadius: BorderRadius.circular(18),
         child: Column(
           children: [
-            // Card header
             Container(
               padding: const EdgeInsets.fromLTRB(14, 13, 10, 13),
               decoration: const BoxDecoration(
@@ -2680,7 +2401,6 @@ else
                 ],
               ),
             ),
-
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -2712,14 +2432,12 @@ else
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 15),
                   _buildMobileSectionLabel(
                     Icons.groups_2_outlined,
                     'Employee Assignments',
                   ),
                   const SizedBox(height: 9),
-
                   _buildMobileRoleCard(
                     row: row,
                     roleKey: 'ads_handler_task',
@@ -2791,10 +2509,8 @@ else
                     title: 'Website Designer',
                     icon: Icons.web_outlined,
                   ),
-
                   const SizedBox(height: 15),
                   _buildMobileCommentField(row),
-
                   const SizedBox(height: 12),
                   _buildMobileActionBar(row, assigned),
                 ],
@@ -3499,7 +3215,6 @@ else
     );
   }
 
-  // ✅ Client dropdown listing active company names properly
   Widget _buildClientCell(Map<String, dynamic>? row) {
     if (row == null) {
       return Container(
@@ -3556,7 +3271,6 @@ else
     );
   }
 
-  // ✅ Deliverables Dropdown mapping to Packages and auto-filling tasks
   Widget _buildDeliverablesCell(double width, Map<String, dynamic> row) {
     String currentPkg = row['deliverables'] ?? '';
     List<String> packageTitles = packagesList.map((p) => (p['title'] ?? '').toString()).toList();
@@ -3610,27 +3324,25 @@ else
       if (upper == noneMarker) return noneMarker;
       return employees.contains(upper) ? upper : '';
     }
-    // 🟢 Date string-la irunthu day number mattum (e.g., "24") extract panra function
-  String formatOnlyDay(dynamic rawDate) {
-    if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
-    final val = rawDate.toString().trim();
-    
-    // If format is DD/MM/YYYY
-    if (val.contains('/')) {
-      final parts = val.split('/');
-      if (parts.isNotEmpty) {
-        return parts[0]; // Day part mattum return aagum (e.g., "24")
+
+    String formatOnlyDay(dynamic rawDate) {
+      if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
+      final val = rawDate.toString().trim();
+      
+      if (val.contains('/')) {
+        final parts = val.split('/');
+        if (parts.isNotEmpty) {
+          return parts[0];
+        }
+      }
+      
+      try {
+        final parsed = DateTime.parse(val);
+        return parsed.day.toString().padLeft(2, '0');
+      } catch (_) {
+        return val;
       }
     }
-    
-    // If format is ISO or something else, try parsing
-    try {
-      final parsed = DateTime.parse(val);
-      return parsed.day.toString().padLeft(2, '0');
-    } catch (_) {
-      return val;
-    }
-  }
 
     Widget taskCell(double width, String roleKey, String dbFieldKey) {
       return GestureDetector(
@@ -3661,37 +3373,8 @@ else
 
     return Row(
       children: [
-        _buildDeliverablesCell(200, row), // ✅ Interactive deliverables package dropdown
-        // SizedBox(
-        //   width: 200,
-        //   height: 54,
-        //   child: GestureDetector(
-        //     onTap: () => _pickDate(row, 'maintenance_date'),
-        //     child: Container(
-        //       padding: const EdgeInsets.symmetric(horizontal: 10),
-        //       decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-        //       alignment: Alignment.centerLeft,
-        //       child: Row(
-        //         children: [
-        //           Expanded(
-        //             child: Text(
-        //               row['maintenance_date']?.toString().isEmpty ?? true ? '—' : row['maintenance_date'].toString(),
-        //               style: TextStyle(
-        //                 fontSize: 11,
-        //                 fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
-        //                 color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
-        //               ),
-        //             ),
-        //           ),
-        //           const SizedBox(width: 8),
-        //           Icon(Icons.calendar_today, size: 14, color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
-        //         ],
-        //       ),
-        //     ),
-        //   ),
-        // ),
-       
-       SizedBox(
+        _buildDeliverablesCell(200, row),
+        SizedBox(
           width: 200,
           height: 54,
           child: GestureDetector(
@@ -3704,7 +3387,6 @@ else
                 children: [
                   Expanded(
                     child: Text(
-                      // 🟢 Day (Date) mattum eduthu kaattum (e.g. "24")
                       formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
@@ -3720,60 +3402,42 @@ else
             ),
           ),
         ),
-       
         SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ads_handler_task', 'ads_platform')),
-        // SizedBox(width: 140, child: _dateCell(140, 'ads_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
-        // SizedBox(width: 140, child: _dateCell(140, 'page_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        // SizedBox(width: 140, child: _dateCell(140, 'designer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
-        // SizedBox(width: 140, child: _dateCell(140, 'videographer_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        // SizedBox(width: 140, child: _dateCell(140, 'video_editor_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        // SizedBox(width: 140, child: _dateCell(140, 'ui_ux_submit_date', row)),
         SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
-        // SizedBox(width: 140, child: _dateCell(140, 'developer_submit_date', row)),
         SizedBox(
-  width: 140,
-  child: _empDropCell(
-    140,
-    empVal('website_designer'),
-    empItems,
-    onChanged: (v) {
-      setState(() {
-        row['website_designer'] = v;
-      });
-      _saveRow(row);
-    },
-  ),
-),
-
-SizedBox(
-  width: 160,
-  child: taskCell(
-    160,
-    'website_designer_task',
-    'website_designer_tasks',
-  ),
-),
-
-// SizedBox(
-//   width: 140,
-//   child: _dateCell(
-//     140,
-//     'website_designer_submit_date',
-//     row,
-//   ),
-// ),
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('website_designer'),
+            empItems,
+            onChanged: (v) {
+              setState(() {
+                row['website_designer'] = v;
+              });
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(
+            160,
+            'website_designer_task',
+            'website_designer_tasks',
+          ),
+        ),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),
@@ -3781,29 +3445,10 @@ SizedBox(
     );
   }
 
-  Widget _dateCell(double width, String key, Map<String, dynamic> row) {
-    final value = row[key] ?? '';
-    return GestureDetector(
-      onTap: () => _pickDate(row, key),
-      child: Container(
-        width: width,
-        height: 54,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-        alignment: Alignment.centerLeft,
-        child: Row(
-          children: [
-            Expanded(child: Text(formatDisplayDate(value), style: TextStyle(fontSize: 11, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)))),
-            const SizedBox(width: 8),
-            Icon(Icons.calendar_today, size: 14, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _deadlineCell(double width, Map<String, dynamic> row) {
     final value = row['deadline'] ?? '';
+    // 🟢 ეგაქே formatDisplayDate பயன்படுத்தப்பட்டு day/month/year (dd/MM/yyyy) வடிவில் காட்டப்படுகிறது
+    final formattedDate = formatDisplayDate(value);
     return GestureDetector(
       onTap: () => _pickDate(row, 'deadline'),
       child: Container(
@@ -3814,9 +3459,9 @@ SizedBox(
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
-            Expanded(child: Text(value.isEmpty ? '—' : value, style: TextStyle(fontSize: 11, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)))),
+            Expanded(child: Text(formattedDate, style: TextStyle(fontSize: 11, color: value.toString().trim().isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)))),
             const SizedBox(width: 8),
-            Icon(Icons.calendar_today, size: 14, color: value.isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
+            Icon(Icons.calendar_today, size: 14, color: value.toString().trim().isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
           ],
         ),
       ),
@@ -3841,37 +3486,7 @@ SizedBox(
     );
   }
 
-  // Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
-  //   return Container(
-  //     width: width,
-  //     padding: const EdgeInsets.symmetric(horizontal: 8),
-  //     child: Row(
-  //       children: [
-  //         if (!assigned) ...[
-  //           Expanded(
-  //             child: SizedBox(
-  //               height: 32,
-  //               child: ElevatedButton(
-  //                 onPressed: () => _toggleAssign(row),
-  //                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
-  //                 child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
-  //               ),
-  //             ),
-  //           ),
-  //           const SizedBox(width: 4),
-  //         ],
-  //         GestureDetector(
-  //           onTap: () => _deleteRow(row['id']),
-  //           child: Container(width: 24, height: 24, decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(4)), child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626))),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-
-Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
-    // 🟢 Deadline complete aayirukka (expired-ah) nu check panrathu
+  Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
     bool isDeadlinePassed = false;
     if (row['deadline'] != null && row['deadline'].toString().trim().isNotEmpty) {
       try {
@@ -3900,25 +3515,24 @@ Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
             ),
             const SizedBox(width: 4),
           ] else if (assigned && isDeadlinePassed) ...[
-            // 🟢 Assigned aagi, DEADLINE DATE COMPLETE AANATHU MATTUM "NEXT CYCLE" button show aagum
             Expanded(
               child: SizedBox(
                 height: 32,
                 child: ElevatedButton(
                   onPressed: () async {
-  final res = await http.post(Uri.parse('$_baseUrl/tasks/${row['id']}/duplicate-next-month'));
-  if (res.statusCode == 200 || res.statusCode == 201) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ New task successfully added for next cycle!'), backgroundColor: Colors.green)
-    );
-    await _fetchTasks(); // 🟢 Table data-va fresh-ah backend-il irunthu eduthu state-ai update seiyum
-    setState(() {}); // 🟢 Screen-ai re-render seiyum
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('❌ Failed: ${res.body}'), backgroundColor: Colors.red)
-    );
-  }
-},
+                    final res = await http.post(Uri.parse('$_baseUrl/tasks/${row['id']}/duplicate-next-month'));
+                    if (res.statusCode == 200 || res.statusCode == 201) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('✅ New task successfully added for next cycle!'), backgroundColor: Colors.green)
+                      );
+                      await _fetchTasks(); 
+                      setState(() {}); 
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('❌ Failed: ${res.body}'), backgroundColor: Colors.red)
+                      );
+                    }
+                  },
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16A34A), padding: EdgeInsets.zero),
                   child: const FittedBox(child: Text("NEXT CYCLE", style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.w900))),
                 ),
@@ -3935,12 +3549,6 @@ Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // 2050 EMPLOYEE PICKER
-  // Native DropdownButton overlays are easy to clip inside a wide table. This
-  // picker opens a responsive dialog instead, so it works cleanly on desktop,
-  // tablet and mobile and provides search + clear visual selection.
-  // ════════════════════════════════════════════════════════════════════════════
   Future<void> _showEmployeePicker({
     required String current,
     required ValueChanged<String> onChanged,
@@ -4241,8 +3849,6 @@ class _HeaderCell extends StatelessWidget {
       height: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       alignment: Alignment.centerLeft,
-
-      // 🔵 HEADER BACKGROUND
       decoration: const BoxDecoration(
         color: Color(0xFF0052CC),
         border: Border(
@@ -4252,7 +3858,6 @@ class _HeaderCell extends StatelessWidget {
           ),
         ),
       ),
-
       child: Text(
         label,
         style: const TextStyle(

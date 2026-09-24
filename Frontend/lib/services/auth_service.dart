@@ -324,9 +324,20 @@ class AuthService extends ChangeNotifier {
         final oldUser =
             _user ?? <String, dynamic>{};
 
+        // 🟢 Profile photo, avatar color, matrum full name-ai rendu variations-layum map seiyungal
+        final profilePhoto = refreshedUser['profile_photo'] ?? refreshedUser['profilePhoto'];
+        final avatarColor = refreshedUser['avatar_color'] ?? refreshedUser['avatarColor'];
+        final fullName = refreshedUser['full_name'] ?? refreshedUser['fullName'] ?? refreshedUser['name'];
+
         _user = {
           ...oldUser,
           ...refreshedUser,
+          if (profilePhoto != null) 'profile_photo': profilePhoto,
+          if (profilePhoto != null) 'profilePhoto': profilePhoto,
+          if (avatarColor != null) 'avatar_color': avatarColor,
+          if (avatarColor != null) 'avatarColor': avatarColor,
+          if (fullName != null) 'fullName': fullName,
+          if (fullName != null) 'name': fullName,
         };
 
         await AuthStorage.setString(
@@ -342,4 +353,5 @@ class AuthService extends ChangeNotifier {
       );
     }
   }
+
 }

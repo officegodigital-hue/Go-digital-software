@@ -1,3 +1,4 @@
+// name=designer_dashboard_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -33,10 +34,19 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
   List<DesignerTaskModel> tasks = [];
   List<Map<String, dynamic>> recentNotifications = [];
 
-  int assignedClients = 0;
-  int activeTasks = 0;
+  int assignedClientsCount = 0;
+  List<dynamic> assignedClientsList = [];
+
+  int newClientsCount = 0;
+  List<dynamic> newClientsList = [];
+
   int holdTasks = 0;
-  int rejectedTasks = 0;
+  List<dynamic> holdTasksList = [];
+
+  int inactiveTodayCount = 0;
+  List<dynamic> inactiveTodayList = [];
+
+  String globalFilterMode = 'Today'; // Global filter ('Today', 'This Week', 'This Month')
 
   int approved = 0;
   int rejected = 0;
@@ -49,10 +59,8 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
   String? _employeeName;
   late IO.Socket socket;
 
-  // 🟢 Live Working Time State
   String totalWorkingTimeFormatted = "00h 00m";
 
-  // 🟢 Animation Controllers
   late AnimationController _entranceController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -103,6 +111,11 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
         _fetchLiveWorkingTime();
       }
     });
+    socket.on('taskAssigned', (data) {
+      if (mounted) {
+        _fetchDashboardSummary();
+      }
+    });
   }
 
   @override
@@ -131,7 +144,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
       }
 
       final r = await http.get(
-        Uri.parse('$_baseUrl/dashboard/summary/${Uri.encodeComponent(_employeeName!)}'),
+        Uri.parse('$_baseUrl/dashboard/summary/${Uri.encodeComponent(_employeeName!)}?filter=$globalFilterMode'),
       );
 
       final n = await http.get(
@@ -152,10 +165,17 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
         }
 
         setState(() {
-          assignedClients = data['assignedClients'] ?? 0;
-          activeTasks = data['activeTasks'] ?? 0;
-          holdTasks = data['onHoldCount'] ?? 0;
-          rejectedTasks = data['rejectedTasks'] ?? 0;
+          assignedClientsCount = data['assignedClientsCount'] as int? ?? 0;
+          assignedClientsList = data['assignedClientsList'] as List<dynamic>? ?? [];
+
+          newClientsCount = data['newClientsCount'] as int? ?? 0;
+          newClientsList = data['newClientsList'] as List<dynamic>? ?? [];
+
+          holdTasks = data['onHoldCount'] as int? ?? 0;
+          holdTasksList = data['onHoldList'] as List<dynamic>? ?? [];
+
+          inactiveTodayCount = data['inactiveTodayCount'] as int? ?? 0;
+          inactiveTodayList = data['inactiveTodayList'] as List<dynamic>? ?? [];
 
           approved = productivity['approved'] ?? 0;
           rework = productivity['rework'] ?? 0;
@@ -198,6 +218,135 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
         _loading = false;
       });
     }
+  }
+
+  // 🟢 Blue & White Gradient Popup without repetition
+  void _showDetailsPopup(String title, List<dynamic> items, {bool isAssignedClient = false, bool isHoldCard = false, bool isInactiveCard = false}) {
+    final uniqueItems = <String, dynamic>{};
+    for (var item in items) {
+      final name = (item['clientName'] ?? item['company_name'] ?? 'Client').toString();
+      if (!uniqueItems.containsKey(name)) {
+        uniqueItems[name] = item;
+      }
+    }
+    final cleanItems = uniqueItems.values.toList();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: EdgeInsets.zero,
+        content: Container(
+          width: 480,
+          height: 400,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFF0F5FF), Colors.white],
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(colors: [Color(0xFF04296B), Color(0xFF0757D5)]),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.business_rounded, color: Colors.white, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white))),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: cleanItems.isEmpty
+                    ? const Center(child: Text('No records found.', style: TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w600)))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: cleanItems.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final item = cleanItems[index];
+                          final clientName = item['clientName'] ?? item['company_name'] ?? 'Client';
+                          final tasksList = item['tasks'] as List<dynamic>? ?? [];
+                          final subDate = _formatDate(item['submissionDate'] ?? item['created_at']);
+                          final holdDate = _formatDate(item['holdDate']);
+                          final inactiveDate = _formatDate(item['inactiveDate'] ?? item['updated_at']);
+
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFD8E9FF)),
+                              boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: const Color(0xFFEAF3FF),
+                                      child: Text('${index + 1}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Color(0xFF0757D5))),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(child: Text(clientName, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: AppColors.textDark))),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                if (isAssignedClient && tasksList.isNotEmpty) ...[
+                                  const Padding(
+                                    padding: EdgeInsets.only(left: 38),
+                                    child: Text('Allocated Tasks:', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppColors.textGrey)),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 38),
+                                    child: Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      children: tasksList.map((t) => Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(color: const Color(0xFFEAF3FF), borderRadius: BorderRadius.circular(6)),
+                                        child: Text(t.toString(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0757D5))),
+                                      )).toList(),
+                                    ),
+                                  ),
+                                ] else ...[
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 38),
+                                    child: Text(
+                                      isHoldCard
+                                          ? 'Hold Date: $holdDate | Submit Date: $subDate'
+                                          : isInactiveCard
+                                              ? 'Inactive Date: $inactiveDate'
+                                              : 'Submit Date: $subDate',
+                                      style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _fetchLiveWorkingTime() async {
@@ -253,7 +402,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
       '', 'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December',
     ];
-    return '${months[now.month]} ${now.day.toString().padLeft(2, '0')}, ${now.year} - Today';
+    return '${months[now.month]} ${now.day.toString().padLeft(2, '0')}, ${now.year}';
   }
 
   String _formatDate(String? raw) {
@@ -422,14 +571,14 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
                   children: [
                     _welcomeContent(name, role),
                     const SizedBox(height: 18),
-                    _welcomeDate(),
+                    _welcomeDateFilterRow(),
                   ],
                 )
               : Row(
                   children: [
                     Expanded(child: _welcomeContent(name, role)),
                     const SizedBox(width: 20),
-                    _welcomeDate(),
+                    _welcomeDateFilterRow(),
                   ],
                 );
         },
@@ -512,32 +661,48 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
     );
   }
 
-  Widget _welcomeDate() {
+  // 🟢 Hero section filter dropdown (Today, This Week, This Month)
+  Widget _welcomeDateFilterRow() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.calendar_month_rounded, size: 19, color: Colors.white),
-          const SizedBox(width: 10),
+          const Icon(Icons.calendar_month_rounded, size: 18, color: Colors.white),
+          const SizedBox(width: 8),
           Text(
             getTodayDate(),
             style: const TextStyle(
-              fontSize: 12.5,
+              fontSize: 12,
               color: Colors.white,
               fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(height: 16, width: 1, color: Colors.white30),
+          const SizedBox(width: 6),
+          PopupMenuButton<String>(
+            initialValue: globalFilterMode,
+            onSelected: (val) {
+              setState(() => globalFilterMode = val);
+              _fetchDashboardSummary();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'Today', child: Text('Today', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+              const PopupMenuItem(value: 'This Week', child: Text('This Week', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+              const PopupMenuItem(value: 'This Month', child: Text('This Month', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+            ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(globalFilterMode, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Colors.white)),
+                const Icon(Icons.arrow_drop_down, size: 18, color: Colors.white),
+              ],
             ),
           ),
         ],
@@ -545,10 +710,11 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
     );
   }
 
+  // 🟢 4 Cards setup (Assigned Clients, New Clients, Hold Task, Inactive Today) with Popup
   Widget _summaryCards() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1100 ? 4 : 2;
+        final columns = constraints.maxWidth >= 1000 ? 4 : 2;
         final gap = columns == 4 ? 22.0 : 14.0;
         final cardWidth =
             (constraints.maxWidth - (gap * (columns - 1))) / columns;
@@ -557,44 +723,60 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
           spacing: gap,
           runSpacing: 14,
           children: [
+            // 1st Card: Assigned Clients
             SizedBox(
               width: cardWidth,
-              child: MetricCard(
-                icon: Icons.groups_rounded,
-                title: 'Assigned Clients',
-                value: assignedClients.toString().padLeft(2, '0'),
-                label: 'Current',
-                color: AppColors.primary,
+              child: GestureDetector(
+                onTap: () => _showDetailsPopup('Assigned Clients & Allocated Tasks', assignedClientsList, isAssignedClient: true),
+                child: MetricCard(
+                  icon: Icons.groups_rounded,
+                  title: 'Assigned Clients',
+                  value: assignedClientsCount.toString().padLeft(2, '0'),
+                  label: 'Active Clients',
+                  color: AppColors.primary,
+                ),
               ),
             ),
+            // 2nd Card: New Clients
             SizedBox(
               width: cardWidth,
-              child: MetricCard(
-                icon: Icons.account_tree_rounded,
-                title: 'Active Tasks',
-                value: activeTasks.toString().padLeft(2, '0'),
-                label: 'Current',
-                color: AppColors.green,
+              child: GestureDetector(
+                onTap: () => _showDetailsPopup('New Clients ($globalFilterMode)', newClientsList),
+                child: MetricCard(
+                  icon: Icons.fiber_new_rounded,
+                  title: 'New Clients',
+                  value: newClientsCount.toString().padLeft(2, '0'),
+                  label: globalFilterMode,
+                  color: AppColors.green,
+                ),
               ),
             ),
+            // 3rd Card: Hold Task
             SizedBox(
               width: cardWidth,
-              child: MetricCard(
-                icon: Icons.pause_circle_rounded,
-                title: 'Hold Task',
-                value: holdTasks.toString().padLeft(2, '0'),
-                label: 'Action required',
-                color: AppColors.orange,
+              child: GestureDetector(
+                onTap: () => _showDetailsPopup('Hold Tasks', holdTasksList, isHoldCard: true),
+                child: MetricCard(
+                  icon: Icons.pause_circle_rounded,
+                  title: 'Hold Task',
+                  value: holdTasks.toString().padLeft(2, '0'),
+                  label: 'Action required',
+                  color: AppColors.orange,
+                ),
               ),
             ),
+            // 4th Card: Inactive Today
             SizedBox(
               width: cardWidth,
-              child: MetricCard(
-                icon: Icons.cancel_rounded,
-                title: 'Rejected Task',
-                value: rejectedTasks.toString().padLeft(2, '0'),
-                label: 'High Risk',
-                color: AppColors.red,
+              child: GestureDetector(
+                onTap: () => _showDetailsPopup('Inactive Clients ($globalFilterMode)', inactiveTodayList, isInactiveCard: true),
+                child: MetricCard(
+                  icon: Icons.person_off_rounded,
+                  title: 'Inactive Clients',
+                  value: inactiveTodayCount.toString().padLeft(2, '0'),
+                  label: globalFilterMode,
+                  color: AppColors.red,
+                ),
               ),
             ),
           ],
@@ -1661,7 +1843,7 @@ class _PremiumTaskRowState extends State<_PremiumTaskRow> {
     }
 
     if (v.contains('HOLD')) {
-      return const Color(0xFFF59E0B);
+      return const  Color(0xFFF59E0B);
     }
 
     return const Color(0xFF2563EB);

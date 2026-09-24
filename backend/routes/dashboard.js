@@ -14,22 +14,310 @@ function formatDuration(seconds) {
     return `${mins} mins`;
 }
 
-// GET /api/dashboard/summary/:employeeName
-// Returns:
-//   assignedClients      — distinct clients this employee has any task_list row for
-//   activeClients        — distinct clients with at least one task not COMPLETED/REJECTED
-//   taskPending          — count of tasks not yet COMPLETED (action required)
-//   upcomingDeadlines    — tasks due within the next 3 days that aren't COMPLETED
-//   tasks[]              — one row per task_list entry, for the "Task Status" table
-// GET /api/dashboard/summary/:employeeName
-// GET /api/dashboard/summary/:employeeName
+
+// routes/dashboard.js — /summary/:employeeName route-il intha updates-ai add seiyungal:
+// routes/dashboard.js — Complete /summary/:employeeName route with filters and metrics
+// router.get('/summary/:employeeName', async (req, res) => {
+//   const { employeeName } = req.params;
+//   const { filter = 'Today' } = req.query; // 'Today', 'This Week', 'This Month'
+
+//   if (!employeeName) {
+//     return res.status(400).json({ success: false, message: 'employeeName is required' });
+//   }
+
+//   try {
+//     // 1. Assigned Clients & their allocated tasks (Active clients only)
+//     const [assignedRaw] = await db.query(
+//       `SELECT tl.client_name AS clientName, tl.deliverables AS task
+//        FROM task_list tl
+//        INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+//        WHERE tl.employee_name = ? AND c.is_active = 1`,
+//       [employeeName]
+//     );
+
+//     const clientTaskMap = {};
+//     assignedRaw.forEach(row => {
+//       const cName = row.clientName;
+//       if (!clientTaskMap[cName]) clientTaskMap[cName] = [];
+//       if (row.task && !clientTaskMap[cName].includes(row.task)) {
+//         clientTaskMap[cName].push(row.task);
+//       }
+//     });
+
+//     const assignedClientsList = Object.keys(clientTaskMap).map(cName => ({
+//       clientName: cName,
+//       tasks: clientTaskMap[cName]
+//     }));
+
+//     // 2. New Clients filter (Today, This Week, This Month)
+//     let dateCondition = "DATE(c.created_at) = CURDATE()";
+//     if (filter === 'This Week') {
+//       dateCondition = "YEARWEEK(c.created_at, 1) = YEARWEEK(CURDATE(), 1)";
+//     } else if (filter === 'This Month') {
+//       dateCondition = "MONTH(c.created_at) = MONTH(CURDATE()) AND YEAR(c.created_at) = YEAR(CURDATE())";
+//     }
+
+//     const [newClientsList] = await db.query(
+//       `SELECT DISTINCT c.company_name AS clientName, c.created_at AS submissionDate
+//        FROM clients c
+//        INNER JOIN task_list tl ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+//        WHERE tl.employee_name = ? AND c.is_active = 1 AND ${dateCondition}`,
+//       [employeeName]
+//     );
+
+//     // 3. Holded Shoots
+//     const [holdedShootsList] = await db.query(
+//       `SELECT tl.client_name AS clientName, tl.submission_date AS submissionDate, tti.updated_at AS holdDate
+//        FROM task_list tl
+//        INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+//        JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+//        WHERE tl.employee_name = ? AND c.is_active = 1 AND tti.status = 'ON HOLD'`,
+//       [employeeName]
+//     );
+
+//     // 4. Inactive Clients Filter (Today, This Week, This Month based on filter)
+//     let inactiveDateCondition = "DATE(c.updated_at) = CURDATE()";
+//     if (filter === 'This Week') {
+//       inactiveDateCondition = "YEARWEEK(c.updated_at, 1) = YEARWEEK(CURDATE(), 1)";
+//     } else if (filter === 'This Month') {
+//       inactiveDateCondition = "MONTH(c.updated_at) = MONTH(CURDATE()) AND YEAR(c.updated_at) = YEAR(CURDATE())";
+//     }
+
+//     const [inactiveTodayList] = await db.query(
+//       `SELECT DISTINCT c.company_name AS clientName, c.updated_at AS inactiveDate
+//        FROM clients c
+//        INNER JOIN task_list tl ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+//        WHERE tl.employee_name = ? AND c.is_active = 0 AND ${inactiveDateCondition}`,
+//       [employeeName]
+//     );
+
+//     // 5. Fetch Tasks list and productivity metrics for table/charts
+//     const [summaryRows] = await db.query(
+//       `SELECT
+//           tl.id AS task_list_id,
+//           tl.client_name,
+//           tl.deliverables AS task,
+//           tl.duration AS estimated_duration,
+//           tl.submission_date,
+//           tl.no_of_rows,
+//           tti.id AS tracking_item_id,
+//           tti.status,
+//           (
+//               SELECT COALESCE(SUM(duration_secs), 0)
+//               FROM time_tracking_task_items t
+//               WHERE t.task_list_id = tl.id
+//           ) AS total_duration_secs,
+//           COALESCE(mr.manager_action,'ACTION') AS manager_action,
+//           (
+//               SELECT COUNT(*)
+//               FROM time_tracking_task_items t
+//               WHERE t.task_list_id = tl.id
+//                 AND t.status = 'COMPLETED'
+//           ) AS completed_rows,
+//           (
+//               SELECT COUNT(*)
+//               FROM time_tracking_task_items t
+//               WHERE t.task_list_id = tl.id
+//                 AND t.status = 'REJECTED'
+//           ) AS rejected_rows,
+//           c.is_active AS client_is_active
+//       FROM task_list tl
+//       INNER JOIN clients c 
+//           ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+//       LEFT JOIN time_tracking_task_items tti
+//       ON tti.id = (
+//           SELECT id
+//           FROM time_tracking_task_items t
+//           WHERE t.task_list_id = tl.id
+//           ORDER BY t.s_no DESC
+//           LIMIT 1
+//       )
+//       LEFT JOIN manager_review mr
+//           ON mr.tracking_item_id = tti.id
+//       WHERE tl.employee_name = ?
+//         AND c.is_active = 1`,
+//       [employeeName]
+//     );
+
+//     let approved = 0;
+//     let review = 0;
+//     let rework = 0;
+//     let rejected = 0;
+//     let others = 0;
+
+//     const tasks = summaryRows.map((r) => {
+//       const status = r.status || 'IDLE';
+//       const isClientActive = r.client_is_active == 1 || r.client_is_active === true;
+
+//       if (isClientActive) {
+//         if (status === 'COMPLETED') {
+//           if (r.manager_action === 'APPROVED') {
+//             approved++;
+//           } else if (r.manager_action === 'REWORK') {
+//             rework++;
+//           } else if (r.manager_action === 'REJECTED') {
+//             rejected++;
+//           } else {
+//             review++;
+//           }
+//         } else if (status !== 'REJECTED') {
+//           others++;
+//         }
+//       }
+
+//       let reviewStatus = '-';
+//       let duration = r.estimated_duration;
+
+//       if (r.status === 'IN PROGRESS' || r.status === 'COMPLETED') {
+//         duration = formatDuration(r.total_duration_secs);
+//       }
+
+//       if (status === 'COMPLETED') {
+//         switch (r.manager_action) {
+//           case 'APPROVED': reviewStatus = 'APPROVED'; break;
+//           case 'REWORK': reviewStatus = 'REWORK'; break;
+//           case 'REJECTED': reviewStatus = 'REJECTED'; break;
+//           default: reviewStatus = 'REVIEW'; break;
+//         }
+//       }
+
+//       return {
+//         taskListId: r.task_list_id,
+//         trackingItemId: r.tracking_item_id,
+//         clientName: r.client_name,
+//         task: r.task,
+//         duration: duration,
+//         submissionDate: (!r.submission_date || r.submission_date === '0000-00-00') ? null : r.submission_date,
+//         action: status,
+//         status: reviewStatus,
+//         completedRows: r.completed_rows || 0,
+//         totalRows: r.no_of_rows || 0,
+//         isClientActive: isClientActive,
+//       };
+//     });
+
+//     const activeTasksOnly = tasks.filter(t => t.isClientActive);
+
+//     return res.json({
+//       success: true,
+//       data: {
+//         assignedClientsCount: assignedClientsList.length,
+//         assignedClientsList,
+//         newClientsCount: newClientsList.length,
+//         newClientsList,
+//         onHoldCount: holdedShootsList.length,
+//         onHoldList: holdedShootsList,
+//         inactiveTodayCount: inactiveTodayList.length,
+//         inactiveTodayList,
+//         tasks: activeTasksOnly,
+//         productivity: {
+//           approved,
+//           rework,
+//           rejected,
+//           review,
+//           others,
+//         },
+//       },
+//     });
+//   } catch (err) {
+//     console.error('GET /dashboard/summary ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// });
+
 router.get('/summary/:employeeName', async (req, res) => {
   const { employeeName } = req.params;
+  const { filter = 'Today' } = req.query; // 'Today', 'This Week', 'This Month'
+
   if (!employeeName) {
     return res.status(400).json({ success: false, message: 'employeeName is required' });
   }
 
   try {
+    // 1. Assigned Clients & their allocated tasks strictly from task_assignments table (Excluding additional tasks)
+    const [assignedRaw] = await db.query(
+      `SELECT ta.client_name AS clientName, ta.deliverables AS task
+       FROM task_assignments ta
+       INNER JOIN clients c ON TRIM(LOWER(ta.client_name)) = TRIM(LOWER(c.company_name))
+       WHERE (
+          UPPER(ta.designer) LIKE ? OR
+          UPPER(ta.videographer) LIKE ? OR
+          UPPER(ta.video_editor) LIKE ? OR
+          UPPER(ta.ads_handling) LIKE ? OR
+          UPPER(ta.page_handling) LIKE ? OR
+          UPPER(ta.ui_ux_designer) LIKE ? OR
+          UPPER(ta.developer) LIKE ? OR
+          UPPER(ta.website_designer) LIKE ?
+       ) AND ta.is_assigned = 1 AND c.is_active = 1`,
+      [
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`,
+        `%${employeeName.toUpperCase()}%`
+      ]
+    );
+
+    const clientTaskMap = {};
+    assignedRaw.forEach(row => {
+      const cName = row.clientName;
+      if (!clientTaskMap[cName]) clientTaskMap[cName] = [];
+      if (row.task && !clientTaskMap[cName].includes(row.task)) {
+        clientTaskMap[cName].push(row.task);
+      }
+    });
+
+    const assignedClientsList = Object.keys(clientTaskMap).map(cName => ({
+      clientName: cName,
+      tasks: clientTaskMap[cName]
+    }));
+
+    // 2. New Clients filter (Today, This Week, This Month)
+    let dateCondition = "DATE(c.created_at) = CURDATE()";
+    if (filter === 'This Week') {
+      dateCondition = "YEARWEEK(c.created_at, 1) = YEARWEEK(CURDATE(), 1)";
+    } else if (filter === 'This Month') {
+      dateCondition = "MONTH(c.created_at) = MONTH(CURDATE()) AND YEAR(c.created_at) = YEAR(CURDATE())";
+    }
+
+    const [newClientsList] = await db.query(
+      `SELECT DISTINCT c.company_name AS clientName, c.created_at AS submissionDate
+       FROM clients c
+       INNER JOIN task_list tl ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+       WHERE tl.employee_name = ? AND c.is_active = 1 AND ${dateCondition}`,
+      [employeeName]
+    );
+
+    // 3. Holded Shoots / Tasks
+    const [holdedShootsList] = await db.query(
+      `SELECT tl.client_name AS clientName, tl.submission_date AS submissionDate, tti.updated_at AS holdDate
+       FROM task_list tl
+       INNER JOIN clients c ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+       JOIN time_tracking_task_items tti ON tti.task_list_id = tl.id
+       WHERE tl.employee_name = ? AND c.is_active = 1 AND tti.status = 'ON HOLD'`,
+      [employeeName]
+    );
+
+    // 4. Inactive Clients Filter (Today, This Week, This Month based on filter)
+    let inactiveDateCondition = "DATE(c.updated_at) = CURDATE()";
+    if (filter === 'This Week') {
+      inactiveDateCondition = "YEARWEEK(c.updated_at, 1) = YEARWEEK(CURDATE(), 1)";
+    } else if (filter === 'This Month') {
+      inactiveDateCondition = "MONTH(c.updated_at) = MONTH(CURDATE()) AND YEAR(c.updated_at) = YEAR(CURDATE())";
+    }
+
+    const [inactiveTodayList] = await db.query(
+      `SELECT DISTINCT c.company_name AS clientName, c.updated_at AS inactiveDate
+       FROM clients c
+       INNER JOIN task_list tl ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
+       WHERE tl.employee_name = ? AND c.is_active = 0 AND ${inactiveDateCondition}`,
+      [employeeName]
+    );
+
+    // 5. Fetch Tasks list and productivity metrics for table/charts
     const [summaryRows] = await db.query(
       `SELECT
           tl.id AS task_list_id,
@@ -38,39 +326,30 @@ router.get('/summary/:employeeName', async (req, res) => {
           tl.duration AS estimated_duration,
           tl.submission_date,
           tl.no_of_rows,
-
           tti.id AS tracking_item_id,
           tti.status,
-
           (
               SELECT COALESCE(SUM(duration_secs), 0)
               FROM time_tracking_task_items t
               WHERE t.task_list_id = tl.id
           ) AS total_duration_secs,
-
           COALESCE(mr.manager_action,'ACTION') AS manager_action,
-
           (
               SELECT COUNT(*)
               FROM time_tracking_task_items t
               WHERE t.task_list_id = tl.id
                 AND t.status = 'COMPLETED'
           ) AS completed_rows,
-
           (
               SELECT COUNT(*)
               FROM time_tracking_task_items t
               WHERE t.task_list_id = tl.id
                 AND t.status = 'REJECTED'
           ) AS rejected_rows,
-
           c.is_active AS client_is_active
-
       FROM task_list tl
-
       INNER JOIN clients c 
           ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
-
       LEFT JOIN time_tracking_task_items tti
       ON tti.id = (
           SELECT id
@@ -79,100 +358,22 @@ router.get('/summary/:employeeName', async (req, res) => {
           ORDER BY t.s_no DESC
           LIMIT 1
       )
-
       LEFT JOIN manager_review mr
           ON mr.tracking_item_id = tti.id
-
       WHERE tl.employee_name = ?
         AND c.is_active = 1`,
       [employeeName]
     );
 
-    const [todayRows] = await db.query(
-      `SELECT
-          tl.id AS task_list_id,
-          tl.client_name,
-          tl.deliverables AS task,
-          tl.duration AS estimated_duration,
-          tl.submission_date,
-          tti.updated_at,
-          tti.id AS tracking_item_id,
-          tti.status,
-          COALESCE(mr.manager_action,'ACTION') AS manager_action
-      FROM task_list tl
-      INNER JOIN clients c 
-          ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
-      LEFT JOIN time_tracking_task_items tti
-      ON tti.id = (
-          SELECT id
-          FROM time_tracking_task_items t
-          WHERE t.task_list_id = tl.id
-          ORDER BY t.s_no DESC
-          LIMIT 1
-      )
-      LEFT JOIN manager_review mr
-      ON mr.tracking_item_id = tti.id
-      WHERE tl.employee_name = ?
-        AND c.is_active = 1
-        AND DATE(tti.updated_at) = CURDATE()
-      ORDER BY tti.updated_at DESC
-      LIMIT 6`,
-      [employeeName]
-    );
-
-    const clientsSet = new Set();
-    const activeClientsSet = new Set();
-    const rejectedClientsSet = new Set();
-    let activeTasks = 0;
-    let taskPending = 0;
-    let onHoldCount = 0;
-    let rejectedTasks = 0;
     let approved = 0;
     let review = 0;
     let rework = 0;
     let rejected = 0;
     let others = 0;
-    let upcomingDeadlines = 0;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const threeDaysOut = new Date(today);
-    threeDaysOut.setDate(threeDaysOut.getDate() + 3);
 
     const tasks = summaryRows.map((r) => {
       const status = r.status || 'IDLE';
       const isClientActive = r.client_is_active == 1 || r.client_is_active === true;
-
-      if (isClientActive) {
-        clientsSet.add(r.client_name);
-      }
-
-      const isOpen = ![
-        'COMPLETED',
-        'REJECTED'
-      ].includes(status);
-
-      if (isOpen && isClientActive) {
-        activeClientsSet.add(r.client_name);
-        activeTasks++;
-      }
-
-      if (
-        status !== 'COMPLETED' &&
-        status !== 'REJECTED' &&
-        isClientActive
-      ) {
-        taskPending++;
-      }
-
-      if (status === 'ON HOLD' && isClientActive) {
-        onHoldCount++;
-      }
-
-      if ((r.rejected_rows ?? 0) > 0 && isClientActive) {
-        rejectedTasks++;
-        rejectedClientsSet.add(r.client_name);
-      }
 
       if (isClientActive) {
         if (status === 'COMPLETED') {
@@ -190,61 +391,19 @@ router.get('/summary/:employeeName', async (req, res) => {
         }
       }
 
-      if (
-        r.submission_date &&
-        r.submission_date !== '0000-00-00' &&
-        isClientActive
-      ) {
-        let due;
-        if (r.submission_date instanceof Date) {
-            due = new Date(r.submission_date);
-        } else {
-            const parts = r.submission_date.split('-');
-            if (parts.length === 3) {
-                due = new Date(
-                    Number(parts[0]),
-                    Number(parts[1]) - 1,
-                    Number(parts[2])
-                );
-            }
-        }
-
-        if (
-            due &&
-            !isNaN(due) &&
-            due >= today &&
-            due <= threeDaysOut &&
-            status !== 'COMPLETED' &&
-            status !== 'REJECTED'
-        ) {
-            upcomingDeadlines++;
-        }
-      }
-
       let reviewStatus = '-';
       let duration = r.estimated_duration;
 
-      if (
-        r.status === 'IN PROGRESS' ||
-        r.status === 'COMPLETED'
-      ) {
+      if (r.status === 'IN PROGRESS' || r.status === 'COMPLETED') {
         duration = formatDuration(r.total_duration_secs);
       }
 
       if (status === 'COMPLETED') {
         switch (r.manager_action) {
-          case 'APPROVED':
-            reviewStatus = 'APPROVED';
-            break;
-          case 'REWORK':
-            reviewStatus = 'REWORK';
-            break;
-          case 'REJECTED':
-            reviewStatus = 'REJECTED';
-            break;
-          default:
-            reviewStatus = 'REVIEW';
-            break;
+          case 'APPROVED': reviewStatus = 'APPROVED'; break;
+          case 'REWORK': reviewStatus = 'REWORK'; break;
+          case 'REJECTED': reviewStatus = 'REJECTED'; break;
+          default: reviewStatus = 'REVIEW'; break;
         }
       }
 
@@ -254,11 +413,7 @@ router.get('/summary/:employeeName', async (req, res) => {
         clientName: r.client_name,
         task: r.task,
         duration: duration,
-        submissionDate:
-          !r.submission_date ||
-          r.submission_date === '0000-00-00'
-              ? null
-              : r.submission_date,
+        submissionDate: (!r.submission_date || r.submission_date === '0000-00-00') ? null : r.submission_date,
         action: status,
         status: reviewStatus,
         completedRows: r.completed_rows || 0,
@@ -267,22 +422,21 @@ router.get('/summary/:employeeName', async (req, res) => {
       };
     });
 
-    // 🟢 Filter out any inactive client tasks entirely from the task array sent to the UI table
     const activeTasksOnly = tasks.filter(t => t.isClientActive);
 
     return res.json({
       success: true,
       data: {
-        assignedClients: clientsSet.size,
-        activeClients: activeClientsSet.size,
-        activeTasks,
-        taskPending,
-        onHoldCount,
-        rejectedTasks,
-        rejectedClients: rejectedClientsSet.size,
-        upcomingDeadlines,
-        tasks: activeTasksOnly, // Only active client rows sent to Task Status table
-        productivity:{
+        assignedClientsCount: assignedClientsList.length,
+        assignedClientsList,
+        newClientsCount: newClientsList.length,
+        newClientsList,
+        onHoldCount: holdedShootsList.length,
+        onHoldList: holdedShootsList,
+        inactiveTodayCount: inactiveTodayList.length,
+        inactiveTodayList,
+        tasks: activeTasksOnly,
+        productivity: {
           approved,
           rework,
           rejected,
@@ -296,6 +450,8 @@ router.get('/summary/:employeeName', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+
 
 router.get('/employee-status', async (req, res) => {
   try {
