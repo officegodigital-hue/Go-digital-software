@@ -1,4 +1,12 @@
 
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:ui_web' as ui;
+
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -235,6 +243,9 @@ class _CompanyAssetsPageState
               : []),
     };
 
+    String? pickedLogoFileName;
+    Uint8List? pickedLogoBytes;
+
     try {
       final result = await showDialog<Map<String, dynamic>>(
         context: context,
@@ -244,10 +255,7 @@ class _CompanyAssetsPageState
               return AlertDialog(
                 title: const Text(
                   'Edit Company',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 content: SizedBox(
                   width: 420,
@@ -256,48 +264,80 @@ class _CompanyAssetsPageState
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Sections',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                        // Logo picker
+                        const Text('Company Logo', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: () async {
+                            final input = html.FileUploadInputElement()..accept = 'image/*';
+                            input.click();
+                            await input.onChange.first;
+                            final file = input.files?.first;
+                            if (file != null) {
+                              final reader = html.FileReader();
+                              reader.readAsArrayBuffer(file);
+                              await reader.onLoad.first;
+                              final bytes = Uint8List.fromList((reader.result as List<dynamic>).cast<int>());
+                              setDialogState(() {
+                                pickedLogoFileName = file.name;
+                                pickedLogoBytes = bytes;
+                              });
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF6F9FD),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(
+                              children: [
+                                // Preview
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: pickedLogoBytes != null
+                                      ? Image.memory(pickedLogoBytes!, width: 48, height: 48, fit: BoxFit.cover)
+                                      : (widget.company.logoUrl != null && widget.company.logoUrl!.isNotEmpty
+                                          ? Image.network(
+                                              '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${widget.company.logoUrl!.startsWith('/') ? widget.company.logoUrl! : '/${widget.company.logoUrl!}'}',
+                                              width: 48, height: 48, fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) => _logoPlaceholder(),
+                                            )
+                                          : _logoPlaceholder()),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        pickedLogoFileName ?? 'Change Logo',
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        pickedLogoFileName != null ? 'New logo selected' : 'Tap to upload a new logo',
+                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(Icons.upload_rounded, color: AppColors.textSecondary, size: 20),
+                              ],
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        for (final sectionOption in [
-                          AppConstants.digitalMarketing,
-                          AppConstants.softwareDevelopment,
-                        ])
-                          CheckboxListTile(
-                            value: selectedSections
-                                .contains(sectionOption),
-                            onChanged: (checked) {
-                              setDialogState(() {
-                                if (checked == true) {
-                                  selectedSections.add(sectionOption);
-                                } else {
-                                  selectedSections.remove(sectionOption);
-                                }
-                              });
-                            },
-                            title: Text(
-                              sectionOption,
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            controlAffinity:
-                                ListTileControlAffinity.leading,
-                          ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 16),
                         TextField(
                           controller: controller,
-                          autofocus: true,
+                          autofocus: false,
                           decoration: const InputDecoration(
                             labelText: 'Company Name',
                             hintText: 'Enter company name',
-                            prefixIcon:
-                                Icon(Icons.business_outlined),
+                            prefixIcon: Icon(Icons.business_outlined),
                           ),
                           onSubmitted: (value) {
                             if (value.trim().isNotEmpty) {
@@ -314,40 +354,18 @@ class _CompanyAssetsPageState
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () =>
-                        Navigator.of(dialogContext).pop(),
+                    onPressed: () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
                     onPressed: () {
                       final value = controller.text.trim();
-
                       if (value.isEmpty) {
-                        ScaffoldMessenger.of(
-                          dialogContext,
-                        ).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Please enter a company name.',
-                            ),
-                          ),
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(content: Text('Please enter a company name.')),
                         );
                         return;
                       }
-
-                      if (selectedSections.isEmpty) {
-                        ScaffoldMessenger.of(
-                          dialogContext,
-                        ).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Please select at least one section.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
                       Navigator.of(dialogContext).pop({
                         'name': value,
                         'sections': selectedSections.toList(),
@@ -365,9 +383,7 @@ class _CompanyAssetsPageState
       final newName = result?['name'] as String?;
       final newSections = result?['sections'] as List<String>?;
 
-      if (newName == null ||
-          newName.trim().isEmpty ||
-          !mounted) {
+      if (newName == null || newName.trim().isEmpty || !mounted) {
         return;
       }
 
@@ -375,6 +391,8 @@ class _CompanyAssetsPageState
         companyId: widget.company.id,
         name: newName.trim(),
         sections: newSections,
+        logoFileName: pickedLogoFileName,
+        logoBytes: pickedLogoBytes,
       );
 
       if (!mounted) {
@@ -1862,29 +1880,29 @@ class _CompanyAssetsPageState
   Future<void> _shareAsset(
     AssetModel asset,
   ) async {
-    final link =
-        asset.link?.trim() ?? '';
+    // Prefer the explicit link; fall back to the uploaded file's public URL
+    String? shareUrl = asset.link?.trim();
 
-    if (link.isEmpty) {
-      _showMessage(
-        'No link is available to share.',
-      );
+    if (shareUrl == null || shareUrl.isEmpty) {
+      final filePath = asset.filePath?.trim();
+      if (filePath != null && filePath.isNotEmpty) {
+        final root = ApiService.baseUrl
+            .replaceFirst('/client-repository', '')
+            .replaceFirst('/api', '');
+        shareUrl = '$root${filePath.startsWith('/') ? filePath : '/$filePath'}';
+      }
+    }
+
+    if (shareUrl == null || shareUrl.isEmpty) {
+      _showMessage('No link or file is available to share.');
       return;
     }
 
-    await Clipboard.setData(
-      ClipboardData(
-        text: link,
-      ),
-    );
+    await Clipboard.setData(ClipboardData(text: shareUrl));
 
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
-    _showMessage(
-      'Asset link copied to clipboard.',
-    );
+    _showMessage('Link copied to clipboard.');
   }
 
   // ============================================================
@@ -2360,6 +2378,15 @@ class _CompanyAssetsPageState
         asset.link!.trim().isNotEmpty;
   }
 
+  Widget _logoPlaceholder() {
+    return Container(
+      width: 48,
+      height: 48,
+      color: AppColors.primary.withValues(alpha: 0.10),
+      child: const Icon(Icons.business_rounded, size: 24, color: AppColors.primary),
+    );
+  }
+
   void _showMessage(
     String message,
   ) {
@@ -2604,8 +2631,201 @@ class _AssetPreviewPageState
   // PREVIEW
   // ============================================================
 
+  String? _fileFullUrl() {
+    final path = asset.filePath?.trim();
+    debugPrint('🖼️ AssetPreview filePath="${asset.filePath}" mimeType="${asset.mimeType}"');
+    if (path == null || path.isEmpty) return null;
+    final parsed = Uri.tryParse(path);
+    if (parsed != null && parsed.hasScheme) return path;
+    final root = ApiService.baseUrl
+        .replaceFirst('/client-repository', '')
+        .replaceFirst('/api', '');
+    return '$root${path.startsWith('/') ? path : '/$path'}';
+  }
+
+  static const _imageExts = {
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg', 'heic', 'heif', 'avif',
+  };
+  static const _videoExts = {
+    'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', 'ts', 'mpeg', 'mpg', '3gp',
+  };
+
   Widget _buildPreviewArea() {
+    // 1. Uploaded file takes priority
+    final url = _fileFullUrl();
+    if (url != null) {
+      final ext = url.split('.').last.toLowerCase().split('?').first;
+      if (_imageExts.contains(ext)) return _buildImagePreview(url);
+      if (_videoExts.contains(ext)) return _buildVideoPreview(url);
+    }
+
+    // 2. If no uploaded file, try rendering the link as an image
+    final link = asset.link?.trim();
+    if (link != null && link.isNotEmpty) {
+      final linkExt = link.split('?').first.split('.').last.toLowerCase();
+      if (_imageExts.contains(linkExt)) {
+        // Direct image URL — render it
+        return _buildImagePreview(link);
+      }
+      // Non-image link (Google Drive, Google Photos, etc.) — try loading anyway,
+      // fall back to a link-preview card on error
+      return _buildLinkImagePreview(link);
+    }
+
     return _buildPlaceholderPreview();
+  }
+
+  Widget _buildLinkImagePreview(String link) {
+    if (kIsWeb) {
+      return _buildLinkFallbackCard(link);
+    }
+    // Non-web fallback: try as image, else link card
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 260, maxHeight: 520),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.network(
+        link,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => _buildLinkFallbackCard(link),
+      ),
+    );
+  }
+
+  Widget _buildLinkFallbackCard(String link) {
+    final host = Uri.tryParse(link)?.host ?? link;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF0F4FF), Color(0xFFEEF2FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.language_rounded, size: 36, color: AppColors.primary),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'External Link',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            host,
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Live preview is not available for external websites.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () async {
+              final uri = Uri.tryParse(link);
+              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('Open in Browser'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImagePreview(String url) {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 260, maxHeight: 520),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : Center(
+                child: CircularProgressIndicator(
+                  value: progress.expectedTotalBytes != null
+                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                      : null,
+                ),
+              ),
+        errorBuilder: (_, __, ___) => _buildPlaceholderPreview(),
+      ),
+    );
+  }
+
+  Widget _buildVideoPreview(String url) {
+    return Container(
+      width: double.infinity,
+      height: 300,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A2E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.play_arrow_rounded, size: 44, color: Colors.white),
+          ),
+          const SizedBox(height: 14),
+          const Text('Video File', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+          const SizedBox(height: 6),
+          Text(
+            url.split('/').last,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.6)),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 16, color: Colors.white),
+            label: const Text('Open / Download', style: TextStyle(color: Colors.white)),
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPlaceholderPreview() {
@@ -3514,6 +3734,68 @@ class _AssetPreviewPageState
         ),
         behavior:
             SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Iframe preview widget — tries to embed the link; shows hint if refused
+// ---------------------------------------------------------------------------
+class _IframePreview extends StatelessWidget {
+  final String viewId;
+  final String link;
+  const _IframePreview({required this.viewId, required this.link});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 420,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F2F5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          HtmlElementView(viewType: viewId),
+          Positioned(
+            top: 10,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'If blank, the site blocks embedding — use Open Link',
+                  style: TextStyle(fontSize: 11, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 10,
+            right: 10,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final uri = Uri.tryParse(link);
+                if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+              icon: const Icon(Icons.open_in_new_rounded, size: 14),
+              label: const Text('Open Link', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white.withValues(alpha: 0.92),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

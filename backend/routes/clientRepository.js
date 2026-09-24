@@ -13,7 +13,7 @@ const upload = multer({
     destination: (_req, _file, done) => done(null, uploadDir),
     filename: (_req, file, done) => done(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}-${path.basename(file.originalname || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`),
   }),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 router.use(authenticateToken);
@@ -24,7 +24,9 @@ const requireAdmin = (req, res, next) => isAdmin(req) ? next() : res.status(403)
 
 async function readPermissions(req) {
   if (isAdmin(req)) return allPermissions();
-  const [[row]] = await db.query(`SELECT ${permissions.join(', ')} FROM client_repository_access WHERE employee_id=?`, [req.user.id]);
+  const [[row]] = await db.query(`SELECT ${permissions.join(', ')}, is_active FROM client_repository_access WHERE employee_id=?`, [req.user.id]);
+  // If the admin has deactivated this user in the Assets module, block all access.
+  if (row && !row.is_active) return Object.fromEntries(permissions.map((key) => [key, false]));
   return row || Object.fromEntries(permissions.map((key) => [key, false]));
 }
 function requirePermission(key) {
@@ -57,7 +59,7 @@ router.get('/dashboard', requireAdmin, async (_req, res, next) => {
   try {
     const [[companies]] = await db.query('SELECT COUNT(*) AS count FROM companies WHERE is_active=1');
     const [[assets]] = await db.query('SELECT COUNT(*) AS count FROM assets');
-    const [[users]] = await db.query('SELECT COUNT(*) AS count FROM employee_users WHERE is_active=1');
+    const [[users]] = await db.query('SELECT COUNT(*) AS count FROM client_repository_access WHERE COALESCE(is_active,1)=1');
     const [[shared]] = await db.query('SELECT COUNT(*) AS count FROM client_repository_access WHERE can_view=1');
     res.json({ success: true, data: { companies: companies.count, assets: assets.count, users: users.count, shared: shared.count } });
   } catch (error) { next(error); }
@@ -133,7 +135,7 @@ router.post('/assets', requirePermission('can_create'), upload.single('file'), a
     const [result] = await db.query(`INSERT INTO assets (company_id,company_name,section,type,name,description,link,username,password,file_url,file_name,mime_type,file_size,created_by_employee_id)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [company.id, company.name, req.body.section || null, req.body.type || null, name, req.body.description || null, req.body.link || null, req.body.username || null, req.body.password || null, uploadUrl(req.file), req.file?.originalname || null, req.file?.mimetype || null, req.file?.size || null, req.user.id]);
     res.status(201).json({ success: true, data: await assetById(result.insertId) });
-  } catch (error) { removeUpload(req.file); next(error); }
+  } catch (error) { console.error('❌ POST /assets error:', error.message, error.stack); removeUpload(req.file); next(error); }
 });
 router.put('/assets/:id', requirePermission('can_edit'), upload.single('file'), async (req, res, next) => {
   try {
@@ -164,7 +166,21 @@ function userNameParts(value) {
   const lastName = words.slice(1).join(' ') || firstName;
   return { firstName, lastName, fullName: words.join(' ') || firstName, initials: `${firstName[0]}${lastName[0]}`.toUpperCase() };
 }
-router.get('/users', requireAdmin, async (_req, res, next) => { try { const [rows] = await db.query('SELECT id,full_name AS name,email,mobile,role,user_type AS role_type,is_active,staff_id,initials,profile_photo_url FROM employee_users ORDER BY full_name'); res.json({ success: true, data: rows }); } catch (error) { next(error); } });
+router.get('/users', requireAdmin, async (_req, res, next) => {
+  try {
+    // Return ALL employees from the shared employee_users table (auto-imported from HRMS).
+    // is_active here reflects the Assets-module-specific flag from client_repository_access,
+    // NOT employee_users.is_active, so deactivating a user here only affects Assets access.
+    const [rows] = await db.query(`
+      SELECT e.id, e.full_name AS name, e.email, e.mobile, e.role,
+             e.user_type AS role_type, e.staff_id, e.initials, e.profile_photo_url,
+             COALESCE(a.is_active, 1) AS is_active
+      FROM employee_users e
+      LEFT JOIN client_repository_access a ON a.employee_id = e.id
+      ORDER BY e.full_name`);
+    res.json({ success: true, data: rows });
+  } catch (error) { next(error); }
+});
 router.post('/users', requireAdmin, async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -193,7 +209,20 @@ router.put('/users/:id', requireAdmin, async (req, res, next) => {
     res.json({ success: true, data: updated });
   } catch (error) { next(error); }
 });
-router.put('/users/:id/status', requireAdmin, async (req, res, next) => { try { await db.query('UPDATE employee_users SET is_active=? WHERE id=?', [req.body.is_active ? 1 : 0, req.params.id]); res.json({ success: true }); } catch (error) { next(error); } });
+router.put('/users/:id/status', requireAdmin, async (req, res, next) => {
+  try {
+    const isActive = req.body.is_active ? 1 : 0;
+    // Only toggle the Assets-module-specific is_active flag.
+    // This never touches employee_users.is_active so other workspaces are unaffected.
+    await db.query(`
+      INSERT INTO client_repository_access (employee_id, granted_by, is_active)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE is_active = VALUES(is_active)`,
+      [req.params.id, req.user.id, isActive],
+    );
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
 router.delete('/users/:id', requireAdmin, async (req, res, next) => { try { await db.query('DELETE FROM employee_users WHERE id=?', [req.params.id]); res.json({ success: true }); } catch (error) { next(error); } });
 router.post('/users/me/photo', upload.single('photo'), async (req, res, next) => {
   try {

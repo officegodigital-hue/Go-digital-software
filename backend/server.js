@@ -265,8 +265,14 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  console.error('❌ Global error:', err.code, err.message, err.stack);
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ success: false, message: 'File too large. Maximum allowed size is 500MB.' });
+  }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({ success: false, message: 'Unexpected file field in upload.' });
+  }
+  res.status(500).json({ success: false, message: err.message || 'Internal server error' });
 });
 
 server.listen(PORT, async () => {

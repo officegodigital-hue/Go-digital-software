@@ -107,6 +107,9 @@ async function ensureClientRepositoryTables(db) {
   await addColumnIfMissing(db, 'client_repository_access', 'can_delete', 'TINYINT(1) NOT NULL DEFAULT 0');
   await addColumnIfMissing(db, 'client_repository_access', 'can_download', 'TINYINT(1) NOT NULL DEFAULT 1');
   await addColumnIfMissing(db, 'client_repository_access', 'can_create_company', 'TINYINT(1) NOT NULL DEFAULT 0');
+  // Assets-only active flag — toggling this never touches employee_users.is_active,
+  // so it only affects access to the Client Repository, not any other workspace.
+  await addColumnIfMissing(db, 'client_repository_access', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
 
   // The repository Users page stores a contact number and profile photo.
   // These are additive migrations so current employee records stay intact.

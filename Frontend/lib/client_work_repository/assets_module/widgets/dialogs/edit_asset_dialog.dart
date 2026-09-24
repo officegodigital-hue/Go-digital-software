@@ -77,13 +77,13 @@ class _EditAssetDialogState extends State<_EditAssetDialog> {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
         withData: true,
-        allowedExtensions: ['png', 'jpg', 'jpeg', 'pdf'],
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg', 'heic', 'heif', 'avif'],
       );
     } else if (widget.asset.type == AppConstants.reelVideo) {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
         withData: true,
-        allowedExtensions: ['mp4', 'mov', 'avi', 'mkv'],
+        allowedExtensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', 'ts', 'mpeg', 'mpg', '3gp'],
       );
     } else if (widget.asset.type == AppConstants.document) {
       files = await FilePicker.pickFiles(

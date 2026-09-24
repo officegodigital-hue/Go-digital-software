@@ -502,40 +502,28 @@ class ApiService {
     required String companyId,
     required String name,
     List<String>? sections,
+    String? logoFileName,
+    Uint8List? logoBytes,
   }) async {
-    final token =
-        await _requiredToken();
+    final token = await _requiredToken();
 
-    final body = <String, dynamic>{
-      'name': name,
-    };
-
+    final request = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$baseUrl/companies/$companyId'),
+    );
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['name'] = name;
     if (sections != null && sections.isNotEmpty) {
-      body['section'] = sections.join('|');
+      request.fields['section'] = sections.join('|');
+    }
+    if (logoBytes != null && logoBytes.isNotEmpty && logoFileName != null && logoFileName.trim().isNotEmpty) {
+      request.files.add(http.MultipartFile.fromBytes('logo', logoBytes, filename: logoFileName.trim()));
     }
 
-    final response =
-        await http.put(
-      Uri.parse(
-        '$baseUrl/companies/$companyId',
-      ),
-      headers: {
-        'Content-Type':
-            'application/json',
-        'Authorization':
-            'Bearer $token',
-      },
-      body: jsonEncode(body),
-    );
-
-    final data =
-        await _jsonResponse(
-      response,
-    );
-
-    return Map<String, dynamic>.from(
-      data['data'] ?? {},
-    );
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
   }
 
   // ============================================================

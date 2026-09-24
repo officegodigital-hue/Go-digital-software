@@ -288,7 +288,13 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return filtered;
   }
 
+  // ============================================================
+  // CALL & WHATSAPP — tap-to-call / tap-to-chat using the client's
+  // saved phone number. Both silently no-op with a snackbar if the
+  // client has no phone number on file.
+  // ============================================================
   String _cleanPhoneForWhatsApp(String phone) {
+    // Keep digits only (wa.me needs country code + number, no symbols).
     return phone.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
@@ -360,6 +366,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       return;
     }
 
+    // HTML Table டெம்ப்ளேட் உருவாக்கம் (Excel-ல் திறக்கும்போது கலர்ஃபுல்லாக பிரமாதமாக காட்டும்)
     final htmlBuffer = StringBuffer();
     htmlBuffer.writeln('''
       <html>
@@ -446,11 +453,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       </html>
     ''');
 
+    // .xls எக்ஸ்டென்ஷனில் சேமித்தால் எக்செல் அதை கலர்ஃபுல் டெம்ப்ளேட்டாக திறக்கும்
     final fileName = 'GoDigital_Invoice_Template_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
 
     try {
       final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(htmlBuffer.toString())];
-      await saveAndShareCsv(bytes, fileName);
+      await saveAndShareCsv(bytes, fileName); // (இதே பங்கஷன் பைட்டை சேமிக்கப் பயன்படும்)
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1567,7 +1575,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                     itemCount: invoices.length,
                     separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFD7E2F2)),
-                    itemBuilder: (context, index) => _buildInvoiceHistoryRow(invoices[index], startIndex + index + 1, isMainAdmin),
+                    itemBuilder: (context, index) => _buildInvoiceHistoryRow(invoices[index], isMainAdmin),
                   ),
                 ),
               ),
@@ -1918,7 +1926,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  Widget _buildInvoiceHistoryRow(Map<String, dynamic> row, int serialNo, bool isMainAdmin) {
+  Widget _buildInvoiceHistoryRow(Map<String, dynamic> row, bool isMainAdmin) {
     final int id = row["id"];
     final String invNo = row["invoice_no"] ?? '';
     final String client = row["client_name"] ?? '';
@@ -1946,7 +1954,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       height: 65,
       child: Row(
         children: [
-          _invoiceBodyCell(flex: 1, child: Text(serialNo.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
+          _invoiceBodyCell(flex: 1, child: Text(id.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
           _invoiceBodyCell(flex: 2, child: Text(invoiceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
           _invoiceBodyCell(
             flex: 2,
@@ -1976,6 +1984,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             ),
             if (phone.isNotEmpty) ...[
               const SizedBox(width: 4),
+              // Call Icon (Blue Color)
               InkWell(
                 onTap: () => _callPhone(phone),
                 borderRadius: BorderRadius.circular(6),
@@ -1984,6 +1993,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                   child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
                 ),
               ),
+              // WhatsApp Icon (Green Color - Replaced chat bubble)
               InkWell(
                 onTap: () => _openWhatsApp(phone),
                 borderRadius: BorderRadius.circular(6),
