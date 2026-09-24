@@ -614,7 +614,7 @@ class _PageHandlerDashboardPageState extends State<PageHandlerDashboardPage> {
   Widget _summaryCards() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1100 ? 4 : 2;
+        final columns = constraints.maxWidth >= 1000 ? 4 : 2;
         final gap = columns == 4 ? 22.0 : 14.0;
         final cardWidth =
             (constraints.maxWidth - gap * (columns - 1)) / columns;
