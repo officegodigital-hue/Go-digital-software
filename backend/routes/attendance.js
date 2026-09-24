@@ -39,6 +39,9 @@ router.get('/breaks/:id/review', attendance.requireAdmin, attendance.getBreakRev
 router.patch('/breaks/:id/review', attendance.requireAdmin, attendance.reviewBreak);
 router.post('/checkout/undo', attendance.undoCheckout);
 router.post('/checkout/correction-request', attendance.requestCheckoutCorrection);
+router.get('/checkout/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
+router.patch('/checkout/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
+router.patch('/checkout/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
 router.get('/permissions/mine', attendance.myPermissions);
 router.post('/permissions', attendance.createPermission);
 

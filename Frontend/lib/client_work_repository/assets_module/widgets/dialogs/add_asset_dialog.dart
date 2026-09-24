@@ -1636,12 +1636,17 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
       section: section,
       type: type,
       name: name,
+      description: _nullableString(data['description']),
       link: _nullableString(linkValue),
       username: _nullableString(usernameValue),
       password: _nullableString(passwordValue),
+      filePath: filePath,
+      fileName: _nullableString(data['file_name']),
+      mimeType: _nullableString(data['mime_type']),
+      fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+      createdByEmployeeId: _nullableString(data['created_by_employee_id']),
       createdAt: createdAt,
       updatedAt: updatedAt,
-      filePath: filePath,
     );
   }
 

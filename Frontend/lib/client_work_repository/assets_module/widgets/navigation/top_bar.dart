@@ -166,32 +166,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
       }
 
       setState(() {
-        _notifications = notifications.where((n) {
-          final msg = n['message']?.toString() ?? '';
-          // Exclude task planner and day planner notifications
-          try {
-            final decoded = jsonDecode(msg);
-            if (decoded is Map) {
-              final payload = decoded['payload'];
-              if (payload is Map) {
-                final type = payload['type']?.toString() ?? '';
-                if (type.startsWith('TASK_PLANNER') ||
-                    type.startsWith('DAY_PLANNER')) {
-                  return false;
-                }
-              }
-            }
-          } catch (_) {
-            // plain text — check for known non-asset keywords
-            final lower = msg.toLowerCase();
-            if (lower.contains('task planner') ||
-                lower.contains('day planner') ||
-                lower.contains('morning day planner')) {
-              return false;
-            }
-          }
-          return true;
-        }).toList();
+        _notifications = List<dynamic>.from(notifications);
       });
     } catch (error) {
       if (!mounted) {

@@ -236,14 +236,17 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             section: section,
             type: type,
             name: name,
+            description: data['description']?.toString(),
             link: data['link']?.toString(),
             username: data['username']?.toString(),
             password: data['password']?.toString(),
+            filePath: data['file_url']?.toString(),
+            fileName: data['file_name']?.toString(),
+            mimeType: data['mime_type']?.toString(),
+            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            createdByEmployeeId: data['created_by_employee_id']?.toString(),
             createdAt: createdAt,
             updatedAt: updatedAt,
-            filePath:
-                data['file_url']?.toString() ??
-                data['file_name']?.toString(),
           ),
         );
       }
@@ -1361,6 +1364,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
     String? logoFileName;
     Uint8List? logoBytes;
+    final selectedSections = <String>{section};
 
     try {
       await showDialog<void>(
@@ -1446,6 +1450,18 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                   return;
                 }
 
+                if (selectedSections.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Please select at least one section.',
+                      ),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                  return;
+                }
+
                 setDialogState(() {
                   isCreating = true;
                 });
@@ -1453,7 +1469,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                 try {
                   await ApiService.createCompany(
                     name,
-                    section: section,
+                    sections: selectedSections.toList(),
                     logoFileName: logoFileName,
                     logoBytes: logoBytes,
                   );
@@ -1513,14 +1529,46 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Create a company under $section.',
-                          style: const TextStyle(
+                        const Text(
+                          'Sections',
+                          style: TextStyle(
                             fontSize: normalTextSize,
-                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 4),
+                        for (final sectionOption in [
+                          AppConstants.digitalMarketing,
+                          AppConstants.softwareDevelopment,
+                        ])
+                          CheckboxListTile(
+                            value: selectedSections
+                                .contains(sectionOption),
+                            onChanged: isCreating
+                                ? null
+                                : (checked) {
+                                    setDialogState(() {
+                                      if (checked == true) {
+                                        selectedSections
+                                            .add(sectionOption);
+                                      } else {
+                                        selectedSections
+                                            .remove(sectionOption);
+                                      }
+                                    });
+                                  },
+                            title: Text(
+                              sectionOption,
+                              style: const TextStyle(
+                                  fontSize: normalTextSize),
+                            ),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            controlAffinity:
+                                ListTileControlAffinity.leading,
+                          ),
+                        const SizedBox(height: 10),
                         TextField(
                           controller: controller,
                           autofocus: true,

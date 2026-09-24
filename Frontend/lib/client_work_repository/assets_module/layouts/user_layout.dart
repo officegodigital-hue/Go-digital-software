@@ -10,6 +10,8 @@ import '../services/api_service.dart';
 
 import '../core/theme/app_theme.dart';
 import '../features/user/asset_library/asset_library_page.dart';
+import '../features/user/company_assets/company_assets_page.dart';
+import '../models/company_model.dart';
 import '../services/download_history.dart';
 
 class UserLayout extends StatefulWidget {
@@ -30,6 +32,23 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   int _selectedIndex = 0;
+
+  CompanyModel? _openCompany;
+  String? _openSection;
+
+  void _handleOpenCompany(CompanyModel company, String section) {
+    setState(() {
+      _openCompany = company;
+      _openSection = section;
+    });
+  }
+
+  void _handleCloseCompany() {
+    setState(() {
+      _openCompany = null;
+      _openSection = null;
+    });
+  }
 
   final List<String> _pageTitles = const [
     'Assets',
@@ -120,12 +139,14 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   void _selectPage(int index) {
-    if (_selectedIndex == index) {
+    if (_selectedIndex == index && _openCompany == null) {
       return;
     }
 
     setState(() {
       _selectedIndex = index;
+      _openCompany = null;
+      _openSection = null;
     });
 
     if (index == 1) {
@@ -993,10 +1014,17 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildPage() {
+    if (_selectedIndex == 0 && _openCompany != null) {
+      return CompanyAssetsPage(
+        key: ValueKey(_openCompany!.id + (_openSection ?? '')),
+        company: _openCompany!,
+        section: _openSection ?? '',
+        onBack: _handleCloseCompany,
+      );
+    }
     switch (_selectedIndex) {
       case 0:
-        // Assets
-        return const UserAssetLibraryPage();
+        return UserAssetLibraryPage(onOpenCompany: _handleOpenCompany);
 
       case 1:
         // Downloads
