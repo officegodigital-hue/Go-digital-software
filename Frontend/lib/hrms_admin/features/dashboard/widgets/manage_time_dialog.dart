@@ -28,6 +28,8 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
   String _checkOut = '18:30';
   String _lateAfter = '10:00';
   String _absentAfter = '12:00';
+  int _breakMinutes = 60;
+  int _breakGraceMinutes = 5;
   bool _loading = true;
   bool _saving = false;
 
@@ -49,6 +51,10 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
           values['absentAfter'],
           fallback: _absentAfter,
         );
+        final savedBreak = int.tryParse('${values['breakMinutes'] ?? 60}') ?? 60;
+        _breakMinutes = savedBreak < 0 ? 0 : (savedBreak > 180 ? 180 : savedBreak);
+        final savedGrace = int.tryParse('${values['breakGraceMinutes'] ?? 5}') ?? 5;
+        _breakGraceMinutes = savedGrace < 0 ? 0 : (savedGrace > 60 ? 60 : savedGrace);
       });
     } catch (error) {
       if (mounted) {
@@ -101,6 +107,8 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
         checkOut: _checkOut,
         lateAfter: _lateAfter,
         absentAfter: _absentAfter,
+        breakMinutes: _breakMinutes,
+        breakGraceMinutes: _breakGraceMinutes,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -115,6 +123,52 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _pickBreakMinutes() async {
+    final controller = TextEditingController(text: '$_breakMinutes');
+    final value = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Break time'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Minutes (0–180)', helperText: 'One break only per shift'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(controller.text.trim())), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (value != null && value >= 0 && value <= 180 && mounted) {
+      setState(() => _breakMinutes = value);
+    }
+  }
+
+  Future<void> _pickBreakGraceMinutes() async {
+    final controller = TextEditingController(text: '$_breakGraceMinutes');
+    final value = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Break grace period'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Minutes (0–60)', helperText: 'Reason required if overdue exceeds this'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(controller.text.trim())), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (value != null && value >= 0 && value <= 60 && mounted) {
+      setState(() => _breakGraceMinutes = value);
     }
   }
 
@@ -269,6 +323,22 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    _timeTile(
+                      icon: Icons.lunch_dining_outlined,
+                      label: 'Break time',
+                      value: '$_breakMinutes min',
+                      trailing: 'One break per shift',
+                      onTap: _pickBreakMinutes,
+                    ),
+                    const SizedBox(height: 10),
+                    _timeTile(
+                      icon: Icons.timer_off_outlined,
+                      label: 'Break grace period',
+                      value: '$_breakGraceMinutes min',
+                      trailing: 'Reason required if exceeded',
+                      onTap: _pickBreakGraceMinutes,
+                    ),
+                    const SizedBox(height: 10),
                     _timeTile(
                       icon: Icons.notifications_active_outlined,
                       iconColor: _orange,

@@ -99,6 +99,48 @@ function parseMonth(req) {
   return { year: year, month: month, today: today };
 }
 
+// Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' } for the pay period that
+// covers the given calendar month, based on the employee's salary cycle.
+// Standard: 1st → last day of the month.
+// Flexible (e.g. startDay=26, endDay=25): for payroll month M, period is
+//   (M-1)/startDay → M/endDay  (e.g. Jan payroll = Dec 26 → Jan 25).
+function cycleRange(year, month, salaryType, startDay, endDay) {
+  if (salaryType !== 'flexible' || !startDay || !endDay) {
+    return { start: ymd(year, month, 1), end: ymd(year, month, daysInMonth(year, month)) };
+  }
+  const sd = Number(startDay);
+  const ed = Number(endDay);
+  // The cycle that *ends* in this calendar month
+  let prevYear = year;
+  let prevMonth = month - 1;
+  if (prevMonth < 1) { prevMonth = 12; prevYear -= 1; }
+  const maxPrev = daysInMonth(prevYear, prevMonth);
+  const maxCurr = daysInMonth(year, month);
+  const actualStart = ymd(prevYear, prevMonth, Math.min(sd, maxPrev));
+  const actualEnd = ymd(year, month, Math.min(ed, maxCurr));
+  return { start: actualStart, end: actualEnd };
+}
+
+async function ensurePayrollItemColumns() {
+  try { await db.query("ALTER TABLE hrms_payroll_items ADD COLUMN period_start DATE NULL"); } catch (_) {}
+  try { await db.query("ALTER TABLE hrms_payroll_items ADD COLUMN period_end DATE NULL"); } catch (_) {}
+}
+ensurePayrollItemColumns();
+
+async function ensureCustomCycleTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_custom_cycles (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    profile_id BIGINT UNSIGNED NOT NULL,
+    pay_year SMALLINT UNSIGNED NOT NULL,
+    pay_month TINYINT UNSIGNED NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY profile_month (profile_id, pay_year, pay_month)
+  )`);
+}
+
 function monthOptions(today) {
   const [ty, tm] = today.split('-').map(Number);
   const items = [];
@@ -121,10 +163,10 @@ function monthOptions(today) {
 async function computeRows(year, month, today) {
   const configuredPolicy = await payrollPolicy();
   const weeklyOff = new Set(configuredPolicy.weeklyOffDays);
+  // Standard month bounds (used for records query and compensation lookup)
   const totalDays = daysInMonth(year, month);
-  const start = ymd(year, month, 1);
-  const end = ymd(year, month, totalDays);
-  const cutoff = end < today ? end : today;
+  const stdStart = ymd(year, month, 1);
+  const stdEnd = ymd(year, month, totalDays);
 
   const [profiles] = await db.query(`
     SELECT p.* FROM hrms_employee_profiles p JOIN employee_users u ON u.id = p.employee_user_id
@@ -151,10 +193,10 @@ async function computeRows(year, month, today) {
       SELECT ?, ?, ?, COALESCE(DATE(created_at), ?)
       FROM hrms_employee_profiles WHERE id = ?
       AND NOT EXISTS (SELECT 1 FROM hrms_employee_compensation c WHERE c.profile_id = ?)
-      LIMIT 1`, [profile.id, profile.employee_user_id || null, profile.monthly_salary, start, profile.id, profile.id]);
+      LIMIT 1`, [profile.id, profile.employee_user_id || null, profile.monthly_salary, stdStart, profile.id, profile.id]);
   }
   const [compensations] = await db.query(`SELECT profile_id, employee_user_id, monthly_salary, effective_from
-    FROM hrms_employee_compensation WHERE effective_from <= ? ORDER BY effective_from ASC, id ASC`, [end]);
+    FROM hrms_employee_compensation WHERE effective_from <= ? ORDER BY effective_from ASC, id ASC`, [stdEnd]);
   const compensationMap = new Map();
   compensations.forEach(function (row) {
     if (row.profile_id) compensationMap.set('profile:' + row.profile_id, row);
@@ -163,6 +205,10 @@ async function computeRows(year, month, today) {
 
   const userIds = profiles.map(function (row) { return row.employee_user_id; }).filter(Boolean);
 
+  // Fetch records for the full possible flexible range (prev month day 1 → stdEnd)
+  let prevYear = year; let prevMonth = month - 1;
+  if (prevMonth < 1) { prevMonth = 12; prevYear -= 1; }
+  const broadStart = ymd(prevYear, prevMonth, 1);
   const [records] = userIds.length
     ? await db.query(
         `SELECT employee_id, DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
@@ -170,7 +216,7 @@ async function computeRows(year, month, today) {
          FROM attendance_records
          WHERE attendance_date BETWEEN ? AND ?
            AND employee_id IN (?)`,
-        [start, end, userIds]
+        [broadStart, stdEnd, userIds]
       )
     : [[]];
 
@@ -183,7 +229,7 @@ async function computeRows(year, month, today) {
            AND request_type IN (` + leavePlaceholders + `)
            AND request_date BETWEEN ? AND ?
            AND employee_id IN (?)`,
-        LEAVE_TYPES.concat([start, end, userIds])
+        LEAVE_TYPES.concat([broadStart, stdEnd, userIds])
       )
     : [[]];
 
@@ -205,6 +251,15 @@ async function computeRows(year, month, today) {
     leaveSet.add(row.employee_id + '|' + isoDate(row.request_date));
   });
 
+  // Load custom cycles for this pay period (overrides per-employee salary cycle)
+  await ensureCustomCycleTable();
+  const [customCycles] = await db.query(
+    'SELECT profile_id, period_start, period_end FROM hrms_payroll_custom_cycles WHERE pay_year = ? AND pay_month = ?',
+    [year, month]
+  );
+  const customCycleMap = new Map();
+  customCycles.forEach(function (r) { customCycleMap.set(Number(r.profile_id), r); });
+
   return profiles.map(function (profile) {
     let workingDays = 0;
     let present = 0;
@@ -212,9 +267,22 @@ async function computeRows(year, month, today) {
     let leaveDays = 0;
     let absent = 0;
 
-    for (let day = 1; day <= totalDays; day += 1) {
-      const date = ymd(year, month, day);
-      if (weeklyOff.has(utcWeekday(year, month, day))) continue;
+    // Determine the date range for this employee's pay period
+    const custom = customCycleMap.get(Number(profile.id));
+    const range = custom
+      ? { start: isoDate(custom.period_start), end: isoDate(custom.period_end) }
+      : cycleRange(year, month, profile.salary_type, profile.salary_cycle_start_day, profile.salary_cycle_end_day);
+    const cutoff = range.end < today ? range.end : today;
+
+    // Enumerate all days in the pay period
+    const rangeStart = new Date(range.start + 'T00:00:00Z');
+    const rangeEnd = new Date(range.end + 'T00:00:00Z');
+    for (let d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dy = d.getUTCFullYear();
+      const dm = d.getUTCMonth() + 1;
+      const dd = d.getUTCDate();
+      const date = ymd(dy, dm, dd);
+      if (weeklyOff.has(d.getUTCDay())) continue;
       if (date > cutoff) continue;
       workingDays += 1;
       const userId = profile.employee_user_id;
@@ -260,13 +328,24 @@ async function computeRows(year, month, today) {
     const netPay = Math.max(0, salaryNumber - deductions);
 
     const saved = savedMap.get(Number(profile.id));
-    if (saved && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
-        (saved.status === 'paid' && !(Number(saved.monthly_salary) > 0)))) {
+    // Only a *paid* row's inconsistency is an audit concern requiring a human
+    // correction — that state is final and shouldn't be silently rewritten.
+    // A pending/draft row with a stale employee_user_id (e.g. left over from
+    // before other employees were added) is safe to self-heal the next time
+    // payroll is generated, so it must not be flagged here.
+    const salaryType = profile.salary_type || 'standard';
+    const periodLabel = salaryType === 'flexible'
+      ? range.start.slice(5).replace('-', '/') + ' – ' + range.end.slice(5).replace('-', '/')
+      : null;
+
+    if (saved && saved.status === 'paid' && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
+        !(Number(saved.monthly_salary) > 0))) {
       return { id: saved.id, profileId: profile.id, employeeUserId: profile.employee_user_id,
         name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
         department: profile.department, monthlySalary: salaryNumber || null, salary: formatSalary(salaryNumber || null),
         workingDays, paidDays, lopDays, deductions: 0, deductionsLabel: 'Review required',
         netPay: 0, netPayLabel: 'Review required', status: 'Review required', paidAt: '',
+        salaryType, periodStart: range.start, periodEnd: range.end, periodLabel,
         integrityError: 'Saved payroll has inconsistent ownership or missing paid salary. An audited correction is required.' };
     }
 
@@ -278,6 +357,7 @@ async function computeRows(year, month, today) {
         workingDays: workingDays, presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
         paidDays: paidDays, lopDays: lopDays, deductions: 0, deductionsLabel: '–', netPay: 0, netPayLabel: '–',
         status: 'Salary required', paidAt: '',
+        salaryType, periodStart: range.start, periodEnd: range.end, periodLabel,
       };
     }
 
@@ -290,6 +370,7 @@ async function computeRows(year, month, today) {
         paidDays: Number(saved.paid_days || 0), lopDays: Number(saved.lop_days || 0), deductions: Number(saved.deductions || 0),
         deductionsLabel: formatSalary(saved.deductions), netPay: Number(saved.net_pay || 0), netPayLabel: formatSalary(saved.net_pay),
         status: 'Paid', paidAt: saved.paid_at ? isoDate(saved.paid_at) : '',
+        salaryType, periodStart: isoDate(saved.period_start) || range.start, periodEnd: isoDate(saved.period_end) || range.end, periodLabel,
       };
     }
 
@@ -317,6 +398,7 @@ async function computeRows(year, month, today) {
       netPayLabel: salaryNumber ? formatSalary(netPay) : '–',
       status: status === 'paid' ? 'Paid' : status === 'pending' ? 'Pending' : 'Draft',
       paidAt: saved && saved.paid_at ? isoDate(saved.paid_at) : '',
+      salaryType, periodStart: range.start, periodEnd: range.end, periodLabel,
     };
   });
 }
@@ -399,6 +481,24 @@ async function generate(req, res) {
 }
 
 async function generatePayrollRun(year, month, today) {
+    // Heal stale employee_user_id on ALL non-paid rows before computing anything.
+    // This runs unconditionally so employees with no salary set are also corrected,
+    // preventing permanent "Review required" on pending rows with wrong ownership.
+    await db.query(`
+      UPDATE hrms_payroll_items pi
+      JOIN hrms_employee_profiles ep ON ep.id = pi.profile_id
+      SET pi.employee_user_id = ep.employee_user_id
+      WHERE pi.status != 'paid'
+        AND (pi.employee_user_id IS NULL OR pi.employee_user_id != ep.employee_user_id)
+    `);
+    // Reset any 'paid' row that has no salary — these are audit anomalies that
+    // block the employee indefinitely and must be reopened so payroll can regenerate.
+    await db.query(`
+      UPDATE hrms_payroll_items
+      SET status = 'pending', paid_at = NULL
+      WHERE status = 'paid' AND (monthly_salary IS NULL OR monthly_salary <= 0)
+    `);
+
     const allItems = await computeRows(year, month, today);
     const items = allItems.filter(function (item) { return Number(item.monthlySalary) > 0 && !item.integrityError && item.employeeUserId; });
     for (const item of items) {
@@ -406,16 +506,19 @@ async function generatePayrollRun(year, month, today) {
       await db.query(
         `INSERT INTO hrms_payroll_items
           (profile_id, employee_user_id, pay_year, pay_month, monthly_salary,
-           working_days, paid_days, lop_days, deductions, net_pay, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+           working_days, paid_days, lop_days, deductions, net_pay, status, period_start, period_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
          ON DUPLICATE KEY UPDATE
+           employee_user_id = IF(status = 'paid', employee_user_id, VALUES(employee_user_id)),
            monthly_salary = IF(status = 'paid', monthly_salary, VALUES(monthly_salary)),
            working_days = IF(status = 'paid', working_days, VALUES(working_days)),
            paid_days = IF(status = 'paid', paid_days, VALUES(paid_days)),
            lop_days = IF(status = 'paid', lop_days, VALUES(lop_days)),
            deductions = IF(status = 'paid', deductions, VALUES(deductions)),
            net_pay = IF(status = 'paid', net_pay, VALUES(net_pay)),
-           status = IF(status = 'paid', 'paid', 'pending')`,
+           status = IF(status = 'paid', 'paid', 'pending'),
+           period_start = IF(status = 'paid', period_start, VALUES(period_start)),
+           period_end = IF(status = 'paid', period_end, VALUES(period_end))`,
         [
           item.profileId,
           item.employeeUserId || null,
@@ -427,6 +530,8 @@ async function generatePayrollRun(year, month, today) {
           item.lopDays,
           item.deductions,
           item.netPay,
+          item.periodStart || null,
+          item.periodEnd || null,
         ]
       );
     }
@@ -473,6 +578,50 @@ async function markPaid(req, res) {
   }
 }
 
+async function getCustomCycle(req, res) {
+  try {
+    const profileId = Number(req.params.profileId);
+    const parsed = parseMonth(req);
+    if (parsed.error) return fail(res, 400, parsed.error);
+    await ensureCustomCycleTable();
+    const [rows] = await db.query(
+      'SELECT * FROM hrms_payroll_custom_cycles WHERE profile_id = ? AND pay_year = ? AND pay_month = ?',
+      [profileId, parsed.year, parsed.month]
+    );
+    return ok(res, rows[0] ? {
+      profileId: profileId,
+      year: parsed.year,
+      month: parsed.month,
+      periodStart: isoDate(rows[0].period_start),
+      periodEnd: isoDate(rows[0].period_end),
+    } : null);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function setCustomCycle(req, res) {
+  try {
+    const profileId = Number(req.params.profileId);
+    const parsed = parseMonth(req);
+    if (parsed.error) return fail(res, 400, parsed.error);
+    const body = req.body || {};
+    const periodStart = String(body.periodStart || '').trim();
+    const periodEnd = String(body.periodEnd || '').trim();
+    if (!periodStart || !periodEnd) return fail(res, 400, 'periodStart and periodEnd are required');
+    await ensureCustomCycleTable();
+    await db.query(
+      `INSERT INTO hrms_payroll_custom_cycles (profile_id, pay_year, pay_month, period_start, period_end, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE period_start = VALUES(period_start), period_end = VALUES(period_end), created_by = VALUES(created_by)`,
+      [profileId, parsed.year, parsed.month, periodStart, periodEnd, req.user && req.user.id]
+    );
+    return ok(res, { profileId, year: parsed.year, month: parsed.month, periodStart, periodEnd }, 'Custom cycle saved');
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -481,4 +630,6 @@ module.exports = {
   getPolicy,
   savePolicy,
   generatePayrollRun,
+  getCustomCycle,
+  setCustomCycle,
 };

@@ -417,7 +417,6 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-
 // PUT /api/employees/:id/profile — Update user profile and password securely
 router.put('/:id/profile', async (req, res) => {
   const empId = req.params.id;
@@ -430,7 +429,11 @@ router.put('/:id/profile', async (req, res) => {
 
     const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
-    // Check if password override is passed
+    // 1. Fetch old employee name to check if it changed
+    const [oldEmpRows] = await db.query('SELECT full_name FROM employee_users WHERE id = ?', [empId]);
+    const oldFullName = oldEmpRows.length > 0 ? oldEmpRows[0].full_name : null;
+
+    // 2. Update employee_users profile data
     if (password && password.trim() !== '') {
       await db.query(
         `UPDATE employee_users SET
@@ -449,13 +452,46 @@ router.put('/:id/profile', async (req, res) => {
       );
     }
 
+    await db.query(`UPDATE hrms_employee_profiles SET full_name = ?, email = ? WHERE employee_user_id = ?`, [fullName, email, empId]);
+
+    // 3. 🟢 CASCADE NAME CHANGE: If employee name changed, update task_list, day_plan_rows, and task_assignments instantly
+    if (oldFullName && oldFullName.trim().toUpperCase() !== fullName.trim().toUpperCase()) {
+      const targetOldName = oldFullName.trim();
+      const targetNewName = fullName.trim();
+
+      // Update task_list records
+      await db.query(
+        `UPDATE task_list SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // Update day_plan_rows records
+      await db.query(
+        `UPDATE day_plan_rows SET employee_name = ? WHERE UPPER(TRIM(employee_name)) = UPPER(TRIM(?))`,
+        [targetNewName, targetOldName]
+      );
+
+      // Update role columns in task_assignments table
+      const roleColumns = [
+        'designer', 'videographer', 'video_editor', 
+        'ui_ux_designer', 'developer', 'ads_handling', 
+        'page_handling', 'website_designer'
+      ];
+
+      for (const col of roleColumns) {
+        await db.query(
+          `UPDATE task_assignments SET ${col} = ? WHERE UPPER(TRIM(${col})) = UPPER(TRIM(?))`,
+          [targetNewName, targetOldName]
+        );
+      }
+    }
+
     return res.json({ success: true, message: 'Profile updated successfully' });
   } catch (err) {
     console.error('PUT /employees/:id/profile ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
 
 
 

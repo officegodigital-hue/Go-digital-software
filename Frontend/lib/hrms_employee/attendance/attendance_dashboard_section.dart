@@ -25,7 +25,6 @@ class AttendanceDashboardSection extends StatefulWidget {
 class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     with WidgetsBindingObserver {
   late final http.Client _client;
-  final _elapsed = Stopwatch();
   Timer? _timer;
   String? _token;
   Map<String, dynamic>? _data;
@@ -33,27 +32,17 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   bool _loading = true;
   bool _punching = false;
   int _request = 0;
-  int _ticks = 0;
 
   @override
   void initState() {
     super.initState();
     _client = widget.client ?? http.Client();
     WidgetsBinding.instance.addObserver(this);
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (!mounted) return;
-      if (_data?['status'] == 'checked_in') setState(() {});
-      if (++_ticks % 60 == 0 && !_loading && !_punching) {
-        final token = _token;
-        if (_data?['status'] == 'checked_in' && token != null) {
-          try {
-            await _call('heartbeat', token, post: true);
-          } catch (_) {
-            // The live display still runs; the next dashboard refresh retries.
-          }
-        }
-        if (mounted) _load();
-      }
+    // This redraws only the local attendance card for elapsed work and break
+    // countdowns. It deliberately makes no HTTP request, preventing UI flicker.
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _data?['status'] != 'checked_in') return;
+      setState(() {});
     });
   }
 
@@ -137,7 +126,136 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   String _durationLabel(int minutes) =>
       '${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m';
 
-  Future<void> _load() async {
+  void _showCorrectionRequestDialog(BuildContext context, {String checkIn = '--', String checkOut = '--'}) {
+    final reasonController = TextEditingController();
+    bool submitting = false;
+    String? submitError;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Checkout correction request',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                            SizedBox(height: 2),
+                            Text('Admin will review and restore your session if approved.',
+                                style: TextStyle(fontSize: 12, color: employeeMuted)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, size: 18),
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFFF4F6FB),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 6,
+                    children: [
+                      _InfoChip(label: 'Check in', value: checkIn),
+                      _InfoChip(label: 'Checked out at', value: checkOut),
+                      _InfoChip(label: 'Date', value: DateFormat('d MMM yyyy').format(DateTime.now())),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Reason', style: TextStyle(fontSize: 12, color: employeeMuted, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Explain why you need the checkout corrected…',
+                      hintStyle: const TextStyle(fontSize: 13, color: employeeMuted),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                  if (submitError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(submitError!, style: const TextStyle(fontSize: 12, color: Colors.red)),
+                  ],
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                final reason = reasonController.text.trim();
+                                if (reason.isEmpty) {
+                                  setS(() => submitError = 'Please enter a reason.');
+                                  return;
+                                }
+                                setS(() { submitting = true; submitError = null; });
+                                try {
+                                  final token = _token ?? '';
+                                  final response = await http.post(
+                                    Uri.parse('${ApiConfig.baseUrl}/attendance/checkout/correction-request'),
+                                    headers: {
+                                      'Authorization': 'Bearer $token',
+                                      'Content-Type': 'application/json',
+                                    },
+                                    body: jsonEncode({'reason': reason}),
+                                  ).timeout(const Duration(seconds: 15));
+                                  final body = jsonDecode(response.body) as Map<String, dynamic>;
+                                  if (!ctx.mounted) return;
+                                  if (response.statusCode == 200 && body['success'] == true) {
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Correction request submitted. Admin will review it.')),
+                                    );
+                                    _load();
+                                  } else {
+                                    setS(() { submitting = false; submitError = body['message']?.toString() ?? 'Failed to submit. Try again.'; });
+                                  }
+                                } catch (_) {
+                                  if (!ctx.mounted) return;
+                                  setS(() { submitting = false; submitError = 'Could not connect. Check your connection.'; });
+                                }
+                              },
+                        child: submitting
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('Submit request'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _load({bool background = false}) async {
     var token = _token;
     final request = ++_request;
     if (token == null || token.isEmpty) {
@@ -157,22 +275,19 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       });
       return;
     }
-    setState(() => _loading = true);
+    if (!background) setState(() => _loading = true);
     try {
       final data = await _call('dashboard', token);
       if (!mounted || request != _request || token != _token) return;
       setState(() {
         _data = data;
         _error = null;
-        _elapsed
-          ..reset()
-          ..start();
       });
     } catch (error) {
       if (!mounted || request != _request || token != _token) return;
       setState(() => _error = _message(error));
     } finally {
-      if (mounted && request == _request && token == _token) {
+      if (!background && mounted && request == _request && token == _token) {
         setState(() => _loading = false);
       }
     }
@@ -182,6 +297,17 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    if (clockOut) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('End your shift now?'),
+          content: const Text('Your checkout time and worked hours will be recorded.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clock Out'))],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     setState(() => _punching = true);
     String message;
     try {
@@ -212,6 +338,38 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _toggleBreak() async {
+    final token = _token;
+    if (token == null || _loading || _punching || _error != null) return;
+    final active = (_data?['break'] as Map?)?['active'] == true;
+    setState(() => _punching = true);
+    try {
+      final payload = active
+          ? await AttendanceLocation.checkInPayload(client: _client, token: token)
+          : <String, dynamic>{};
+      if (active) {
+        final breakInfo = _data?['break'] as Map? ?? const {};
+        final policy = _data?['break_policy'] as Map? ?? const {};
+        final started = DateTime.tryParse('${breakInfo['started_at'] ?? ''}'.replaceFirst(' ', 'T'));
+        final allowed = (policy['max_break_minutes'] as num?)?.toInt() ?? 60;
+        final overdue = started == null ? 0 : DateTime.now().difference(started.toLocal()).inMinutes - allowed;
+        if (overdue > 0) {
+          final controller = TextEditingController();
+          final reason = await showDialog<String>(context: context, builder: (context) => AlertDialog(title: const Text('Reason for extended break'), content: TextField(controller: controller, autofocus: true, maxLength: 500, decoration: InputDecoration(hintText: 'Break overdue by $overdue min. Enter reason.')), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('End Break'))]));
+          if (reason == null || reason.trim().isEmpty) return;
+          payload['reason'] = reason.trim();
+        }
+      }
+      await _call(active ? 'break-out' : 'break-in', token, post: true, payload: payload);
+      if (mounted) await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(active ? 'Break ended.' : 'Break started.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_message(error))));
+    } finally {
+      if (mounted) setState(() => _punching = false);
+    }
   }
 
   String _formatPunchTime(dynamic rawTimestamp) {
@@ -262,8 +420,34 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final actions = data['actions'] as Map;
     final checkedIn = data['status'] == 'checked_in';
     final checkedOut = data['status'] == 'checked_out';
-    final seconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
-    final worked = seconds + (checkedIn ? _elapsed.elapsed.inSeconds : 0);
+    final hasPendingCorrection = actions['has_pending_correction'] == true;
+    final breakInfo = data['break'] as Map? ?? const <String, dynamic>{};
+    final onBreak = breakInfo['active'] == true;
+    final breakPolicy = data['break_policy'] as Map? ?? const <String, dynamic>{};
+    final breakLimit = (breakPolicy['break_calculation_mode'] == 'fixed_schedule'
+            ? breakPolicy['fixed_break_minutes']
+            : breakPolicy['max_break_minutes']) as num? ?? 60;
+    final breakStarted = DateTime.tryParse('${breakInfo['started_at'] ?? ''}'.replaceFirst(' ', 'T'));
+    final breakElapsed = breakStarted == null ? 0 : DateTime.now().difference(breakStarted.toLocal()).inMinutes;
+    final breakRemaining = (breakLimit.toInt() - breakElapsed).clamp(0, breakLimit.toInt());
+    final breakOverdue = breakElapsed - breakLimit.toInt();
+    final workedSeconds = (session?['worked_seconds'] as num?)?.toInt() ?? 0;
+    // The circle is an elapsed-day clock, so it keeps running during a break.
+    // Payroll and monthly "Worked" totals continue to come from the server and
+    // exclude recorded break duration.
+    final elapsedStart = DateTime.tryParse(
+      '${session?['punch_in'] ?? session?['clock_in_at'] ?? ''}'
+          .replaceFirst(' ', 'T'),
+    );
+    final elapsedEnd = checkedOut
+        ? DateTime.tryParse(
+            '${session?['punch_out'] ?? session?['clock_out_at'] ?? ''}'
+                .replaceFirst(' ', 'T'),
+          )
+        : DateTime.now();
+    final elapsedSeconds = elapsedStart == null || elapsedEnd == null
+        ? workedSeconds
+        : elapsedEnd.difference(elapsedStart).inSeconds.clamp(0, 1 << 31);
     final today = DateTime.parse(data['date'] as String);
     final overnight = session != null && session['work_date'] != data['date'];
 
@@ -300,14 +484,14 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${worked ~/ 3600}h ${(worked % 3600) ~/ 60}m',
+                      '${elapsedSeconds ~/ 3600}h ${(elapsedSeconds % 3600) ~/ 60}m',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const Text(
-                      'Worked',
+                      'Elapsed',
                       style: TextStyle(color: employeeMuted, fontSize: 12),
                     ),
                   ],
@@ -490,10 +674,30 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                         ),
                       ),
                     ],
+                    if (onBreak) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        breakOverdue > 0
+                            ? 'Break overdue by $breakOverdue min · Return and end break'
+                            : breakRemaining == 0
+                                ? 'Break limit reached · Return and end break'
+                                : 'Break active · $breakRemaining min remaining',
+                        style: TextStyle(color: breakOverdue > 0 ? const Color(0xFFFFB4B4) : Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 10),
+              if (checkedIn) ...[
+                OutlinedButton.icon(
+                  onPressed: _loading || _punching || _error != null ? null : _toggleBreak,
+                  icon: Icon(onBreak ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 18),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white, disabledForegroundColor: Colors.white70, side: const BorderSide(color: Colors.white)),
+                  label: Text(onBreak ? 'End Break' : 'Break'),
+                ),
+                const SizedBox(width: 10),
+              ],
               OutlinedButton(
                 onPressed:
                     _loading ||
@@ -521,6 +725,43 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             ],
           ),
         ),
+        if (checkedOut) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(
+                hasPendingCorrection ? Icons.hourglass_top_rounded : Icons.info_outline_rounded,
+                size: 13,
+                color: hasPendingCorrection ? const Color(0xFFF59E0B) : employeeMuted,
+              ),
+              const SizedBox(width: 5),
+              if (hasPendingCorrection)
+                const Text(
+                  'Correction request sent — awaiting admin review.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFFF59E0B), fontWeight: FontWeight.w600),
+                )
+              else ...[
+                const Text(
+                  'Checked out by mistake? ',
+                  style: TextStyle(fontSize: 11, color: employeeMuted),
+                ),
+                GestureDetector(
+                  onTap: () => _showCorrectionRequestDialog(context, checkIn: punchInDisplay, checkOut: punchOutDisplay),
+                  child: const Text(
+                    'Raise a correction request',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF0B72F5),
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Color(0xFF0B72F5),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
         const SizedBox(height: 18),
         LayoutBuilder(
           builder: (context, constraints) => constraints.maxWidth < 520
@@ -558,4 +799,28 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
 class _AttendanceError implements Exception {
   const _AttendanceError(this.message);
   final String message;
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label, required this.value});
+  final String label, value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F6FB),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE3E8F4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 10, color: employeeMuted)),
+            const SizedBox(height: 2),
+            Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
 }

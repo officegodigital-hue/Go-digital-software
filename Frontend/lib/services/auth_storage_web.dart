@@ -6,20 +6,20 @@ class AuthStorage {
   static Future<String?> getString(
     String key,
   ) async {
-    return html.window.localStorage[key];
+    return html.window.sessionStorage[key];
   }
 
   static Future<void> setString(
     String key,
     String value,
   ) async {
-    html.window.localStorage[key] = value;
+    html.window.sessionStorage[key] = value;
   }
 
   static Future<bool?> getBool(
     String key,
   ) async {
-    final value = html.window.localStorage[key];
+    final value = html.window.sessionStorage[key];
 
     if (value == null) {
       return null;
@@ -32,16 +32,16 @@ class AuthStorage {
     String key,
     bool value,
   ) async {
-    html.window.localStorage[key] = value.toString();
+    html.window.sessionStorage[key] = value.toString();
   }
 
   static Future<void> remove(
     String key,
   ) async {
-    html.window.localStorage.remove(key);
+    html.window.sessionStorage.remove(key);
   }
 
   static Future<void> clear() async {
-    html.window.localStorage.clear();
+    html.window.sessionStorage.clear();
   }
 }

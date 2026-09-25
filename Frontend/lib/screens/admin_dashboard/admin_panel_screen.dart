@@ -96,6 +96,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Performance', 'route': '/performance'},
     {'title': 'Employee Management', 'route': '/admin-panel'},
     {'title': 'Time Manager', 'route': '/time-manager'},
+    // admin_panel_screen.dart-il ulla availablePages & adminPages list-il:
+{'title': 'Broadcast Master', 'route': '/emergency-broadcast'},
   ];
 
   final List<Map<String, String>> employeePages = [

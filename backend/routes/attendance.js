@@ -5,6 +5,7 @@ const attendance = require('../controllers/attendanceController');
 
 router.use(authenticateToken);
 const leavePolicies = require('../controllers/leavePolicies');
+const attendancePolicies = require('../controllers/attendancePolicySettingsController');
 router.use('/leave/policies', attendance.requireAdmin);
 router.get('/leave/policies', attendance.requireAdmin, leavePolicies.list);
 router.put('/leave/policies/:id', attendance.requireAdmin, leavePolicies.save);
@@ -17,6 +18,8 @@ router.get('/dashboard', function (req, res, next) {
   return attendance.employeeDashboard(req, res, next);
 });
 router.get('/clock-logs', attendance.requireAdmin, attendance.clockLogs);
+router.get('/policies', attendance.requireAdmin, attendancePolicies.list);
+router.put('/policies', attendance.requireAdmin, attendancePolicies.save);
 router.get('/export', attendance.requireAdmin, attendance.exportCsv);
 router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions);
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
@@ -30,6 +33,15 @@ router.post('/heartbeat', attendance.heartbeat);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
+router.post('/break-in', attendance.startBreak);
+router.post('/break-out', attendance.endBreak);
+router.get('/breaks/:id/review', attendance.requireAdmin, attendance.getBreakReview);
+router.patch('/breaks/:id/review', attendance.requireAdmin, attendance.reviewBreak);
+router.post('/checkout/undo', attendance.undoCheckout);
+router.post('/checkout/correction-request', attendance.requestCheckoutCorrection);
+router.get('/checkout/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
+router.patch('/checkout/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
+router.patch('/checkout/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
 router.get('/permissions/mine', attendance.myPermissions);
 router.post('/permissions', attendance.createPermission);
 

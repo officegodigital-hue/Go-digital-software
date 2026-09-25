@@ -722,7 +722,6 @@ router.get('/month-history/:employeeName', async (req, res) => {
   }
 });
 
-// GET /api/day-planner/submissions?date=2026-07-30&type=Morning
 // router.get('/submissions', async (req, res) => {
 //   const { date, type } = req.query;
 
@@ -730,7 +729,6 @@ router.get('/month-history/:employeeName', async (req, res) => {
 //   const reportType = type || "Morning";
 
 //   try {
-
 //     // Get all active employees
 //     const [employees] = await db.query(
 //       `
@@ -745,12 +743,13 @@ router.get('/month-history/:employeeName', async (req, res) => {
 //       `
 //     );
 
-//     // Get submitted employees for selected report type
+//     // 🟢 Get submitted employees along with total_working_secs for selected report type
 //     const [submissions] = await db.query(
 //       `
 //       SELECT
 //           employee_name AS employeeName,
-//           MAX(is_submitted) AS submitted
+//           MAX(is_submitted) AS submitted,
+//           MAX(total_working_secs) AS total_working_secs
 //       FROM day_plan_rows
 //       WHERE
 //           plan_date = ?
@@ -768,23 +767,27 @@ router.get('/month-history/:employeeName', async (req, res) => {
 //       employees,
 //       submissions: submissions.map((row) => ({
 //         employeeName: row.employeeName,
-//         submitted: row.submitted == 1
+//         submitted: row.submitted == 1,
+//         total_working_secs: row.total_working_secs || 0 // 🟢 Added total working seconds mapping
 //       }))
 //     });
 
 //   } catch (err) {
-
 //     console.error("GET /day-planner/submissions ERROR:", err);
-
 //     return res.status(500).json({
 //       success: false,
 //       message: err.message
 //     });
-
 //   }
 // });
 
-// GET /api/day-planner/submissions?date=2026-07-30&type=Morning
+// GET /api/admin/day-planner/submissions?date=2026-07-30&type=Morning
+
+// routes/day-planner.js-il ulla /submissions route-ai ipadi update seiyungal:
+
+// routes/day-planner.js — Updated /submissions route
+
+// routes/day-planner.js — Update /submissions route
 router.get('/submissions', async (req, res) => {
   const { date, type } = req.query;
 
@@ -792,21 +795,28 @@ router.get('/submissions', async (req, res) => {
   const reportType = type || "Morning";
 
   try {
-    // Get all active employees
+    // 🟢 Active employees matrum admin/inactive-ai exclude seithu attendance status-ai edukkirathu
     const [employees] = await db.query(
       `
       SELECT
-          id,
-          full_name AS fullName,
-          role,
-          user_type AS userType
-      FROM employee_users
-      WHERE is_active = 1
-      ORDER BY full_name
-      `
+          e.id,
+          e.full_name AS fullName,
+          e.role,
+          e.user_type AS userType,
+          CASE 
+            WHEN ar.check_in_at IS NOT NULL AND (ar.attendance_status != 'absent' OR ar.attendance_status IS NULL) THEN 'Present'
+            ELSE 'Absent'
+          END AS attendanceStatus
+      FROM employee_users e
+      LEFT JOIN attendance_records ar ON ar.employee_id = e.id AND ar.attendance_date = ?
+      WHERE e.is_active = 1 
+        AND e.user_type != 'admin' 
+        AND (e.is_main_admin = 0 OR e.is_main_admin IS NULL)
+      ORDER BY e.full_name
+      `,
+      [targetDate]
     );
 
-    // 🟢 Get submitted employees along with total_working_secs for selected report type
     const [submissions] = await db.query(
       `
       SELECT
@@ -831,7 +841,7 @@ router.get('/submissions', async (req, res) => {
       submissions: submissions.map((row) => ({
         employeeName: row.employeeName,
         submitted: row.submitted == 1,
-        total_working_secs: row.total_working_secs || 0 // 🟢 Added total working seconds mapping
+        total_working_secs: row.total_working_secs || 0
       }))
     });
 
@@ -844,7 +854,8 @@ router.get('/submissions', async (req, res) => {
   }
 });
 
-// GET /api/admin/day-planner/submissions?date=2026-07-30&type=Morning
+
+
 router.get('/admin/day-planner/submissions', async (req, res) => {
   const { date, type } = req.query;
 

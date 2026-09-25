@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -150,9 +151,14 @@ class _CompanyDetailPageState
             link: link,
             username: username,
             password: password,
+            description: _nullableString(data['description']),
+            filePath: filePath,
+            fileName: _nullableString(data['file_name'] ?? data['fileName']),
+            mimeType: _nullableString(data['mime_type'] ?? data['mimeType']),
+            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            createdByEmployeeId: _nullableString(data['created_by_employee_id'] ?? data['createdByEmployeeId']),
             createdAt: createdAt,
             updatedAt: updatedAt,
-            filePath: filePath,
           ),
         );
       }
@@ -617,67 +623,140 @@ class _CompanyDetailPageState
       text: widget.company.name,
     );
 
-    final newName =
-        await showDialog<String>(
+    final selectedSections = <String>{
+      ...widget.company.allSections.isNotEmpty
+          ? widget.company.allSections
+          : (widget.company.section != null
+              ? [widget.company.section!]
+              : []),
+    };
+
+    String? pickedLogoFileName;
+    Uint8List? pickedLogoBytes;
+
+    final result =
+        await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'Edit Company Name',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: SizedBox(
-            width: 420,
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              decoration:
-                  const InputDecoration(
-                labelText: 'Company Name',
-                hintText:
-                    'Enter company name',
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final serverRoot = ApiService.baseUrl
+                .replaceFirst('/client-repository', '')
+                .replaceFirst('/api', '');
+            final existingLogo = widget.company.logoUrl;
+            return AlertDialog(
+              title: const Text(
+                'Edit Company',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                );
-              },
-              child:
-                  const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final name =
-                    controller.text.trim();
-
-                if (name.isEmpty) {
-                  return;
-                }
-
-                Navigator.pop(
-                  dialogContext,
-                  name,
-                );
-              },
-              child:
-                  const Text('Save'),
-            ),
-          ],
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Company Logo', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () async {
+                          final input = html.FileUploadInputElement()..accept = 'image/*';
+                          input.click();
+                          await input.onChange.first;
+                          final file = input.files?.first;
+                          if (file != null) {
+                            final reader = html.FileReader();
+                            reader.readAsArrayBuffer(file);
+                            await reader.onLoad.first;
+                            final bytes = Uint8List.fromList((reader.result as List<dynamic>).cast<int>());
+                            setDialogState(() { pickedLogoFileName = file.name; pickedLogoBytes = bytes; });
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF6F9FD),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: pickedLogoBytes != null
+                                    ? Image.memory(pickedLogoBytes!, width: 48, height: 48, fit: BoxFit.cover)
+                                    : (existingLogo != null && existingLogo.isNotEmpty
+                                        ? Image.network('$serverRoot${existingLogo.startsWith('/') ? existingLogo : '/$existingLogo'}', width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _adminLogoPlaceholder())
+                                        : _adminLogoPlaceholder()),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(pickedLogoFileName ?? 'Change Logo', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                                    const SizedBox(height: 2),
+                                    Text(pickedLogoFileName != null ? 'New logo selected' : 'Tap to upload a new logo', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.upload_rounded, color: AppColors.textSecondary, size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: controller,
+                        autofocus: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Company Name',
+                          hintText: 'Enter company name',
+                        ),
+                        onSubmitted: (value) {
+                          if (value.trim().isNotEmpty) {
+                            Navigator.pop(dialogContext, {
+                              'name': value.trim(),
+                              'sections': selectedSections.toList(),
+                            });
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = controller.text.trim();
+                    if (name.isEmpty) return;
+                    Navigator.pop(dialogContext, {
+                      'name': name,
+                      'sections': selectedSections.toList(),
+                    });
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
 
     controller.dispose();
 
-    if (newName == null ||
-        newName.trim().isEmpty) {
+    final newName = result?['name'] as String?;
+    final newSections = result?['sections'] as List<String>?;
+
+    if (newName == null || newName.trim().isEmpty) {
       return;
     }
 
@@ -685,6 +764,9 @@ class _CompanyDetailPageState
       await ApiService.updateCompany(
         companyId: widget.company.id,
         name: newName.trim(),
+        sections: newSections,
+        logoFileName: pickedLogoFileName,
+        logoBytes: pickedLogoBytes,
       );
 
       if (!mounted) {
@@ -1732,23 +1814,19 @@ class _CompanyDetailPageState
     try {
       await ApiService.updateAsset(
         assetId: asset.id,
-        companyId:
-            updatedAsset.companyId,
-        companyName:
-            updatedAsset.companyName,
-        section:
-            updatedAsset.section,
-        type:
-            updatedAsset.type,
-        name:
-            updatedAsset.name,
-        description: null,
-        link:
-            updatedAsset.link,
-        username:
-            updatedAsset.username,
-        password:
-            updatedAsset.password,
+        companyId: updatedAsset.companyId,
+        companyName: updatedAsset.companyName,
+        section: updatedAsset.section,
+        type: updatedAsset.type,
+        name: updatedAsset.name,
+        description: updatedAsset.description,
+        link: updatedAsset.link,
+        username: updatedAsset.username,
+        password: updatedAsset.password,
+        fileName: updatedAsset.pendingFileBytes != null ? updatedAsset.fileName : null,
+        fileBytes: updatedAsset.pendingFileBytes != null
+            ? Uint8List.fromList(updatedAsset.pendingFileBytes!)
+            : null,
       );
 
       await _loadAssets();
@@ -2202,17 +2280,24 @@ class _CompanyDetailPageState
   Future<void> _shareAsset(
     AssetModel asset,
   ) async {
-    final link =
-        asset.link?.trim() ?? '';
+    String? shareUrl = asset.link?.trim();
 
-    if (link.isEmpty) {
-      _showMessage(
-        'No link is available for this asset.',
-      );
+    if (shareUrl == null || shareUrl.isEmpty) {
+      final filePath = asset.filePath?.trim();
+      if (filePath != null && filePath.isNotEmpty) {
+        final root = ApiService.baseUrl
+            .replaceFirst('/client-repository', '')
+            .replaceFirst('/api', '');
+        shareUrl = '$root${filePath.startsWith('/') ? filePath : '/$filePath'}';
+      }
+    }
+
+    if (shareUrl == null || shareUrl.isEmpty) {
+      _showMessage('No link or file is available to share.');
       return;
     }
 
-    await _openLink(link);
+    await _openLink(shareUrl);
   }
 
   // ============================================================
@@ -2293,6 +2378,15 @@ class _CompanyDetailPageState
 
     return _formatDate(
       sorted.first.updatedAt,
+    );
+  }
+
+  Widget _adminLogoPlaceholder() {
+    return Container(
+      width: 48,
+      height: 48,
+      color: AppColors.primary.withValues(alpha: 0.10),
+      child: const Icon(Icons.business_rounded, size: 24, color: AppColors.primary),
     );
   }
 

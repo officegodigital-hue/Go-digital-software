@@ -19,6 +19,7 @@ import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/emergency_broadcast_page.dart';
 
 // Replace client_onboarding_screen.dart import with:
 import 'package:godigital_portal/screens/admin_dashboard/client_details_screen.dart';
@@ -154,6 +155,9 @@ class MyApp extends StatelessWidget {
           '/performance': (context) =>
               const AdminGuard(child: PerformanceScreen()),
           '/settings': (context) => const AdminGuard(child: SettingsPage()),
+
+          // main.dart-il ulla routes map-kkul intha line-ai serthu kollavum:
+'/emergency-broadcast': (context) => const AdminGuard(child: EmergencyBroadcastPage()),
 
           '/attendance': (context) => const HrmsAttendanceEntry(),
           '/employee/dashboard': (context) => const EmployeeDashboardPage(),

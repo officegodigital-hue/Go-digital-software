@@ -274,6 +274,10 @@ Future<void> _fetchEmployeeSummaryList() async {
           final name = (e['full_name'] ?? '').toString().trim().toUpperCase();
           if (name.isEmpty) continue;
 
+          // 🟢 FIX: don't show inactive employees on the employee side
+          final isEmployeeActive = (e['is_active'] == 1 || e['is_active'] == true);
+          if (!isEmployeeActive) continue;
+
           final clientsAssigned = empClients[name] ?? {};
           final roleClients = empRoleClients[name] ?? {};
 
@@ -384,10 +388,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
           for (var tl in taskLists) {
-            if (tl['task_assignment_id'] != null && assignmentId != null) {
-              if (tl['task_assignment_id'].toString() != assignmentId.toString()) {
-                continue;
-              }
+            // 🟢 STRICT MATCHING
+            final tlAssignmentId = tl['task_assignment_id']?.toString();
+            if (tlAssignmentId == null || tlAssignmentId != assignmentId?.toString()) {
+              continue;
             }
 
             final tListId = tl['id'];
@@ -403,7 +407,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              dbTaskProgressCounts['${assignmentId}_$deliverables'] = completedRows;
+              // 🟢 FIX: Use += instead of =
+              dbTaskProgressCounts['${assignmentId}_$deliverables'] = 
+                  (dbTaskProgressCounts['${assignmentId}_$deliverables'] ?? 0) + completedRows;
 
               for (var item in items) {
                 final desc = (item['task_description'] ?? '').toString().trim().toLowerCase();
@@ -413,7 +419,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                     final iSt = (i['status'] ?? '').toString().toUpperCase();
                     return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
                   }).length;
-                  dbTaskProgressCounts['${assignmentId}_$desc'] = completedSubCount;
+                  
+                  // 🟢 FIX: Use += instead of =
+                  dbTaskProgressCounts['${assignmentId}_$desc'] = 
+                      (dbTaskProgressCounts['${assignmentId}_$desc'] ?? 0) + completedSubCount;
                 }
               }
             }
@@ -585,8 +594,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                               int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
                                                           dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
 
-                                              // Color coding rules: 
-                                              // 0/12 -> Grey, 1 to N-1 -> Blue, 12/12 (Complete) -> Green
                                               final bool isFullyCompleted = totalR > 0 && compR >= totalR;
                                               final bool isInProgress = compR > 0 && compR < totalR;
 
@@ -709,20 +716,22 @@ void _navigateToEmployeeDetailView(String employeeName) async {
     );
   }
 
-  Map<String, dynamic> _mapRow(dynamic row) {
+  
+ Map<String, dynamic> _mapRow(dynamic row) {
     String status = row['status'] ?? 'Processing';
     if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
       status = 'Processing';
     }
     return {
       "taskListId": row['taskListId'],
-      "client": row['clientName'] ?? '',
+      "taskAssignmentId": row['taskAssignmentId'] ?? row['task_assignment_id'] ?? row['taskListId'] ?? row['id'],
+      "client": row['clientName'] ?? row['client_name'] ?? '',
       "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
       "task": row['task'] ?? '',
       "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
-      "date": row['submissionDate'] ?? '',
-      "formattedDate": _formatDate(row['submissionDate'] as String?),
-      "month": _extractMonth(row['submissionDate'] as String?),
+      "date": row['submissionDate'] ?? row['deadline'] ?? '',
+      "formattedDate": _formatDate((row['submissionDate'] ?? row['deadline']) as String?),
+      "month": _extractMonth((row['submissionDate'] ?? row['deadline']) as String?),
       "status": status,
     };
   }
@@ -767,307 +776,358 @@ void _navigateToEmployeeDetailView(String employeeName) async {
 
 
 
-  void _navigateToTaskDetailViewForSpecificRow(String clientName, Map<String, dynamic> targetRow) async {
-    List<Map<String, dynamic>> clientAssignments = [];
-    Map<String, int> dbTaskProgressCounts = {};
+void _navigateToTaskDetailViewForSpecificRow(
+  String clientName,
+  Map<String, dynamic> targetRow,
+) async {
+  final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString() ?? targetRow['id']?.toString();
+  
+  List<Map<String, dynamic>> clientAssignments = [];
+  Map<String, int> dbTaskProgressCounts = {};
 
-    try {
-      clientAssignments = rawTasksList.where((row) {
-        final cName = (row['client_name'] ?? '').toString().trim().toLowerCase();
-        return cName == clientName.toLowerCase();
+  try {
+    final tasksRes = await http.get(Uri.parse('$_baseUrl/tasks'));
+    if (tasksRes.statusCode == 200) {
+      final tasksBody = jsonDecode(tasksRes.body);
+      final allRows = List<Map<String, dynamic>>.from(tasksBody['data'] ?? []);
+
+      clientAssignments = allRows.where((row) {
+        final matchesClient = (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+            clientName.toString().trim().toLowerCase();
+        if (!matchesClient) return false;
+        
+        if (targetAssignmentId != null) {
+          return row['id'].toString() == targetAssignmentId.toString();
+        }
+        return true;
       }).toList();
+    }
 
-      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
+    if (clientAssignments.isEmpty) {
+      clientAssignments = [targetRow];
+    }
+
+    if (targetAssignmentId != null && targetAssignmentId.isNotEmpty) {
+      final trRes = await http.get(
+        Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'),
+      );
+
       if (trRes.statusCode == 200) {
         final trBody = jsonDecode(trRes.body);
         final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-        for (var tl in taskLists) {
-          final tListId = tl['id'];
-          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+        for (final tl in taskLists) {
+          // 🟢 STRICT MATCHING: Pazhaya tasks (orphan) remove cheyyuka
+          final tlAssignmentId = tl['task_assignment_id']?.toString();
+          if (tlAssignmentId == null || tlAssignmentId != targetAssignmentId) {
+            continue;
+          }
 
-          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
+          final tListId = tl['id'];
+          if (tListId == null) continue;
+
+          final itemsRes = await http.get(
+            Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'),
+          );
+
           if (itemsRes.statusCode == 200) {
             final itemsBody = jsonDecode(itemsRes.body);
             final items = List<dynamic>.from(itemsBody['data'] ?? []);
 
-            int completedRows = items.where((item) {
-              final st = (item['status'] ?? '').toString().toUpperCase();
-              return st == 'COMPLETED' || st == 'REJECTED';
+            final completedRows = items.where((item) {
+              final status = (item['status'] ?? '').toString().trim().toUpperCase();
+              return status == 'COMPLETED' || status == 'REJECTED';
             }).length;
 
-            dbTaskProgressCounts[deliverables] = completedRows;
+            final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+            if (deliverables.isNotEmpty) {
+              // 🟢 SAFELY ADD
+              dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
+            }
           }
         }
       }
-    } catch (e) {
-      debugPrint('Error fetching specific row client details: $e');
     }
+  } catch (e) {
+    debugPrint('Error fetching specific row client details: $e');
+  }
 
-    if (!mounted) return;
+  if (!mounted) return;
 
-    final roleMappings = [
-      {'roleLabel': 'Ads Handler', 'icon': Icons.campaign_outlined, 'empField': 'ads_handling', 'taskField': 'ads_platform'},
-      {'roleLabel': 'Page Handler', 'icon': Icons.pages_outlined, 'empField': 'page_handling', 'taskField': 'pages_platform'},
-      {'roleLabel': 'Designer', 'icon': Icons.design_services_outlined, 'empField': 'designer', 'taskField': 'designer_tasks'},
-      {'roleLabel': 'Videographer', 'icon': Icons.videocam_outlined, 'empField': 'videographer', 'taskField': 'videographer_tasks'},
-      {'roleLabel': 'Video Editor', 'icon': Icons.video_settings_outlined, 'empField': 'video_editor', 'taskField': 'video_editor_task'},
-      {'roleLabel': 'UI/UX Designer', 'icon': Icons.web_outlined, 'empField': 'ui_ux_designer', 'taskField': 'ui_ux_tasks'},
-      {'roleLabel': 'Developer', 'icon': Icons.code_outlined, 'empField': 'developer', 'taskField': 'developer_tasks'},
-      {'roleLabel': 'Website Designer', 'icon': Icons.language_outlined, 'empField': 'website_designer', 'taskField': 'website_designer_tasks'},
-    ];
+  final roleMappings = [
+    {'roleLabel': 'Ads Handler', 'icon': Icons.campaign_outlined, 'empField': 'ads_handling', 'taskField': 'ads_platform'},
+    {'roleLabel': 'Page Handler', 'icon': Icons.pages_outlined, 'empField': 'page_handling', 'taskField': 'pages_platform'},
+    {'roleLabel': 'Designer', 'icon': Icons.design_services_outlined, 'empField': 'designer', 'taskField': 'designer_tasks'},
+    {'roleLabel': 'Videographer', 'icon': Icons.videocam_outlined, 'empField': 'videographer', 'taskField': 'videographer_tasks'},
+    {'roleLabel': 'Video Editor', 'icon': Icons.video_settings_outlined, 'empField': 'video_editor', 'taskField': 'video_editor_task'},
+    {'roleLabel': 'UI/UX Designer', 'icon': Icons.web_outlined, 'empField': 'ui_ux_designer', 'taskField': 'ui_ux_tasks'},
+    {'roleLabel': 'Developer', 'icon': Icons.code_outlined, 'empField': 'developer', 'taskField': 'developer_tasks'},
+    {'roleLabel': 'Website Designer', 'icon': Icons.language_outlined, 'empField': 'website_designer', 'taskField': 'website_designer_tasks'},
+  ];
 
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (ctx) {
-        return Dialog(
-          backgroundColor: const Color(0xFFF8FAFC),
-          elevation: 12,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
-                    border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
-                        child: const Icon(Icons.analytics_outlined, color: Color(0xFF0052CC), size: 22),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                            const SizedBox(height: 3),
-                            Text('$clientName (Submit Date: ${targetRow["formattedDate"]})', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close_rounded, size: 21, color: Color(0xFF64748B)),
-                      ),
-                    ],
-                  ),
+  showDialog(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (ctx) {
+      return Dialog(
+        backgroundColor: const Color(0xFFF8FAFC),
+        elevation: 12,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+                  border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
                 ),
-                Expanded(
-                  child: clientAssignments.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(30),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 64, height: 64,
-                                  decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                                  child: const Icon(Icons.assignment_outlined, size: 30, color: Color(0xFF94A3B8)),
-                                ),
-                                const SizedBox(height: 14),
-                                const Text('No assignments found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
-                              ],
-                            ),
-                          ),
-                        )
-                      : SingleChildScrollView(
-                          padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42, height: 42,
+                      decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
+                      child: const Icon(Icons.analytics_outlined, color: Color(0xFF004AAD), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                          const SizedBox(height: 3),
+                          Text(clientName.toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 21, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: clientAssignments.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(30),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('Assigned Team', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                              const SizedBox(height: 4),
-                              const Text('View employees and their current task progress.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
-                              const SizedBox(height: 16),
-                              ...roleMappings.map((roleInfo) {
-                                final roleLabel = roleInfo['roleLabel'] as String;
-                                final icon = roleInfo['icon'] as IconData;
-                                final empField = roleInfo['empField'] as String;
-                                final taskField = roleInfo['taskField'] as String;
-
-                                final Map<String, List<String>> empTaskMap = {};
-
-                                for (var assignment in clientAssignments) {
-                                  final empName = (assignment[empField] ?? '').toString().trim();
-                                  final taskStr = (assignment[taskField] ?? '').toString().trim();
-
-                                  if (empName.isEmpty || empName.toUpperCase() == 'NONE' || taskStr.isEmpty) continue;
-
-                                  final tasksList = taskStr.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
-                                  empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
-                                }
-
-                                if (empTaskMap.isEmpty) return const SizedBox.shrink();
-
-                                return Container(
-                                  width: double.infinity,
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              width: 34, height: 34,
-                                              decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(9)),
-                                              child: Icon(icon, size: 18, color: const Color(0xFF004AAD)),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                                      ...empTaskMap.entries.map((entry) {
-                                        final employeeName = entry.key;
-                                        final tasks = entry.value;
-
-                                        return Padding(
-                                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Container(
-                                                    width: 28, height: 28,
-                                                    decoration: BoxDecoration(color: const Color(0xFFF8FAFC), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2E8F0))),
-                                                    child: const Icon(Icons.person_outline, size: 16, color: Color(0xFF475569)),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Text(employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 9),
-                                              Wrap(
-                                                spacing: 7,
-                                                runSpacing: 7,
-                                                children: tasks.map((tClean) {
-                                                  final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(tClean.trim());
-                                                  final tName = match != null ? match.group(1)!.trim() : tClean;
-                                                  final totalR = match != null ? int.parse(match.group(2)!) : 1;
-
-                                                  int compR = dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
-                                                  final isCompleted = compR > 0;
-                                                  final progressText = 'Total Complete: $compR / Total Task: $totalR';
-
-                                                  return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                    decoration: BoxDecoration(
-                                                      color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                                                      borderRadius: BorderRadius.circular(9),
-                                                      border: Border.all(
-                                                        color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFFE2E8F0),
-                                                        width: isCompleted ? 1.2 : 1,
-                                                      ),
-                                                    ),
-                                                    child: Row(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        Icon(
-                                                          isCompleted ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-                                                          size: 14,
-                                                          color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
-                                                        ),
-                                                        const SizedBox(width: 6),
-                                                        Text(
-                                                          tName,
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            fontWeight: FontWeight.w700,
-                                                            color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 10),
-                                                        Container(
-                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                          decoration: BoxDecoration(
-                                                            color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
-                                                            borderRadius: BorderRadius.circular(6),
-                                                          ),
-                                                          child: Text(
-                                                            progressText,
-                                                            style: TextStyle(
-                                                              fontSize: 9.5,
-                                                              fontWeight: FontWeight.w800,
-                                                              color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                }).toList(),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }),
-                                    ],
-                                  ),
-                                );
-                              }),
+                              Container(
+                                width: 64, height: 64,
+                                decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
+                                child: const Icon(Icons.assignment_outlined, size: 30, color: Color(0xFF94A3B8)),
+                              ),
+                              const SizedBox(height: 14),
+                              const Text('No assignments found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
                             ],
                           ),
                         ),
-                ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.only(bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
-                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      SizedBox(
-                        height: 36,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF004AAD),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 18),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                          ),
-                          child: const Text('Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      )
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Assigned Team', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            const SizedBox(height: 4),
+                            const Text('View employees and their current task progress.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                            const SizedBox(height: 16),
+                            ...roleMappings.map((roleInfo) {
+                              final roleLabel = roleInfo['roleLabel'] as String;
+                              final icon = roleInfo['icon'] as IconData;
+                              final empField = roleInfo['empField'] as String;
+                              final taskField = roleInfo['taskField'] as String;
+
+                              final Map<String, List<String>> empTaskMap = {};
+
+                              for (var assignment in clientAssignments) {
+                                final empName = (assignment[empField] ?? '').toString().trim();
+                                final taskStr = (assignment[taskField] ?? '').toString().trim();
+
+                                if (empName.isEmpty || empName.toUpperCase() == 'NONE' || taskStr.isEmpty) continue;
+
+                                final tasksList = taskStr.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+                                empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
+                              }
+
+                              if (empTaskMap.isEmpty) return const SizedBox.shrink();
+
+                              return Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 34, height: 34,
+                                            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(9)),
+                                            child: Icon(icon, size: 18, color: const Color(0xFF004AAD)),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
+                                            child: Text(
+                                              '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
+                                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                    ...empTaskMap.entries.map((entry) {
+                                      final employeeName = entry.key;
+                                      final tasks = entry.value;
+
+                                      return Padding(
+                                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  width: 28, height: 28,
+                                                  decoration: BoxDecoration(color: const Color(0xFFF8FAFC), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2E8F0))),
+                                                  child: const Icon(Icons.person_outline, size: 16, color: Color(0xFF475569)),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 9),
+                                            Wrap(
+                                              spacing: 7,
+                                              runSpacing: 7,
+                                              children: tasks.map((tClean) {
+                                                final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(tClean.trim());
+                                                final tName = match != null ? match.group(1)!.trim() : tClean;
+                                                final totalR = match != null ? int.parse(match.group(2)!) : 1;
+
+                                                final normalizedTaskName = tName.trim().toLowerCase();
+                                                final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
+
+                                                final isCompleted = totalR > 0 && compR >= totalR;
+                                                final progressText = '$compR/$totalR';
+
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                                  decoration: BoxDecoration(
+                                                    color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                                                    borderRadius: BorderRadius.circular(9),
+                                                    border: Border.all(color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                                                        size: 14,
+                                                        color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Flexible(
+                                                        child: Text(
+                                                          tName,
+                                                          style: TextStyle(
+                                                            fontSize: 10.5,
+                                                            fontWeight: FontWeight.w600,
+                                                            color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                        ),
+                                                        child: Text(
+                                                          progressText,
+                                                          style: TextStyle(
+                                                            fontSize: 9,
+                                                            fontWeight: FontWeight.w800,
+                                                            color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }).toList(),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+              ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
+                  border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 15, color: Color(0xFF94A3B8)),
+                    const SizedBox(width: 6),
+                    const Expanded(child: Text('Progress is updated from the assigned tasks.', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      height: 36,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF004AAD),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                        ),
+                        child: const Text('Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {

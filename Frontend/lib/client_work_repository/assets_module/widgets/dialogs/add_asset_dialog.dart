@@ -689,10 +689,10 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
 
         _buildUploadBox(
           extensions: const [
-            'png',
-            'pdf',
+            'jpg', 'jpeg', 'png', 'gif', 'webp',
+            'bmp', 'tiff', 'tif', 'svg', 'heic', 'heif', 'avif',
           ],
-          helper: 'PNG, PDF (Optional, Max 50MB)',
+          helper: 'JPG, PNG, GIF, WEBP, SVG, BMP, HEIC and more (Optional, Max 500MB)',
         ),
       ],
     );
@@ -721,10 +721,10 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
 
         _buildUploadBox(
           extensions: const [
-            'mp4',
-            'mov',
+            'mp4', 'mov', 'avi', 'mkv', 'webm',
+            'wmv', 'flv', 'm4v', 'ts', 'mpeg', 'mpg', '3gp',
           ],
-          helper: 'MP4, MOV (Optional, Max 200MB)',
+          helper: 'MP4, MOV, AVI, MKV, WEBM, WMV and more (Optional, Max 500MB)',
         ),
       ],
     );
@@ -961,7 +961,7 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
           extensions: const [
             'apk',
           ],
-          helper: 'APK file (Max 200MB)',
+          helper: 'APK file (Max 500MB)',
         ),
       ],
     );
@@ -1636,12 +1636,17 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
       section: section,
       type: type,
       name: name,
+      description: _nullableString(data['description']),
       link: _nullableString(linkValue),
       username: _nullableString(usernameValue),
       password: _nullableString(passwordValue),
+      filePath: filePath,
+      fileName: _nullableString(data['file_name']),
+      mimeType: _nullableString(data['mime_type']),
+      fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+      createdByEmployeeId: _nullableString(data['created_by_employee_id']),
       createdAt: createdAt,
       updatedAt: updatedAt,
-      filePath: filePath,
     );
   }
 

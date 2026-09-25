@@ -35,6 +35,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   String searchQuery = '';
   String? selectedRoleFilter;
   String? selectedStatusFilter;
+  String? selectedAttendanceFilter; // 🟢 Attendance filter (All, Present, Absent)
   bool isAscendingOrder = true;
 
   String? selectedEmployee;
@@ -58,7 +59,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     _loadEmployeesAndSubmissions();
     _initSocketListener();
 
-    // 🟢 Auto-refresh timer to update working hours every 30 seconds automatically
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
         _loadEmployeesAndSubmissions();
@@ -90,7 +90,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       }
     });
 
-    // 🟢 Additional socket listeners for live working hours / timer updates
     socket.off('timer_updated');
     socket.on('timer_updated', (data) {
       if (mounted) {
@@ -110,7 +109,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         }
       }
     });
-    
   }
 
   @override
@@ -452,18 +450,24 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
+  // 🟢 Top 5 Cards Layout (Total Workforce, Today Present, Absent, Completed Submission, Pending Submission)
   Widget _buildStats(bool isMobile) {
     int totalCount = employeesList.length;
+    int presentCount = employeesList.where((emp) => (emp['attendanceStatus'] ?? '').toString() == 'Present').length;
+    int absentCount = totalCount - presentCount;
     int submittedCount = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
       return submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
     }).length;
     int pendingCount = totalCount - submittedCount;
+    if (pendingCount < 0) pendingCount = 0;
 
     final stats = [
       {'label': 'Total Workforce', 'value': '$totalCount', 'icon': Icons.groups_rounded, 'color': _primary},
-      {'label': 'Completed Submissions', 'value': '$submittedCount', 'icon': Icons.verified_user_rounded, 'color': const Color(0xFF10B981)},
-      {'label': 'Pending Submissions', 'value': '$pendingCount', 'icon': Icons.pending_actions_rounded, 'color': const Color(0xFFDC2626)},
+      {'label': 'Today Present', 'value': '$presentCount', 'icon': Icons.check_circle_rounded, 'color': const Color(0xFF10B981)},
+      {'label': 'Absent', 'value': '$absentCount', 'icon': Icons.cancel_rounded, 'color': const Color(0xFFDC2626)},
+      {'label': 'Completed', 'value': '$submittedCount', 'icon': Icons.verified_user_rounded, 'color': const Color(0xFF0284C7)},
+      {'label': 'Pending', 'value': '$pendingCount', 'icon': Icons.pending_actions_rounded, 'color': const Color(0xFFD97706)},
     ];
 
     return GridView.builder(
@@ -471,39 +475,39 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: stats.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isMobile ? 1 : 3,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: isMobile ? 2.8 : 2.4,
+        crossAxisCount: isMobile ? 2 : 5,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: isMobile ? 1.8 : 1.7,
       ),
       itemBuilder: (context, index) {
         final stat = stats[index];
         final color = stat['color'] as Color;
 
         return Container(
-          padding: EdgeInsets.all(isMobile ? 14 : 18),
+          padding: EdgeInsets.all(isMobile ? 10 : 14),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: _border),
           ),
           child: Row(
             children: [
               Container(
-                width: isMobile ? 38 : 46,
-                height: isMobile ? 38 : 46,
-                decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(13)),
-                child: Icon(stat['icon'] as IconData, color: color, size: isMobile ? 20 : 24),
+                width: isMobile ? 32 : 38,
+                height: isMobile ? 32 : 38,
+                decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
+                child: Icon(stat['icon'] as IconData, color: color, size: isMobile ? 16 : 20),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(stat['value'] as String, style: TextStyle(fontSize: isMobile ? 19 : 24, fontWeight: FontWeight.w900, color: _ink)),
-                    const SizedBox(height: 2),
-                    Text(stat['label'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 10 : 11, color: _muted, fontWeight: FontWeight.w600)),
+                    Text(stat['value'] as String, style: TextStyle(fontSize: isMobile ? 16 : 20, fontWeight: FontWeight.w900, color: _ink)),
+                    const SizedBox(height: 1),
+                    Text(stat['label'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 9 : 10, color: _muted, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -514,11 +518,13 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
- Widget _buildEmployeeStatusTable() {
+  Widget _buildEmployeeStatusTable() {
     final List<String> availableRoles = employeesList.map((emp) => (emp['role'] ?? 'Staff').toString()).toSet().toList()..sort();
+    
     final filteredEmployees = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
       final role = (emp['role'] ?? 'Staff').toString();
+      final attendanceStatus = (emp['attendanceStatus'] ?? 'Absent').toString();
       final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
       final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
 
@@ -527,7 +533,13 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
       if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
 
-      return matchesSearch && matchesRole && matchesStatus;
+      // 🟢 Attendance dropdown filter logic (All, Present, Absent)
+      bool matchesAttendance = true;
+      if (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') {
+        matchesAttendance = attendanceStatus.toLowerCase() == selectedAttendanceFilter!.toLowerCase();
+      }
+
+      return matchesSearch && matchesRole && matchesStatus && matchesAttendance;
     }).toList();
 
     filteredEmployees.sort((a, b) {
@@ -545,6 +557,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             decoration: const BoxDecoration(color: _surface, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
             child: Row(
               children: [
+                // 🟢 S.No Column Header
+                const SizedBox(width: 45, child: Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7))),
                 Expanded(
                   flex: 3,
                   child: InkWell(
@@ -571,6 +585,26 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                     child: Text(selectedRoleFilter ?? "ROLE ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: selectedRoleFilter != null ? _primary : _muted, letterSpacing: 0.7)),
                   ),
                 ),
+                // 🟢 Attendance Dropdown Filter in Table Header
+                Expanded(
+                  flex: 2,
+                  child: PopupMenuButton<String>(
+                    initialValue: selectedAttendanceFilter ?? 'All',
+                    onSelected: (val) => setState(() => selectedAttendanceFilter = val),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'All', child: Text('Attendance', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                      const PopupMenuItem(value: 'Present', child: Text('Present', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
+                      const PopupMenuItem(value: 'Absent', child: Text('Absent', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                    ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(selectedAttendanceFilter ?? "ATTENDANCE ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') ? _primary : _muted, letterSpacing: 0.7)),
+                        // const Icon(Icons.arrow_drop_down, size: 16, color: _muted),
+                      ],
+                    ),
+                  ),
+                ),
                 Expanded(
                   flex: 2,
                   child: PopupMenuButton<String>(
@@ -584,7 +618,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                     child: Text(selectedStatusFilter ?? "STATUS ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: selectedStatusFilter != null ? _primary : _muted, letterSpacing: 0.7)),
                   ),
                 ),
-                // 🟢 WORKING HOURS Column Header added right after STATUS
                 const Expanded(
                   flex: 2,
                   child: Text("WORKING HOURS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7)),
@@ -610,25 +643,27 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                       final emp = filteredEmployees[index];
                       final empName = emp['fullName'] ?? 'Employee';
                       final empRole = emp['role'] ?? 'Staff';
+                      final String attendanceStatus = emp['attendanceStatus'] ?? 'Absent';
+                      final bool isPresent = attendanceStatus == 'Present';
                       
-                      // Find matching submission record to check status and working hours
                       final submission = submissionStatusList.firstWhere(
                         (s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase(),
                         orElse: () => {},
                       );
                       final bool hasSubmitted = submission['submitted'] == true;
-                      // final workingSecs = submission['total_working_secs'] ?? 0;
 
                       final workingSecs = submission['total_working_secs'] ?? 
-                    submission['working_secs'] ?? 
-                    submission['totalWorkingSecs'] ?? 
-                    submission['totalSeconds'] ?? 0;
+                        submission['working_secs'] ?? 
+                        submission['totalWorkingSecs'] ?? 
+                        submission['totalSeconds'] ?? 0;
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                         color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
                         child: Row(
                           children: [
+                            // 🟢 S.No cell data
+                            SizedBox(width: 45, child: Text('${index + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _muted))),
                             Expanded(
                               flex: 3,
                               child: Row(
@@ -648,6 +683,25 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                             Expanded(flex: 2, child: Text(empRole, style: const TextStyle(fontSize: 12, color: _muted, fontWeight: FontWeight.w600))),
                             Expanded(
                               flex: 2,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isPresent ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: isPresent ? const Color(0xFF10B981).withValues(alpha: 0.3) : const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(isPresent ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 12, color: isPresent ? const Color(0xFF10B981) : const Color(0xFFDC2626)),
+                                    const SizedBox(width: 4),
+                                    Text(attendanceStatus, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isPresent ? const Color(0xFF16A34A) : const Color(0xFFDC2626))),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 2,
                               child: Row(
                                 children: [
                                   Container(width: 8, height: 8, decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626), shape: BoxShape.circle)),
@@ -656,7 +710,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                 ],
                               ),
                             ),
-                            // 🟢 Working Hours Data Cell: Shows hours if submitted, else blank/dash
                             Expanded(
                               flex: 2,
                               child: hasSubmitted
@@ -709,9 +762,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
   Widget _buildEmployeeMobileCardList() {
     final List<String> availableRoles = employeesList.map((emp) => (emp['role'] ?? 'Staff').toString()).toSet().toList()..sort();
+    
     final filteredEmployees = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
       final role = (emp['role'] ?? 'Staff').toString();
+      final attendanceStatus = (emp['attendanceStatus'] ?? 'Absent').toString();
       final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
       final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
 
@@ -720,7 +775,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
       if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
 
-      return matchesSearch && matchesRole && matchesStatus;
+      bool matchesAttendance = true;
+      if (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') {
+        matchesAttendance = attendanceStatus.toLowerCase() == selectedAttendanceFilter!.toLowerCase();
+      }
+
+      return matchesSearch && matchesRole && matchesStatus && matchesAttendance;
     }).toList();
 
     return Container(
@@ -730,8 +790,10 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: const BoxDecoration(color: _surface, borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
               children: [
                 PopupMenuButton<String>(
                   initialValue: selectedRoleFilter ?? 'All Roles',
@@ -741,6 +803,16 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                     ...availableRoles.map((r) => PopupMenuItem(value: r, child: Text(r, style: TextStyle(fontSize: 12)))),
                   ],
                   child: Chip(label: Text(selectedRoleFilter ?? 'Role ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), backgroundColor: Colors.white),
+                ),
+                PopupMenuButton<String>(
+                  initialValue: selectedAttendanceFilter ?? 'All Attendance',
+                  onSelected: (val) => setState(() => selectedAttendanceFilter = val),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'All', child: Text('All Attendance', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                    const PopupMenuItem(value: 'Present', child: Text('Present', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
+                    const PopupMenuItem(value: 'Absent', child: Text('Absent', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                  ],
+                  child: Chip(label: Text(selectedAttendanceFilter ?? 'Attendance ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), backgroundColor: Colors.white),
                 ),
                 PopupMenuButton<String>(
                   initialValue: selectedStatusFilter ?? 'All Status',
@@ -767,6 +839,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                       final emp = filteredEmployees[index];
                       final empName = emp['fullName'] ?? 'Employee';
                       final empRole = emp['role'] ?? 'Staff';
+                      final String attendanceStatus = emp['attendanceStatus'] ?? 'Absent';
+                      final bool isPresent = attendanceStatus == 'Present';
                       final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase() && s['submitted'] == true);
 
                       return Container(
@@ -778,6 +852,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                           children: [
                             Row(
                               children: [
+                                Text('${index + 1}. ', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _muted)),
                                 CircleAvatar(
                                   radius: 16,
                                   backgroundColor: _primaryLight,
@@ -794,6 +869,16 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                     ],
                                   ),
                                 ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isPresent ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: isPresent ? const Color(0xFF10B981).withValues(alpha: 0.3) : const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                                  ),
+                                  child: Text(attendanceStatus, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: isPresent ? const Color(0xFF16A34A) : const Color(0xFFDC2626))),
+                                ),
+                                const SizedBox(width: 8),
                                 Row(
                                   children: [
                                     Container(width: 8, height: 8, decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626), shape: BoxShape.circle)),
@@ -872,7 +957,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
-// 🟢 Enhanced Responsive Mobile Card List for Planner Entries
   Widget _buildMobilePlannerCardList(List<Map<String, dynamic>> rows) {
     if (rows.isEmpty) {
       return Container(
@@ -914,7 +998,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Client Name & Status Header (Fixed wrapping with Flexible container)
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -925,15 +1008,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Status badge with fixed horizontal layout to prevent awkward text wrapping
                   _statusCell(status, 110),
                 ],
               ),
               const SizedBox(height: 12),
               const Divider(height: 1, color: _border),
               const SizedBox(height: 12),
-
-              // Details Grid / Rows
               _mobileDetailRow(Icons.calendar_today_rounded, "Maintenance Date", maintDate),
               if (ads.isNotEmpty && ads != '-') ...[
                 const SizedBox(height: 6),
@@ -957,12 +1037,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                 const SizedBox(height: 6),
                 _mobileDetailRow(Icons.comment_outlined, "Remarks", remarks),
               ],
-
               const SizedBox(height: 14),
               const Divider(height: 1, color: _border),
               const SizedBox(height: 12),
-
-              // Working Hours Tag at bottom
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1012,14 +1089,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
   
-  // Desktop Grouped Table with Working Hours Button placed after Status
   Widget _buildGroupedSheetGrids(List<Map<String, dynamic>> rows) {
     final hasAds = _hasColumn(rows, 'ads');
     final hasLeads = _hasColumn(rows, 'today_leads');
     final hasReport = _hasColumn(rows, 'today_report');
     final hasRemarks = _hasColumn(rows, 'remarks');
 
-    // 🟢 Working Hours Column Width (150px) positioned after status
     double tableWidth = 140 +
         (hasAds ? 140 : 0) +
         (hasLeads ? 110 : 0) +
@@ -1030,7 +1105,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         180 +
         (hasRemarks ? 180 : 0) +
         130 +
-        150; // Working Hours button column
+        150;
 
     if (rows.isEmpty) {
       return Container(
@@ -1162,7 +1237,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                           const _HeaderCell(width: 180, label: 'TODAY PLAN'),
                                           if (hasRemarks) const _HeaderCell(width: 180, label: 'REMARKS'),
                                           const _HeaderCell(width: 130, label: 'STATUS'),
-                                          // 🟢 Working Hours Button Header placed right after STATUS
                                           const _HeaderCell(width: 150, label: 'WORKING HOURS'),
                                         ],
                                       ),
@@ -1227,7 +1301,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         _textCell(row, 'today_plan', 180),
         if (hasRemarks) _textCell(row, 'remarks', 180),
         _statusCell(row['status'] ?? 'PENDING', 130),
-        // 🟢 Working Hours Button cell rendered right after status column
         _workingHoursCell(row['total_working_secs'], 150),
       ],
     );
@@ -1289,7 +1362,6 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     );
   }
 
-  // 🟢 Working Hours Button Cell Component
   Widget _workingHoursCell(dynamic totalSecs, double width) {
     final formattedTime = _formatWorkingTime(totalSecs);
     return Container(

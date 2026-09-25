@@ -11,8 +11,11 @@ import '../../../services/api_service.dart';
 import '../company_assets/company_assets_page.dart';
 
 class UserAssetLibraryPage extends StatefulWidget {
+  final void Function(CompanyModel company, String section)? onOpenCompany;
+
   const UserAssetLibraryPage({
     super.key,
+    this.onOpenCompany,
   });
 
   @override
@@ -78,11 +81,11 @@ class _UserAssetLibraryPageState
 
       if (!mounted) return;
 
+      bool _toBool(dynamic v) => v == true || v == 1;
       setState(() {
-        _canView = permissions['can_view'] == true;
-        _canDownload = permissions['can_download'] == true;
-        _canCreateCompany =
-            permissions['can_create_company'] == true;
+        _canView = _toBool(permissions['can_view']);
+        _canDownload = _toBool(permissions['can_download']);
+        _canCreateCompany = _toBool(permissions['can_create_company']);
       });
     } catch (_) {
       if (!mounted) return;
@@ -172,12 +175,13 @@ class _UserAssetLibraryPageState
           continue;
         }
 
-        for (final section in sections) {
-          if (section != AppConstants.digitalMarketing &&
-              section != AppConstants.softwareDevelopment) {
-            continue;
-          }
+        final validSections = sections
+            .where((s) =>
+                s == AppConstants.digitalMarketing ||
+                s == AppConstants.softwareDevelopment)
+            .toList();
 
+        for (final section in validSections) {
           loadedCompanies.add(
             CompanyModel(
               id: id,
@@ -186,6 +190,7 @@ class _UserAssetLibraryPageState
               updatedAt: updatedAt,
               section: section,
               logoUrl: logoUrl,
+              allSections: validSections,
             ),
           );
         }
@@ -236,6 +241,12 @@ class _UserAssetLibraryPageState
             link: data['link']?.toString(),
             username: data['username']?.toString(),
             password: data['password']?.toString(),
+            description: data['description']?.toString(),
+            filePath: data['file_url']?.toString(),
+            fileName: data['file_name']?.toString(),
+            mimeType: data['mime_type']?.toString(),
+            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            createdByEmployeeId: data['created_by_employee_id']?.toString(),
             createdAt:
                 DateTime.tryParse(
                   data['created_at']?.toString() ?? '',
@@ -246,9 +257,6 @@ class _UserAssetLibraryPageState
                   data['updated_at']?.toString() ?? '',
                 ) ??
                 now,
-            filePath:
-                data['file_url']?.toString() ??
-                data['file_name']?.toString(),
           ),
         );
       }
@@ -1235,6 +1243,9 @@ class _UserAssetLibraryPageState
     Uint8List? selectedLogoBytes;
     bool companyCreated = false;
 
+    // Section is determined automatically from the current tab — no user selection needed.
+    final selectedSections = <String>{section};
+
     try {
       await showDialog<void>(
         context: context,
@@ -1324,7 +1335,7 @@ class _UserAssetLibraryPageState
                 try {
                   await ApiService.createCompany(
                     name,
-                    section: section,
+                    sections: selectedSections.toList(),
                     logoFileName: selectedLogoName,
                     logoBytes: selectedLogoBytes,
                   );
@@ -1369,14 +1380,6 @@ class _UserAssetLibraryPageState
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Create a company under $section.',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
                         TextField(
                           controller: controller,
                           autofocus: true,
@@ -1540,6 +1543,10 @@ class _UserAssetLibraryPageState
     CompanyModel company,
     String section,
   ) {
+    if (widget.onOpenCompany != null) {
+      widget.onOpenCompany!(company, section);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) {
@@ -1673,7 +1680,7 @@ class _UserAssetLibraryPageState
     final imageUrl =
         parsed != null && parsed.hasScheme
             ? logoUrl
-            : '${ApiService.baseUrl.replaceFirst('/api', '')}${
+            : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${
                 logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'
               }';
 

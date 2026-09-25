@@ -1,5 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
+import '../../../services/api_config.dart';
+import '../../../services/auth_service.dart';
 import '../../../services/hrms_approvals_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
 
@@ -19,6 +25,8 @@ class ApprovalsPage extends StatefulWidget {
 }
 
 class _ApprovalsPageState extends State<ApprovalsPage> {
+  // 0 = leave, 1 = corrections
+  int _activeTab = 0;
   bool leaveRequests = true;
   String employee = 'All Employees';
   String status = 'All Status';
@@ -35,10 +43,69 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   bool loading = true;
   String? error;
 
+  // Correction requests
+  List<Map<String, dynamic>> _corrections = [];
+  bool _correctionsLoading = false;
+  int _correctionsPendingCount = 0;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadCorrections();
+  }
+
+  Future<void> _loadCorrections() async {
+    setState(() => _correctionsLoading = true);
+    try {
+      final token = context.read<AuthService>().token ?? '';
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout/correction-requests'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final items = (body['data']?['items'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        setState(() {
+          _corrections = items;
+          _correctionsPendingCount = items.where((e) => e['status'] == 'pending').length;
+          _correctionsLoading = false;
+        });
+      } else {
+        setState(() => _correctionsLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _correctionsLoading = false);
+    }
+  }
+
+  Future<void> _reviewCorrection(int id, String action) async {
+    try {
+      final token = context.read<AuthService>().token ?? '';
+      final response = await http.patch(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout/correction-requests/$id/$action'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({}),
+      ).timeout(const Duration(seconds: 15));
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(body['message']?.toString() ?? 'Done')),
+        );
+        _loadCorrections();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(body['message']?.toString() ?? 'Failed')),
+        );
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connection error')));
+    }
   }
 
   Future<void> _load() async {
@@ -157,6 +224,26 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   rejected: kpiRejected,
                                 ),
                                 const SizedBox(height: 16),
+                                // Top-level tab: Leave vs Checkout Corrections
+                                Row(children: [
+                                  _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
+                                  const SizedBox(width: 10),
+                                  _MainTabBtn(
+                                    label: 'Checkout Corrections',
+                                    active: _activeTab == 1,
+                                    badge: _correctionsPendingCount,
+                                    onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
+                                  ),
+                                ]),
+                                const SizedBox(height: 14),
+                                if (_activeTab == 1) ...[
+                                  _CorrectionRequestsPanel(
+                                    corrections: _corrections,
+                                    loading: _correctionsLoading,
+                                    onApprove: (id) => _reviewCorrection(id, 'approve'),
+                                    onReject: (id) => _reviewCorrection(id, 'reject'),
+                                  ),
+                                ] else ...[
                                 if (loading)
                                   const Padding(
                                     padding: EdgeInsets.only(bottom: 12),
@@ -206,6 +293,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   onReject: (request) =>
                                       _updateStatus(request, 'Rejected'),
                                 ),
+                                ], // end else (leave tab)
                               ],
                             ),
                           ),
@@ -902,7 +990,11 @@ class _ApprovalRow extends StatelessWidget {
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => _showReasonDialog(context, request, onApprove, onReject),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Container(
         height: 64,
         decoration: const BoxDecoration(
             border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
@@ -969,7 +1061,13 @@ class _ApprovalRow extends StatelessWidget {
             _ApprovalCell(
                 width: 115, child: Text(request.duration, style: _cellStyle)),
             _ApprovalCell(
-                width: 200, child: Text(request.reason, style: _cellStyle)),
+                width: 200,
+                child: Text(
+                  request.reason,
+                  style: _cellStyle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                )),
             _ApprovalCell(
                 width: 140, child: _RequestStatus(status: request.status)),
             _ApprovalCell(
@@ -1017,7 +1115,7 @@ class _ApprovalRow extends StatelessWidget {
             ),
           ],
         ),
-      );
+      )));
 }
 
 class _ApprovalCell extends StatelessWidget {
@@ -1134,6 +1232,317 @@ class _ApprovalRequest {
       color: json['color'] is int ? json['color'] as int : 0xFF7137E8,
     );
   }
+}
+
+// ── Main tab switcher button ──────────────────────────────────────────────────
+class _MainTabBtn extends StatelessWidget {
+  const _MainTabBtn({required this.label, required this.active, required this.onTap, this.badge = 0});
+  final String label;
+  final bool active;
+  final int badge;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: active ? _ApprovalsColors.blue : Colors.white,
+        border: Border.all(color: active ? _ApprovalsColors.blue : const Color(0xFFDCE1EB)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+          color: active ? Colors.white : const Color(0xFF596176))),
+        if (badge > 0) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: active ? Colors.white.withValues(alpha: .25) : _ApprovalsColors.blue,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text('$badge', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+              color: active ? Colors.white : Colors.white)),
+          ),
+        ],
+      ]),
+    ),
+  );
+}
+
+// ── Correction requests panel (admin) ─────────────────────────────────────────
+class _CorrectionRequestsPanel extends StatelessWidget {
+  const _CorrectionRequestsPanel({
+    required this.corrections,
+    required this.loading,
+    required this.onApprove,
+    required this.onReject,
+  });
+  final List<Map<String, dynamic>> corrections;
+  final bool loading;
+  final ValueChanged<int> onApprove, onReject;
+
+  String _fmt(dynamic raw) {
+    if (raw == null) return '--';
+    try {
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+      final m = dt.minute.toString().padLeft(2, '0');
+      final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+      return '$h:$m $ampm';
+    } catch (_) { return '--'; }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+    if (corrections.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(40),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14)),
+        child: const Center(child: Text('No checkout correction requests.', style: TextStyle(color: Color(0xFF596176)))),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: corrections.map((c) {
+          final status = c['status']?.toString() ?? 'pending';
+          final isPending = status == 'pending';
+          final statusColor = status == 'approved' ? const Color(0xFF188226) : status == 'rejected' ? const Color(0xFFF0182A) : const Color(0xFFD97706);
+          final statusBg = status == 'approved' ? const Color(0xFFE8F7E9) : status == 'rejected' ? const Color(0xFFFFEAEA) : const Color(0xFFFFF8E6);
+          final name = c['full_name']?.toString() ?? '?';
+          final staffId = c['staff_id']?.toString() ?? '';
+          final initials = name.trim().isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase();
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE5EAF3)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                CircleAvatar(radius: 20, backgroundColor: const Color(0xFFEAF1FF),
+                  child: Text(initials, style: const TextStyle(color: _ApprovalsColors.blue, fontWeight: FontWeight.w700))),
+                const SizedBox(width: 10),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(name, style: const TextStyle(fontWeight: FontWeight.w700, color: _ApprovalsColors.navy)),
+                  Text(staffId, style: const TextStyle(fontSize: 11, color: Color(0xFF657087))),
+                ])),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(6)),
+                  child: Text(status[0].toUpperCase() + status.substring(1),
+                    style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              Wrap(spacing: 10, runSpacing: 6, children: [
+                _CorrChip('Check in', _fmt(c['check_in_at'])),
+                _CorrChip('Accidental checkout', _fmt(c['check_out_at'])),
+              ]),
+              const SizedBox(height: 10),
+              const Text('REASON', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF8A94A6), letterSpacing: .06)),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: const Color(0xFFF7F9FD), borderRadius: BorderRadius.circular(8)),
+                child: Text(c['reason']?.toString() ?? '—', style: const TextStyle(fontSize: 13, color: Color(0xFF333B52))),
+              ),
+              if (isPending) ...[
+                const SizedBox(height: 12),
+                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  OutlinedButton(
+                    onPressed: () => onReject(c['id'] as int),
+                    style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF0182A),
+                      side: const BorderSide(color: Color(0xFFF0182A)),
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                    child: const Text('Reject', style: TextStyle(fontSize: 13)),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () => onApprove(c['id'] as int),
+                    style: FilledButton.styleFrom(backgroundColor: _ApprovalsColors.blue,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                    child: const Text('Approve & restore', style: TextStyle(fontSize: 13)),
+                  ),
+                ]),
+              ],
+            ]),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _CorrChip extends StatelessWidget {
+  const _CorrChip(this.label, this.value);
+  final String label, value;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(color: const Color(0xFFF4F6FB), border: Border.all(color: const Color(0xFFE3E8F4)), borderRadius: BorderRadius.circular(7)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Text(label, style: const TextStyle(fontSize: 10, color: Color(0xFF8A94A6))),
+      const SizedBox(height: 2),
+      Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+    ]),
+  );
+}
+
+void _showReasonDialog(
+  BuildContext context,
+  _ApprovalRequest request,
+  void Function(_ApprovalRequest) onApprove,
+  void Function(_ApprovalRequest) onReject,
+) {
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // header
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Leave Request',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                            color: Color(0xFF8A94A6), letterSpacing: .06)),
+                        const SizedBox(height: 4),
+                        Text('${request.name} · ${request.type}',
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700,
+                            color: Color(0xFF061457))),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => Navigator.pop(ctx),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F6FB),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.close, size: 16, color: Color(0xFF8A94A6)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // meta chips
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                children: [
+                  _MetaChip(label: 'Date', value: request.dates),
+                  _MetaChip(label: 'Duration', value: request.duration),
+                  _MetaChip(label: 'Employee ID', value: request.id),
+                  _MetaChip(label: 'Status', value: request.status,
+                    valueColor: request.status == 'Pending'
+                        ? const Color(0xFFD97706)
+                        : request.status == 'Approved'
+                            ? const Color(0xFF148B1A)
+                            : const Color(0xFFD42B2B)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // reason
+              const Text('REASON',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                  color: Color(0xFF8A94A6), letterSpacing: .06)),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F6FB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(request.reason,
+                  style: const TextStyle(fontSize: 14, height: 1.65,
+                    color: Color(0xFF1a2340))),
+              ),
+              if (request.status == 'Pending') ...[
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () { Navigator.pop(ctx); onReject(request); },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFD42B2B),
+                        side: const BorderSide(color: Color(0xFFD42B2B)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                      child: const Text('Reject', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton(
+                      onPressed: () { Navigator.pop(ctx); onApprove(request); },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF075EF7),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                      child: const Text('Approve', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.value, this.valueColor});
+  final String label, value;
+  final Color? valueColor;
+  @override
+  Widget build(BuildContext context) => RichText(
+    text: TextSpan(
+      style: const TextStyle(fontSize: 12, color: Color(0xFF8A94A6)),
+      children: [
+        TextSpan(text: '$label: '),
+        TextSpan(text: value,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: valueColor ?? const Color(0xFF061457),
+          )),
+      ],
+    ),
+  );
 }
 
 const _headStyle = TextStyle(

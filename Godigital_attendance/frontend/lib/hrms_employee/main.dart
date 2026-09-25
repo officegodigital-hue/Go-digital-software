@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
-import '../home_screen.dart';
-import '../screens/employee_dashboard/employee_layout_page.dart';
 
 import 'pages/attendance_page.dart';
 import 'pages/clock_page.dart';
@@ -51,13 +49,7 @@ class EmployeePortal extends StatelessWidget {
     initialRoute: '/employee/dashboard',
     routes: {
       '/': (_) => const EmployeeDashboardPage(),
-      '/home': (_) => const HomeScreen(),
       '/attendance': (_) => const EmployeeDashboardPage(),
-      '/employee': (_) => const EmployeeLayoutPage(),
-      '/designer': (_) => const EmployeeLayoutPage(),
-      '/pageHandler': (_) => const EmployeeLayoutPage(),
-      '/adsHandler': (_) => const EmployeeLayoutPage(),
-      '/videographer': (_) => const EmployeeLayoutPage(),
       '/employee/dashboard': (_) => const EmployeeDashboardPage(),
       '/employee/attendance': (_) => const EmployeeAttendancePage(),
       '/employee/clock-log': (_) => const EmployeeClockPage(),

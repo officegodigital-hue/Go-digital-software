@@ -9,6 +9,7 @@ const cron = require('node-cron');
 const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
+const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 
 
@@ -140,6 +141,7 @@ const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
+const broadcastRoutes = require('./routes/broadcast');
 
 // near the other ensure imports
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
@@ -235,6 +237,7 @@ app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/broadcast', broadcastRoutes);
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
@@ -264,8 +267,14 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  console.error('❌ Global error:', err.code, err.message, err.stack);
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ success: false, message: 'File too large. Maximum allowed size is 500MB.' });
+  }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({ success: false, message: 'Unexpected file field in upload.' });
+  }
+  res.status(500).json({ success: false, message: err.message || 'Internal server error' });
 });
 
 server.listen(PORT, async () => {
@@ -276,6 +285,7 @@ server.listen(PORT, async () => {
     await ensureAuthSchema(db);
     console.log('Login schema is ready');
     console.log('Attendance tables are ready');
+    await ensureAttendancePolicyTables();
     await attendancePolicy.getTimeSettings(db);
     console.log('Attendance time settings are ready');
     await ensureHrmsEmployeeTables(db);

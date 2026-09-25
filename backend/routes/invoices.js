@@ -15,7 +15,7 @@ const { authenticateToken } = require('./auth');
 // ============================================================
 
 const ALLOWED_INVOICE_MODES = ['daily', 'monthly'];
-const ALLOWED_STATUS = ['NEW','DRAFT', 'PARTIAL', 'PAID', 'OVERDUE'];
+const ALLOWED_STATUS = ['DRAFT', 'PARTIAL', 'PAID', 'OVERDUE'];
 
 const INVOICE_START_SEQUENCE = 301;
 
@@ -565,53 +565,6 @@ router.get(
   }
 );
 
-// ============================================================
-// PATCH /api/invoices/:id/reminder-date
-// ============================================================
-
-router.patch(
-  '/:id/reminder-date',
-  authenticateToken,
-  async (req, res) => {
-    try {
-      const { reminderDate } = req.body;
-      const invoiceId = req.params.id;
-
-      const formattedReminderDate = 
-        reminderDate && String(reminderDate).trim() !== '' 
-          ? String(reminderDate).trim() 
-          : null;
-
-      const [result] = await db.query(
-        `
-        UPDATE invoices
-        SET reminder_date = ?
-        WHERE id = ?
-        `,
-        [formattedReminderDate, invoiceId]
-      );
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Invoice not found',
-        });
-      }
-
-      return res.json({
-        success: true,
-        message: 'Reminder date updated successfully',
-      });
-    } catch (err) {
-      console.error('PATCH /invoices/:id/reminder-date ERROR:', err.message);
-      return res.status(500).json({
-        success: false,
-        message: err.message,
-      });
-    }
-  }
-);
-
 
 // ============================================================
 // GET /api/invoices/export-csv
@@ -620,8 +573,6 @@ router.patch(
 //
 // Exports ALL invoices user is allowed to see.
 // ============================================================
-
-
 
 router.get(
   '/export-csv',
@@ -857,7 +808,6 @@ router.get(
           c.client_phone,
           i.invoice_date,
           i.maintenance_date,
-          i.reminder_date,
           i.include_gst,
           i.discount,
           i.subtotal,
@@ -1261,7 +1211,6 @@ router.post(
       clientName,
       invoiceDate,
       maintenanceDate,
-      reminderDate,
       includeGST,
       discount,
       notes,
@@ -1365,7 +1314,6 @@ router.post(
             client_name,
             invoice_date,
             maintenance_date,
-            reminder_date,
             include_gst,
             discount,
             subtotal,
@@ -1393,7 +1341,6 @@ router.post(
             ?,
             ?,
             ?,
-            ?,
             ?
           )
           `,
@@ -1402,7 +1349,6 @@ router.post(
             clientName,
             invoiceDate || '',
             maintenanceDate || '',
-            reminderDate || null,
             includeGST ? 1 : 0,
             Number(discount || 0),
             Number(subtotal || 0),
@@ -2282,140 +2228,254 @@ router.delete(
 // generator.
 // ============================================================
 
-// ============================================================
-// POST /api/invoices/generate-recurring
-// ============================================================
-
 router.post(
   '/generate-recurring',
   authenticateToken,
   async (req, res) => {
+
     let connection;
 
     try {
-      connection = await db.getConnection();
+      connection =
+        await db.getConnection();
+
       await connection.beginTransaction();
 
-      const [invoices] = await connection.query(`
-        SELECT *
-        FROM invoices
-        WHERE maintenance_date IS NOT NULL
-          AND TRIM(maintenance_date) != ''
-      `);
+      // ------------------------------------------------------
+      // GET ALL INVOICES WITH MAINTENANCE DATE
+      // ------------------------------------------------------
+
+      const [invoices] =
+        await connection.query(
+          `
+          SELECT *
+          FROM invoices
+
+          WHERE
+            maintenance_date IS NOT NULL
+
+            AND TRIM(
+              maintenance_date
+            ) != ''
+          `
+        );
 
       let createdCount = 0;
 
-      for (const inv of invoices) {
-        const maintenanceDate = parseInvoiceDate(inv.maintenance_date);
-        if (!maintenanceDate || Number.isNaN(maintenanceDate.getTime())) {
+      // ------------------------------------------------------
+      // PROCESS EACH INVOICE
+      // ------------------------------------------------------
+
+      for (
+        const inv of invoices
+      ) {
+
+        const maintenanceDate =
+          parseInvoiceDate(
+            inv.maintenance_date
+          );
+
+        if (
+          !maintenanceDate ||
+          Number.isNaN(
+            maintenanceDate.getTime()
+          )
+        ) {
           continue;
         }
 
-        // Check if maintenance date is TOMORROW (One day before completion)
-        const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-tomorrow.setHours(0, 0, 0, 0);
+        // ----------------------------------------------------
+        // TODAY
+        // ----------------------------------------------------
 
-const mDateNormalized = new Date(maintenanceDate);
-mDateNormalized.setHours(0, 0, 0, 0);
+        const today =
+          new Date();
 
-if (mDateNormalized.getTime() !== tomorrow.getTime()) {
-  continue;
-}
-
-        // Old maintenance date becomes the new invoice date
-        const newInvoiceDateStr = inv.maintenance_date;
-
-        // Prevent duplicate creation for same client & date
-        const [existingNew] = await connection.query(
-          `
-          SELECT id FROM invoices
-          WHERE client_name = ?
-            AND status IN ('NEW', 'DRAFT')
-            AND invoice_date = ?
-          LIMIT 1
-          `,
-          [inv.client_name, newInvoiceDateStr]
+        today.setHours(
+          0,
+          0,
+          0,
+          0
         );
 
-        if (existingNew.length > 0) {
+        // ----------------------------------------------------
+        // ONLY IF MAINTENANCE DATE PASSED
+        // ----------------------------------------------------
+
+        if (
+          maintenanceDate >= today
+        ) {
           continue;
         }
 
-        // Generate invoice number
-        const invoiceNo = await generateNextInvoiceNumber(
-          connection,
-          maintenanceDate,
-          'monthly'
+        // ----------------------------------------------------
+        // NEXT MONTH
+        // ----------------------------------------------------
+
+        const nextMDate =
+          new Date(
+            maintenanceDate
+          );
+
+        nextMDate.setMonth(
+          nextMDate.getMonth() + 1
         );
 
-        // Insert new invoice: status = 'NEW', maintenance_date = empty (''), invoice_date = old maintenance_date
-        const [result] = await connection.query(
-          `
-          INSERT INTO invoices
-          (
-            invoice_no,
-            client_name,
-            invoice_date,
-            maintenance_date,
-            include_gst,
-            discount,
-            subtotal,
-            tax,
-            total_amount,
-            paid_amount,
-            balance_amount,
-            status,
-            notes,
-            created_by
-          )
-          VALUES
-          (
-            ?,
-            ?,
-            ?,
-            '',
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            0,
-            ?,
-            'NEW',
-            ?,
-            ?
-          )
-          `,
-          [
-            invoiceNo,
-            inv.client_name,
-            newInvoiceDateStr,
-            inv.include_gst,
-            inv.discount || 0,
-            inv.subtotal || 0,
-            inv.tax || 0,
-            inv.total_amount || 0,
-            inv.total_amount || 0,
-            inv.notes || '',
-            inv.created_by,
-          ]
-        );
+        const nextMDateStr =
+          formatDDMMYYYY(
+            nextMDate
+          );
 
-        const newInvoiceId = result.insertId;
+        // ----------------------------------------------------
+        // CHECK EXISTING DRAFT
+        //
+        // Prevent duplicate recurring invoices.
+        // ----------------------------------------------------
 
-        // Copy previous items
-        const [items] = await connection.query(
-          `
-          SELECT * FROM invoice_items
-          WHERE invoice_id = ?
-          ORDER BY sort_order ASC, id ASC
-          `,
-          [inv.id]
-        );
+        const [
+          existingDraft,
+        ] =
+          await connection.query(
+            `
+            SELECT
+              id,
+              invoice_no
 
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
+            FROM invoices
+
+            WHERE
+              client_name = ?
+
+              AND status = 'DRAFT'
+
+              AND maintenance_date = ?
+
+            LIMIT 1
+            `,
+            [
+              inv.client_name,
+              nextMDateStr,
+            ]
+          );
+
+        if (
+          existingDraft.length > 0
+        ) {
+          continue;
+        }
+
+        // ----------------------------------------------------
+        // GENERATE REAL MONTHLY INVOICE NUMBER
+        // ----------------------------------------------------
+
+        const invoiceNo =
+          await generateNextInvoiceNumber(
+            connection,
+            nextMDate,
+            'monthly'
+          );
+
+        // ----------------------------------------------------
+        // INSERT NEXT CYCLE INVOICE
+        // ----------------------------------------------------
+
+        const [result] =
+          await connection.query(
+            `
+            INSERT INTO invoices
+            (
+              invoice_no,
+              client_name,
+              invoice_date,
+              maintenance_date,
+              include_gst,
+              discount,
+              subtotal,
+              tax,
+              total_amount,
+              paid_amount,
+              balance_amount,
+              status,
+              notes,
+              created_by
+            )
+
+            VALUES
+            (
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              0,
+              ?,
+              'DRAFT',
+              ?,
+              ?
+            )
+            `,
+            [
+              invoiceNo,
+
+              inv.client_name,
+
+              nextMDateStr,
+
+              nextMDateStr,
+
+              inv.include_gst,
+
+              inv.discount || 0,
+
+              inv.subtotal || 0,
+
+              inv.tax || 0,
+
+              inv.total_amount || 0,
+
+              inv.total_amount || 0,
+
+              inv.notes || '',
+
+              inv.created_by,
+            ]
+          );
+
+        const newInvoiceId =
+          result.insertId;
+
+        // ----------------------------------------------------
+        // COPY PREVIOUS INVOICE ITEMS
+        // ----------------------------------------------------
+
+        const [items] =
+          await connection.query(
+            `
+            SELECT *
+
+            FROM invoice_items
+
+            WHERE invoice_id = ?
+
+            ORDER BY
+              sort_order ASC,
+              id ASC
+            `,
+            [inv.id]
+          );
+
+        for (
+          let i = 0;
+          i < items.length;
+          i++
+        ) {
+          const it =
+            items[i];
+
           await connection.query(
             `
             INSERT INTO invoice_items
@@ -2432,6 +2492,7 @@ if (mDateNormalized.getTime() !== tomorrow.getTime()) {
               pending_amount,
               sort_order
             )
+
             VALUES
             (
               ?,
@@ -2449,14 +2510,23 @@ if (mDateNormalized.getTime() !== tomorrow.getTime()) {
             `,
             [
               newInvoiceId,
+
               it.package_id,
+
               it.description,
+
               it.qty,
+
               it.rate,
+
               it.tax_percent,
+
               it.discount_amount,
+
               it.amount,
+
               it.amount,
+
               i,
             ]
           );
@@ -2469,21 +2539,38 @@ if (mDateNormalized.getTime() !== tomorrow.getTime()) {
 
       return res.json({
         success: true,
-        message: `Successfully generated ${createdCount} new invoice(s).`,
+
+        message:
+          `Successfully generated ${createdCount} recurring draft invoice(s).`,
+
         createdCount,
       });
 
     } catch (err) {
       if (connection) {
-        try { await connection.rollback(); } catch (_) {}
+        try {
+          await connection.rollback();
+        } catch (_) {}
       }
-      console.error('POST /invoices/generate-recurring ERROR:', err.message);
-      return res.status(500).json({ success: false, message: err.message });
+
+      console.error(
+        'POST /invoices/generate-recurring ERROR:',
+        err.message
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+
     } finally {
-      if (connection) connection.release();
+      if (connection) {
+        connection.release();
+      }
     }
   }
 );
+
 
 // ============================================================
 // EXPORT ROUTER

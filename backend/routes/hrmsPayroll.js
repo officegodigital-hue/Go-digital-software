@@ -10,6 +10,8 @@ router.get('/', hrms.list);
 router.get('/policy', hrms.getPolicy);
 router.put('/policy', hrms.savePolicy);
 router.post('/generate', hrms.generate);
+router.get('/custom-cycle/:profileId', hrms.getCustomCycle);
+router.put('/custom-cycle/:profileId', hrms.setCustomCycle);
 router.patch('/:id', hrms.markPaid);
 
 module.exports = router;

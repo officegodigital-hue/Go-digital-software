@@ -23,8 +23,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
   String activeFilter = "All Logs";
   bool _isFilterMenuOpen = false;
-  bool _showReminderBanner = true;
-  bool _filterByReminderToday = false; // Banner click pannum pothu filter panna
 
   int _selectedMonth = 0; 
   final int _selectedYear = DateTime.now().year;
@@ -46,13 +44,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   int _currentPage = 1;
 
   static const Map<String, Color> _statusBg = {
-    'NEW':     Color(0xFFDBEAFE),
     'DRAFT':   Color(0xFFF1F5F9),
     'PENDING': Color(0xFFFEF3C7),
     'PAID':    Color(0xFFDCFCE7),
   };
   static const Map<String, Color> _statusText = {
-    'NEW':     Color(0xFF1D4ED8),
     'DRAFT':   Color(0xFF475569),
     'PENDING': Color(0xFFD97706),
     'PAID':    Color(0xFF16A34A),
@@ -90,192 +86,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     } catch (e) {
       debugPrint('Recurring check error: $e');
     }
-  }
-
-  Future<void> _pickAndSaveReminderDate(int id) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-    );
-    if (picked != null) {
-      final formatted = DateFormat('dd/MM/yyyy').format(picked);
-      await _updateReminderDateAPI(id, formatted);
-    }
-  }
-
-  Future<void> _updateReminderDateAPI(int id, String reminderDate) async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final token = authService.token;
-      final response = await http.patch(
-        Uri.parse('$_baseUrl/invoices/$id/reminder-date'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'reminderDate': reminderDate}),
-      );
-      if (response.statusCode == 200) {
-        await _fetchInvoices();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(reminderDate.isEmpty ? 'Reminder date removed successfully' : 'Reminder date updated successfully'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to update reminder date'), backgroundColor: Colors.redAccent),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot connect to server'), backgroundColor: Colors.redAccent),
-        );
-      }
-    }
-  }
-
-  Widget _buildReminderCell(Map<String, dynamic> row) {
-    final int id = row["id"];
-    final dynamic rawReminder = row["reminder_date"] ?? row["reminderDate"];
-    
-    final bool isNullOrEmpty = rawReminder == null || 
-                               rawReminder.toString().trim().isEmpty || 
-                               rawReminder.toString().toLowerCase() == 'null';
-
-    if (isNullOrEmpty) {
-      return TextButton.icon(
-        onPressed: () => _pickAndSaveReminderDate(id),
-        icon: const Icon(Icons.add_rounded, size: 14, color: Color(0xFF0052CC)),
-        label: const Text("Add", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC))),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          backgroundColor: const Color(0xFFEFF6FF),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    } else {
-      final String reminderDate = rawReminder.toString().trim();
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFEF3C7),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFF59E0B), width: 0.8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                reminderDate,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: Color(0xFFB45309), fontWeight: FontWeight.w800),
-              ),
-            ),
-            const SizedBox(width: 4),
-            InkWell(
-              onTap: () => _pickAndSaveReminderDate(id),
-              borderRadius: BorderRadius.circular(4),
-              child: const Padding(
-                padding: EdgeInsets.all(2),
-                child: Icon(Icons.edit_outlined, size: 13, color: Color(0xFF0052CC)),
-              ),
-            ),
-            InkWell(
-              onTap: () => _updateReminderDateAPI(id, ''),
-              borderRadius: BorderRadius.circular(4),
-              child: const Padding(
-                padding: EdgeInsets.all(2),
-                child: Icon(Icons.close_rounded, size: 13, color: Color(0xFFDC2626)),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
-  Widget _buildReminderBanner() {
-    if (!_showReminderBanner) return const SizedBox.shrink();
-
-    final now = DateTime.now();
-    final todayStr = DateFormat('dd/MM/yyyy').format(now);
-
-    // Previous and today reminders (where reminder_date <= today and invoice is not fully paid)
-    final dueReminders = invoiceLedger.where((row) {
-      final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '').toString().trim();
-      if (rDateStr.isEmpty || rDateStr == 'null') return false;
-      
-      String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
-      if (status == 'PAID') return false; // Paid aanathu exclude pannidalam
-
-      try {
-        final rDate = DateFormat('dd/MM/yyyy').parse(rDateStr);
-        final normalizedR = DateTime(rDate.year, rDate.month, rDate.day);
-        final normalizedToday = DateTime(now.year, now.month, now.day);
-        return normalizedR.isBefore(normalizedToday) || normalizedR.isAtSameMomentAs(normalizedToday);
-      } catch (_) {
-        return false;
-      }
-    }).toList();
-
-    if (dueReminders.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF3C7),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF59E0B)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.notifications_active_rounded, color: Color(0xFFD97706), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _filterByReminderToday = !_filterByReminderToday;
-                });
-              },
-              child: Text(
-                _filterByReminderToday 
-                    ? 'Showing reminders due up to today (${dueReminders.length}). Click to reset filter.' 
-                    : 'Reminder Alert: ${dueReminders.length} client(s) have pending collections due (previous & today). Click here to filter!',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: () {
-              setState(() {
-                _showReminderBanner = false;
-                _filterByReminderToday = false;
-              });
-            },
-            icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF92400E)),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            tooltip: 'Dismiss',
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _fetchInvoices() async {
@@ -412,24 +222,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   }
 
   List<Map<String, dynamic>> _getFilteredAndSortedInvoices() {
-    final now = DateTime.now();
-    final normalizedToday = DateTime(now.year, now.month, now.day);
-
     List<Map<String, dynamic>> filtered = invoiceLedger.where((row) {
       if (!_isInSelectedMonth(row['invoice_date'] ?? '')) {
         return false;
-      }
-
-      if (_filterByReminderToday) {
-        final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '').toString().trim();
-        if (rDateStr.isEmpty || rDateStr == 'null') return false;
-        try {
-          final rDate = DateFormat('dd/MM/yyyy').parse(rDateStr);
-          final normalizedR = DateTime(rDate.year, rDate.month, rDate.day);
-          if (normalizedR.isAfter(normalizedToday)) return false;
-        } catch (_) {
-          return false;
-        }
       }
 
       if (_searchQuery.trim().isNotEmpty) {
@@ -450,7 +245,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         rawStatus = 'PENDING';
       }
 
-      if (activeFilter.toUpperCase() == "NEW") return rawStatus == "NEW";
       if (activeFilter.toUpperCase() == "PENDING") return rawStatus == "PENDING";
       if (activeFilter.toUpperCase() == "DRAFT") return rawStatus == "DRAFT";
       if (activeFilter.toUpperCase() == "PAID") return rawStatus == "PAID";
@@ -459,32 +253,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     }).toList();
 
     filtered.sort((a, b) {
-      // Bring reminders due today or past to the very top
-      final rAStr = (a["reminder_date"] ?? a["reminderDate"] ?? '').toString().trim();
-      final rBStr = (b["reminder_date"] ?? b["reminderDate"] ?? '').toString().trim();
-
-      bool isDueA = false;
-      bool isDueB = false;
-
-      try {
-        if (rAStr.isNotEmpty && rAStr != 'null') {
-          final d = DateFormat('dd/MM/yyyy').parse(rAStr);
-          final nd = DateTime(d.year, d.month, d.day);
-          if (nd.isBefore(normalizedToday) || nd.isAtSameMomentAs(normalizedToday)) isDueA = true;
-        }
-      } catch (_) {}
-
-      try {
-        if (rBStr.isNotEmpty && rBStr != 'null') {
-          final d = DateFormat('dd/MM/yyyy').parse(rBStr);
-          final nd = DateTime(d.year, d.month, d.day);
-          if (nd.isBefore(normalizedToday) || nd.isAtSameMomentAs(normalizedToday)) isDueB = true;
-        }
-      } catch (_) {}
-
-      if (isDueA && !isDueB) return -1;
-      if (!isDueA && isDueB) return 1;
-
       String statusA = (a["status"] ?? 'DRAFT').toString().toUpperCase();
       String statusB = (b["status"] ?? 'DRAFT').toString().toUpperCase();
       
@@ -492,11 +260,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       if (statusB == 'PARTIAL' || statusB == 'OVERDUE') statusB = 'PENDING';
       
       int getPriority(String status) {
-        if (status == 'NEW') return 1;
-        if (status == 'DRAFT') return 2;
-        if (status == 'PENDING') return 3;
-        if (status == 'PAID') return 4;
-        return 5;
+        if (status == 'DRAFT') return 1;
+        if (status == 'PENDING') return 2;
+        if (status == 'PAID') return 3;
+        return 4;
       }
 
       final pA = getPriority(statusA);
@@ -521,7 +288,13 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return filtered;
   }
 
+  // ============================================================
+  // CALL & WHATSAPP — tap-to-call / tap-to-chat using the client's
+  // saved phone number. Both silently no-op with a snackbar if the
+  // client has no phone number on file.
+  // ============================================================
   String _cleanPhoneForWhatsApp(String phone) {
+    // Keep digits only (wa.me needs country code + number, no symbols).
     return phone.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
@@ -582,7 +355,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return '${isNegative ? '-' : ''}₹$result.${parts[1]}';
   }
 
-  Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
+ Future<void> _exportInvoicesToCSV(bool isMainAdmin) async {
     final invoices = _getFilteredAndSortedInvoices();
 
     if (invoices.isEmpty) {
@@ -593,6 +366,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       return;
     }
 
+    // HTML Table டெம்ப்ளேட் உருவாக்கம் (Excel-ல் திறக்கும்போது கலர்ஃபுல்லாக பிரமாதமாக காட்டும்)
     final htmlBuffer = StringBuffer();
     htmlBuffer.writeln('''
       <html>
@@ -679,11 +453,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       </html>
     ''');
 
+    // .xls எக்ஸ்டென்ஷனில் சேமித்தால் எக்செல் அதை கலர்ஃபுல் டெம்ப்ளேட்டாக திறக்கும்
     final fileName = 'GoDigital_Invoice_Template_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
 
     try {
       final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(htmlBuffer.toString())];
-      await saveAndShareCsv(bytes, fileName);
+      await saveAndShareCsv(bytes, fileName); // (இதே பங்கஷன் பைட்டை சேமிக்கப் பயன்படும்)
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1466,27 +1241,21 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         children: [
           Padding(
             padding: EdgeInsets.all(isMobile ? 14 : 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildReminderBanner(),
-                isMobile
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _workspaceTitle(totalInvoices),
-                          const SizedBox(height: 14),
-                          _buildFilterRow(monthNames, isMainAdmin, fullWidth: true),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          Expanded(child: _workspaceTitle(totalInvoices)),
-                          _buildFilterRow(monthNames, isMainAdmin),
-                        ],
-                      ),
-              ],
-            ),
+            child: isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _workspaceTitle(totalInvoices),
+                      const SizedBox(height: 14),
+                      _buildFilterRow(monthNames, isMainAdmin, fullWidth: true),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: _workspaceTitle(totalInvoices)),
+                      _buildFilterRow(monthNames, isMainAdmin),
+                    ],
+                  ),
           ),
           const Divider(height: 1, color: Color(0xFFE2E8F0)),
           if (_loadingInvoices)
@@ -1641,7 +1410,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ),
         if (_isFilterMenuOpen) ...[
           _buildFilterTab("All Logs"),
-          _buildFilterTab("New"),
           _buildFilterTab("Draft"),
           _buildFilterTab("Pending"),
           _buildFilterTab("Paid"),
@@ -1751,7 +1519,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     int startIndex,
     bool isMainAdmin,
   ) {
-    const double tableMinWidth = 1900;
+    const double tableMinWidth = 1750;
 
     return Scrollbar(
       controller: _horizontalController,
@@ -1779,7 +1547,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     _invoiceHeaderCell(label: "PHONE NO", flex: 3),
                     _invoiceHeaderCell(label: "PACKAGE DETAILS", flex: 3),
                     _invoiceHeaderCell(label: "MAINTENANCE DATE", flex: 2),
-                    _invoiceHeaderCell(label: "REMINDER DATE", flex: 2),
                     _invoiceHeaderCell(label: "TOTAL AMOUNT", flex: 2),
                     _invoiceHeaderCell(label: "PAID AMOUNT", flex: 2),
                     _invoiceHeaderCell(label: "PENDING AMOUNT", flex: 2),
@@ -1900,7 +1667,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final String phone = row["client_phone"] ?? '';
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
-    final String reminderDate = (row["reminder_date"] ?? row["reminderDate"] ?? '').toString();
     final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
     final String amount = _formatCurrency(total);
     final String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
@@ -1911,17 +1677,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
 
-    Color cardBgColor = const Color(0xFFFCFDFF);
-    if (status == 'PENDING') {
-      cardBgColor = const Color(0xFFFFFBEB);
-    } else if (status == 'PAID') {
-      cardBgColor = const Color(0xFFF0FDF4);
-    }
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: cardBgColor,
+        color: const Color(0xFFFCFDFF),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
@@ -1977,7 +1736,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                   onTap: () => _openWhatsApp(phone),
                   borderRadius: BorderRadius.circular(6),
                   child: Padding(
-                    padding: EdgeInsets.all(3),
+                    padding: const EdgeInsets.all(3),
                     child: Image.asset(
                       'assets/images/whatsapp_logo.png',
                       width: 15,
@@ -1990,10 +1749,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ],
           const SizedBox(height: 4),
           Text('Package: $type', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          if (reminderDate.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text('Reminder Date: $reminderDate', style: const TextStyle(fontSize: 10, color: Color(0xFFD97706), fontWeight: FontWeight.w700)),
-          ],
           if (isMainAdmin) ...[
             const SizedBox(height: 4),
             Text('Created by: $createdByName', style: const TextStyle(fontSize: 10, color: Color(0xFF0052CC), fontWeight: FontWeight.w700)),
@@ -2195,19 +1950,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
 
-    Color rowBgColor = Colors.white;
-    if (status == 'PENDING') {
-      rowBgColor = const Color(0xFFFFFBEB);
-    } else if (status == 'PAID') {
-      rowBgColor = const Color(0xFFF0FDF4);
-    }
-
-    return Container(
+    return SizedBox(
       height: 65,
-      decoration: BoxDecoration(
-        color: rowBgColor,
-        border: const Border(bottom: BorderSide(color: Color(0xFFD7E2F2), width: 1)),
-      ),
       child: Row(
         children: [
           _invoiceBodyCell(flex: 1, child: Text(id.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
@@ -2225,48 +1969,49 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             ),
           ),
           _invoiceBodyCell(flex: 3, child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
-          _invoiceBodyCell(
-            flex: 3,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    phone.isEmpty ? '—' : phone,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+         _invoiceBodyCell(
+        flex: 3,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                phone.isEmpty ? '—' : phone,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+              ),
+            ),
+            if (phone.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              // Call Icon (Blue Color)
+              InkWell(
+                onTap: () => _callPhone(phone),
+                borderRadius: BorderRadius.circular(6),
+                child: const Padding(
+                  padding: EdgeInsets.all(3),
+                  child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
+                ),
+              ),
+              // WhatsApp Icon (Green Color - Replaced chat bubble)
+              InkWell(
+                onTap: () => _openWhatsApp(phone),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: Image.asset(
+                    'assets/images/whatsapp_logo.png',
+                    width: 15,
+                    height: 15,
                   ),
                 ),
-                if (phone.isNotEmpty) ...[
-                  const SizedBox(width: 4),
-                  InkWell(
-                    onTap: () => _callPhone(phone),
-                    borderRadius: BorderRadius.circular(6),
-                    child: const Padding(
-                      padding: EdgeInsets.all(3),
-                      child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () => _openWhatsApp(phone),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Padding(
-                      padding: EdgeInsets.all(3),
-                      child: Image.asset(
-                        'assets/images/whatsapp_logo.png',
-                        width: 15,
-                        height: 15,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+              ),
+            ],
+          ],
+        ),
+      ),
+       _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
           _invoiceBodyCell(flex: 2, child: Text(maintenanceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
-          _invoiceBodyCell(flex: 2, child: _buildReminderCell(row)),
           _invoiceBodyCell(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF172033)))),
           _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(paid), style: const TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.w700))),
           _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(pending), style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626), fontWeight: FontWeight.w700))),
@@ -2309,7 +2054,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
- Widget _buildFilterTab(String label) {
+  Widget _buildFilterTab(String label) {
     final bool isActive = activeFilter.toUpperCase() == label.toUpperCase();
 
     return OutlinedButton(
@@ -2318,7 +2063,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         _isFilterMenuOpen = true;
         _currentPage = 1;
       }),
-      style: OutlinedButton.styleFrom( // 👈 styleTop-ku pathila styleFrom nu maathavum
+      style: OutlinedButton.styleFrom(
         backgroundColor: isActive ? const Color(0xFF0052CC) : Colors.transparent,
         side: BorderSide(
           color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
@@ -2335,7 +2080,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  
   static const TextStyle _tableHeadingStyle = TextStyle(
     fontSize: 10,
     fontWeight: FontWeight.w800,
