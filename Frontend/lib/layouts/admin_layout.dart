@@ -223,6 +223,12 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
       {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
       {'icon': Icons.access_time_rounded, 'title': 'Time Manager', 'route': '/time-manager'},
+      // admin_layout.dart-il ulla allNavItems list-kkul intha item-ai serthukollavum:
+{
+  'icon': Icons.campaign_rounded, 
+  'title': 'Broadcast Master', 
+  'route': '/emergency-broadcast'
+},
     ];
 
     final filteredNavItems = allNavItems.where((item) {

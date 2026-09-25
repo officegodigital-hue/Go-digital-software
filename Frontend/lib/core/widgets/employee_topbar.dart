@@ -1,3 +1,4 @@
+// lib/core/widgets/employee_topbar.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:shared_preferences/shared_preferences.dart'; // 🟢 Added for saving agreed state
 import '../constants/app_colors.dart';
 import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
@@ -43,13 +45,12 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
 
   String formattedTotalWorkingTime = "00h 00m";
 
-  // 🟢 Controllers for 3D rotation, High-intensity neon glow, and Color Shifting
   late AnimationController _rotateController;
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
 
-  // State to track hover or pause state for rotation
   bool _isPaused = false;
+  bool _isBroadcastPopupShowing = false;
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _startPolling();
     _fetchTodayWorkingHours();
     _connectNotificationSocket();
+    _checkActiveBroadcast();
   }
 
   @override
@@ -89,6 +91,525 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   String get _socketUrl {
     return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
   }
+
+ // 🟢 Broadcast/automation popup check with stable per-event acknowledgement keys.
+  // Future<void> _checkActiveBroadcast() async {
+  //   final authService = Provider.of<AuthService>(context, listen: false);
+  //   final employeeId = authService.user?['id'];
+  //   final employeeName =
+  //       authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+
+  //   if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+
+  //   try {
+  //     final response =
+  //         await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+
+  //     if (response.statusCode != 200) return;
+
+  //     final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+  //     final bool isActive = data['isActive'] ?? false;
+  //     final bool newClientOn = data['newClientEnabled'] ?? true;
+  //     final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+  //     final String adminMessage = (data['message'] ?? '').toString().trim();
+
+  //     // IMPORTANT:
+  //     // Manual message title MUST always come from Admin's selected
+  //     // Emergency / Warning / Important value.
+  //     final String severity =
+  //         (data['severity'] ?? 'Warning').toString().trim();
+
+  //     final dynamic targetEmpId = data['targetEmployeeId'];
+  //     final String dbBroadcastId = (data['id'] ?? 0).toString();
+
+  //     if (!isActive) return;
+
+  //     if (targetEmpId != null &&
+  //         targetEmpId.toString() != employeeId.toString()) {
+  //       return;
+  //     }
+
+  //     final prefs = await SharedPreferences.getInstance();
+  //     final agreedKey = 'agreed_broadcast_key_$employeeId';
+
+  //     final String lastAgreedKey = prefs.getString(agreedKey) ?? '';
+
+  //     // 1. ADMIN MANUAL MESSAGE
+  //     // Only this uses the Admin selected severity as the popup title.
+  //     if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+  //       final manualKey = 'manual:$dbBroadcastId';
+
+  //       if (lastAgreedKey != manualKey && !_isBroadcastPopupShowing) {
+  //         _showBlueWhiteAgreePopup(
+  //           adminMessage,
+  //           severity,
+  //           manualKey,
+  //           employeeId,
+  //         );
+  //         return;
+  //       }
+  //     }
+
+  //     // 2. AUTOMATED CLIENT / TASK POPUPS
+  //     // These are ALWAYS "Information Alert", never Emergency/Warning/Important.
+  //     final summaryRes = await http.get(
+  //       Uri.parse(
+  //         '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+  //       ),
+  //     );
+
+  //     if (summaryRes.statusCode != 200) return;
+
+  //     final summaryData =
+  //         (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+
+  //     final todayKey = DateTime.now().toIso8601String().substring(0, 10);
+
+  //     // 2A. New client task assigned.
+  //     final newClientsList =
+  //         List<dynamic>.from(summaryData['newClientsList'] ?? []);
+
+  //     if (newClientOn && newClientsList.isNotEmpty) {
+  //       final clientNames = newClientsList
+  //           .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+  //           .where((name) => name.isNotEmpty)
+  //           .toSet()
+  //           .toList()
+  //         ..sort();
+
+  //       if (clientNames.isNotEmpty) {
+  //         final namesKey = clientNames.join('|').toLowerCase();
+  //         final newClientKey = 'new-client:$todayKey:$namesKey';
+
+  //         final triggerMsg =
+  //             'New client task assigned for: ${clientNames.join(', ')}. '
+  //             'Please check your task panel.';
+
+  //         if (lastAgreedKey != newClientKey &&
+  //             !_isBroadcastPopupShowing) {
+  //           _showBlueWhiteAgreePopup(
+  //             triggerMsg,
+  //             'Information',
+  //             newClientKey,
+  //             employeeId,
+  //           );
+  //           return;
+  //         }
+  //       }
+  //     }
+
+  //     // 2B. NEW TASK ASSIGNMENT notification.
+  //     // This catches a newly assigned task even when the client itself
+  //     // was created earlier, so the popup does not depend only on
+  //     // clients.created_at.
+  //     if (newClientOn) {
+  //       try {
+  //         final notificationRes = await http.get(
+  //           Uri.parse(
+  //             '${ApiConfig.baseUrl}/dashboard/recent-notifications/${Uri.encodeComponent(employeeName.toString())}',
+  //           ),
+  //         );
+
+  //         if (notificationRes.statusCode == 200) {
+  //           final notificationData =
+  //               (jsonDecode(notificationRes.body)['data'] ?? []) as List;
+
+  //           for (final item in notificationData) {
+  //             if (item is! Map) continue;
+
+  //             final dynamic notificationId = item['id'];
+  //             final String category =
+  //                 (item['category'] ?? '').toString().toLowerCase();
+  //             final String preview =
+  //                 (item['preview'] ?? item['message'] ?? '').toString().trim();
+
+  //             if (notificationId == null ||
+  //                 !category.contains('task assigned')) {
+  //               continue;
+  //             }
+
+  //             final taskKey = 'task-assigned:$notificationId';
+
+  //             if (lastAgreedKey != taskKey && !_isBroadcastPopupShowing) {
+  //               final taskMessage = preview.isNotEmpty
+  //                   ? preview
+  //                   : 'A new task has been assigned to you. Please check your task panel.';
+
+  //               _showBlueWhiteAgreePopup(
+  //                 taskMessage,
+  //                 'Information',
+  //                 taskKey,
+  //                 employeeId,
+  //               );
+  //               return;
+  //             }
+  //           }
+  //         }
+  //       } catch (e) {
+  //         debugPrint('Task assignment popup check error: $e');
+  //       }
+  //     }
+
+  //     // 2C. Inactive client.
+  //     final inactiveList =
+  //         List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+
+  //     if (inactiveClientOn && inactiveList.isNotEmpty) {
+  //       final clientNames = inactiveList
+  //           .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+  //           .where((name) => name.isNotEmpty)
+  //           .toSet()
+  //           .toList()
+  //         ..sort();
+
+  //       if (clientNames.isNotEmpty) {
+  //         final namesKey = clientNames.join('|').toLowerCase();
+  //         final inactiveKey = 'inactive-client:$todayKey:$namesKey';
+
+  //         final triggerMsg =
+  //             'Assigned client(s) marked inactive: ${clientNames.join(', ')}.';
+
+  //         if (lastAgreedKey != inactiveKey &&
+  //             !_isBroadcastPopupShowing) {
+  //           _showBlueWhiteAgreePopup(
+  //             triggerMsg,
+  //             'Information',
+  //             inactiveKey,
+  //             employeeId,
+  //           );
+  //           return;
+  //         }
+  //       }
+  //     }
+  //   } catch (e) {
+  //     debugPrint("Broadcast check error: $e");
+  //   }
+  // }
+
+
+  // // 🟢 Blue & White Gradient Modal Popup with dynamic title matching severity
+  // void _showBlueWhiteAgreePopup(String message, String severity, String broadcastKey, dynamic employeeId) {
+  //   if (!mounted) return;
+  //   setState(() {
+  //     _isBroadcastPopupShowing = true;
+  //   });
+
+  //   showDialog(
+  //     context: context,
+  //     barrierDismissible: false,
+  //     builder: (BuildContext dialogContext) {
+  //       return PopScope(
+  //         canPop: false,
+  //         child: AlertDialog(
+  //           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  //           contentPadding: EdgeInsets.zero,
+  //           content: Container(
+  //             width: 420,
+  //             padding: const EdgeInsets.all(24),
+  //             decoration: BoxDecoration(
+  //               borderRadius: BorderRadius.circular(20),
+  //               gradient: const LinearGradient(
+  //                 begin: Alignment.topCenter,
+  //                 end: Alignment.bottomCenter,
+  //                 colors: [Color(0xFFF0F5FF), Colors.white],
+  //               ),
+  //             ),
+  //             child: Column(
+  //               mainAxisSize: MainAxisSize.min,
+  //               children: [
+  //                 Container(
+  //                   padding: const EdgeInsets.all(12),
+  //                   decoration: BoxDecoration(
+  //                     color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+  //                     shape: BoxShape.circle,
+  //                   ),
+  //                   child: Icon(
+  //                     severity == 'Emergency' 
+  //                         ? Icons.error_outline 
+  //                         : severity == 'Warning' 
+  //                             ? Icons.warning_amber_rounded 
+  //                             : Icons.info_outline_rounded,
+  //                     color: const Color(0xFF0757D5),
+  //                     size: 32,
+  //                   ),
+  //                 ),
+  //                 const SizedBox(height: 14),
+  //                 Text(
+  //                   '$severity Alert', // Admin kudutha Emergency/Warning/Important title ingae varum
+  //                   style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
+  //                 ),
+  //                 const SizedBox(height: 10),
+  //                 Text(
+  //                   message, // Client names-udan message ingae varum
+  //                   textAlign: TextAlign.center,
+  //                   style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+  //                 ),
+  //                 const SizedBox(height: 24),
+  //                 SizedBox(
+  //                   width: double.infinity,
+  //                   child: ElevatedButton(
+  //                     style: ElevatedButton.styleFrom(
+  //                       backgroundColor: const Color(0xFF0757D5),
+  //                       padding: const EdgeInsets.symmetric(vertical: 14),
+  //                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  //                       elevation: 0,
+  //                     ),
+  //                     onPressed: () async {
+  //                       final prefs = await SharedPreferences.getInstance();
+  //                       await prefs.setString('agreed_broadcast_key_$employeeId', broadcastKey);
+
+  //                       if (dialogContext.mounted) {
+  //                         Navigator.of(dialogContext).pop();
+  //                       }
+  //                       setState(() {
+  //                         _isBroadcastPopupShowing = false;
+  //                       });
+  //                     },
+  //                     child: const Text(
+  //                       'Agree',
+  //                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+  //                     ),
+  //                   ),
+  //                 ),
+  //               ],
+  //             ),
+  //           ),
+  //         ),
+  //       );
+  //     },
+  //   );
+  // }
+
+Future<void> _checkActiveBroadcast() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final employeeId = authService.user?['id'];
+    final employeeName =
+        authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+
+    if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+
+    try {
+      final response =
+          await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+
+      if (response.statusCode != 200) return;
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      final bool isActive = data['isActive'] ?? false;
+      final bool newClientOn = data['newClientEnabled'] ?? true;
+      final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+      final String adminMessage = (data['message'] ?? '').toString().trim();
+      final String severity =
+          (data['severity'] ?? 'Warning').toString().trim();
+
+      final dynamic targetEmpId = data['targetEmployeeId'];
+      final String dbBroadcastId = (data['id'] ?? 0).toString();
+
+      if (!isActive) return;
+
+      if (targetEmpId != null &&
+          targetEmpId.toString() != employeeId.toString()) {
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1. ADMIN MANUAL MESSAGE
+      if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+        final manualKey = 'manual_agreed_$employeeId';
+        final savedMsg = prefs.getString(manualKey) ?? '';
+
+        // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
+        if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+          _showBlueWhiteAgreePopup(
+            adminMessage,
+            severity,
+            manualKey,
+            adminMessage,
+            employeeId,
+          );
+          return;
+        }
+      }
+
+      // 2. AUTOMATED CLIENT / TASK POPUPS
+      final summaryRes = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+        ),
+      );
+
+      if (summaryRes.statusCode != 200) return;
+
+      final summaryData =
+          (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+
+      // 2A. New client task assigned
+      final newClientsList =
+          List<dynamic>.from(summaryData['newClientsList'] ?? []);
+
+      if (newClientOn && newClientsList.isNotEmpty) {
+        final clientNames = newClientsList
+            .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+        if (clientNames.isNotEmpty) {
+          final namesStr = clientNames.join(', ');
+          final triggerMsg =
+              'New client task assigned for: $namesStr. '
+              'Please check your task panel.';
+
+          final newClientKey = 'new_client_agreed_$employeeId';
+          final savedNewClient = prefs.getString(newClientKey) ?? '';
+
+          if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+            _showBlueWhiteAgreePopup(
+              triggerMsg,
+              'Information',
+              newClientKey,
+              namesStr,
+              employeeId,
+            );
+            return;
+          }
+        }
+      }
+
+      // 2B. Inactive client
+      final inactiveList =
+          List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+
+      if (inactiveClientOn && inactiveList.isNotEmpty) {
+        final clientNames = inactiveList
+            .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+        if (clientNames.isNotEmpty) {
+          final namesStr = clientNames.join(', ');
+          final triggerMsg =
+              'Assigned client(s) marked inactive: $namesStr.';
+
+          final inactiveKey = 'inactive_client_agreed_$employeeId';
+          final savedInactive = prefs.getString(inactiveKey) ?? '';
+
+          if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+            _showBlueWhiteAgreePopup(
+              triggerMsg,
+              'Information',
+              inactiveKey,
+              namesStr,
+              employeeId,
+            );
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Broadcast check error: $e");
+    }
+  }
+
+  void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
+    if (!mounted) return;
+    setState(() {
+      _isBroadcastPopupShowing = true;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            contentPadding: EdgeInsets.zero,
+            content: Container(
+              width: 420,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFF0F5FF), Colors.white],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      severity == 'Emergency' 
+                          ? Icons.error_outline 
+                          : severity == 'Warning' 
+                              ? Icons.warning_amber_rounded 
+                              : Icons.info_outline_rounded,
+                      color: const Color(0xFF0757D5),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '$severity Alert',
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0757D5),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
+                        await prefs.setString(storageKey, contentValue);
+
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        setState(() {
+                          _isBroadcastPopupShowing = false;
+                        });
+                      },
+                      child: const Text(
+                        'Agree',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   void _connectNotificationSocket() {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -145,6 +666,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       await _checkNewNotifications();
       await _fetchTodayWorkingHours();
+      await _checkActiveBroadcast();
     });
   }
 
@@ -372,7 +894,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                 
                 const SizedBox(width: 8),
 
-                // 🟢 3D Rotating Container with Mouse Hover and Tap Pause Functionality
                 MouseRegion(
                   onEnter: (_) {
                     setState(() {
@@ -441,7 +962,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                         color: const Color.fromARGB(255, 245, 249, 255),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(8),
-                          onTap: () {}, // Handled by outer GestureDetector
+                          onTap: () {},
                           child: CustomPaint(
                             painter: MovingNeonBorderPainter(
                               animationValue: _isPaused ? 0.0 : _rotateController.value,
@@ -532,94 +1053,91 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                   const SizedBox(width: 14),
                 ],
 
-                // employee_topbar.dart-il ulla Consumer<AuthService> block-ai inthapadi update seiyungal:
+                Consumer<AuthService>(
+                  builder: (context, authService, _) {
+                    final user = authService.user;
+                    final employeeName = user?['fullName'] ?? 'Employee';
+                    final employeeRole = user?['role'] ?? widget.role.title;
+                    final initials = user?['initials'] ?? _generateInitials(employeeName);
 
-    Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.user;
-        final employeeName = user?['fullName'] ?? 'Employee';
-        final employeeRole = user?['role'] ?? widget.role.title;
-        final initials = user?['initials'] ?? _generateInitials(employeeName);
+                    final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
+                    final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
 
-        // 🟢 Profile photo and avatar color from auth session
-        final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
-        final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
+                    Color avatarColor = AppColors.primary;
+                    if (avatarColorHex.isNotEmpty) {
+                      try {
+                        final s = avatarColorHex.replaceAll('#', '');
+                        avatarColor = Color(int.parse('FF$s', radix: 16));
+                      } catch (_) {}
+                    }
 
-        Color avatarColor = AppColors.primary;
-        if (avatarColorHex.isNotEmpty) {
-          try {
-            final s = avatarColorHex.replaceAll('#', '');
-            avatarColor = Color(int.parse('FF$s', radix: 16));
-          } catch (_) {}
-        }
+                    ImageProvider? profileImage;
+                    if (profilePhoto != null && profilePhoto.isNotEmpty) {
+                      try {
+                        profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
+                      } catch (_) {}
+                    }
 
-        ImageProvider? profileImage;
-        if (profilePhoto != null && profilePhoto.isNotEmpty) {
-          try {
-            profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
-          } catch (_) {}
-        }
+                    if (!isDesktop) {
+                      return PopupMenuButton<int>(
+                        offset: const Offset(0, 45),
+                        icon: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: avatarColor,
+                          backgroundImage: profileImage,
+                          child: profileImage == null
+                              ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
+                              : null,
+                        ),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            enabled: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
+                                const SizedBox(height: 2),
+                                Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    }
 
-        if (!isDesktop) {
-          return PopupMenuButton<int>(
-            offset: const Offset(0, 45),
-            icon: CircleAvatar(
-              radius: 16,
-              backgroundColor: avatarColor,
-              backgroundImage: profileImage,
-              child: profileImage == null
-                  ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
-                  : null,
-            ),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                enabled: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
-                    const SizedBox(height: 2),
-                    Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                  ],
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Row(
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  employeeName,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
-                ),
-                Text(
-                  employeeRole,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                    return Row(
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              employeeName,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                            ),
+                            Text(
+                              employeeRole,
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 10),
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor: avatarColor,
+                          backgroundImage: profileImage,
+                          child: profileImage == null
+                              ? Text(
+                                  initials,
+                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                )
+                              : null,
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
-            ),
-            const SizedBox(width: 10),
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: avatarColor,
-              backgroundImage: profileImage,
-              child: profileImage == null
-                  ? Text(
-                      initials,
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                    )
-                  : null,
-            ),
-          ],
-        );
-      },
-    ),
-             ],
             ),
           ),
 
@@ -682,7 +1200,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   }
 }
 
-// 🟢 High-Intensity Neon Moving Border Custom Painter
 class MovingNeonBorderPainter extends CustomPainter {
   final double animationValue;
   final BorderRadius borderRadius;

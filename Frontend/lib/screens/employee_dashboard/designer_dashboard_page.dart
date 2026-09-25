@@ -714,14 +714,14 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
   Widget _summaryCards() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1000 ? 4 : 2;
-        final gap = columns == 4 ? 22.0 : 14.0;
+        final columns = constraints.maxWidth >= 900 ? 4 : 2;
+        final gap = columns == 4 ? 20.0 : 14.0;
         final cardWidth =
             (constraints.maxWidth - (gap * (columns - 1))) / columns;
 
         return Wrap(
           spacing: gap,
-          runSpacing: 14,
+          runSpacing: 1,
           children: [
             // 1st Card: Assigned Clients
             SizedBox(

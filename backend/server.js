@@ -141,6 +141,7 @@ const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
+const broadcastRoutes = require('./routes/broadcast');
 
 // near the other ensure imports
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
@@ -236,6 +237,7 @@ app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/broadcast', broadcastRoutes);
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
