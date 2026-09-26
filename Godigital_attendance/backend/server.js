@@ -33,6 +33,7 @@ app.use('/api/hrms/employees', require('./routes/hrmsEmployees'));
 app.use('/api/hrms/dashboard', require('./routes/hrmsDashboard'));
 app.use('/api/hrms/approvals', require('./routes/hrmsApprovals'));
 app.use('/api/hrms/payroll', require('./routes/hrmsPayroll'));
+app.use('/api/hrms/payslips', require('./routes/hrmsPayslips'));
 app.use('/api/hrms/tracking', require('./routes/hrmsTracking'));
 
 app.get('/', (_req, res) => res.json({ status: 'ok', service: 'GoDigital Attendance API' }));

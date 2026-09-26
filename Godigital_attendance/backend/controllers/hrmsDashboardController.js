@@ -9,6 +9,17 @@ function fail(res, status, message) {
   return res.status(status).json({ success: false, message: message });
 }
 
+function normalizeTime(value, label) {
+  const time = String(value || '').trim();
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(time)) throw new Error(label + ' must use HH:mm');
+  return time.length === 5 ? time + ':00' : time;
+}
+
+function seconds(time) {
+  const parts = String(time).split(':').map(Number);
+  return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+}
+
 function requireAdmin(req, res, next) {
   const userType = String((req.user && req.user.userType) || '').toLowerCase();
   if (userType !== 'admin') {
@@ -71,7 +82,9 @@ async function getPayrollPolicy() {
 
 async function timeSettings(req, res) {
   try {
-    return ok(res, await policy.getTimeSettings(db));
+    const [rows] = await db.query('SELECT labour_lunch_start, labour_lunch_end, employee_lunch_start, employee_lunch_end FROM hrms_tracking_settings WHERE id = 1');
+    const row = rows[0] || {};
+    return ok(res, { ...(await policy.getTimeSettings(db)), labourLunchStart: String(row.labour_lunch_start || '12:30:00'), labourLunchEnd: String(row.labour_lunch_end || '13:00:00'), employeeLunchStart: String(row.employee_lunch_start || '12:30:00'), employeeLunchEnd: String(row.employee_lunch_end || '13:00:00') });
   } catch (error) {
     console.error('GET /hrms/dashboard/time-settings', error);
     return fail(res, 500, error.message);
@@ -80,7 +93,15 @@ async function timeSettings(req, res) {
 
 async function updateTimeSettings(req, res) {
   try {
-    return ok(res, await policy.updateTimeSettings(db, req.body || {}), 'Attendance time settings updated');
+    const body = req.body || {};
+    const labourStart = normalizeTime(body.labourLunchStart, 'Labour lunch start');
+    const labourEnd = normalizeTime(body.labourLunchEnd, 'Labour lunch end');
+    const employeeStart = normalizeTime(body.employeeLunchStart, 'Employee lunch start');
+    const employeeEnd = normalizeTime(body.employeeLunchEnd, 'Employee lunch end');
+    if (seconds(labourEnd) <= seconds(labourStart) || seconds(employeeEnd) <= seconds(employeeStart)) throw new Error('Lunch end time must be after lunch start time');
+    const updated = await policy.updateTimeSettings(db, body);
+    await db.query('UPDATE hrms_tracking_settings SET labour_lunch_start = ?, labour_lunch_end = ?, employee_lunch_start = ?, employee_lunch_end = ?, updated_by = ? WHERE id = 1', [labourStart, labourEnd, employeeStart, employeeEnd, req.user.id]);
+    return ok(res, { ...updated, labourLunchStart: labourStart, labourLunchEnd: labourEnd, employeeLunchStart: employeeStart, employeeLunchEnd: employeeEnd }, 'Attendance time settings updated');
   } catch (error) {
     return fail(res, 400, error.message);
   }

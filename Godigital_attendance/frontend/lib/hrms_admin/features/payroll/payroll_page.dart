@@ -134,6 +134,20 @@ class _PayrollPageState extends State<PayrollPage> {
     }
   }
 
+  Future<void> _viewHistory(_PayrollRow row) async {
+    try {
+      final items = await HrmsPayrollApi.deductionHistory(profileId: row.profileId, year: year, month: month);
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (context) => AlertDialog(
+        title: Text('${row.name} — deduction history'),
+        content: SizedBox(width: 520, child: items.isEmpty
+          ? const Text('No late or absent salary deductions were generated for this payroll period.')
+          : SingleChildScrollView(child: DataTable(columns: const [DataColumn(label: Text('Date')), DataColumn(label: Text('Type')), DataColumn(label: Text('Late')), DataColumn(label: Text('Amount'))], rows: items.map((item) => DataRow(cells: [DataCell(Text('${item['attendance_date']}')), DataCell(Text('${item['deduction_type']}' == 'late' ? 'Late' : 'Absent')), DataCell(Text('${item['late_minutes'] ?? 0} min')), DataCell(Text('₹${item['amount']}'))])).toList()))),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ));
+    } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', '')))); }
+  }
+
   Future<void> _overrideCycle(_PayrollRow row) async {
     if (row.salaryType != 'Flexible') {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -257,6 +271,7 @@ class _PayrollPageState extends State<PayrollPage> {
                                     _load();
                                   },
                                   onMarkPaid: _markPaid,
+                                  onHistory: _viewHistory,
                                   onCycleOverride: _overrideCycle,
                                 ),
                               ],
@@ -522,6 +537,7 @@ class _PayrollPanel extends StatelessWidget {
     required this.onStatusChanged,
     required this.onReset,
     required this.onMarkPaid,
+    required this.onHistory,
     required this.onCycleOverride,
   });
 
@@ -533,6 +549,7 @@ class _PayrollPanel extends StatelessWidget {
   final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
   final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
@@ -583,7 +600,7 @@ class _PayrollPanel extends StatelessWidget {
             if (MediaQuery.sizeOf(context).width < 600)
               _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
             else
-              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, onCycleOverride: onCycleOverride),
+              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride),
             const SizedBox(height: 16),
             Text(
               rows.isEmpty
@@ -822,9 +839,10 @@ class _MobilePayrollList extends StatelessWidget {
 }
 
 class _PayrollTable extends StatelessWidget {
-  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.onCycleOverride});
+  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
   final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
@@ -848,7 +866,7 @@ class _PayrollTable extends StatelessWidget {
                               'No payroll rows match these filters.')))
                 else
                   ...rows.map((row) =>
-                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, onCycleOverride: onCycleOverride)),
+                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride)),
               ],
             ),
           ),
@@ -878,9 +896,10 @@ class _PayrollTableHeader extends StatelessWidget {
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.onCycleOverride});
+  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
   final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
@@ -939,33 +958,29 @@ class _PayrollTableRow extends StatelessWidget {
             _Cell(width: 120, child: _PayStatus(status: row.status)),
             _Cell(
               width: 140,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (row.salaryType == 'Flexible')
-                    TextButton(
-                      onPressed: row.status == 'Paid' ? null : () => onCycleOverride(row),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        minimumSize: const Size(0, 24),
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                      ),
-                      child: const Text('Custom cycle', style: TextStyle(fontSize: 11)),
-                    ),
+              child: PopupMenuButton<int>(
+                tooltip: 'Payroll actions',
+                onSelected: (action) {
+                  if (action == 0) onHistory(row);
+                  if (action == 1) onCycleOverride(row);
+                  if (action == 2) onMarkPaid(row);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.history_outlined), title: Text('View history'))),
+                  if (row.salaryType == 'Flexible' && row.status != 'Paid')
+                    const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.date_range_outlined), title: Text('Custom cycle'))),
                   if (row.status == 'Pending')
-                    FilledButton(
-                      onPressed: () => onMarkPaid(row),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _PayrollColors.blue,
-                        visualDensity: VisualDensity.compact,
-                        minimumSize: const Size(0, 26),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                      ),
-                      child: const Text('Mark paid', style: TextStyle(fontSize: 12)),
-                    )
-                  else if (row.salaryType != 'Flexible')
-                    const Text('–', style: TextStyle(color: Color(0xFF596176))),
+                    const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('Mark paid'))),
                 ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(border: Border.all(color: const Color(0xFFD8DEE9)), borderRadius: BorderRadius.circular(7)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.more_horiz_rounded, size: 18, color: _PayrollColors.blue),
+                    SizedBox(width: 5),
+                    Text('Actions', style: TextStyle(color: _PayrollColors.blue, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
               ),
             ),
           ],

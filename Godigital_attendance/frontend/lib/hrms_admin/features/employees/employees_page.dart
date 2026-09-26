@@ -394,6 +394,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
             ? availableDepartments.first
             : 'Engineering');
     var selectedMode = employee?.workMode ?? 'Office';
+    var selectedEmployeeType = employee?.employeeType ?? 'Employee';
+    var overtimeEligible = employee?.overtimeEligible ?? false;
     var selectedGender = employee?.gender ?? 'Male';
     var selectedStatus = employee?.status ?? 'Active';
     var selectedSalaryType = employee?.salaryType ?? 'Standard';
@@ -467,6 +469,16 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       'Hybrid',
                       'Field',
                     ], (value) => setDialogState(() => selectedMode = value!)),
+                    const SizedBox(height: 12),
+                    _formDropdown('Employee type', selectedEmployeeType, const ['Employee', 'Labour'], (value) => setDialogState(() => selectedEmployeeType = value!)),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Overtime eligible'),
+                      subtitle: const Text('Automatically records work beyond scheduled hours.'),
+                      value: overtimeEligible,
+                      onChanged: (value) => setDialogState(() => overtimeEligible = value),
+                    ),
                     const SizedBox(height: 12),
                     _formDropdown('Gender', selectedGender, const ['Male', 'Female'], (value) => setDialogState(() => selectedGender = value!)),
                     const SizedBox(height: 12),
@@ -551,6 +563,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
       'employeeCode': id.text.trim(),
       'department': selectedDepartment,
       'workMode': selectedMode,
+      'employeeType': selectedEmployeeType,
+      'overtimeEligible': overtimeEligible,
       'gender': selectedGender,
       'status': selectedStatus,
       'salary': salary.text.trim(),
@@ -1809,6 +1823,8 @@ class _Employee {
     this.id,
     this.department,
     this.workMode,
+    this.employeeType,
+    this.overtimeEligible,
     this.gender,
     this.salary,
     this.status,
@@ -1819,7 +1835,8 @@ class _Employee {
     this.flexibleCycleEndDay,
   );
   final int profileId;
-  final String name, id, department, workMode, gender, salary, status;
+  final String name, id, department, workMode, employeeType, gender, salary, status;
+  final bool overtimeEligible;
   final int modeColor;
   final String username;
   final String salaryType;
@@ -1839,6 +1856,8 @@ class _Employee {
       code,
       (json['department'] ?? '').toString(),
       mode,
+      (json['employeeType'] ?? 'Employee').toString(),
+      json['overtimeEligible'] == true || json['overtimeEligible'] == 1,
       (json['gender'] ?? 'Male').toString(),
       (json['salary'] ?? 'Not Set').toString(),
       (json['status'] ?? 'Active').toString(),

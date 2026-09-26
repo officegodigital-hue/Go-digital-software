@@ -382,12 +382,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Lunch break limit exceeded'),
+          title: const Text('Fixed lunch time ended'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Enter the reason for exceeding the allowed lunch-break time. This will be sent to Admin.'),
+              const Text('Enter the reason for continuing after your fixed lunch end time. This will be sent to Admin.'),
               const SizedBox(height: 14),
               TextField(
                 controller: controller,
@@ -489,15 +489,16 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           activeBreak['started_at'].toString().replaceFirst(' ', 'T'),
         ).toLocal();
         breakStartedLabel = 'Break started: ${DateFormat('hh:mm a').format(started)}';
-        final limitSeconds =
-            ((activeBreak['limit_minutes'] as num?)?.toInt() ?? 70) * 60;
-        final remainingSeconds = limitSeconds -
-            DateTime.now().difference(started).inSeconds;
+        final lunchEnd = activeBreak['lunch_end']?.toString() ?? '';
+        final normalizedLunchEnd = lunchEnd.length == 5 ? '$lunchEnd:00' : lunchEnd;
+        final endsAt = DateTime.parse(
+          '${data['date']} $normalizedLunchEnd'.replaceFirst(' ', 'T'),
+        ).toLocal();
+        final remainingSeconds = endsAt.difference(DateTime.now()).inSeconds;
         final safeSeconds = remainingSeconds < 0 ? 0 : remainingSeconds;
         final minutes = safeSeconds ~/ 60;
         final seconds = safeSeconds % 60;
-        breakTimeLeftLabel =
-            'Break time left: ${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
+        breakTimeLeftLabel = 'Lunch ends at ${DateFormat('hh:mm a').format(endsAt)} • ${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s left';
       } catch (_) {
         breakTimeLeftLabel = 'Break is active';
       }

@@ -108,6 +108,64 @@ async function activeBreak(attendanceId) {
   return rows[0] || null;
 }
 
+async function recordAutomaticOvertime(employeeId, attendanceId, attendanceDate, workingMinutes) {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_overtime_entries (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, attendance_id BIGINT UNSIGNED NOT NULL,
+    employee_user_id BIGINT UNSIGNED NOT NULL, attendance_date DATE NOT NULL,
+    overtime_minutes INT UNSIGNED NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_overtime_attendance (attendance_id), KEY idx_overtime_employee_date (employee_user_id, attendance_date)
+  )`);
+  const [[profile]] = await db.query('SELECT gender, overtime_eligible FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1', [employeeId]);
+  if (!profile || !Number(profile.overtime_eligible)) return;
+  const schedules = await policy.getTimeSettings(db);
+  const schedule = String(profile.gender).toLowerCase() === 'female' ? schedules.female : schedules.male;
+  const requiredMinutes = shiftDurationMinutes(schedule.shiftStart, schedule.shiftEnd);
+  const overtimeMinutes = Math.max(0, Number(workingMinutes || 0) - requiredMinutes);
+  await db.query('INSERT INTO hrms_overtime_entries (attendance_id, employee_user_id, attendance_date, overtime_minutes) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE overtime_minutes = VALUES(overtime_minutes)', [attendanceId, employeeId, attendanceDate, overtimeMinutes]);
+}
+
+async function ensureOvertimeTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_overtime_entries (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, attendance_id BIGINT UNSIGNED NOT NULL, employee_user_id BIGINT UNSIGNED NOT NULL, attendance_date DATE NOT NULL, overtime_minutes INT UNSIGNED NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_overtime_attendance (attendance_id), KEY idx_overtime_employee_date (employee_user_id, attendance_date))`);
+}
+
+async function myOvertime(req, res) {
+  try {
+    await ensureOvertimeTable();
+    const [rows] = await db.query(`SELECT DATE_FORMAT(o.attendance_date, '%d %b %Y') AS date_str, DATE_FORMAT(o.attendance_date, '%a') AS day_str, DATE_FORMAT(a.check_out_at, '%h:%i %p') AS actual_out, o.overtime_minutes, CONCAT(FLOOR(o.overtime_minutes / 60), 'h ', LPAD(MOD(o.overtime_minutes, 60), 2, '0'), 'm') AS hours_minutes FROM hrms_overtime_entries o LEFT JOIN attendance_records a ON a.id = o.attendance_id WHERE o.employee_user_id = ? AND o.overtime_minutes > 0 ORDER BY o.attendance_date DESC`, [req.user.id]);
+    const minutes = rows.reduce((total, row) => total + Number(row.overtime_minutes || 0), 0);
+    return ok(res, { rows: rows, metrics: { total_year: `${Math.floor(minutes / 60)}h ${minutes % 60}m`, this_month_hours: `${Math.floor(minutes / 60)}h ${minutes % 60}m`, this_month_detail: `${rows.length} automatic session(s)` } });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function overtimeHistory(req, res) {
+  try {
+    await ensureOvertimeTable();
+    const [rows] = await db.query(`SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date, overtime_minutes FROM hrms_overtime_entries WHERE employee_user_id = ? AND overtime_minutes > 0 ORDER BY attendance_date DESC`, [Number(req.params.employeeId)]);
+    return ok(res, rows);
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+function timeSeconds(value) {
+  const parts = String(value || '').split(':').map(Number);
+  return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+}
+
+async function lunchWindowFor(employeeId) {
+  const [[row]] = await db.query(
+    `SELECT s.labour_lunch_start, s.labour_lunch_end,
+            s.employee_lunch_start, s.employee_lunch_end, p.employee_type
+     FROM hrms_tracking_settings s
+     LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = ?
+     WHERE s.id = 1`,
+    [employeeId]
+  );
+  const labour = row && String(row.employee_type) === 'Labour';
+  return {
+    start: String(labour ? row && row.labour_lunch_start : row && row.employee_lunch_start || '12:30:00'),
+    end: String(labour ? row && row.labour_lunch_end : row && row.employee_lunch_end || '13:00:00'),
+  };
+}
+
 async function persistedWorkedMinutes(record) {
   const stored = Number(record && record.working_minutes || 0);
   if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
@@ -365,11 +423,18 @@ async function clockLogs(req, res) {
         )
       : [[]];
 
+    await ensureOvertimeTable();
+    const [overtimeRows] = ids.length
+      ? await db.query('SELECT employee_user_id, DATE_FORMAT(attendance_date, \'%Y-%m-%d\') AS attendance_date, overtime_minutes FROM hrms_overtime_entries WHERE attendance_date BETWEEN ? AND ? AND employee_user_id IN (?)', [start, end, ids])
+      : [[]];
+    const overtimeMap = new Map(overtimeRows.map((row) => [String(row.employee_user_id) + '|' + row.attendance_date, Number(row.overtime_minutes || 0)]));
     const items = records
       .filter(function (row) { return row.check_in_at; })
       .map(function (row) {
         const person = scopedEmployees.find(function (p) { return p.id === row.employee_id; });
-        return serializeRecord(row, person);
+        const item = serializeRecord(row, person);
+        item.overtimeMinutes = overtimeMap.get(String(row.employee_id) + '|' + item.date) || 0;
+        return item;
       });
 
     return ok(res, {
@@ -490,15 +555,12 @@ async function employeeDashboard(req, res) {
           [record.id]
         )
       : [[]];
-    const [trackingSettings] = await db.query(
-      'SELECT lunch_break_limit_minutes FROM hrms_tracking_settings WHERE id = 1'
-    );
-    const lunchBreakLimitMinutes = Number((trackingSettings[0] && trackingSettings[0].lunch_break_limit_minutes) || 70);
+    const lunchWindow = await lunchWindowFor(employeeId);
     const activeBreakMinutes = currentBreak
       ? Math.max(0, policy.minutesBetween(sqlDateTime(currentBreak.started_at), policy.nowIstDateTime()))
       : 0;
     const breakCommentRequired = Boolean(currentBreak) &&
-      activeBreakMinutes >= lunchBreakLimitMinutes &&
+      timeSeconds(policy.partsInZone().time) >= timeSeconds(lunchWindow.end) &&
       !String(currentBreak.exceeded_comment || '').trim();
 
     const [monthRows] = await db.query(
@@ -589,7 +651,8 @@ async function employeeDashboard(req, res) {
       active_break: currentBreak ? {
         id: currentBreak.id,
         started_at: sqlDateTime(currentBreak.started_at),
-        limit_minutes: lunchBreakLimitMinutes,
+        lunch_start: lunchWindow.start,
+        lunch_end: lunchWindow.end,
         elapsed_minutes: activeBreakMinutes,
         comment_required: breakCommentRequired
       } : null,
@@ -774,6 +837,7 @@ async function checkOut(req, res) {
       "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ?",
       [at, workingMinutes, status, record.id]
     );
+    await recordAutomaticOvertime(employeeId, record.id, date, workingMinutes);
 
     await db.query(
       `UPDATE hrms_field_tracking_sessions
@@ -808,6 +872,12 @@ async function startBreak(req, res) {
     );
     if (completed.length) return fail(res, 409, 'Today\'s break is already completed.');
     const startedAt = policy.nowIstDateTime();
+    const lunchWindow = await lunchWindowFor(req.user.id);
+    const currentTime = policy.partsInZone().time;
+    if (timeSeconds(currentTime) < timeSeconds(lunchWindow.start) ||
+        timeSeconds(currentTime) >= timeSeconds(lunchWindow.end)) {
+      return fail(res, 409, `Lunch is available from ${lunchWindow.start.slice(0, 5)} to ${lunchWindow.end.slice(0, 5)}.`);
+    }
     const [result] = await db.query(
       `INSERT INTO attendance_breaks (attendance_id, started_at, status)
        VALUES (?, ?, 'active')`,
@@ -855,12 +925,10 @@ async function submitExceededBreakComment(req, res) {
     }
     const current = await activeBreak(record.id);
     if (!current) return fail(res, 409, 'There is no active break.');
-    const [settings] = await db.query(
-      'SELECT lunch_break_limit_minutes FROM hrms_tracking_settings WHERE id = 1'
-    );
-    const limit = Number((settings[0] && settings[0].lunch_break_limit_minutes) || 70);
-    const elapsed = Math.max(0, policy.minutesBetween(sqlDateTime(current.started_at), policy.nowIstDateTime()));
-    if (elapsed < limit) return fail(res, 409, 'The configured lunch-break limit has not been exceeded.');
+    const lunchWindow = await lunchWindowFor(req.user.id);
+    if (timeSeconds(policy.partsInZone().time) < timeSeconds(lunchWindow.end)) {
+      return fail(res, 409, 'The fixed lunch end time has not been reached.');
+    }
     await db.query(
       `UPDATE attendance_breaks
        SET exceeded_comment = ?, exceeded_comment_at = ?
@@ -1115,6 +1183,8 @@ module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
   clockLogs: clockLogs,
+  myOvertime: myOvertime,
+  overtimeHistory: overtimeHistory,
   employeeDashboard: employeeDashboard,
   myHistory: myHistory,
   checkInPolicy: checkInPolicy,

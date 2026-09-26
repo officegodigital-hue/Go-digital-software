@@ -1,5 +1,4 @@
 const db = require('../config/db');
-const { buildPayslipPdf } = require('../lib/payslipPdf');
 
 const ok = (res, data, message) => res.json({ success: true, message: message || 'OK', data });
 const fail = (res, status, message) => res.status(status).json({ success: false, message });
@@ -46,12 +45,17 @@ function requireAdmin(req, res, next) {
 async function summary(req, res) {
   try {
     await ensureCompensationTable();
-    const [[compensation]] = await db.query(`SELECT c.monthly_salary, c.effective_from FROM hrms_employee_compensation c
-      JOIN hrms_employee_profiles e ON e.employee_user_id = c.employee_user_id AND (c.profile_id IS NULL OR c.profile_id = e.id)
-      WHERE c.employee_user_id = ? AND c.effective_from <= CURDATE() ORDER BY c.effective_from DESC, c.id DESC LIMIT 1`, [req.user.id]);
+    const [[compensation]] = await db.query(`SELECT COALESCE(c.monthly_salary, e.monthly_salary) AS monthly_salary,
+              COALESCE(c.effective_from, DATE(e.created_at)) AS effective_from
+      FROM hrms_employee_profiles e
+      LEFT JOIN hrms_employee_compensation c ON (c.profile_id = e.id OR (c.profile_id IS NULL AND c.employee_user_id = e.employee_user_id))
+        AND c.effective_from <= CURDATE()
+      WHERE e.employee_user_id = ?
+      ORDER BY c.effective_from DESC, c.id DESC LIMIT 1`, [req.user.id]);
     const [[payroll]] = await db.query(`SELECT p.* FROM hrms_payroll_items p
-      JOIN hrms_employee_profiles e ON e.id = p.profile_id AND e.employee_user_id = p.employee_user_id
-      WHERE p.employee_user_id = ? AND p.monthly_salary > 0 ORDER BY p.pay_year DESC, p.pay_month DESC, p.id DESC LIMIT 1`, [req.user.id]);
+      JOIN hrms_employee_profiles e ON e.id = p.profile_id
+      WHERE e.employee_user_id = ? AND p.monthly_salary > 0
+      ORDER BY p.pay_year DESC, p.pay_month DESC, p.id DESC LIMIT 1`, [req.user.id]);
     const [[invalid]] = await db.query(`SELECT p.id FROM hrms_payroll_items p JOIN hrms_employee_profiles e ON e.id = p.profile_id
       WHERE e.employee_user_id = ? AND (NOT(p.employee_user_id <=> e.employee_user_id) OR (p.status = 'paid' AND COALESCE(p.monthly_salary, 0) <= 0)) LIMIT 1`, [req.user.id]);
     return ok(res, { compensation: compensation || null, payroll: payroll || null, reviewRequired: Boolean(invalid) });
@@ -99,6 +103,20 @@ async function mine(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
+async function myDeductionHistory(req, res) {
+  try {
+    const [[payroll]] = await db.query(`SELECT p.pay_year, p.pay_month, p.profile_id
+      FROM hrms_payroll_items p JOIN hrms_employee_profiles e ON e.id = p.profile_id
+      WHERE e.employee_user_id = ? ORDER BY p.pay_year DESC, p.pay_month DESC, p.id DESC LIMIT 1`, [req.user.id]);
+    if (!payroll) return ok(res, []);
+    const [rows] = await db.query(`SELECT DATE_FORMAT(d.attendance_date, '%Y-%m-%d') AS attendance_date,
+      d.deduction_type, d.late_minutes, d.amount FROM hrms_payroll_deduction_entries d
+      WHERE d.profile_id = ? AND d.pay_year = ? AND d.pay_month = ?
+      ORDER BY d.attendance_date DESC, d.deduction_type ASC`, [payroll.profile_id, payroll.pay_year, payroll.pay_month]);
+    return ok(res, rows);
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 async function request(req, res) {
   try {
     await ensureTable();
@@ -139,7 +157,13 @@ async function download(req, res) {
       JOIN attendance_permission_requests a ON a.id = link.approval_request_id
       WHERE p.id = ? AND p.employee_user_id = ?`, [payrollId, req.user.id]);
     if (!row || row.request_status !== 'approved') return fail(res, 403, 'Admin approval is required before download');
-    const generatedPdf = await buildPayslipPdf(row);
+    let generatedPdf;
+    try {
+      const { buildPayslipPdf } = require('../lib/payslipPdf');
+      generatedPdf = await buildPayslipPdf(row);
+    } catch (error) {
+      return fail(res, 501, 'Payslip PDF generation is not configured on this server.');
+    }
     res.set('Content-Disposition', `attachment; filename="Salary-Slip-${row.pay_month}-${row.pay_year}.pdf"`);
     res.type('application/pdf').send(generatedPdf);
     return;
@@ -183,4 +207,4 @@ async function download(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
-module.exports = { ensureTable, ensureCompensationTable, requireAdmin, mine, summary, request, download, compensationList, saveCompensation };
+module.exports = { ensureTable, ensureCompensationTable, requireAdmin, mine, summary, myDeductionHistory, request, download, compensationList, saveCompensation };

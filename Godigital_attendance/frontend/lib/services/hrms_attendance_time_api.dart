@@ -27,7 +27,7 @@ class HrmsAttendanceTimeApi {
     return _decode(response);
   }
 
-  static Future<void> save({String? checkIn, String? checkOut, String? lateAfter, String? absentAfter, Map<String, String>? male, Map<String, String>? female,}) async {
+  static Future<void> save({String? checkIn, String? checkOut, String? lateAfter, String? absentAfter, Map<String, String>? male, Map<String, String>? female, String? labourLunchStart, String? labourLunchEnd, String? employeeLunchStart, String? employeeLunchEnd,}) async {
     final payload = <String, dynamic>{};
     if (male != null || female != null) {
       if (male != null) payload['male'] = male;
@@ -35,6 +35,10 @@ class HrmsAttendanceTimeApi {
     } else {
       payload.addAll({'shiftStart': checkIn, 'shiftEnd': checkOut, 'lateAfter': lateAfter, 'absentAfter': absentAfter});
     }
+    if (labourLunchStart != null) payload['labourLunchStart'] = labourLunchStart;
+    if (labourLunchEnd != null) payload['labourLunchEnd'] = labourLunchEnd;
+    if (employeeLunchStart != null) payload['employeeLunchStart'] = employeeLunchStart;
+    if (employeeLunchEnd != null) payload['employeeLunchEnd'] = employeeLunchEnd;
     final response = await http.put(Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard/time-settings'), headers: await _headers(), body: jsonEncode(payload));
     _decode(response);
   }

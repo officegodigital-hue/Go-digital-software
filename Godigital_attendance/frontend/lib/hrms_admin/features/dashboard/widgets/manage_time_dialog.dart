@@ -28,6 +28,14 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
   String _checkOut = '18:30';
   String _lateAfter = '10:00';
   String _absentAfter = '12:00';
+  String _femaleCheckIn = '09:30';
+  String _femaleCheckOut = '18:30';
+  String _femaleLateAfter = '10:00';
+  String _femaleAbsentAfter = '12:00';
+  String _labourLunchStart = '12:30';
+  String _labourLunchEnd = '13:00';
+  String _employeeLunchStart = '12:30';
+  String _employeeLunchEnd = '13:00';
   bool _loading = true;
   bool _saving = false;
 
@@ -42,13 +50,23 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
       final values = await HrmsAttendanceTimeApi.load();
       if (!mounted) return;
       setState(() {
-        _checkIn = _shortTime(values['shiftStart'], fallback: _checkIn);
-        _checkOut = _shortTime(values['shiftEnd'], fallback: _checkOut);
-        _lateAfter = _shortTime(values['lateAfter'], fallback: _lateAfter);
+        final male = values['male'] is Map ? Map<String, dynamic>.from(values['male']) : values;
+        final female = values['female'] is Map ? Map<String, dynamic>.from(values['female']) : male;
+        _checkIn = _shortTime(male['shiftStart'], fallback: _checkIn);
+        _checkOut = _shortTime(male['shiftEnd'], fallback: _checkOut);
+        _lateAfter = _shortTime(male['lateAfter'], fallback: _lateAfter);
         _absentAfter = _shortTime(
-          values['absentAfter'],
+          male['absentAfter'],
           fallback: _absentAfter,
         );
+        _femaleCheckIn = _shortTime(female['shiftStart'], fallback: _femaleCheckIn);
+        _femaleCheckOut = _shortTime(female['shiftEnd'], fallback: _femaleCheckOut);
+        _femaleLateAfter = _shortTime(female['lateAfter'], fallback: _femaleLateAfter);
+        _femaleAbsentAfter = _shortTime(female['absentAfter'], fallback: _femaleAbsentAfter);
+        _labourLunchStart = _shortTime(values['labourLunchStart'], fallback: _labourLunchStart);
+        _labourLunchEnd = _shortTime(values['labourLunchEnd'], fallback: _labourLunchEnd);
+        _employeeLunchStart = _shortTime(values['employeeLunchStart'], fallback: _employeeLunchStart);
+        _employeeLunchEnd = _shortTime(values['employeeLunchEnd'], fallback: _employeeLunchEnd);
       });
     } catch (error) {
       if (mounted) {
@@ -97,10 +115,12 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
     setState(() => _saving = true);
     try {
       await HrmsAttendanceTimeApi.save(
-        checkIn: _checkIn,
-        checkOut: _checkOut,
-        lateAfter: _lateAfter,
-        absentAfter: _absentAfter,
+        male: {'shiftStart': _checkIn, 'shiftEnd': _checkOut, 'lateAfter': _lateAfter, 'absentAfter': _absentAfter},
+        female: {'shiftStart': _femaleCheckIn, 'shiftEnd': _femaleCheckOut, 'lateAfter': _femaleLateAfter, 'absentAfter': _femaleAbsentAfter},
+        labourLunchStart: _labourLunchStart,
+        labourLunchEnd: _labourLunchEnd,
+        employeeLunchStart: _employeeLunchStart,
+        employeeLunchEnd: _employeeLunchEnd,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -118,7 +138,6 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
     }
   }
 
-  @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 620;
     return Dialog(
@@ -135,7 +154,8 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                   height: 250,
                   child: Center(child: CircularProgressIndicator()),
                 )
-              : Column(
+              : SingleChildScrollView(
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
@@ -156,7 +176,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Manage attendance time',
+                                'Manage time',
                                 style: TextStyle(
                                   fontSize: 21,
                                   fontWeight: FontWeight.w700,
@@ -165,7 +185,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                               ),
                               SizedBox(height: 3),
                               Text(
-                                'Set the office schedule, late and absent rules.',
+                                'Set gender schedules and lunch rules.',
                                 style: TextStyle(color: _muted, fontSize: 13),
                               ),
                             ],
@@ -193,7 +213,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'WORKING HOURS',
+                            'MALE WORKING HOURS',
                             style: TextStyle(
                               fontSize: 11,
                               letterSpacing: .8,
@@ -294,6 +314,61 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: _softBlue, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFCFE0FC))),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('FEMALE WORKING HOURS', style: TextStyle(fontSize: 11, letterSpacing: .8, color: _muted, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 12),
+                        compact
+                            ? Column(
+                                children: [
+                                  _timeTile(icon: Icons.login_rounded, label: 'Check in', value: _femaleCheckIn, onTap: () => _pickTime(current: _femaleCheckIn, onPicked: (v) => setState(() => _femaleCheckIn = v))),
+                                  const SizedBox(height: 10),
+                                  _timeTile(icon: Icons.logout_rounded, label: 'Check out', value: _femaleCheckOut, onTap: () => _pickTime(current: _femaleCheckOut, onPicked: (v) => setState(() => _femaleCheckOut = v))),
+                                ],
+                              )
+                            : Row(
+                                children: [
+                                  Expanded(child: _timeTile(icon: Icons.login_rounded, label: 'Check in', value: _femaleCheckIn, onTap: () => _pickTime(current: _femaleCheckIn, onPicked: (v) => setState(() => _femaleCheckIn = v)))),
+                                  const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Icon(Icons.arrow_forward_rounded, color: _muted)),
+                                  Expanded(child: _timeTile(icon: Icons.logout_rounded, label: 'Check out', value: _femaleCheckOut, onTap: () => _pickTime(current: _femaleCheckOut, onPicked: (v) => setState(() => _femaleCheckOut = v)))),
+                                ],
+                              ),
+                        const SizedBox(height: 10),
+                        _timeTile(icon: Icons.notifications_active_outlined, iconColor: _orange, label: 'Late check-in rule', value: _femaleLateAfter, trailing: 'Mark late after', onTap: () => _pickTime(current: _femaleLateAfter, onPicked: (v) => setState(() => _femaleLateAfter = v))),
+                        const SizedBox(height: 10),
+                        _timeTile(icon: Icons.person_off_outlined, iconColor: _red, label: 'Absent check-in rule', value: _femaleAbsentAfter, trailing: 'Mark absent after', onTap: () => _pickTime(current: _femaleAbsentAfter, onPicked: (v) => setState(() => _femaleAbsentAfter = v))),
+                      ]),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF8EE),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFFD9A8)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('FIXED LUNCH TIME RULES', style: TextStyle(fontSize: 11, letterSpacing: .8, color: _muted, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 5),
+                          const Text('Employees can start lunch only within their assigned time window.', style: TextStyle(color: _muted, fontSize: 12)),
+                          const SizedBox(height: 12),
+                          _timeTile(icon: Icons.construction_outlined, label: 'Labour lunch start', value: _labourLunchStart, onTap: () => _pickTime(current: _labourLunchStart, onPicked: (value) => setState(() => _labourLunchStart = value))),
+                          const SizedBox(height: 10),
+                          _timeTile(icon: Icons.construction_outlined, label: 'Labour lunch end', value: _labourLunchEnd, onTap: () => _pickTime(current: _labourLunchEnd, onPicked: (value) => setState(() => _labourLunchEnd = value))),
+                          const SizedBox(height: 10),
+                          _timeTile(icon: Icons.person_outline_rounded, label: 'Employee lunch start', value: _employeeLunchStart, onTap: () => _pickTime(current: _employeeLunchStart, onPicked: (value) => setState(() => _employeeLunchStart = value))),
+                          const SizedBox(height: 10),
+                          _timeTile(icon: Icons.person_outline_rounded, label: 'Employee lunch end', value: _employeeLunchEnd, onTap: () => _pickTime(current: _employeeLunchEnd, onPicked: (value) => setState(() => _employeeLunchEnd = value))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -336,6 +411,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                       ],
                     ),
                   ],
+                ),
                 ),
         ),
       ),

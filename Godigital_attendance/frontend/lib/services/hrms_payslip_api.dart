@@ -24,6 +24,14 @@ class HrmsPayslipApi {
     final data = body['data'];
     return data is Map ? Map<String, dynamic>.from(data) : const {};
   }
+  static Future<List<Map<String, dynamic>>> deductionHistory() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payslips/my/deduction-history'), headers: await _headers());
+    final body = jsonDecode(response.body);
+    if (response.statusCode >= 400 || body['success'] != true) throw Exception(body['message'] ?? 'Unable to load deduction history');
+    final data = body['data'];
+    if (data is! List) return const [];
+    return data.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+  }
   static Future<void> request(int payrollId) async {
     final response = await http.post(Uri.parse('${ApiConfig.baseUrl}/hrms/payslips/$payrollId/request'), headers: await _headers());
     final body = jsonDecode(response.body);

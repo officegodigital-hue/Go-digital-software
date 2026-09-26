@@ -23,6 +23,30 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
 
 const DEFAULT_POLICY = { weeklyOffDays: [0], deductApprovedLeave: true, deductExplicitAbsence: true, missingAttendanceIsAbsent: false };
 
+function timeSeconds(value) { const p = String(value || '').slice(-8).split(':').map(Number); return (p[0] || 0) * 3600 + (p[1] || 0) * 60 + (p[2] || 0); }
+function attendanceTimeSeconds(value) {
+  const text = String(value || '');
+  if (text.includes('T') || value instanceof Date) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return timeSeconds(policy.partsInZone(date).time);
+  }
+  return timeSeconds(text);
+}
+function countWorkingDays(start, end, weeklyOff) { let total = 0; for (let date = start; date <= end; date = nextDate(date)) { const p = date.split('-').map(Number); if (!weeklyOff.has(utcWeekday(p[0], p[1], p[2]))) total += 1; } return total; }
+async function ensureDeductionStorage() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_deduction_entries (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, profile_id BIGINT UNSIGNED NOT NULL,
+    employee_user_id BIGINT UNSIGNED NOT NULL, pay_year SMALLINT UNSIGNED NOT NULL,
+    pay_month TINYINT UNSIGNED NOT NULL, attendance_date DATE NOT NULL,
+    deduction_type ENUM('late','absent') NOT NULL, late_minutes INT UNSIGNED NOT NULL DEFAULT 0,
+    amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_payroll_deduction_date (profile_id,pay_year,pay_month,attendance_date,deduction_type)
+  )`);
+  for (const definition of ['late_deductions DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER deductions', 'absent_deductions DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER late_deductions']) {
+    try { await db.query('ALTER TABLE hrms_payroll_items ADD COLUMN ' + definition); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
+  }
+}
+
 async function ensurePolicyTable() {
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
     id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -167,7 +191,9 @@ function monthOptions(today) {
 
 async function computeRows(year, month, today) {
   await ensureCycleOverrides();
+  await ensureDeductionStorage();
   const configuredPolicy = await payrollPolicy();
+  const timeSettings = await policy.getTimeSettings(db);
   const weeklyOff = new Set(configuredPolicy.weeklyOffDays);
   const previous = previousMonth(year, month);
   // Load a one-month buffer because a Flexible cycle can begin in the
@@ -269,6 +295,8 @@ async function computeRows(year, month, today) {
     let late = 0;
     let leaveDays = 0;
     let absent = 0;
+    const lateEntries = [];
+    const absentEntries = [];
 
     for (let date = period.start; date <= cutoff; date = nextDate(date)) {
       const dateParts = date.split('-').map(Number);
@@ -285,9 +313,13 @@ async function computeRows(year, month, today) {
         // An explicit absence is visible in the summary even when the policy
         // treats it as paid time.
         absent += 1;
+        absentEntries.push(date);
       } else if (record && record.check_in_at) {
         // Punched in
         if (Number(record.is_late) || attStatus === 'late') late += 1;
+        const schedule = String(profile.gender).toLowerCase() === 'female' ? timeSettings.female : timeSettings.male;
+        const lateMinutes = Math.max(0, Math.floor((attendanceTimeSeconds(record.check_in_at) - timeSeconds(schedule.lateAfter)) / 60));
+        if (lateMinutes > 0) lateEntries.push({ date: date, minutes: lateMinutes });
         else present += 1;
       } else if (key && leaveSet.has(key)) {
         // Approved leave
@@ -296,6 +328,7 @@ async function computeRows(year, month, today) {
         // Do not silently turn a missing record into an absence unless the
         // administrator has chosen that policy.
         absent += 1;
+        absentEntries.push(date);
       }
     }
 
@@ -305,13 +338,19 @@ async function computeRows(year, month, today) {
     // A payroll day is a fixed policy divisor (normally 26), not the number
     // of days elapsed when the payroll is generated. This makes a three-day
     // absence from a Rs. 50,000 salary deduct Rs. 5,770 consistently.
+    const periodWorkingDays = Math.max(1, countWorkingDays(period.start, period.end, weeklyOff));
+    const dailyRate = salaryNumber / periodWorkingDays;
+    const schedule = String(profile.gender).toLowerCase() === 'female' ? timeSettings.female : timeSettings.male;
+    let shiftMinutes = Math.round((timeSeconds(schedule.shiftEnd) - timeSeconds(schedule.shiftStart)) / 60);
+    if (shiftMinutes <= 0) shiftMinutes += 24 * 60;
+    const hourlyRate = dailyRate / Math.max(1, shiftMinutes / 60);
+    const lateDeductions = lateEntries.reduce((sum, item) => sum + (hourlyRate * item.minutes / 60), 0);
     const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? leaveDays : 0;
     const unpaidAbsenceDays = configuredPolicy.deductExplicitAbsence ? absent : 0;
     const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays);
     const paidDays = Math.max(0, workingDays - lopDays);
-    const deductions = salaryNumber && lopDays > 0
-      ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / configuredPolicy.salaryDayDivisor)))
-      : 0;
+    const absentDeductions = salaryNumber ? (unpaidLeaveDays + unpaidAbsenceDays) * dailyRate : 0;
+    const deductions = salaryNumber ? Math.min(salaryNumber, Math.round((lateDeductions + absentDeductions) * 100) / 100) : 0;
 
     // Dynamic Net Pay
     const netPay = Math.max(0, salaryNumber - deductions);
@@ -376,6 +415,12 @@ async function computeRows(year, month, today) {
       paidDays: paidDays,
       lopDays: lopDays,
       deductions: deductions,
+      lateDeductions: Math.round(lateDeductions * 100) / 100,
+      absentDeductions: Math.round(absentDeductions * 100) / 100,
+      deductionEntries: [
+        ...lateEntries.map(item => ({ date: item.date, type: 'late', lateMinutes: item.minutes, amount: Math.round(hourlyRate * item.minutes / 60 * 100) / 100 })),
+        ...absentEntries.map(date => ({ date: date, type: 'absent', lateMinutes: 0, amount: Math.round(dailyRate * 100) / 100 })),
+      ],
       deductionsLabel: salaryNumber ? formatSalary(deductions) : '–',
       netPay: netPay,
       netPayLabel: salaryNumber ? formatSalary(netPay) : '–',
@@ -470,14 +515,16 @@ async function generatePayrollRun(year, month, today) {
       await db.query(
         `INSERT INTO hrms_payroll_items
           (profile_id, employee_user_id, pay_year, pay_month, monthly_salary,
-           working_days, paid_days, lop_days, deductions, net_pay, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+           working_days, paid_days, lop_days, deductions, late_deductions, absent_deductions, net_pay, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
          ON DUPLICATE KEY UPDATE
            monthly_salary = IF(status = 'paid', monthly_salary, VALUES(monthly_salary)),
            working_days = IF(status = 'paid', working_days, VALUES(working_days)),
            paid_days = IF(status = 'paid', paid_days, VALUES(paid_days)),
            lop_days = IF(status = 'paid', lop_days, VALUES(lop_days)),
            deductions = IF(status = 'paid', deductions, VALUES(deductions)),
+           late_deductions = IF(status = 'paid', late_deductions, VALUES(late_deductions)),
+           absent_deductions = IF(status = 'paid', absent_deductions, VALUES(absent_deductions)),
            net_pay = IF(status = 'paid', net_pay, VALUES(net_pay)),
            status = IF(status = 'paid', 'paid', 'pending')`,
         [
@@ -490,9 +537,20 @@ async function generatePayrollRun(year, month, today) {
           item.paidDays,
           item.lopDays,
           item.deductions,
+          item.lateDeductions || 0,
+          item.absentDeductions || 0,
           item.netPay,
         ]
       );
+      const [[saved]] = await db.query('SELECT id, status FROM hrms_payroll_items WHERE profile_id = ? AND pay_year = ? AND pay_month = ?', [item.profileId, year, month]);
+      if (saved && String(saved.status) !== 'paid') {
+        await db.query('DELETE FROM hrms_payroll_deduction_entries WHERE profile_id = ? AND pay_year = ? AND pay_month = ?', [item.profileId, year, month]);
+        for (const entry of item.deductionEntries || []) await db.query(
+          `INSERT INTO hrms_payroll_deduction_entries (profile_id, employee_user_id, pay_year, pay_month, attendance_date, deduction_type, late_minutes, amount)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [item.profileId, item.employeeUserId, year, month, entry.date, entry.type, entry.lateMinutes, entry.amount]
+        );
+      }
     }
     const refreshed = await computeRows(year, month, today);
     return {
@@ -576,12 +634,34 @@ async function saveCycleOverride(req, res) {
   }
 }
 
+async function deductionHistory(req, res) {
+  try {
+    const profileId = Number(req.params.profileId);
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+    if (!profileId || !year || month < 1 || month > 12) return fail(res, 400, 'profile, year, and month are required');
+    await ensureDeductionStorage();
+    const [rows] = await db.query(
+      `SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
+              deduction_type, late_minutes, amount
+       FROM hrms_payroll_deduction_entries
+       WHERE profile_id = ? AND pay_year = ? AND pay_month = ?
+       ORDER BY attendance_date DESC, deduction_type ASC`,
+      [profileId, year, month]
+    );
+    return ok(res, rows);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
   generate,
   markPaid,
   saveCycleOverride,
+  deductionHistory,
   getPolicy,
   savePolicy,
   generatePayrollRun,

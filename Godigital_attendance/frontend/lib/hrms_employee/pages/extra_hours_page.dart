@@ -42,7 +42,7 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
 
     for (final base in _getBaseUrls()) {
       try {
-        final url = Uri.parse('$base/extra-hours/dashboard');
+        final url = Uri.parse('$base/overtime/my');
         final res = await http
             .get(
               url,
@@ -215,25 +215,21 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
     return EmployeeScaffold(
       route: '/employee/extra-hours',
       title: 'Extra Hours',
-      subtitle: 'Overtime hours tracked for records only',
-      desktopHeaderAction: PrimaryButton(
-        label: 'Log Hours',
-        icon: Icons.add_rounded,
-        onPressed: () => _showLogDialog(context),
-      ),
+      subtitle: 'Automatically calculated after clock-out',
+      desktopHeaderAction: null,
       desktop: _DesktopExtraHours(
         loading: _loading,
         rows: _rows,
         metrics: _metrics,
         monthLabel: currentMonthFormatted,
-        onLogPressed: () => _showLogDialog(context),
+        onLogPressed: () {},
       ),
       mobile: _MobileExtraHours(
         loading: _loading,
         rows: _rows,
         metrics: _metrics,
         monthLabel: currentMonthFormatted,
-        onLogPressed: () => _showLogDialog(context),
+        onLogPressed: () {},
       ),
     );
   }

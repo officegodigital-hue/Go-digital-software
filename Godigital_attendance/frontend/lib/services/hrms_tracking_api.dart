@@ -98,7 +98,6 @@ class HrmsTrackingApi {
     required double officeLongitude,
     required int officeRadiusMeters,
     int outsideRadiusGraceMinutes = 2,
-    int lunchBreakLimitMinutes = 70,
   }) async {
     final response = await http
         .put(
@@ -111,7 +110,6 @@ class HrmsTrackingApi {
             'officeLongitude': officeLongitude,
             'officeRadiusMeters': officeRadiusMeters,
             'outsideRadiusGraceMinutes': outsideRadiusGraceMinutes,
-            'lunchBreakLimitMinutes': lunchBreakLimitMinutes,
           }),
         )
         .timeout(const Duration(seconds: 15));
