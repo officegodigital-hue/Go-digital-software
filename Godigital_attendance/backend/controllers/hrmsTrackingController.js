@@ -613,6 +613,33 @@ async function routeHistory(req, res) {
     return fail(res, 500, error.message);
   }
 }
+
+async function myRouteHistory(req, res) {
+  try {
+    const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
+       ORDER BY recorded_at ASC`,
+      [req.user.id, date]
+    );
+    return ok(res, {
+      employeeUserId: req.user.id,
+      date: date,
+      points: pings.map(function (row) {
+        return {
+          latitude: Number(row.latitude), longitude: Number(row.longitude),
+          address: row.address, recordedAt: row.recorded_at,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/route/my', error);
+    return fail(res, 500, error.message);
+  }
+}
 async function getTrackingSettings(req, res) {
   try {
     const [rows] = await db.query(
@@ -675,6 +702,10 @@ async function updateTrackingSettings(req, res) {
         Number(req.body.stationaryRadiusMeters ??
             current.stationary_radius_meters);
 
+    const homeTrackingEnabled = req.body.homeTrackingEnabled == null
+      ? Number(current.home_tracking_enabled || 0) === 1
+      : req.body.homeTrackingEnabled === true || req.body.homeTrackingEnabled === 1 || req.body.homeTrackingEnabled === '1';
+
     if (
       !officeName ||
       !officeAddress ||
@@ -706,6 +737,7 @@ async function updateTrackingSettings(req, res) {
            field_waiting_minutes = ?,
            lunch_break_limit_minutes = ?,
            stationary_radius_meters = ?,
+           home_tracking_enabled = ?,
            updated_by = ?
        WHERE id = 1`,
       [
@@ -719,6 +751,7 @@ async function updateTrackingSettings(req, res) {
         fieldWaitingMinutes,
         lunchBreakLimitMinutes,
         stationaryRadiusMeters,
+        homeTrackingEnabled ? 1 : 0,
         req.user.id,
       ]
     );
@@ -730,8 +763,20 @@ async function updateTrackingSettings(req, res) {
   }
 }
 
+async function homeFeatureEnabled() {
+  const [rows] = await db.query('SELECT home_tracking_enabled FROM hrms_tracking_settings WHERE id = 1');
+  return Number(rows[0] && rows[0].home_tracking_enabled) === 1;
+}
+
+async function requireHomeFeature(res) {
+  if (await homeFeatureEnabled()) return true;
+  fail(res, 403, 'Home work functionality is disabled by the administrator');
+  return false;
+}
+
 async function getMyHomeLocation(req, res) {
   try {
+    if (!await requireHomeFeature(res)) return;
     const employeeUserId = req.user && req.user.id;
 
     if (!employeeUserId) {
@@ -756,6 +801,7 @@ async function getMyHomeLocation(req, res) {
 async function submitHomeLocation(req, res) {
   let connection;
   try {
+    if (!await requireHomeFeature(res)) return;
     const employeeUserId = req.user && req.user.id;
     const body = req.body || {};
     const address = typeof body.address === 'string' ? body.address.trim() : '';
@@ -801,6 +847,7 @@ async function submitHomeLocation(req, res) {
 
 async function listHomeLocations(req, res) {
   try {
+    if (!await requireHomeFeature(res)) return;
     if (String(req.user && req.user.userType || '').toLowerCase() !== 'admin') {
       return fail(res, 403, 'Admin access required');
     }
@@ -830,6 +877,7 @@ async function listHomeLocations(req, res) {
 async function reviewHomeLocation(req, res) {
   let connection;
   try {
+    if (!await requireHomeFeature(res)) return;
     if (String(req.user && req.user.userType || '').toLowerCase() !== 'admin') {
       return fail(res, 403, 'Admin access required');
     }
@@ -1209,6 +1257,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
   getMyHomeLocation,
