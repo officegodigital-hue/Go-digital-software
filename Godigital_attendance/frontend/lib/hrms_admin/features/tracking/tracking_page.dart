@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -43,6 +44,8 @@ class _TrackingPageState extends State<TrackingPage> {
   String? error;
   DateTime? lastLoadedAt;
   Timer? _pollTimer;
+  _TrackedEmployee? selectedEmployee;
+  bool homeTrackingEnabled = false;
 
   @override
   void initState() {
@@ -116,7 +119,12 @@ class _TrackingPageState extends State<TrackingPage> {
       });
     }
     try {
-      final data = await HrmsTrackingApi.live();
+      final results = await Future.wait([
+        HrmsTrackingApi.live(),
+        HrmsTrackingApi.trackingSettings(),
+      ]);
+      final data = results[0];
+      final settings = results[1];
       final countsJson = Map<String, dynamic>.from(
         data['counts'] as Map? ?? {},
       );
@@ -133,6 +141,7 @@ class _TrackingPageState extends State<TrackingPage> {
         loading = false;
         error = null;
         lastLoadedAt = DateTime.now();
+        homeTrackingEnabled = settings['home_tracking_enabled'] == true || settings['home_tracking_enabled'] == 1 || settings['home_tracking_enabled'] == '1';
       });
     } catch (err) {
       if (!mounted) return;
@@ -148,10 +157,13 @@ class _TrackingPageState extends State<TrackingPage> {
   List<_TrackedEmployee> get _visibleEmployees =>
       employees.where((employee) => employee.mode == mode).toList();
 
-  void _viewRoute(_TrackedEmployee employee) {
+  void _viewRoute(_TrackedEmployee employee) =>
+      setState(() => selectedEmployee = employee);
+
+  void _viewActivity(_TrackedEmployee employee) {
     showDialog<void>(
       context: context,
-      builder: (context) => _RouteDialog(employee: employee),
+      builder: (_) => _RouteActivityDialog(employee: employee),
     );
   }
 
@@ -188,6 +200,7 @@ class _TrackingPageState extends State<TrackingPage> {
                           onManageWaiting: _openFieldWaitingSettings,
                           onViewReasons: _openFieldWaitingReasons,
                           onHomeApprovals: _openHomeApprovals,
+                          homeTrackingEnabled: homeTrackingEnabled,
                           onOfficeLocation: _openOfficeLocation,
                         ),
                         const SizedBox(height: 14),
@@ -206,6 +219,7 @@ class _TrackingPageState extends State<TrackingPage> {
                               onOfficeLocation: _openOfficeLocation,
                               onManageWaiting: _openFieldWaitingSettings,
                               onHomeApprovals: _openHomeApprovals,
+                              homeTrackingEnabled: homeTrackingEnabled,
                               onRefresh: _load,
                             ),
                           ],
@@ -216,6 +230,8 @@ class _TrackingPageState extends State<TrackingPage> {
                             lastLoadedAt: lastLoadedAt,
                             onModeChanged: (value) => _setMode(value),
                             onViewRoute: _viewRoute,
+                            onViewActivity: _viewActivity,
+                            selectedEmployee: selectedEmployee,
                           ),
                           const SizedBox(height: 20),
                           const AdminTrackingCommentsPanel(),
@@ -234,9 +250,10 @@ class _TrackingPageState extends State<TrackingPage> {
 }
 
 class _TrackingMobileActions extends StatelessWidget {
-  const _TrackingMobileActions({required this.onOfficeLocation, required this.onManageWaiting, required this.onHomeApprovals, required this.onRefresh});
+  const _TrackingMobileActions({required this.onOfficeLocation, required this.onManageWaiting, required this.onHomeApprovals, required this.onRefresh, required this.homeTrackingEnabled});
   final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
   final Future<void> Function() onRefresh;
+  final bool homeTrackingEnabled;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -246,7 +263,7 @@ class _TrackingMobileActions extends StatelessWidget {
     child: Row(children: [
       _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
       _tool(Icons.timer_outlined, 'Field', onManageWaiting),
-      _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
+      if (homeTrackingEnabled) _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
       _tool(Icons.refresh, 'Refresh', () => onRefresh()),
     ]),
   );
@@ -263,6 +280,7 @@ class _TrackingHeader extends StatelessWidget {
     required this.onViewReasons,
     required this.onHomeApprovals,
     required this.onOfficeLocation,
+    required this.homeTrackingEnabled,
   });
 
   final Future<void> Function() onRefresh;
@@ -270,6 +288,7 @@ class _TrackingHeader extends StatelessWidget {
   final VoidCallback onViewReasons;
   final VoidCallback onHomeApprovals;
   final VoidCallback onOfficeLocation;
+  final bool homeTrackingEnabled;
 
   @override
   Widget build(BuildContext context) => AdminPageHeader(
@@ -289,13 +308,13 @@ class _TrackingHeader extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: onManageWaiting,
           icon: const Icon(Icons.timer_outlined, size: 18),
-          label: const Text('Field Settings'),
+          label: const Text('Tracking Settings'),
           style: OutlinedButton.styleFrom(
             foregroundColor: HrmsColors.blue,
             side: const BorderSide(color: Color(0xFFBFD4FF)),
           ),
         ),
-        OutlinedButton.icon(
+        if (homeTrackingEnabled) OutlinedButton.icon(
           onPressed: onHomeApprovals,
           icon: const Icon(Icons.home_work_outlined, size: 18),
           label: const Text('Home Approvals'),
@@ -399,7 +418,7 @@ class _TrackingKpis extends StatelessWidget {
         HrmsColors.blue,
       ),
       _TrackingKpi(
-        'Field',
+        'Home',
         '${counts.home}',
         'Tracked employees',
         Icons.home_outlined,
@@ -597,12 +616,16 @@ class _TrackingWorkspace extends StatelessWidget {
     required this.lastLoadedAt,
     required this.onModeChanged,
     required this.onViewRoute,
+    required this.onViewActivity,
+    required this.selectedEmployee,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final DateTime? lastLoadedAt;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
+  final _TrackedEmployee? selectedEmployee;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -627,6 +650,7 @@ class _TrackingWorkspace extends StatelessWidget {
           employees: employees,
           onModeChanged: onModeChanged,
           onViewRoute: onViewRoute,
+          selectedEmployee: selectedEmployee,
           fillHeight: !stacked,
         );
         final table = _TrackedEmployeesPanel(
@@ -634,6 +658,7 @@ class _TrackingWorkspace extends StatelessWidget {
           employees: employees,
           lastLoadedAt: lastLoadedAt,
           onViewRoute: onViewRoute,
+          onViewActivity: onViewActivity,
         );
         if (stacked) {
           return Column(
@@ -648,9 +673,9 @@ class _TrackingWorkspace extends StatelessWidget {
           height: 615,
           child: Row(
             children: [
-              Expanded(flex: 11, child: map),
-              const VerticalDivider(width: 1, color: Color(0xFFE3E7EF)),
               Expanded(flex: 10, child: table),
+              const VerticalDivider(width: 1, color: Color(0xFFE3E7EF)),
+              Expanded(flex: 11, child: map),
             ],
           ),
         );
@@ -665,12 +690,14 @@ class _MapPanel extends StatelessWidget {
     required this.employees,
     required this.onModeChanged,
     required this.onViewRoute,
+    required this.selectedEmployee,
     this.fillHeight = false,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final _TrackedEmployee? selectedEmployee;
   final bool fillHeight;
 
   @override
@@ -700,17 +727,263 @@ class _MapPanel extends StatelessWidget {
         ),
         const SizedBox(height: 15),
         if (fillHeight)
-          Expanded(
-            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
-          )
+          Expanded(child: _map)
         else
-          AspectRatio(
-            aspectRatio: 1.44,
-            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
-          ),
+          AspectRatio(aspectRatio: 1.44, child: _map),
       ],
     ),
   );
+
+  Widget get _map => selectedEmployee == null
+      ? _LiveMap(employees: employees, onViewRoute: onViewRoute)
+      : _SelectedRouteMap(employee: selectedEmployee!);
+}
+
+class _RouteActivityDialog extends StatefulWidget {
+  const _RouteActivityDialog({required this.employee});
+  final _TrackedEmployee employee;
+
+  @override
+  State<_RouteActivityDialog> createState() => _RouteActivityDialogState();
+}
+
+class _RouteActivityDialogState extends State<_RouteActivityDialog> {
+  bool _loading = true;
+  String? _error;
+  List<_RoutePoint> _points = const [];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    final id = widget.employee.employeeUserId;
+    if (id == null) return;
+    try {
+      final data = await HrmsTrackingApi.route(
+        employeeUserId: id,
+        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      );
+      final items = (data['points'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => _RoutePoint.fromApi(Map<String, dynamic>.from(item)))
+          .toList();
+      if (mounted) setState(() { _points = items; _loading = false; });
+    } catch (error) {
+      if (mounted) setState(() { _error = error.toString().replaceFirst('Exception: ', ''); _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    child: SizedBox(
+      width: 520,
+      height: 410,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('${widget.employee.name} — Today\'s Activity', style: const TextStyle(color: HrmsColors.navy, fontSize: 16, fontWeight: FontWeight.w700))),
+            IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
+          ]),
+          Text(
+            _loading ? 'Loading saved GPS activity…' : '${_points.length} location update(s) today',
+            style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(color: const Color(0xFFF4F7FC), borderRadius: BorderRadius.circular(8)),
+            child: const Row(children: [
+              SizedBox(width: 74, child: Text('TIME', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
+              Expanded(child: Text('PLACE', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
+            ]),
+          ),
+          const SizedBox(height: 5),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)))
+                : _points.isEmpty
+                ? const Center(child: Text('No GPS activity recorded today.', style: TextStyle(color: Color(0xFF657087))))
+                : ListView.builder(
+                    itemCount: _points.length,
+                    itemBuilder: (_, index) {
+                      final point = _points[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
+                          border: Border.all(color: const Color(0xFFE8ECF3)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(children: [
+                          const Icon(Icons.location_on, color: Color(0xFF00A878), size: 17),
+                          const SizedBox(width: 7),
+                          SizedBox(width: 58, child: Text(point.time, style: const TextStyle(color: HrmsColors.navy, fontSize: 12, fontWeight: FontWeight.w700))),
+                          Expanded(child: Text(point.location, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF596176), fontSize: 12))),
+                        ]),
+                      );
+                    },
+                  ),
+          ),
+        ]),
+      ),
+    ),
+  );
+}
+
+class _SelectedRouteMap extends StatefulWidget {
+  const _SelectedRouteMap({required this.employee});
+  final _TrackedEmployee employee;
+
+  @override
+  State<_SelectedRouteMap> createState() => _SelectedRouteMapState();
+}
+
+class _SelectedRouteMapState extends State<_SelectedRouteMap> {
+  DateTime _date = DateTime.now();
+  bool _loading = true;
+  String? _error;
+  List<_RoutePoint> _points = const [];
+
+  List<LatLng> get _coordinates => _points
+      .where((point) => point.latitude != null && point.longitude != null)
+      .map((point) => LatLng(point.latitude!, point.longitude!))
+      .toList();
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  @override
+  void didUpdateWidget(covariant _SelectedRouteMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId) _load();
+  }
+
+  Future<void> _load() async {
+    final id = widget.employee.employeeUserId;
+    if (id == null) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final data = await HrmsTrackingApi.route(
+        employeeUserId: id,
+        date: DateFormat('yyyy-MM-dd').format(_date),
+      );
+      final points = (data['points'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => _RoutePoint.fromApi(Map<String, dynamic>.from(item)))
+          .toList();
+      if (mounted) setState(() { _points = points; _loading = false; });
+    } catch (error) {
+      if (mounted) setState(() { _error = error.toString().replaceFirst('Exception: ', ''); _loading = false; });
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final value = await showDatePicker(
+      context: context, initialDate: _date,
+      firstDate: DateTime(2020), lastDate: DateTime.now(),
+    );
+    if (value == null || !mounted) return;
+    setState(() => _date = value);
+    await _load();
+  }
+
+  double _distanceKm(List<LatLng> route) {
+    var meters = 0.0;
+    for (var index = 1; index < route.length; index++) {
+      final a = route[index - 1];
+      final b = route[index];
+      const radius = 6371000.0;
+      final latitudeDelta = (b.latitude - a.latitude) * pi / 180;
+      final longitudeDelta = (b.longitude - a.longitude) * pi / 180;
+      final latitudeA = a.latitude * pi / 180;
+      final latitudeB = b.latitude * pi / 180;
+      final h = sin(latitudeDelta / 2) * sin(latitudeDelta / 2) +
+          cos(latitudeA) * cos(latitudeB) *
+              sin(longitudeDelta / 2) * sin(longitudeDelta / 2);
+      meters += radius * 2 * atan2(sqrt(h), sqrt(1 - h));
+    }
+    return meters / 1000;
+  }
+
+  Duration get _routeDuration {
+    if (_points.length < 2) return Duration.zero;
+    final first = DateTime.tryParse(_points.first.recordedAt ?? '');
+    final last = DateTime.tryParse(_points.last.recordedAt ?? '');
+    return first == null || last == null ? Duration.zero : last.difference(first).abs();
+  }
+
+  String _durationLabel(Duration value) =>
+      '${value.inHours}h ${value.inMinutes.remainder(60).toString().padLeft(2, '0')}m';
+
+  @override
+  Widget build(BuildContext context) {
+    final route = _coordinates;
+    final center = route.isNotEmpty
+        ? route.first
+        : widget.employee.lat != null && widget.employee.lng != null
+        ? LatLng(widget.employee.lat!, widget.employee.lng!)
+        : const LatLng(28.6139, 77.2090);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(child: Text(widget.employee.name, style: const TextStyle(color: HrmsColors.navy, fontSize: 15, fontWeight: FontWeight.w700))),
+          OutlinedButton.icon(onPressed: _loading ? null : _pickDate, icon: const Icon(Icons.calendar_today_outlined, size: 15), label: Text(DateFormat('dd MMM yyyy').format(_date))),
+        ]),
+        const SizedBox(height: 10),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red, fontSize: 12)))
+              : route.isEmpty
+              ? const Center(child: Text('No location history for this employee on this date.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF657087), fontSize: 12)))
+              : Column(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: GoogleMap(
+                          key: ValueKey('${widget.employee.employeeUserId}-${_date.toIso8601String()}-${route.length}'),
+                          initialCameraPosition: CameraPosition(target: center, zoom: 15),
+                          mapToolbarEnabled: false,
+                          polylines: {Polyline(polylineId: const PolylineId('selected-route'), points: route, color: const Color(0xFF00A878), width: 5)},
+                          markers: {
+                            Marker(markerId: const MarkerId('route-start'), position: route.first, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
+                            Marker(markerId: const MarkerId('route-latest'), position: route.last, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
+                          },
+                          circles: {
+                            for (var index = 1; index < route.length - 1; index++)
+                              Circle(
+                                circleId: CircleId('route-ping-$index'),
+                                center: route[index],
+                                radius: 1.5,
+                                fillColor: const Color(0xFF00A878),
+                                strokeColor: Colors.white,
+                                strokeWidth: 1,
+                              ),
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    _RouteMetrics(
+                      distance: '${_distanceKm(route).toStringAsFixed(2)} km',
+                      duration: _durationLabel(_routeDuration),
+                      speed: _routeDuration.inMinutes == 0 ? '--' : '${(_distanceKm(route) / (_routeDuration.inMinutes / 60)).toStringAsFixed(1)} km/h',
+                      updated: widget.employee.updatedLabel,
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Google Maps display for the live employee markers. Only employees with
@@ -806,11 +1079,13 @@ class _TrackedEmployeesPanel extends StatelessWidget {
     required this.employees,
     required this.lastLoadedAt,
     required this.onViewRoute,
+    required this.onViewActivity,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final DateTime? lastLoadedAt;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
 
   String get _updatedLabel {
     if (lastLoadedAt == null) return 'Updating…';
@@ -859,26 +1134,32 @@ class _TrackedEmployeesPanel extends StatelessWidget {
         else if (MediaQuery.sizeOf(context).width < 600)
           _MobileTrackedList(employees: employees, onViewRoute: onViewRoute)
         else
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE2E6ED)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: 630,
-                child: Column(
-                  children: [
-                    const _TrackingTableHeader(),
-                    ...employees.map(
-                      (employee) => _TrackingRow(
-                        employee: employee,
-                        onViewRoute: onViewRoute,
-                      ),
+          SizedBox(
+            height: 510,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFE2E6ED)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SingleChildScrollView(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: 670,
+                    child: Column(
+                      children: [
+                        const _TrackingTableHeader(),
+                        ...employees.map(
+                          (employee) => _TrackingRow(
+                            employee: employee,
+                            onViewRoute: onViewRoute,
+                            onViewActivity: onViewActivity,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1019,16 +1300,21 @@ class _TrackingTableHeader extends StatelessWidget {
           child: Text('Current Location', style: _headStyle),
         ),
         _TrackingCell(width: 110, child: Text('Status', style: _headStyle)),
-        _TrackingCell(width: 80, child: Text('View Route', style: _headStyle)),
+        _TrackingCell(width: 120, child: Text('Actions', style: _headStyle)),
       ],
     ),
   );
 }
 
 class _TrackingRow extends StatelessWidget {
-  const _TrackingRow({required this.employee, required this.onViewRoute});
+  const _TrackingRow({
+    required this.employee,
+    required this.onViewRoute,
+    required this.onViewActivity,
+  });
   final _TrackedEmployee employee;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1121,15 +1407,28 @@ class _TrackingRow extends StatelessWidget {
         ),
         _TrackingCell(width: 110, child: _ActiveBadge(active: employee.active)),
         _TrackingCell(
-          width: 80,
-          child: IconButton(
-            tooltip: 'View Route',
-            onPressed: () => onViewRoute(employee),
-            icon: const Icon(
-              Icons.map_outlined,
-              color: HrmsColors.blue,
-              size: 24,
-            ),
+          width: 120,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Show route on map',
+                onPressed: () => onViewRoute(employee),
+                icon: const Icon(
+                  Icons.map_outlined,
+                  color: HrmsColors.blue,
+                  size: 22,
+                ),
+              ),
+              IconButton(
+                tooltip: 'View today\'s activity',
+                onPressed: () => onViewActivity(employee),
+                icon: const Icon(
+                  Icons.history_outlined,
+                  color: Color(0xFF00A878),
+                  size: 21,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1232,8 +1531,16 @@ class _TrackedEmployee {
 }
 
 class _RoutePoint {
-  const _RoutePoint({required this.time, required this.location});
+  const _RoutePoint({
+    required this.time,
+    required this.location,
+    required this.latitude,
+    required this.longitude,
+    required this.recordedAt,
+  });
   final String time, location;
+  final double? latitude, longitude;
+  final String? recordedAt;
 
   factory _RoutePoint.fromApi(Map<String, dynamic> json) {
     final rawTime = json['recordedAt']?.toString();
@@ -1242,15 +1549,99 @@ class _RoutePoint {
         ? DateFormat('hh:mm a').format(recorded.toLocal())
         : '--:--';
     final address = (json['address'] as String?)?.trim();
-    final lat = (json['latitude'] as num?)?.toDouble();
-    final lng = (json['longitude'] as num?)?.toDouble();
     final location = (address != null && address.isNotEmpty)
         ? address
-        : (lat != null && lng != null)
-        ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
-        : 'Unknown location';
-    return _RoutePoint(time: time, location: location);
+        : 'Location name unavailable';
+    return _RoutePoint(
+      time: time,
+      location: location,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      recordedAt: rawTime,
+    );
   }
+}
+
+class _RouteStatusChip extends StatelessWidget {
+  const _RouteStatusChip({required this.label, required this.active});
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: active ? const Color(0xFFE4F8F0) : const Color(0xFFF0F2F5),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.circle,
+          size: 9,
+          color: active ? const Color(0xFF00A878) : const Color(0xFF7A8494),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: HrmsColors.navy,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RouteMetrics extends StatelessWidget {
+  const _RouteMetrics({
+    required this.distance,
+    required this.duration,
+    required this.speed,
+    required this.updated,
+  });
+  final String distance, duration, speed, updated;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7FAFF),
+      border: Border.all(color: const Color(0xFFE0E8F5)),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      children: [
+        Expanded(child: _metric(Icons.route_outlined, 'Distance', distance)),
+        Expanded(child: _metric(Icons.timer_outlined, 'Duration', duration)),
+        Expanded(child: _metric(Icons.speed_outlined, 'Avg speed', speed)),
+        Expanded(child: _metric(Icons.update_outlined, 'Updated', updated)),
+      ],
+    ),
+  );
+
+  Widget _metric(IconData icon, String label, String value) => Row(
+    children: [
+      Icon(icon, color: const Color(0xFF00A878), size: 20),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(color: Color(0xFF657087), fontSize: 10)),
+            Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: HrmsColors.navy, fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 class _RouteDialog extends StatefulWidget {
@@ -1265,6 +1656,44 @@ class _RouteDialogState extends State<_RouteDialog> {
   bool loading = true;
   String? error;
   List<_RoutePoint> points = [];
+  GoogleMapController? _routeMapController;
+  DateTime selectedDate = DateTime.now();
+
+  List<LatLng> get _routeCoordinates => points
+      .where((point) => point.latitude != null && point.longitude != null)
+      .map((point) => LatLng(point.latitude!, point.longitude!))
+      .toList();
+
+  Future<void> _fitRoute() async {
+    final controller = _routeMapController;
+    final coordinates = _routeCoordinates;
+    if (controller == null || coordinates.isEmpty) return;
+    if (coordinates.length == 1) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(coordinates.first, 16),
+      );
+      return;
+    }
+    var south = coordinates.first.latitude;
+    var north = coordinates.first.latitude;
+    var west = coordinates.first.longitude;
+    var east = coordinates.first.longitude;
+    for (final point in coordinates.skip(1)) {
+      south = point.latitude < south ? point.latitude : south;
+      north = point.latitude > north ? point.latitude : north;
+      west = point.longitude < west ? point.longitude : west;
+      east = point.longitude > east ? point.longitude : east;
+    }
+    await controller.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(south, west),
+          northeast: LatLng(north, east),
+        ),
+        42,
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -1286,10 +1715,9 @@ class _RouteDialogState extends State<_RouteDialog> {
       error = null;
     });
     try {
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final data = await HrmsTrackingApi.route(
         employeeUserId: employeeUserId,
-        date: today,
+        date: DateFormat('yyyy-MM-dd').format(selectedDate),
       );
       final items = (data['points'] as List? ?? [])
           .whereType<Map>()
@@ -1300,6 +1728,7 @@ class _RouteDialogState extends State<_RouteDialog> {
         points = items;
         loading = false;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitRoute());
     } catch (err) {
       if (!mounted) return;
       setState(() {
@@ -1309,11 +1738,61 @@ class _RouteDialogState extends State<_RouteDialog> {
     }
   }
 
+  Future<void> _selectDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (selected == null || !mounted) return;
+    setState(() => selectedDate = selected);
+    await _load();
+  }
+
+  double _distanceKm() {
+    final coordinates = _routeCoordinates;
+    var meters = 0.0;
+    for (var index = 1; index < coordinates.length; index++) {
+      meters += _metersBetween(coordinates[index - 1], coordinates[index]);
+    }
+    return meters / 1000;
+  }
+
+  double _metersBetween(LatLng a, LatLng b) {
+    const earthRadius = 6371000.0;
+    final latitudeDelta = (b.latitude - a.latitude) * 3.141592653589793 / 180;
+    final longitudeDelta = (b.longitude - a.longitude) * 3.141592653589793 / 180;
+    final latitudeA = a.latitude * 3.141592653589793 / 180;
+    final latitudeB = b.latitude * 3.141592653589793 / 180;
+    final h = (sin(latitudeDelta / 2) * sin(latitudeDelta / 2)) +
+        cos(latitudeA) * cos(latitudeB) *
+            sin(longitudeDelta / 2) * sin(longitudeDelta / 2);
+    return earthRadius * 2 * atan2(sqrt(h), sqrt(1 - h));
+  }
+
+  Duration get _trackingDuration {
+    if (points.length < 2) return Duration.zero;
+    final first = DateTime.tryParse(points.first.recordedAt ?? '');
+    final last = DateTime.tryParse(points.last.recordedAt ?? '');
+    if (first == null || last == null) return Duration.zero;
+    return last.difference(first).abs();
+  }
+
+  String _durationLabel(Duration duration) =>
+      '${duration.inHours}h ${duration.inMinutes.remainder(60).toString().padLeft(2, '0')}m';
+
+  String get _averageSpeed {
+    final hours = _trackingDuration.inMinutes / 60;
+    if (hours <= 0) return '--';
+    return '${(_distanceKm() / hours).toStringAsFixed(1)} km/h';
+  }
+
   @override
   Widget build(BuildContext context) => Dialog(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 480),
+      constraints: const BoxConstraints(maxWidth: 800, maxHeight: 680),
       child: Padding(
         padding: const EdgeInsets.all(22),
         child: Column(
@@ -1342,7 +1821,22 @@ class _RouteDialogState extends State<_RouteDialog> {
               '${widget.employee.id} · ${widget.employee.mode} mode',
               style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _RouteStatusChip(
+                  label: widget.employee.active ? widget.employee.mode : 'Offline',
+                  active: widget.employee.active,
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: loading ? null : _selectDate,
+                  icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                  label: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Flexible(
               child: loading
                   ? const Padding(
@@ -1368,55 +1862,73 @@ class _RouteDialogState extends State<_RouteDialog> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final point in points)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 14),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    margin: const EdgeInsets.only(top: 4),
-                                    decoration: const BoxDecoration(
-                                      color: HrmsColors.blue,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          point.time,
-                                          style: const TextStyle(
-                                            color: HrmsColors.navy,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          point.location,
-                                          style: const TextStyle(
-                                            color: Color(0xFF596176),
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
+                  : _routeCoordinates.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No valid GPS locations are available for this date.',
+                        style: TextStyle(color: Color(0xFF657087), fontSize: 12),
                       ),
+                    )
+                  : Column(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: GoogleMap(
+                              initialCameraPosition: CameraPosition(
+                                target: _routeCoordinates.first,
+                                zoom: 15,
+                              ),
+                              mapToolbarEnabled: false,
+                              onMapCreated: (controller) {
+                                _routeMapController = controller;
+                                _fitRoute();
+                              },
+                              polylines: {
+                                Polyline(
+                                  polylineId: const PolylineId('employee-route'),
+                                  points: _routeCoordinates,
+                                  color: const Color(0xFF00A878),
+                                  width: 5,
+                                ),
+                              },
+                              markers: {
+                                for (var index = 1; index < _routeCoordinates.length - 1; index++)
+                                  Marker(
+                                    markerId: MarkerId('route-ping-$index'),
+                                    position: _routeCoordinates[index],
+                                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                                      BitmapDescriptor.hueGreen,
+                                    ),
+                                  ),
+                                Marker(
+                                  markerId: const MarkerId('route-start'),
+                                  position: _routeCoordinates.first,
+                                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                                    BitmapDescriptor.hueAzure,
+                                  ),
+                                  infoWindow: const InfoWindow(title: 'Start location'),
+                                ),
+                                Marker(
+                                  markerId: const MarkerId('route-current'),
+                                  position: _routeCoordinates.last,
+                                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                                    BitmapDescriptor.hueRed,
+                                  ),
+                                  infoWindow: const InfoWindow(title: 'Latest location'),
+                                ),
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _RouteMetrics(
+                          distance: '${_distanceKm().toStringAsFixed(2)} km',
+                          duration: _durationLabel(_trackingDuration),
+                          speed: _averageSpeed,
+                          updated: widget.employee.updatedLabel,
+                        ),
+                      ],
                     ),
             ),
           ],
@@ -1820,6 +2332,7 @@ class _FieldWaitingSettingsDialogState
 
   bool _loading = true;
   bool _saving = false;
+  bool _homeTrackingEnabled = false;
   String? _error;
 
   @override
@@ -1846,6 +2359,7 @@ class _FieldWaitingSettingsDialogState
         _waitingController.text = '${data['field_waiting_minutes'] ?? 60}';
         _radiusController.text = '${data['stationary_radius_meters'] ?? 50}';
         _pingController.text = '${data['field_ping_interval_minutes'] ?? 15}';
+        _homeTrackingEnabled = data['home_tracking_enabled'] == true || data['home_tracking_enabled'] == 1 || data['home_tracking_enabled'] == '1';
         _loading = false;
       });
     } catch (error) {
@@ -1885,6 +2399,7 @@ class _FieldWaitingSettingsDialogState
         fieldWaitingMinutes: waitingMinutes,
         stationaryRadiusMeters: stationaryRadius,
         fieldPingIntervalMinutes: pingInterval,
+        homeTrackingEnabled: _homeTrackingEnabled,
       );
 
       if (!mounted) return;
@@ -1926,7 +2441,7 @@ class _FieldWaitingSettingsDialogState
       children: [
         Icon(Icons.timer_outlined, color: HrmsColors.blue),
         SizedBox(width: 10),
-        Text('Manage Field Waiting Time'),
+        Text('Tracking Settings'),
       ],
     ),
     content: SizedBox(
@@ -1941,7 +2456,7 @@ class _FieldWaitingSettingsDialogState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'These settings apply to Field employees only.',
+                  'Configure Field tracking and optional Home work functionality.',
                   style: TextStyle(color: Color(0xFF657087), fontSize: 12),
                 ),
                 const SizedBox(height: 18),
@@ -1961,6 +2476,19 @@ class _FieldWaitingSettingsDialogState
                   controller: _pingController,
                   label: 'GPS update interval (minutes)',
                   hint: 'Example: 15',
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _homeTrackingEnabled,
+                  onChanged: _saving ? null : (value) => setState(() => _homeTrackingEnabled = value),
+                  title: const Text('Enable Home work functionality'),
+                  subtitle: Text(
+                    _homeTrackingEnabled
+                        ? 'Home location registration and approvals are available.'
+                        : 'Home location registration and approvals are hidden.',
+                    style: const TextStyle(fontSize: 12),
+                  ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),

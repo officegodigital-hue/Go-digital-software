@@ -17,6 +17,7 @@ router.get('/admin-comments', hrms.requireAdmin, hrms.adminTrackingComments);
 // Admin dashboard views
 router.get('/', hrms.requireAdmin, hrms.list);
 router.get('/live', hrms.requireAdmin, hrms.liveOverview);
+router.get('/route/my', hrms.myRouteHistory);
 router.get('/route/:employeeUserId', hrms.requireAdmin, hrms.routeHistory);
 
 router.get('/home-location', hrms.getMyHomeLocation);

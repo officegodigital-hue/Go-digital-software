@@ -305,6 +305,7 @@ class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
   bool approvedLeave = true;
   bool explicitAbsence = true;
   bool missingAttendance = false;
+  bool autoGenerate = false;
   bool loading = true;
   bool saving = false;
   final TextEditingController divisor = TextEditingController(text: '26');
@@ -312,11 +313,11 @@ class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
   Future<void> _load() async {
     final data = await HrmsPayrollApi.policy();
     if (!mounted) return;
-    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); approvedLeave = data['deductApprovedLeave'] == true; explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; divisor.text = '${data['salaryDayDivisor'] ?? 26}'; loading = false; });
+    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); approvedLeave = data['deductApprovedLeave'] == true; explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; autoGenerate = data['autoGenerate'] == true; divisor.text = '${data['salaryDayDivisor'] ?? 26}'; loading = false; });
   }
   Future<void> _save() async {
     setState(() => saving = true);
-    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductApprovedLeave': approvedLeave, 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance, 'salaryDayDivisor': int.tryParse(divisor.text) ?? 26}); if (mounted) Navigator.pop(context, true); }
+    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductApprovedLeave': approvedLeave, 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance, 'salaryDayDivisor': int.tryParse(divisor.text) ?? 26, 'autoGenerate': autoGenerate}); if (mounted) Navigator.pop(context, true); }
     finally { if (mounted) setState(() => saving = false); }
   }
   @override Widget build(BuildContext context) => AlertDialog(
@@ -326,6 +327,14 @@ class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
       Wrap(children: List.generate(7, (day) { const labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; return FilterChip(label: Text(labels[day]), selected: offDays.contains(day), onSelected: (selected) => setState(() { if (selected) { offDays.add(day); } else { offDays.remove(day); } })); })),
       const SizedBox(height: 10),
       TextField(controller: divisor, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Salary-day divisor', helperText: 'Use 26 for the standard monthly payroll calculation')),
+      const SizedBox(height: 8),
+      const Text('Payroll generation mode'),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, children: [
+        ChoiceChip(label: const Text('Manual'), selected: !autoGenerate, onSelected: (_) => setState(() => autoGenerate = false)),
+        ChoiceChip(label: const Text('Auto'), selected: autoGenerate, onSelected: (_) => setState(() => autoGenerate = true)),
+      ]),
+      Padding(padding: const EdgeInsets.only(top: 6), child: Text(autoGenerate ? 'Auto refreshes unpaid payroll once each new day. Paid rows are never changed.' : 'Use Generate payroll whenever you want to update this month.', style: const TextStyle(fontSize: 12, color: Colors.black54))),
       const SizedBox(height: 8),
       SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct approved leave'), value: approvedLeave, onChanged: (value) => setState(() => approvedLeave = value)),
       SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct explicit absence'), value: explicitAbsence, onChanged: (value) => setState(() => explicitAbsence = value)),
