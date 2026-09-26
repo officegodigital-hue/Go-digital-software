@@ -594,7 +594,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             width: tableWidth,
             child: Column(
               children: [
-                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Status', 'Method'], header: true),
+                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Extra Hours', 'Status', 'Method'], header: true),
                 if (_visibleLogs.isEmpty) const Padding(padding: EdgeInsets.all(40), child: Text('No clock logs found for the selected period.')),
                 ..._visibleLogs.map(_logRow),
               ],
@@ -608,7 +608,19 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Widget _logRow(Map<String, dynamic> item) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
-    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
+    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _overtimeButton(item), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
+  }
+
+  Widget _overtimeButton(Map<String, dynamic> item) {
+    final minutes = _asInt(item['overtimeMinutes']);
+    if (minutes == 0) return const Text('—');
+    return TextButton(onPressed: () async {
+      try {
+        final rows = await HrmsClockLogsApi.overtimeHistory(_asInt(item['employeeId']));
+        if (!mounted) return;
+        await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Overtime history'), content: SizedBox(width: 430, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: rows.map((row) => ListTile(title: Text('${row['attendance_date']}'), trailing: Text(_worked(row['overtime_minutes'])))).toList()))), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]));
+      } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', '')))); }
+    }, child: Text(_worked(minutes)));
   }
 
   Widget _row(List<dynamic> values, {bool header = false}) => Container(
@@ -616,7 +628,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
     child: Row(
       children: List.generate(values.length, (i) => Expanded(
-        flex: const [24, 13, 13, 13, 12, 15, 13][i],
+        flex: const [24, 13, 13, 13, 12, 13, 15, 13][i],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(

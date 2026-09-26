@@ -32,6 +32,24 @@ async function ensureHrmsTrackingTables(db) {
   if (!settingsColumns.some((column) => column.COLUMN_NAME === 'lunch_break_limit_minutes')) {
     await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN lunch_break_limit_minutes INT NOT NULL DEFAULT 70');
   }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'labour_lunch_break_limit_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN labour_lunch_break_limit_minutes INT NOT NULL DEFAULT 70');
+  }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'employee_lunch_break_limit_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN employee_lunch_break_limit_minutes INT NOT NULL DEFAULT 70');
+  }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'labour_lunch_start')) {
+    await db.query("ALTER TABLE hrms_tracking_settings ADD COLUMN labour_lunch_start TIME NOT NULL DEFAULT '12:30:00'");
+  }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'labour_lunch_end')) {
+    await db.query("ALTER TABLE hrms_tracking_settings ADD COLUMN labour_lunch_end TIME NOT NULL DEFAULT '13:00:00'");
+  }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'employee_lunch_start')) {
+    await db.query("ALTER TABLE hrms_tracking_settings ADD COLUMN employee_lunch_start TIME NOT NULL DEFAULT '12:30:00'");
+  }
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'employee_lunch_end')) {
+    await db.query("ALTER TABLE hrms_tracking_settings ADD COLUMN employee_lunch_end TIME NOT NULL DEFAULT '13:00:00'");
+  }
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS hrms_employee_location_status (

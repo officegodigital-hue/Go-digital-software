@@ -263,6 +263,20 @@ class _SalaryOverviewCard extends StatefulWidget {
   const _SalaryOverviewCard();
   @override State<_SalaryOverviewCard> createState() => _SalaryOverviewCardState();
 }
+
+Future<void> _showDeductionHistory(BuildContext context) async {
+  try {
+    final items = await HrmsPayslipApi.deductionHistory();
+    if (!context.mounted) return;
+    await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Deduction history'),
+      content: SizedBox(width: 520, child: items.isEmpty
+          ? const Text('No late or absent deductions in the current payroll cycle.')
+          : SingleChildScrollView(child: DataTable(columns: const [DataColumn(label: Text('Date')), DataColumn(label: Text('Type')), DataColumn(label: Text('Late')), DataColumn(label: Text('Amount'))], rows: items.map((item) => DataRow(cells: [DataCell(Text('${item['attendance_date']}')), DataCell(Text('${item['deduction_type']}' == 'late' ? 'Late' : 'Absent')), DataCell(Text('${item['late_minutes'] ?? 0} min')), DataCell(Text('₹${item['amount']}'))])).toList()))),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+    ));
+  } catch (error) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', '')))); }
+}
 class _SalaryOverviewCardState extends State<_SalaryOverviewCard> {
   late final Future<Map<String, dynamic>> _data = HrmsPayslipApi.summary();
 
@@ -275,8 +289,11 @@ class _SalaryOverviewCardState extends State<_SalaryOverviewCard> {
           const _SalaryHeading('Salary Overview'), const SizedBox(height: 10),
           if (payroll.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(snapshot.data?['reviewRequired'] == true ? 'Admin needs to correct an existing payroll record before salary payment details can be shown.' : 'Payroll has not been generated for this employee.', style: const TextStyle(color: employeeMuted))) else ...[
             LabeledValue('Gross Salary', _money(payroll['monthly_salary'])), const Divider(height: 1, color: employeeLine),
-            LabeledValue('Leave Deduction', '−${_money(payroll['deductions'])}'), const Divider(height: 1, color: employeeLine),
+            LabeledValue('Late Deduction', '−${_money(payroll['late_deductions'] ?? 0)}'), const Divider(height: 1, color: employeeLine),
+            LabeledValue('Absent / Leave Deduction', '−${_money(payroll['absent_deductions'] ?? payroll['deductions'])}'), const Divider(height: 1, color: employeeLine),
             LabeledValue('Net Pay', _money(payroll['net_pay'] ?? payroll['updated_salary'] ?? payroll['monthly_salary']), valueColor: employeeBlue),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(onPressed: () => _showDeductionHistory(context), icon: const Icon(Icons.history_outlined), label: const Text('View deduction history')),
           ],
         ]),
       ));
@@ -305,7 +322,8 @@ class _SalaryBreakdownCardState extends State<_SalaryBreakdownCard> {
             Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(snapshot.data?['reviewRequired'] == true ? 'Payroll correction required.' : 'Payroll not generated yet.', style: const TextStyle(color: employeeMuted))),
           ] else ...[
             LabeledValue('Monthly Salary', _money(payroll['monthly_salary'])), const Divider(height: 1, color: employeeLine),
-            LabeledValue('Leave Deduction', '−${_money(payroll['deductions'])}'),
+            LabeledValue('Late Deduction', '−${_money(payroll['late_deductions'] ?? 0)}'), const Divider(height: 1, color: employeeLine),
+            LabeledValue('Absent / Leave Deduction', '−${_money(payroll['absent_deductions'] ?? payroll['deductions'])}'),
           ],
         ]),
       ));

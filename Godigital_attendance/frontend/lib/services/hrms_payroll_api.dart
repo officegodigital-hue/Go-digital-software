@@ -82,6 +82,14 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
+  static Future<List<Map<String, dynamic>>> deductionHistory({required int profileId, required int year, required int month}) async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$profileId/deduction-history?year=$year&month=$month'), headers: await _headers());
+    final data = _decode(response);
+    final rawItems = data['data'];
+    final List items = rawItems is List ? rawItems : const [];
+    return items.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+  }
+
   static Future<Map<String, dynamic>> saveCycleOverride({
     required int profileId,
     required int year,

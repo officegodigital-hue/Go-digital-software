@@ -10,6 +10,7 @@ router.get('/', hrms.list);
 router.get('/policy', hrms.getPolicy);
 router.put('/policy', hrms.savePolicy);
 router.post('/generate', hrms.generate);
+router.get('/:profileId/deduction-history', hrms.deductionHistory);
 router.put('/:profileId/cycle-override', hrms.saveCycleOverride);
 router.patch('/:id', hrms.markPaid);
 
