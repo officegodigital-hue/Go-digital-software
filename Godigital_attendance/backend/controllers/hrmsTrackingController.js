@@ -481,11 +481,10 @@ async function ping(req, res) {
       }
     }
 
-    detectFieldWaitingTime(employeeUserId, latitude, longitude).catch(
-  function (error) {
-    console.error('Field waiting-time detection failed', error.message);
-  }
-);
+    // Finish stationary-time detection before acknowledging the ping. This
+    // ensures the employee app can retrieve a newly-created waiting alert on
+    // its next one-minute check instead of racing a background task.
+    await detectFieldWaitingTime(employeeUserId, latitude, longitude);
 
     ok(res, null, 'Location recorded'); // respond right away, don't block on geocoding
 
@@ -1126,6 +1125,25 @@ async function stopFieldTracking(req, res) {
 async function getMyWaitingAlert(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
+
+    // The employee page polls this endpoint once per minute. Re-run the
+    // stationary check here as a reliable fallback in case a browser or
+    // network timing issue completed a ping before its detector finished.
+    const [latestPings] = await db.query(
+      `SELECT latitude, longitude
+       FROM hrms_location_pings
+       WHERE employee_user_id = ?
+       ORDER BY recorded_at DESC
+       LIMIT 1`,
+      [employeeUserId]
+    );
+    if (latestPings.length) {
+      await detectFieldWaitingTime(
+        employeeUserId,
+        Number(latestPings[0].latitude),
+        Number(latestPings[0].longitude)
+      );
+    }
 
     const [rows] = await db.query(
       `SELECT id, waiting_minutes, waiting_started_at, waiting_detected_at
