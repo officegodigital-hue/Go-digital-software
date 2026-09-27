@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/attendance_api.dart';
+import '../../services/auth_storage.dart';
+import '../../services/tracking_comments_api.dart';
 import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
@@ -63,6 +65,9 @@ class _TrackingViewState extends State<_TrackingView> {
   Timer? _locationTimer;
   Timer? _waitingAlertTimer;
   Position? _lastPosition;
+  Position? _stationaryStartPosition;
+  DateTime? _stationarySince;
+  bool _localWaitingDialogOpen = false;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
@@ -135,6 +140,7 @@ class _TrackingViewState extends State<_TrackingView> {
         _homeTrackingEnabled = settings['home_tracking_enabled'] == true || settings['home_tracking_enabled'] == 1 || settings['home_tracking_enabled'] == '1';
         _officeLoading = false;
       });
+      if (trackingActive) _startLocationTimer();
       if (_homeTrackingEnabled) await _loadHomeLocation();
     } catch (_) {
       if (!mounted) return;
@@ -230,8 +236,12 @@ class _TrackingViewState extends State<_TrackingView> {
 
   void _startLocationTimer() {
     _locationTimer?.cancel();
-
-    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+    final configuredMinutes = int.tryParse(
+          '${_officeSettings?['field_ping_interval_minutes'] ?? 15}',
+        ) ??
+        15;
+    final intervalMinutes = configuredMinutes.clamp(1, 60);
+    _locationTimer = Timer.periodic(Duration(minutes: intervalMinutes), (_) {
       _sendLocationPing(showMessage: false);
     });
   }
@@ -263,6 +273,7 @@ class _TrackingViewState extends State<_TrackingView> {
           ),
         ];
       });
+      _checkLocalStationaryPosition(position);
       _loadRoute(silent: true);
 
       if (showMessage && mounted) {
@@ -278,6 +289,103 @@ class _TrackingViewState extends State<_TrackingView> {
           ),
         );
       }
+    }
+  }
+
+  void _checkLocalStationaryPosition(Position position) {
+    if (!trackingActive || _localWaitingDialogOpen) return;
+    final radius = int.tryParse(
+          '${_officeSettings?['stationary_radius_meters'] ?? 50}',
+        ) ??
+        50;
+    final waitingMinutes = int.tryParse(
+          '${_officeSettings?['field_waiting_minutes'] ?? 60}',
+        ) ??
+        60;
+    final now = DateTime.now();
+    final start = _stationaryStartPosition;
+    if (start == null || _stationarySince == null) {
+      _stationaryStartPosition = position;
+      _stationarySince = now;
+      return;
+    }
+    final movedMeters = Geolocator.distanceBetween(
+      start.latitude,
+      start.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    if (movedMeters > radius) {
+      _stationaryStartPosition = position;
+      _stationarySince = now;
+      return;
+    }
+    if (now.difference(_stationarySince!).inMinutes >= waitingMinutes) {
+      _showLocalWaitingReasonDialog(position, waitingMinutes);
+    }
+  }
+
+  Future<void> _showLocalWaitingReasonDialog(
+    Position position,
+    int waitingMinutes,
+  ) async {
+    if (!mounted || _localWaitingDialogOpen) return;
+    _localWaitingDialogOpen = true;
+    final controller = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Field waiting reason'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'You have remained within the allowed radius for '
+                '$waitingMinutes minutes. Please enter the reason for waiting.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for waiting',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                final reason = controller.text.trim();
+                if (reason.isEmpty) return;
+                final token = await AuthStorage.getString('auth_token');
+                if (token == null || token.isEmpty) return;
+                await TrackingCommentsApi.addComment(
+                  token,
+                  'Waiting reason: $reason',
+                  latitude: position.latitude,
+                  longitude: position.longitude,
+                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Waiting reason submitted')),
+                  );
+                }
+              },
+              child: const Text('Submit reason'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+      _stationaryStartPosition = position;
+      _stationarySince = DateTime.now();
+      _localWaitingDialogOpen = false;
     }
   }
 
@@ -336,6 +444,8 @@ class _TrackingViewState extends State<_TrackingView> {
         setState(() {
           trackingActive = true;
           _lastPosition = position;
+          _stationaryStartPosition = position;
+          _stationarySince = DateTime.now();
           updated = 'Updated just now';
           activities = [
             {
