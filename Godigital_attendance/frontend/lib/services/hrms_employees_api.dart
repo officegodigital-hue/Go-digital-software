@@ -25,10 +25,10 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
-
   static Map<String, dynamic> _decode(http.Response response) {
-    final decoded =
-        response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body);
     if (decoded is! Map) {
       throw Exception('Unexpected response');
     }
@@ -59,8 +59,9 @@ class HrmsEmployeesApi {
       'page': '$page',
       'limit': '$limit',
     };
-    final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/employees')
-        .replace(queryParameters: query);
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/employees',
+    ).replace(queryParameters: query);
     final response = await http.get(uri, headers: await _headers());
     return _decode(response);
   }
@@ -86,7 +87,10 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> updateStatus(int id, String status) async {
+  static Future<Map<String, dynamic>> updateStatus(
+    int id,
+    String status,
+  ) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id/status'),
       headers: await _headers(),
@@ -103,7 +107,10 @@ class HrmsEmployeesApi {
     _decode(response);
   }
 
-  static Future<Map<String, dynamic>> resetPassword(int id, String password) async {
+  static Future<Map<String, dynamic>> resetPassword(
+    int id,
+    String password,
+  ) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id/password-reset'),
       headers: await _headers(),
@@ -112,11 +119,34 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> deviceRequests() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/device-requests'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> reviewDeviceRequest(
+    int id,
+    bool approved, {
+    String note = '',
+  }) async {
+    final response = await http.post(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/hrms/employees/device-requests/$id/review',
+      ),
+      headers: await _headers(),
+      body: jsonEncode({'approved': approved, 'note': note}),
+    );
+    return _decode(response);
+  }
+
   static Future<String> exportCsv() async {
     final response = await http.get(
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees/export'),
       headers: await _headers(),
-      );
+    );
     if (response.statusCode >= 400) {
       throw Exception('Export failed');
     }

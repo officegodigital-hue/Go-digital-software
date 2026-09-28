@@ -103,9 +103,17 @@ class EmployeeMobileBottomNav extends StatelessWidget {
 
   static const _items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
+    _NavItem(
+      '/employee/attendance',
+      'Attendance',
+      Icons.calendar_month_outlined,
+    ),
     _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
-    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem(
+      '/employee/permission',
+      'Permission',
+      Icons.verified_user_outlined,
+    ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
@@ -113,51 +121,55 @@ class EmployeeMobileBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
-        child: Container(
-          height: 62,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF172554),
-            borderRadius: BorderRadius.circular(34),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
+    top: false,
+    minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+    child: Container(
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF172554),
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
           ),
-          child: Row(
-            children: _items.map((item) {
-              final active = item.route == route;
-              return Expanded(
-                child: Tooltip(
-                  message: item.label,
-                  child: InkWell(
-                    onTap: active
-                        ? null
-                        : () => Navigator.of(context).pushReplacementNamed(item.route),
-                    borderRadius: BorderRadius.circular(25),
-                    child: Center(
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: active ? const Color(0xFF2563EB) : Colors.transparent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(item.icon, color: Colors.white, size: 22),
-                      ),
+        ],
+      ),
+      child: Row(
+        children: _items.map((item) {
+          final active = item.route == route;
+          return Expanded(
+            child: Tooltip(
+              message: item.label,
+              child: InkWell(
+                onTap: active
+                    ? null
+                    : () => Navigator.of(
+                        context,
+                      ).pushReplacementNamed(item.route),
+                borderRadius: BorderRadius.circular(25),
+                child: Center(
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF2563EB)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
                     ),
+                    child: Icon(item.icon, color: Colors.white, size: 22),
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-      );
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    ),
+  );
 }
 
 class EmployeeSidebar extends StatelessWidget {
@@ -427,34 +439,56 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       if (raw == null || raw.isEmpty) return;
       final data = jsonDecode(raw);
       if (data is Map && mounted) {
-        setState(() => _applyIdentity(
-          data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
-          data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
-        ));
+        setState(
+          () => _applyIdentity(
+            data['fullName']?.toString() ??
+                data['full_name']?.toString() ??
+                data['name']?.toString(),
+            data['staffId']?.toString() ??
+                data['staff_id']?.toString() ??
+                data['employee_id']?.toString(),
+          ),
+        );
       }
     } catch (_) {}
   }
 
   Future<void> _fetchProfile() async {
-    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    final token =
+        context.read<AuthService>().token ??
+        await AuthStorage.getString('auth_token');
     if (token == null || token.isEmpty) return;
     try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 5));
       final body = jsonDecode(response.body);
-      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      if (response.statusCode != 200 ||
+          body is! Map ||
+          body['success'] != true ||
+          body['data'] is! Map ||
+          !mounted)
+        return;
       final profile = Map<String, dynamic>.from(body['data'] as Map);
-      setState(() => _applyIdentity(
-        profile['fullName']?.toString() ?? profile['full_name']?.toString(),
-        profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
-      ));
+      setState(
+        () => _applyIdentity(
+          profile['fullName']?.toString() ?? profile['full_name']?.toString(),
+          profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
+        ),
+      );
     } catch (_) {}
   }
 
   Future<void> _fetchHeaderStatus() async {
-    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    final token =
+        context.read<AuthService>().token ??
+        await AuthStorage.getString('auth_token');
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
@@ -478,7 +512,10 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
             final data = body['data'];
             setState(() {
               _isCheckedIn = data['is_checked_in'] == true;
-              _applyIdentity(data['full_name']?.toString(), data['staff_id']?.toString());
+              _applyIdentity(
+                data['full_name']?.toString(),
+                data['staff_id']?.toString(),
+              );
               _unreadNotifications = data['unread_count'] ?? 0;
 
               if (data['notifications'] is List) {
@@ -813,6 +850,8 @@ class EmployeeProfileMenu extends StatelessWidget {
           MaterialPageRoute(builder: (_) => const LoginScreen()),
           (_) => false,
         );
+      } else if (value == 'password') {
+        await _showChangePasswordDialog(context);
       }
     },
     itemBuilder: (_) => [
@@ -836,6 +875,22 @@ class EmployeeProfileMenu extends StatelessWidget {
         ),
       ),
       const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'password',
+        child: Row(
+          children: [
+            Icon(Icons.lock_reset_outlined, size: 18, color: employeeBlue),
+            SizedBox(width: 10),
+            Text(
+              'Change password',
+              style: TextStyle(
+                color: employeeBlue,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
       const PopupMenuItem<String>(
         value: 'workspace',
         child: Row(
@@ -866,6 +921,90 @@ class EmployeeProfileMenu extends StatelessWidget {
       ),
     ),
   );
+
+  Future<void> _showChangePasswordDialog(BuildContext context) async {
+    final username = TextEditingController();
+    final current = TextEditingController();
+    final updated = TextEditingController();
+    var hidden = true;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Change password'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: username,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: current,
+                  obscureText: hidden,
+                  decoration: InputDecoration(
+                    labelText: 'Current password',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        hidden
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () => setDialogState(() => hidden = !hidden),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: updated,
+                  obscureText: hidden,
+                  decoration: const InputDecoration(
+                    labelText: 'New password (minimum 8 characters)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final message = await context
+                    .read<AuthService>()
+                    .changePassword(
+                      username: username.text,
+                      currentPassword: current.text,
+                      newPassword: updated.text,
+                    );
+                if (!dialogContext.mounted) return;
+                if (message == null) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Password updated.')),
+                  );
+                } else
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(message)));
+              },
+              child: const Text('Update password'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class EmployeeCard extends StatelessWidget {

@@ -8,6 +8,8 @@ router.use(hrms.requireAdmin);
 
 router.get('/summary', hrms.summary);
 router.get('/export', hrms.exportCsv);
+router.get('/device-requests', hrms.deviceRequests);
+router.post('/device-requests/:id/review', hrms.reviewDeviceRequest);
 router.get('/', hrms.list);
 router.post('/', hrms.create);
 router.post('/:id/password-reset', hrms.resetPassword);
