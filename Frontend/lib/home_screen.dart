@@ -226,106 +226,146 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildTopBar() {
-    final compact = MediaQuery.sizeOf(context).width < 600;
+ // lib/home_screen.dart-il ulla _buildTopBar method-ai ipadi replace pannunga:
+Widget _buildTopBar() {
+  final compact = MediaQuery.sizeOf(context).width < 600;
+  final authService = context.read<AuthService>();
+  
+  // User details for avatar/profile
+  final user = authService.user ?? {};
+  final firstName = (user['first_name'] ?? user['firstName'] ?? '').toString();
+  final lastName = (user['last_name'] ?? user['lastName'] ?? '').toString();
+  final initials = ((firstName.isNotEmpty ? firstName[0] : '') + (lastName.isNotEmpty ? lastName[0] : '')).toUpperCase();
+  final avatarColor = user['avatar_color'] ?? user['avatarColor'] ?? '#4F46E5';
+  final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
 
-    return Container(
-      margin: EdgeInsets.fromLTRB(compact ? 12 : 24, 10, compact ? 12 : 24, 0),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 22,
-        vertical: compact ? 8 : 10,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.97),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: borderBlue),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF5E8FD8).withValues(alpha: 0.08),
-            blurRadius: 28,
-            offset: const Offset(0, 8),
+  return Container(
+    margin: EdgeInsets.fromLTRB(compact ? 12 : 24, 10, compact ? 12 : 24, 0),
+    padding: EdgeInsets.symmetric(
+      horizontal: compact ? 12 : 22,
+      vertical: compact ? 8 : 10,
+    ),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.97),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: borderBlue),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFF5E8FD8).withValues(alpha: 0.08),
+          blurRadius: 28,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Container(
+          height: compact ? 38 : 42,
+          width: compact ? 38 : 42,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(12),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            height: compact ? 38 : 42,
-            width: compact ? 38 : 42,
-            padding: const EdgeInsets.all(5),
+          child: Image.asset(
+            'assets/images/godigital_logo.png',
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => const Icon(
+              Icons.grid_view_rounded,
+              color: primaryColor,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'GoDigital Portal',
+              style: TextStyle(
+                fontSize: compact ? 14 : 16,
+                fontWeight: FontWeight.w800,
+                color: darkColor,
+                letterSpacing: -0.3,
+              ),
+            ),
+            if (!compact)
+              const Text(
+                'WORKSPACE CONTROL CENTER',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  color: primaryColor,
+                  letterSpacing: 1.5,
+                ),
+              ),
+          ],
+        ),
+        const Spacer(),
+        
+        // 🟢 Profile Icon with Click to Profile Page
+        InkWell(
+          onTap: () {
+            // Employee or Admin profile page routing
+            final userType = authService.userType?.toLowerCase().trim() ?? '';
+            // if (userType == 'admin') {
+              Navigator.pushNamed(context, '/profile'); // Or admin profile route
+            // } else {
+            //   Navigator.pushNamed(context, '/employee/settings');
+            // }
+          },
+          borderRadius: BorderRadius.circular(30),
+          child: Container(
+            padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              shape: BoxShape.circle,
+              border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 2),
+            ),
+            child: CircleAvatar(
+              radius: compact ? 16 : 19,
+              backgroundColor: _parseColor(avatarColor),
+              backgroundImage: profilePhoto != null && profilePhoto.toString().isNotEmpty
+                  ? MemoryImage(base64Decode(profilePhoto.toString().split(',').last))
+                  : null,
+              child: profilePhoto == null || profilePhoto.toString().isEmpty
+                  ? Text(
+                      initials.isEmpty ? '?' : initials,
+                      style: TextStyle(color: Colors.white, fontSize: compact ? 12 : 14, fontWeight: FontWeight.w900),
+                    )
+                  : null,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        
+        OutlinedButton.icon(
+          onPressed: _logout,
+          icon: const Icon(Icons.logout_rounded, size: 16),
+          label: compact ? const SizedBox.shrink() : const Text('Logout'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF1D4FA5),
+            side: const BorderSide(color: Color(0xFFD2E2FF)),
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Image.asset(
-              'assets/images/godigital_logo.png',
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.grid_view_rounded,
-                color: primaryColor,
-              ),
-            ),
+            minimumSize: Size(compact ? 42 : 0, 40),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
           ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'GoDigital Portal',
-                style: TextStyle(
-                  fontSize: compact ? 14 : 16,
-                  fontWeight: FontWeight.w800,
-                  color: darkColor,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              if (!compact)
-                const Text(
-                  'WORKSPACE CONTROL CENTER',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w800,
-                    color: primaryColor,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-            ],
-          ),
-          const Spacer(),
-          if (!compact)
-            TextButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Support clicked')),
-                );
-              },
-              icon: const Icon(Icons.support_agent_rounded, size: 17),
-              label: const Text('Support'),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF1D4FA5),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-            ),
-          const SizedBox(width: 6),
-          OutlinedButton.icon(
-            onPressed: _logout,
-            icon: const Icon(Icons.logout_rounded, size: 16),
-            label: compact ? const SizedBox.shrink() : const Text('Logout'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1D4FA5),
-              side: const BorderSide(color: Color(0xFFD2E2FF)),
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              minimumSize: Size(compact ? 42 : 0, 40),
-              padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
-            ),
-          ),
-        ],
-      ),
-    );
+        ),
+      ],
+    ),
+  );
+}
+
+Color _parseColor(String h) {
+  try {
+    final s = h.replaceAll('#', '');
+    return Color(int.parse('FF$s', radix: 16));
+  } catch (_) {
+    return const Color(0xFF4F46E5);
   }
+}
 
   Widget _buildMainContent(double width) {
     final mobile = width < 650;
@@ -373,6 +413,8 @@ class _HomeScreenState extends State<HomeScreen>
             child: Image.asset(
               'assets/images/godigital_logo.png',
               fit: BoxFit.contain,
+              width: logoSize * 0.78,
+              height: logoSize * 0.78,
               errorBuilder: (_, _, _) => Icon(
                 Icons.business_rounded,
                 size: logoSize * 0.46,
@@ -462,16 +504,7 @@ class _HomeScreenState extends State<HomeScreen>
               spacing: gap,
               runSpacing: gap,
               children: [
-                SizedBox(
-                  width: cardWidth,
-                  child: _MenuButton(
-                    icon: Icons.assignment_outlined,
-                    label: 'Task Manager',
-                    description: 'View and manage your assigned tasks.',
-                    onPressed: _openTaskManager,
-                    accent: const Color(0xFF1769E0),
-                  ),
-                ),
+                // 1. Attendance
                 SizedBox(
                   width: cardWidth,
                   child: _MenuButton(
@@ -480,6 +513,17 @@ class _HomeScreenState extends State<HomeScreen>
                     description: 'Manage attendance and employee records.',
                     onPressed: _openAttendance,
                     accent: const Color(0xFF0A5BFF),
+                  ),
+                ),
+                // 2. Task Manager
+                SizedBox(
+                  width: cardWidth,
+                  child: _MenuButton(
+                    icon: Icons.assignment_outlined,
+                    label: 'Task Manager',
+                    description: 'View and manage your assigned tasks.',
+                    onPressed: _openTaskManager,
+                    accent: const Color(0xFF1769E0),
                   ),
                 ),
                 SizedBox(

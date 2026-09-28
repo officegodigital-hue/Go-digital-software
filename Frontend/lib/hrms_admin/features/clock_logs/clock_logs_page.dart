@@ -46,15 +46,27 @@ class _MobileClockLogs extends StatelessWidget {
     return Scaffold(
       backgroundColor: _page,
       bottomNavigationBar: const AdminMobileBottomNav(activeRoute: '/admin/clock-logs'),
+      // appBar: AppBar(
+      //   backgroundColor: Colors.white,
+      //   elevation: 0,
+      //   title: Image.asset('assets/images/godigital_logo.png', height: 38),
+      //   actions: const [
+      //     AdminNotificationBell(mobile: true),
+      //     SizedBox(width: 4),
+      //     AdminLogoutButton(compact: true),
+      //     SizedBox(width: 8),
+      //   ],
+      // ),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         title: Image.asset('assets/images/godigital_logo.png', height: 38),
-        actions: const [
-          AdminNotificationBell(mobile: true),
-          SizedBox(width: 4),
-          AdminLogoutButton(compact: true),
-          SizedBox(width: 8),
+        actions: [
+          const AdminNotificationBell(mobile: true),
+          const SizedBox(width: 4),
+          // 🟢 Replaced undefined AdminLogoutButton with AdminProfileDropdown
+          const AdminProfileDropdown(),
+          const SizedBox(width: 8),
         ],
       ),
       body: loading

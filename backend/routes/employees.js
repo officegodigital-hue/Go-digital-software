@@ -11,7 +11,25 @@ const db      = require('../config/db');
 // 1. USER ROLE MASTER ROUTES (MUST BE AT THE VERY TOP)
 // ═══════════════════════════════════════════════════════════════
 // GET /api/employees/user-roles
-
+// New employee create panrum pothu last staff_id-ai fetch panni increment panra logic
+async function generateStaffId(db) {
+  const [rows] = await db.query(
+    `SELECT staff_id FROM employee_users WHERE staff_id REGEXP '^900' ORDER BY id DESC LIMIT 1`
+  );
+  
+  if (rows.length === 0) {
+    return '90046067'; // First default staff id
+  }
+  
+  const lastStaffId = rows[0].staff_id;
+  const numericPart = parseInt(lastStaffId, 10);
+  
+  if (isNaN(numericPart)) {
+    return '90046067';
+  }
+  
+  return (numericPart + 1).toString();
+}
 
 router.get('/user-roles', async (req, res) => {
   try {
@@ -27,6 +45,33 @@ router.get('/user-roles', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /user-roles ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🟢 2. Next Staff ID Route (MUST BE BEFORE /:id routes)
+router.get('/next-staff-id', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT staff_id FROM employee_users WHERE staff_id REGEXP '^900' ORDER BY id DESC LIMIT 1`
+    );
+    
+    let nextStaffId = '90046067'; // Default start ID
+    
+    if (rows.length > 0) {
+      const lastStaffId = rows[0].staff_id;
+      const numericPart = parseInt(lastStaffId, 10);
+      
+      if (!isNaN(numericPart) && numericPart > 90046066) {
+        nextStaffId = (numericPart + 1).toString();
+      } else {
+        nextStaffId = '90046067';
+      }
+    }
+
+    return res.json({ success: true, staffId: nextStaffId });
+  } catch (err) {
+    console.error('GET /employees/next-staff-id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -169,39 +214,105 @@ router.delete('/user-roles/:id', async (req, res) => {
 
 // POST /api/employees
 // POST /api/employees — Create with Role and Permissions
+// router.post('/', async (req, res) => {
+//   const { 
+//     firstName, middleName = '', lastName, staffId, 
+//     email, username, password, role, // 🟢 Role variable here
+//     userType = 'employee', isMainAdmin = 0, allowedPages = [] 
+//   } = req.body;
+
+//   if (!firstName || !lastName || !staffId || !email || !username || !password || !role)
+//     return res.status(400).json({ success: false, message: 'All fields are required' });
+
+//   // const fullName = `${firstName} ${middleName}`.trim();
+
+//   const fullName = [
+//   firstName,
+//   middleName,
+//   lastName
+// ]
+// .filter(name => name && name.trim() !== '')
+// // .where(name => name && name.trim() !== '')
+// .join(' ');
+
+//   const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+
+//   const connection = await db.getConnection();
+//   try {
+//     await connection.beginTransaction();
+//     const [result] = await connection.query(
+//       `INSERT INTO employee_users
+//          (first_name, middle_name, last_name, full_name, initials,
+//           staff_id, email, username, password, role, user_type, is_main_admin, is_active)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+//       [firstName, middleName, lastName, fullName, initials,
+//        staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0] // 🟢 Role inserted here
+//     );
+
+//     const newEmpId = result.insertId;
+//     await connection.query(`INSERT INTO hrms_employee_profiles
+//       (employee_user_id, employee_code, full_name, email, department, work_mode, employment_status)
+//       VALUES (?, ?, ?, ?, ?, 'Office', 'Active')`, [newEmpId, staffId, fullName, email, role]);
+
+//     if (allowedPages && allowedPages.length > 0) {
+//       await connection.query(
+//         `INSERT INTO role_page_access (employee_id, allowed_pages) VALUES (?, ?)`,
+//         [newEmpId, JSON.stringify(allowedPages)]
+//       );
+//     }
+
+//     await connection.commit();
+//     return res.status(201).json({ success: true, message: 'User created successfully' });
+//   } catch (err) {
+//     await connection.rollback();
+//     console.error('POST /employees ERROR:', err.message);
+//     return res.status(500).json({ success: false, message: err.message });
+//   } finally {
+//     connection.release();
+//   }
+// });
+
 router.post('/', async (req, res) => {
   const { 
-    firstName, middleName = '', lastName, staffId, 
-    email, username, password, role, // 🟢 Role variable here
-    userType = 'employee', isMainAdmin = 0, allowedPages = [] 
+    firstName, middleName = '', lastName, 
+    email, username, password, role, 
+    userType = 'employee', isMainAdmin = 0, allowedPages = [],
+    phoneNumber = '', aadharNumber = '', panCardNumber = '',
+    bankAccountName = '', bankAccountNumber = '', bankIfscCode = '', bankName = '',
+    permanentAddress = '', temporaryAddress = ''
   } = req.body;
 
-  if (!firstName || !lastName || !staffId || !email || !username || !password || !role)
-    return res.status(400).json({ success: false, message: 'All fields are required' });
-
-  // const fullName = `${firstName} ${middleName}`.trim();
-
-  const fullName = [
-  firstName,
-  middleName,
-  lastName
-]
-.filter(name => name && name.trim() !== '')
-// .where(name => name && name.trim() !== '')
-.join(' ');
-
-  const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+  if (!firstName || !lastName || !email || !username || !password || !role)
+    return res.status(400).json({ success: false, message: 'Required fields are missing' });
 
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
+
+    // 🟢 Automatically generate Staff ID starting/incrementing from last data
+    const staffId = await generateStaffId(connection);
+
+    const fullName = [firstName, middleName, lastName]
+      .filter(name => name && name.trim() !== '')
+      .join(' ');
+
+    const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+
     const [result] = await connection.query(
       `INSERT INTO employee_users
          (first_name, middle_name, last_name, full_name, initials,
-          staff_id, email, username, password, role, user_type, is_main_admin, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [firstName, middleName, lastName, fullName, initials,
-       staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0] // 🟢 Role inserted here
+          staff_id, email, username, password, role, user_type, is_main_admin, is_active,
+          phone_number, aadhar_number, pan_card_number,
+          bank_account_name, bank_account_number, bank_ifsc_code, bank_name,
+          permanent_address, temporary_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        firstName, middleName, lastName, fullName, initials,
+        staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0,
+        phoneNumber, aadharNumber, panCardNumber,
+        bankAccountName, bankAccountNumber, bankIfscCode, bankName,
+        permanentAddress, temporaryAddress
+      ]
     );
 
     const newEmpId = result.insertId;
@@ -217,7 +328,7 @@ router.post('/', async (req, res) => {
     }
 
     await connection.commit();
-    return res.status(201).json({ success: true, message: 'User created successfully' });
+    return res.status(201).json({ success: true, message: 'User created successfully', staffId });
   } catch (err) {
     await connection.rollback();
     console.error('POST /employees ERROR:', err.message);
@@ -226,6 +337,8 @@ router.post('/', async (req, res) => {
     connection.release();
   }
 });
+
+
 
 // PUT /api/employees/:id — Update Employee & Cascade Name Changes to Task Assignments, Task List, Day Planner & Notifications
 router.put('/:id', async (req, res) => {

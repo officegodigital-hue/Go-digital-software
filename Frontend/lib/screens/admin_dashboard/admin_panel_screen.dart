@@ -36,7 +36,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _loadingRoles = false;
   bool _isFormView = false;
   bool _isSubmitting = false;
-  bool _obscurePassword = true; // 🟢 Added for password visibility toggle
+  bool _obscurePassword = true; // Added for password visibility toggle[cite: 5]
 
   String? _error;
   String? _modalError;
@@ -55,6 +55,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   final TextEditingController _emailCtrl = TextEditingController();
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
+  
+  // 🟢 New Optional Controllers for Phone, Aadhaar, PAN, Bank & Addresses
+  final TextEditingController _phoneCtrl = TextEditingController();
+  final TextEditingController _aadharCtrl = TextEditingController();
+  final TextEditingController _panCtrl = TextEditingController();
+  final TextEditingController _bankAccountNameCtrl = TextEditingController();
+  final TextEditingController _bankAccountNumberCtrl = TextEditingController();
+  final TextEditingController _bankIfscCtrl = TextEditingController();
+  final TextEditingController _bankNameCtrl = TextEditingController();
+  final TextEditingController _permAddressCtrl = TextEditingController();
+  final TextEditingController _tempAddressCtrl = TextEditingController();
 
   String _selectedUserType = 'employee';
   bool _isMainAdmin = false;
@@ -86,7 +97,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Client Credentials', 'route': '/client-credentials'},
     {'title': 'Packages', 'route': '/packages'},
     {'title': 'Quotations', 'route': '/quotations'},
-    // {'title': 'Package & Quotation', 'route': '/quotation'},
     {'title': 'Invoice', 'route': '/invoice'},
     {'title': 'Tasks Assign', 'route': '/tasks'},
     {'title': 'Daily Planner', 'route': '/daily-planner'},
@@ -96,8 +106,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Performance', 'route': '/performance'},
     {'title': 'Employee Management', 'route': '/admin-panel'},
     {'title': 'Time Manager', 'route': '/time-manager'},
-    // admin_panel_screen.dart-il ulla availablePages & adminPages list-il:
-{'title': 'Broadcast Master', 'route': '/emergency-broadcast'},
+    {'title': 'Broadcast Master', 'route': '/emergency-broadcast'},
   ];
 
   final List<Map<String, String>> employeePages = [
@@ -111,7 +120,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Video Task Planner', 'route': 'Video Task Planner'},
     {'title': 'Task Review', 'route': 'Task Review'},
     {'title': 'Task Status', 'route': 'Task Status'},
-    
     {'title': 'Notifications', 'route': 'Notifications'},
     {'title': 'Chat', 'route': 'Chat'},
     {'title': 'Feedback', 'route': 'Feedback'},
@@ -133,6 +141,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _emailCtrl.dispose();
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
+    _phoneCtrl.dispose();
+    _aadharCtrl.dispose();
+    _panCtrl.dispose();
+    _bankAccountNameCtrl.dispose();
+    _bankAccountNumberCtrl.dispose();
+    _bankIfscCtrl.dispose();
+    _bankNameCtrl.dispose();
+    _permAddressCtrl.dispose();
+    _tempAddressCtrl.dispose();
     super.dispose();
   }
 
@@ -152,61 +169,37 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   List<String> _parseAllowedPages(dynamic value) {
     if (value == null) return [];
-
     if (value is List) {
       return value.map((e) => e.toString()).toList();
     }
-
     if (value is String) {
       final text = value.trim();
       if (text.isEmpty) return [];
-
       try {
         final decoded = jsonDecode(text);
         if (decoded is List) {
           return decoded.map((e) => e.toString()).toList();
         }
       } catch (_) {
-        return text
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
+        return text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       }
     }
-
     return [];
   }
 
   void _showSnack(String msg, {bool success = false}) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(18),
         backgroundColor: success ? const Color(0xFF0F9D73) : const Color(0xFFDC2626),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
-            Icon(
-              success
-                  ? Icons.check_circle_rounded
-                  : Icons.error_outline_rounded,
-              color: Colors.white,
-            ),
+            Icon(success ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: Colors.white),
             const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                msg,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
+            Expanded(child: Text(msg, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
           ],
         ),
       ),
@@ -214,82 +207,78 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   List<String> _getActiveRoleOptions() {
-    return _selectedUserType == 'admin'
-        ? adminRoleOptions
-        : employeeRoleOptions;
+    return _selectedUserType == 'admin' ? adminRoleOptions : employeeRoleOptions;
   }
 
-  int get _activeCount {
-    return employeeUsers
-        .where((e) => _isTrue(e['is_active']))
-        .length;
-  }
+  int get _activeCount => employeeUsers.where((e) => _isTrue(e['is_active'])).length;
+  int get _adminCount => employeeUsers.where((e) => _normalizeUserType(e['user_type']) == 'admin').length;
+  int get _employeeCount => employeeUsers.where((e) => _normalizeUserType(e['user_type']) == 'employee').length;
 
-  int get _adminCount {
-    return employeeUsers
-        .where((e) => _normalizeUserType(e['user_type']) == 'admin')
-        .length;
-  }
-
-  int get _employeeCount {
-    return employeeUsers
-        .where((e) => _normalizeUserType(e['user_type']) == 'employee')
-        .length;
-  }
-
-void _openForm({Map<String, dynamic>? employee}) async {
-    await _fetchUserRolesMaster();
-    if (!mounted) return;
-
-    setState(() {
-      _editingEmployee = employee;
-
-      _firstNameCtrl.text =
-          employee?['first_name']?.toString() ?? '';
-      _middleNameCtrl.text =
-          employee?['middle_name']?.toString() ?? '';
-      _lastNameCtrl.text =
-          employee?['last_name']?.toString() ?? '';
-      _staffIdCtrl.text =
-          employee?['staff_id']?.toString() ?? '';
-      _emailCtrl.text =
-          employee?['email']?.toString() ?? '';
-      _usernameCtrl.text =
-          employee?['username']?.toString() ?? '';
-      
-      // 🟢 Admin-kku edit panrom pothu old password-ai text field-il show seiyum
-      _passwordCtrl.text =
-          employee?['password']?.toString() ?? '';
-
-      _selectedUserType =
-          _normalizeUserType(employee?['user_type']);
-
-      _isMainAdmin =
-          _isTrue(employee?['is_main_admin']);
-
-      final activeRoles = _getActiveRoleOptions();
-
-      _selectedRole =
-          employee?['role']?.toString() ?? '';
-
-      if (!activeRoles.contains(_selectedRole)) {
-        _selectedRole =
-            activeRoles.isNotEmpty ? activeRoles.first : '';
-      }
-
-      _selectedPermissions =
-          _parseAllowedPages(employee?['allowed_pages']);
-
-      if (_isMainAdmin) {
-        _selectedPermissions =
-            availablePages.map((p) => p['route']!).toList();
-      }
-
-      _modalError = null;
-      _isFormView = true;
-    });
-  }
+ void _openForm({Map<String, dynamic>? employee}) async {
+  await _fetchUserRolesMaster();
   
+  // 🟢 Fetch next staff ID if it's a creation form (not edit mode)
+  String generatedStaffId = '';
+  if (employee == null) {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/employees/next-staff-id'));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        generatedStaffId = body['staffId']?.toString() ?? '90046067';
+      } else {
+        generatedStaffId = '90046067';
+      }
+    } catch (_) {
+      generatedStaffId = '90046067';
+    }
+  }
+
+  if (!mounted) return;
+
+  setState(() {
+    _editingEmployee = employee;
+
+    _firstNameCtrl.text = employee?['first_name']?.toString() ?? '';
+    _middleNameCtrl.text = employee?['middle_name']?.toString() ?? '';
+    _lastNameCtrl.text = employee?['last_name']?.toString() ?? '';
+    
+    // 🟢 If editing, use existing staff ID; if creating, use auto-incremented one from backend
+    _staffIdCtrl.text = employee?['staff_id']?.toString() ?? generatedStaffId;
+
+    _emailCtrl.text = employee?['email']?.toString() ?? '';
+    _usernameCtrl.text = employee?['username']?.toString() ?? '';
+    _passwordCtrl.text = employee?['password']?.toString() ?? '';
+
+    // Bind other optional fields
+    _phoneCtrl.text = employee?['phone_number']?.toString() ?? '';
+    _aadharCtrl.text = employee?['aadhar_number']?.toString() ?? '';
+    _panCtrl.text = employee?['pan_card_number']?.toString() ?? '';
+    _bankAccountNameCtrl.text = employee?['bank_account_name']?.toString() ?? '';
+    _bankAccountNumberCtrl.text = employee?['bank_account_number']?.toString() ?? '';
+    _bankIfscCtrl.text = employee?['bank_ifsc_code']?.toString() ?? '';
+    _bankNameCtrl.text = employee?['bank_name']?.toString() ?? '';
+    _permAddressCtrl.text = employee?['permanent_address']?.toString() ?? '';
+    _tempAddressCtrl.text = employee?['temporary_address']?.toString() ?? '';
+
+    _selectedUserType = _normalizeUserType(employee?['user_type']);
+    _isMainAdmin = _isTrue(employee?['is_main_admin']);
+
+    final activeRoles = _getActiveRoleOptions();
+    _selectedRole = employee?['role']?.toString() ?? '';
+    if (!activeRoles.contains(_selectedRole)) {
+      _selectedRole = activeRoles.isNotEmpty ? activeRoles.first : '';
+    }
+
+    _selectedPermissions = _parseAllowedPages(employee?['allowed_pages']);
+    if (_isMainAdmin) {
+      _selectedPermissions = availablePages.map((p) => p['route']!).toList();
+    }
+
+    _modalError = null;
+    _isFormView = true;
+  });
+}
+
   void _closeForm() {
     setState(() {
       _isFormView = false;
@@ -300,55 +289,32 @@ void _openForm({Map<String, dynamic>? employee}) async {
 
   Future<void> _fetchUserRolesMaster() async {
     if (!mounted) return;
-
     setState(() => _loadingRoles = true);
-
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/employees/user-roles'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
+        headers: const {'Content-Type': 'application/json'},
       );
-
       if (response.statusCode != 200) {
-        if (mounted) {
-          setState(() => _loadingRoles = false);
-        }
+        if (mounted) setState(() => _loadingRoles = false);
         return;
       }
-
       final decoded = jsonDecode(response.body);
       List<dynamic> rows = [];
-
       if (decoded is List) {
         rows = decoded;
       } else if (decoded is Map<String, dynamic>) {
-        if (decoded['data'] is List) {
-          rows = decoded['data'];
-        } else if (decoded['roles'] is List) {
-          rows = decoded['roles'];
-        }
+        if (decoded['data'] is List) rows = decoded['data'];
+        else if (decoded['roles'] is List) rows = decoded['roles'];
       }
 
-      final normalizedRoles =
-          rows.whereType<Map>().map<Map<String, dynamic>>((item) {
+      final normalizedRoles = rows.whereType<Map>().map<Map<String, dynamic>>((item) {
         final map = Map<String, dynamic>.from(item);
-
         return {
           ...map,
           'id': _toInt(map['id']),
-          'role_name':
-              (map['role_name'] ?? map['roleName'] ?? '')
-                  .toString()
-                  .trim(),
-          'user_type':
-              (map['user_type'] ??
-                      map['userType'] ??
-                      'employee')
-                  .toString()
-                  .trim()
-                  .toLowerCase(),
+          'role_name': (map['role_name'] ?? map['roleName'] ?? '').toString().trim(),
+          'user_type': (map['user_type'] ?? map['userType'] ?? 'employee').toString().trim().toLowerCase(),
         };
       }).toList();
 
@@ -357,19 +323,16 @@ void _openForm({Map<String, dynamic>? employee}) async {
           .map((role) => role['role_name'].toString())
           .where((name) => name.isNotEmpty)
           .toSet()
-          .toList()
-        ..sort();
+          .toList()..sort();
 
       final adminRoles = normalizedRoles
           .where((role) => role['user_type'] == 'admin')
           .map((role) => role['role_name'].toString())
           .where((name) => name.isNotEmpty)
           .toSet()
-          .toList()
-        ..sort();
+          .toList()..sort();
 
       if (!mounted) return;
-
       setState(() {
         allUserRolesMaster = normalizedRoles;
         employeeRoleOptions = employeeRoles;
@@ -377,62 +340,38 @@ void _openForm({Map<String, dynamic>? employee}) async {
         _loadingRoles = false;
       });
     } catch (_) {
-      if (mounted) {
-        setState(() => _loadingRoles = false);
-      }
+      if (mounted) setState(() => _loadingRoles = false);
     }
   }
 
-  Future<bool> _addNewUserRole(
-    String roleName,
-    String userType,
-  ) async {
+  Future<bool> _addNewUserRole(String roleName, String userType) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/employees/user-roles'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'roleName': roleName.trim(),
-          'userType': userType,
-        }),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'roleName': roleName.trim(), 'userType': userType}),
       );
-
-      if (response.statusCode == 200 ||
-          response.statusCode == 201) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         await _fetchUserRolesMaster();
         return true;
       }
-
       return false;
     } catch (_) {
       return false;
     }
   }
 
-  Future<bool> _updateUserRole(
-    int roleId,
-    String roleName,
-    String userType,
-  ) async {
+  Future<bool> _updateUserRole(int roleId, String roleName, String userType) async {
     try {
       final response = await http.put(
         Uri.parse('$_baseUrl/employees/user-roles/$roleId'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'roleName': roleName.trim(),
-          'userType': userType,
-        }),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'roleName': roleName.trim(), 'userType': userType}),
       );
-
       if (response.statusCode == 200) {
         await _fetchUserRolesMaster();
         return true;
       }
-
       return false;
     } catch (_) {
       return false;
@@ -443,20 +382,13 @@ void _openForm({Map<String, dynamic>? employee}) async {
     try {
       final response = await http.delete(
         Uri.parse('$_baseUrl/employees/user-roles/$roleId'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
+        headers: const {'Content-Type': 'application/json'},
       );
-
       if (response.statusCode == 200) {
         await _fetchUserRolesMaster();
-        _showSnack(
-          'Role deleted successfully',
-          success: true,
-        );
+        _showSnack('Role deleted successfully', success: true);
         return true;
       }
-
       _showSnack('Failed to delete role');
       return false;
     } catch (_) {
@@ -467,7 +399,6 @@ void _openForm({Map<String, dynamic>? employee}) async {
 
   Future<void> _showUserRoleMasterDialog() async {
     final roleNameController = TextEditingController();
-
     String selectedDialogUserType = 'employee';
     bool isEditingRole = false;
     int? editingRoleId;
@@ -482,7 +413,6 @@ void _openForm({Map<String, dynamic>? employee}) async {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             final width = MediaQuery.of(dialogContext).size.width;
-
             return Dialog(
               insetPadding: const EdgeInsets.all(16),
               backgroundColor: Colors.transparent,
@@ -505,15 +435,8 @@ void _openForm({Map<String, dynamic>? employee}) async {
                     Container(
                       padding: const EdgeInsets.all(22),
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            _primary,
-                            _primaryDark,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(24),
-                        ),
+                        gradient: LinearGradient(colors: [_primary, _primaryDark]),
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                       ),
                       child: Row(
                         children: [
@@ -521,37 +444,21 @@ void _openForm({Map<String, dynamic>? employee}) async {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(
-                                alpha: 0.15,
-                              ),
-                              borderRadius:
-                                  BorderRadius.circular(14),
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(
-                              Icons.admin_panel_settings_rounded,
-                              color: Colors.white,
-                            ),
+                            child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              isEditingRole
-                                  ? 'Edit User Role'
-                                  : 'User Role Master',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 19,
-                                fontWeight: FontWeight.w800,
-                              ),
+                              isEditingRole ? 'Edit User Role' : 'User Role Master',
+                              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800),
                             ),
                           ),
                           IconButton(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext),
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: Colors.white,
-                            ),
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded, color: Colors.white),
                           ),
                         ],
                       ),
@@ -560,357 +467,156 @@ void _openForm({Map<String, dynamic>? employee}) async {
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.all(22),
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _sectionLabel(
-                              'Role Configuration',
-                              Icons.tune_rounded,
-                            ),
+                            _sectionLabel('Role Configuration', Icons.tune_rounded),
                             const SizedBox(height: 16),
-
                             _buildDialogDropdown(
                               label: 'User Type',
                               value: selectedDialogUserType,
                               items: const [
-                                DropdownMenuItem(
-                                  value: 'employee',
-                                  child: Text('Employee Role'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'admin',
-                                  child: Text('Admin Role'),
-                                ),
+                                DropdownMenuItem(value: 'employee', child: Text('Employee Role')),
+                                DropdownMenuItem(value: 'admin', child: Text('Admin Role')),
                               ],
                               onChanged: (value) {
                                 if (value == null) return;
-
-                                setDialogState(() {
-                                  selectedDialogUserType = value;
-                                });
+                                setDialogState(() => selectedDialogUserType = value);
                               },
                             ),
-
                             const SizedBox(height: 14),
-
                             _modernTextField(
                               controller: roleNameController,
                               label: 'Role Name',
                               hint: 'Enter role name',
                               icon: Icons.badge_outlined,
                             ),
-
                             const SizedBox(height: 16),
-
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 onPressed: () async {
-                                  final name =
-                                      roleNameController.text
-                                          .trim();
-
+                                  final name = roleNameController.text.trim();
                                   if (name.isEmpty) {
-                                    _showSnack(
-                                      'Please enter role name',
-                                    );
+                                    _showSnack('Please enter role name');
                                     return;
                                   }
-
                                   bool success = false;
-
-                                  if (isEditingRole &&
-                                      editingRoleId != null) {
-                                    success =
-                                        await _updateUserRole(
-                                      editingRoleId!,
-                                      name,
-                                      selectedDialogUserType,
-                                    );
+                                  if (isEditingRole && editingRoleId != null) {
+                                    success = await _updateUserRole(editingRoleId!, name, selectedDialogUserType);
                                   } else {
-                                    success =
-                                        await _addNewUserRole(
-                                      name,
-                                      selectedDialogUserType,
-                                    );
+                                    success = await _addNewUserRole(name, selectedDialogUserType);
                                   }
-
                                   if (!mounted) return;
-
                                   if (success) {
                                     roleNameController.clear();
-
                                     setDialogState(() {
                                       isEditingRole = false;
                                       editingRoleId = null;
                                     });
-
-                                    _showSnack(
-                                      'Operation successful',
-                                      success: true,
-                                    );
+                                    _showSnack('Operation successful', success: true);
                                   } else {
-                                    _showSnack(
-                                      'Operation failed',
-                                    );
+                                    _showSnack('Operation failed');
                                   }
                                 },
-                                icon: Icon(
-                                  isEditingRole
-                                      ? Icons.update_rounded
-                                      : Icons.add_rounded,
-                                ),
-                                label: Text(
-                                  isEditingRole
-                                      ? 'Update Role'
-                                      : 'Add New Role',
-                                ),
-                                style:
-                                    ElevatedButton.styleFrom(
+                                icon: Icon(isEditingRole ? Icons.update_rounded : Icons.add_rounded),
+                                label: Text(isEditingRole ? 'Update Role' : 'Add New Role'),
+                                style: ElevatedButton.styleFrom(
                                   backgroundColor: _primary,
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  padding:
-                                      const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  shape:
-                                      RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(14),
-                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
                               ),
                             ),
-
                             const SizedBox(height: 24),
-
-                            _sectionLabel(
-                              'Existing Roles',
-                              Icons.folder_shared_outlined,
-                            ),
-
+                            _sectionLabel('Existing Roles', Icons.folder_shared_outlined),
                             const SizedBox(height: 12),
-
                             Container(
                               height: 250,
                               decoration: BoxDecoration(
                                 color: _surface,
-                                borderRadius:
-                                    BorderRadius.circular(18),
-                                border:
-                                    Border.all(color: _border),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: _border),
                               ),
                               child: _loadingRoles
-                                  ? const Center(
-                                      child:
-                                          CircularProgressIndicator(
-                                        color: _primary,
-                                      ),
-                                    )
+                                  ? const Center(child: CircularProgressIndicator(color: _primary))
                                   : allUserRolesMaster.isEmpty
-                                      ? const Center(
-                                          child: Text(
-                                            'No roles found',
-                                            style: TextStyle(
-                                              color: _muted,
-                                            ),
-                                          ),
-                                        )
+                                      ? const Center(child: Text('No roles found', style: TextStyle(color: _muted)))
                                       : ListView.separated(
-                                          padding:
-                                              const EdgeInsets.all(
-                                            10,
-                                          ),
-                                          itemCount:
-                                              allUserRolesMaster
-                                                  .length,
-                                          separatorBuilder:
-                                              (_, _) =>
-                                                  const SizedBox(
-                                            height: 8,
-                                          ),
-                                          itemBuilder:
-                                              (context, index) {
-                                            final roleItem =
-                                                allUserRolesMaster[
-                                                    index];
-
-                                            final roleId =
-                                                _toInt(
-                                              roleItem['id'],
-                                            );
-
-                                            final isAdmin =
-                                                _normalizeUserType(
-                                                      roleItem[
-                                                          'user_type'],
-                                                    ) ==
-                                                    'admin';
-
+                                          padding: const EdgeInsets.all(10),
+                                          itemCount: allUserRolesMaster.length,
+                                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                          itemBuilder: (context, index) {
+                                            final roleItem = allUserRolesMaster[index];
+                                            final roleId = _toInt(roleItem['id']);
+                                            final isAdmin = _normalizeUserType(roleItem['user_type']) == 'admin';
                                             return Container(
-                                              padding:
-                                                  const EdgeInsets
-                                                      .symmetric(
-                                                horizontal: 14,
-                                                vertical: 10,
-                                              ),
-                                              decoration:
-                                                  BoxDecoration(
+                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                              decoration: BoxDecoration(
                                                 color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius
-                                                        .circular(12),
-                                                border: Border.all(
-                                                  color: _border,
-                                                ),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(color: _border),
                                               ),
                                               child: Row(
                                                 children: [
                                                   Container(
                                                     width: 36,
                                                     height: 36,
-                                                    decoration:
-                                                        BoxDecoration(
-                                                      color: isAdmin
-                                                          ? const Color(
-                                                              0xFFFFF3E0,
-                                                            )
-                                                          : _primaryLight,
-                                                      borderRadius:
-                                                          BorderRadius
-                                                              .circular(
-                                                        10,
-                                                      ),
+                                                    decoration: BoxDecoration(
+                                                      color: isAdmin ? const Color(0xFFFFF3E0) : _primaryLight,
+                                                      borderRadius: BorderRadius.circular(10),
                                                     ),
                                                     child: Icon(
-                                                      isAdmin
-                                                          ? Icons
-                                                              .shield_outlined
-                                                          : Icons
-                                                              .person_outline_rounded,
+                                                      isAdmin ? Icons.shield_outlined : Icons.person_outline_rounded,
                                                       size: 18,
-                                                      color: isAdmin
-                                                          ? const Color(
-                                                              0xFFE67E22,
-                                                            )
-                                                          : _primary,
+                                                      color: isAdmin ? const Color(0xFFE67E22) : _primary,
                                                     ),
                                                   ),
-                                                  const SizedBox(
-                                                    width: 12,
-                                                  ),
+                                                  const SizedBox(width: 12),
                                                   Expanded(
                                                     child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
                                                       children: [
-                                                        Text(
-                                                          roleItem[
-                                                                  'role_name']
-                                                              .toString(),
-                                                          style:
-                                                              const TextStyle(
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w700,
-                                                            color: _ink,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                          height: 2,
-                                                        ),
-                                                        Text(
-                                                          isAdmin
-                                                              ? 'ADMIN'
-                                                              : 'EMPLOYEE',
-                                                          style: TextStyle(
-                                                            fontSize: 10,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w800,
-                                                            letterSpacing:
-                                                                0.8,
-                                                            color: isAdmin
-                                                                ? const Color(
-                                                                    0xFFE67E22,
-                                                                  )
-                                                                : _primary,
-                                                          ),
-                                                        ),
+                                                        Text(roleItem['role_name'].toString(),
+                                                            style: const TextStyle(fontWeight: FontWeight.w700, color: _ink)),
+                                                        const SizedBox(height: 2),
+                                                        Text(isAdmin ? 'ADMIN' : 'EMPLOYEE',
+                                                            style: TextStyle(
+                                                                fontSize: 10,
+                                                                fontWeight: FontWeight.w800,
+                                                                letterSpacing: 0.8,
+                                                                color: isAdmin ? const Color(0xFFE67E22) : _primary)),
                                                       ],
                                                     ),
                                                   ),
                                                   IconButton(
                                                     tooltip: 'Edit',
                                                     onPressed: () {
-                                                      setDialogState(
-                                                        () {
-                                                          isEditingRole =
-                                                              true;
-
-                                                          editingRoleId =
-                                                              roleId;
-
-                                                          roleNameController
-                                                              .text = roleItem[
-                                                                  'role_name']
-                                                              .toString();
-
-                                                          selectedDialogUserType =
-                                                              _normalizeUserType(
-                                                            roleItem[
-                                                                'user_type'],
-                                                          );
-                                                        },
-                                                      );
+                                                      setDialogState(() {
+                                                        isEditingRole = true;
+                                                        editingRoleId = roleId;
+                                                        roleNameController.text = roleItem['role_name'].toString();
+                                                        selectedDialogUserType = _normalizeUserType(roleItem['user_type']);
+                                                      });
                                                     },
-                                                    icon: const Icon(
-                                                      Icons.edit_outlined,
-                                                      size: 19,
-                                                      color: _primary,
-                                                    ),
+                                                    icon: const Icon(Icons.edit_outlined, size: 19, color: _primary),
                                                   ),
                                                   IconButton(
                                                     tooltip: 'Delete',
-                                                    onPressed:
-                                                        roleId == null
-                                                            ? null
-                                                            : () async {
-                                                                final confirm =
-                                                                    await _showConfirmDialog(
-                                                                  title:
-                                                                      'Delete Role',
-                                                                  message:
-                                                                      'Are you sure you want to delete this role?',
-                                                                  confirmText:
-                                                                      'Delete',
-                                                                );
-
-                                                                if (confirm !=
-                                                                    true) {
-                                                                  return;
-                                                                }
-
-                                                                await _deleteUserRole(
-                                                                  roleId,
-                                                                );
-
-                                                                if (mounted) {
-                                                                  setDialogState(
-                                                                    () {},
-                                                                  );
-                                                                }
-                                                              },
-                                                    icon: const Icon(
-                                                      Icons
-                                                          .delete_outline_rounded,
-                                                      size: 19,
-                                                      color: Color(
-                                                        0xFFDC2626,
-                                                      ),
-                                                    ),
+                                                    onPressed: roleId == null
+                                                        ? null
+                                                        : () async {
+                                                            final confirm = await _showConfirmDialog(
+                                                              title: 'Delete Role',
+                                                              message: 'Are you sure you want to delete this role?',
+                                                              confirmText: 'Delete',
+                                                            );
+                                                            if (confirm != true) return;
+                                                            await _deleteUserRole(roleId);
+                                                            if (mounted) setDialogState(() {});
+                                                          },
+                                                    icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Color(0xFFDC2626)),
                                                   ),
                                                 ],
                                               ),
@@ -925,16 +631,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          top: BorderSide(color: _border),
-                        ),
-                      ),
+                      decoration: const BoxDecoration(border: Border(top: BorderSide(color: _border))),
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () =>
-                              Navigator.pop(dialogContext),
+                          onPressed: () => Navigator.pop(dialogContext),
                           child: const Text('Close'),
                         ),
                       ),
@@ -947,13 +648,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
         );
       },
     );
-
     roleNameController.dispose();
   }
 
   List<Map<String, dynamic>> get _filteredEmployees {
     final query = _searchQuery.trim().toLowerCase();
-
     final records = employeeUsers.where((item) {
       if (query.isNotEmpty) {
         final name = (item['full_name'] ?? '').toString().toLowerCase();
@@ -970,8 +669,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
       }
 
       final userType = _normalizeUserType(item['user_type']);
-      if (_tableUserTypeFilter != 'all' &&
-          userType != _tableUserTypeFilter) {
+      if (_tableUserTypeFilter != 'all' && userType != _tableUserTypeFilter) {
         return false;
       }
 
@@ -986,9 +684,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
       records.sort((a, b) {
         final aName = (a['full_name'] ?? '').toString().toLowerCase();
         final bName = (b['full_name'] ?? '').toString().toLowerCase();
-        return _isTeamMemberAscending
-            ? aName.compareTo(bName)
-            : bName.compareTo(aName);
+        return _isTeamMemberAscending ? aName.compareTo(bName) : bName.compareTo(aName);
       });
     } else {
       records.sort((a, b) {
@@ -1030,21 +726,16 @@ void _openForm({Map<String, dynamic>? employee}) async {
     });
 
     try {
-      final response =
-          await http.get(Uri.parse('$_baseUrl/employees'));
-
+      final response = await http.get(Uri.parse('$_baseUrl/employees'));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
-
         setState(() {
-          employeeUsers =
-              List<Map<String, dynamic>>.from(body['data']);
+          employeeUsers = List<Map<String, dynamic>>.from(body['data']);
           _loading = false;
         });
       } else {
         setState(() {
-          _error =
-              'Server returned ${response.statusCode}';
+          _error = 'Server returned ${response.statusCode}';
           _loading = false;
         });
       }
@@ -1059,7 +750,6 @@ void _openForm({Map<String, dynamic>? employee}) async {
   Future<void> _handleSubmit() async {
     if (_firstNameCtrl.text.trim().isEmpty ||
         _lastNameCtrl.text.trim().isEmpty ||
-        _staffIdCtrl.text.trim().isEmpty ||
         _emailCtrl.text.trim().isEmpty ||
         _usernameCtrl.text.trim().isEmpty) {
       setState(() {
@@ -1096,11 +786,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
       _modalError = null;
     });
 
-    final finalPermissions =
-        (_selectedUserType == 'admin' && _isMainAdmin)
-            ? availablePages.map((page) => page['route']!).toList()
-            : _selectedPermissions;
+    final finalPermissions = (_selectedUserType == 'admin' && _isMainAdmin)
+        ? availablePages.map((page) => page['route']!).toList()
+        : _selectedPermissions;
 
+    // 🟢 Payload including optional Phone, Aadhaar, PAN, Bank Details & Addresses
     final data = {
       'firstName': _firstNameCtrl.text.trim(),
       'middleName': _middleNameCtrl.text.trim(),
@@ -1113,13 +803,21 @@ void _openForm({Map<String, dynamic>? employee}) async {
       'isMainAdmin': _isMainAdmin ? 1 : 0,
       'allowedPages': finalPermissions,
       if (_passwordCtrl.text.trim().isNotEmpty) 'password': _passwordCtrl.text,
+      'phoneNumber': _phoneCtrl.text.trim(),
+      'aadharNumber': _aadharCtrl.text.trim(),
+      'panCardNumber': _panCtrl.text.trim(),
+      'bankAccountName': _bankAccountNameCtrl.text.trim(),
+      'bankAccountNumber': _bankAccountNumberCtrl.text.trim(),
+      'bankIfscCode': _bankIfscCtrl.text.trim(),
+      'bankName': _bankNameCtrl.text.trim(),
+      'permanentAddress': _permAddressCtrl.text.trim(),
+      'temporaryAddress': _tempAddressCtrl.text.trim(),
     };
 
     String? error;
 
     if (isEditMode) {
       final id = _toInt(_editingEmployee!['id']);
-
       if (id == null) {
         setState(() {
           _isSubmitting = false;
@@ -1127,26 +825,21 @@ void _openForm({Map<String, dynamic>? employee}) async {
         });
         return;
       }
-
       error = await _updateEmployeeApi(id, data);
     } else {
       error = await _createEmployeeApi(data);
     }
 
     if (!mounted) return;
-
-     setState(() {
+    setState(() {
       _isSubmitting = false;
     });
 
     if (error == null) {
       await _fetchEmployees();
       _closeForm();
-
       _showSnack(
-        isEditMode
-            ? 'Employee updated successfully'
-            : 'Employee created successfully',
+        isEditMode ? 'Employee updated successfully' : 'Employee created successfully',
         success: true,
       );
     } else {
@@ -1156,92 +849,61 @@ void _openForm({Map<String, dynamic>? employee}) async {
     }
   }
 
-  Future<String?> _createEmployeeApi(
-    Map<String, dynamic> data,
-  ) async {
+  Future<String?> _createEmployeeApi(Map<String, dynamic> data) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/employees'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
+        headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(data),
       );
-
-      if (response.statusCode == 200 ||
-          response.statusCode == 201) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         return null;
       }
-
       try {
         final body = jsonDecode(response.body);
-
         if (body is Map<String, dynamic>) {
-          return body['message']?.toString() ??
-              'Failed to create employee';
+          return body['message']?.toString() ?? 'Failed to create employee';
         }
       } catch (_) {}
-
       return 'Failed to create employee';
     } catch (_) {
       return 'Cannot connect to server';
     }
   }
 
-  Future<String?> _updateEmployeeApi(
-    int id,
-    Map<String, dynamic> data,
-  ) async {
+  Future<String?> _updateEmployeeApi(int id, Map<String, dynamic> data) async {
     try {
       final response = await http.put(
         Uri.parse('$_baseUrl/employees/$id'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
+        headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(data),
       );
-
       if (response.statusCode == 200) {
         return null;
       }
-
       try {
         final body = jsonDecode(response.body);
-
         if (body is Map<String, dynamic>) {
-          return body['message']?.toString() ??
-              'Failed to update employee';
+          return body['message']?.toString() ?? 'Failed to update employee';
         }
       } catch (_) {}
-
       return 'Failed to update employee';
     } catch (_) {
       return 'Cannot connect to server';
     }
   }
 
-  Future<void> _toggleStatus(
-    int id,
-    bool currentStatus,
-  ) async {
+  Future<void> _toggleStatus(int id, bool currentStatus) async {
     try {
       final response = await http.patch(
         Uri.parse('$_baseUrl/employees/$id'),
-        headers: const {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'isActive': !currentStatus,
-        }),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'isActive': !currentStatus}),
       );
-
       if (response.statusCode == 200) {
         _fetchEmployees();
-
         _showSnack(
-          currentStatus
-              ? 'User deactivated successfully'
-              : 'User activated successfully',
+          currentStatus ? 'User deactivated successfully' : 'User activated successfully',
           success: true,
         );
       } else {
@@ -1254,16 +916,10 @@ void _openForm({Map<String, dynamic>? employee}) async {
 
   Future<void> _deleteEmployee(int id) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$_baseUrl/employees/$id'),
-      );
-
+      final response = await http.delete(Uri.parse('$_baseUrl/employees/$id'));
       if (response.statusCode == 200) {
         _fetchEmployees();
-        _showSnack(
-          'Employee deleted',
-          success: true,
-        );
+        _showSnack('Employee deleted', success: true);
       } else {
         _showSnack('Failed to delete employee');
       }
@@ -1281,39 +937,21 @@ void _openForm({Map<String, dynamic>? employee}) async {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          content: Text(
-            message,
-            style: const TextStyle(
-              color: _muted,
-            ),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          content: Text(message, style: const TextStyle(color: _muted)),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, false),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, true),
+              onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    const Color(0xFFDC2626),
+                backgroundColor: const Color(0xFFDC2626),
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(10),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: Text(confirmText),
             ),
@@ -1323,32 +961,20 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Future<Map<String, dynamic>?> _fetchSingleEmployee(
-    int id,
-  ) async {
+  Future<Map<String, dynamic>?> _fetchSingleEmployee(int id) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/employees/$id'),
-      );
-
+      final response = await http.get(Uri.parse('$_baseUrl/employees/$id'));
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-
         if (decoded is Map<String, dynamic>) {
           if (decoded['data'] is Map) {
-            return Map<String, dynamic>.from(
-              decoded['data'],
-            );
+            return Map<String, dynamic>.from(decoded['data']);
           }
-
           if (decoded['employee'] is Map) {
-            return Map<String, dynamic>.from(
-              decoded['employee'],
-            );
+            return Map<String, dynamic>.from(decoded['employee']);
           }
         }
       }
-
       return null;
     } catch (_) {
       return null;
@@ -1361,13 +987,9 @@ void _openForm({Map<String, dynamic>? employee}) async {
       pageTitle: 'Admin Panel',
       currentRoute: '/admin-panel',
       onSearch: (query) {
-        setState(() {
-          _searchQuery = query;
-        });
+        setState(() => _searchQuery = query);
       },
-      child: _isFormView
-          ? _buildFormView()
-          : _buildTableView(),
+      child: _isFormView ? _buildFormView() : _buildTableView(),
     );
   }
 
@@ -1375,35 +997,18 @@ void _openForm({Map<String, dynamic>? employee}) async {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 720;
-
         return SingleChildScrollView(
-          padding: EdgeInsets.all(
-            isMobile ? 14 : 24,
-          ),
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeroHeader(isMobile),
-
               const SizedBox(height: 20),
-
               _buildStats(isMobile),
-
               const SizedBox(height: 20),
-
-              if (isMobile)
-                _buildMobileActionPanel()
-              else
-                _buildDesktopActionPanel(),
-
+              if (isMobile) _buildMobileActionPanel() else _buildDesktopActionPanel(),
               const SizedBox(height: 20),
-
-              if (isMobile)
-                _buildMobileEmployees()
-              else
-                _buildDesktopEmployees(),
-
+              if (isMobile) _buildMobileEmployees() else _buildDesktopEmployees(),
               const SizedBox(height: 30),
             ],
           ),
@@ -1420,15 +1025,9 @@ void _openForm({Map<String, dynamic>? employee}) async {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            _primaryDark,
-            _primary,
-            Color(0xFF1267E8),
-          ],
+          colors: [_primaryDark, _primary, Color(0xFF1267E8)],
         ),
-        borderRadius: BorderRadius.circular(
-          isMobile ? 22 : 28,
-        ),
+        borderRadius: BorderRadius.circular(isMobile ? 22 : 28),
         boxShadow: [
           BoxShadow(
             color: _primary.withValues(alpha: 0.25),
@@ -1449,27 +1048,16 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 width: isMobile ? 52 : 62,
                 height: isMobile ? 52 : 62,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(
-                    alpha: 0.14,
-                  ),
+                  color: Colors.white.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: 0.20,
-                    ),
-                  ),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
                 ),
-                child: Icon(
-                  Icons.groups_rounded,
-                  size: isMobile ? 27 : 32,
-                  color: Colors.white,
-                ),
+                child: Icon(Icons.groups_rounded, size: isMobile ? 27 : 32, color: Colors.white),
               ),
               const SizedBox(width: 16),
               Flexible(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'User Access Management',
@@ -1486,9 +1074,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
                       style: TextStyle(
                         fontSize: isMobile ? 12 : 13,
                         height: 1.5,
-                        color: Colors.white.withValues(
-                          alpha: 0.82,
-                        ),
+                        color: Colors.white.withValues(alpha: 0.82),
                       ),
                     ),
                   ],
@@ -1497,21 +1083,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
             ],
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(
-                alpha: 0.13,
-              ),
-              borderRadius:
-                  BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withValues(
-                  alpha: 0.18,
-                ),
-              ),
+              color: Colors.white.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
             ),
             child: Text(
               '${_filteredEmployees.length} USERS FOUND',
@@ -1530,64 +1106,34 @@ void _openForm({Map<String, dynamic>? employee}) async {
 
   Widget _buildStats(bool isMobile) {
     final stats = [
-      {
-        'label': 'Total Users',
-        'value': '${employeeUsers.length}',
-        'icon': Icons.groups_rounded,
-        'color': _primary,
-      },
-      {
-        'label': 'Active Users',
-        'value': '$_activeCount',
-        'icon': Icons.verified_user_rounded,
-        'color': const Color(0xFF10B981),
-      },
-      {
-        'label': 'Administrators',
-        'value': '$_adminCount',
-        'icon': Icons.admin_panel_settings_rounded,
-        'color': const Color(0xFFF59E0B),
-      },      {
-        'label': 'Employees',
-        'value': '$_employeeCount',
-        'icon': Icons.badge_rounded,
-        'color': const Color(0xFF8B5CF6),
-      },
+      {'label': 'Total Users', 'value': '${employeeUsers.length}', 'icon': Icons.groups_rounded, 'color': _primary},
+      {'label': 'Active Users', 'value': '$_activeCount', 'icon': Icons.verified_user_rounded, 'color': const Color(0xFF10B981)},
+      {'label': 'Administrators', 'value': '$_adminCount', 'icon': Icons.admin_panel_settings_rounded, 'color': const Color(0xFFF59E0B)},
+      {'label': 'Employees', 'value': '$_employeeCount', 'icon': Icons.badge_rounded, 'color': const Color(0xFF8B5CF6)},
     ];
 
     return GridView.builder(
       shrinkWrap: true,
-      physics:
-          const NeverScrollableScrollPhysics(),
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: stats.length,
-      gridDelegate:
-          SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isMobile ? 2 : 4,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio:
-            isMobile ? 1.45 : 2.1,
+        childAspectRatio: isMobile ? 1.45 : 2.1,
       ),
       itemBuilder: (context, index) {
         final stat = stats[index];
         final color = stat['color'] as Color;
-
         return Container(
-          padding: EdgeInsets.all(
-            isMobile ? 14 : 18,
-          ),
+          padding: EdgeInsets.all(isMobile ? 14 : 18),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius:
-                BorderRadius.circular(18),
-            border: Border.all(
-              color: _border,
-            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _border),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: 0.025,
-                ),
+                color: Colors.black.withValues(alpha: 0.025),
                 blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
@@ -1599,50 +1145,20 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 width: isMobile ? 38 : 46,
                 height: isMobile ? 38 : 46,
                 decoration: BoxDecoration(
-                  color: color.withValues(
-                    alpha: 0.10,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(13),
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(
-                  stat['icon'] as IconData,
-                  color: color,
-                  size: isMobile ? 20 : 24,
-                ),
+                child: Icon(stat['icon'] as IconData, color: color, size: isMobile ? 20 : 24),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
-                  mainAxisAlignment:
-                      MainAxisAlignment.center,
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      stat['value'] as String,
-                      style: TextStyle(
-                        fontSize:
-                            isMobile ? 19 : 24,
-                        fontWeight:
-                            FontWeight.w900,
-                        color: _ink,
-                      ),
-                    ),
+                    Text(stat['value'] as String, style: TextStyle(fontSize: isMobile ? 19 : 24, fontWeight: FontWeight.w900, color: _ink)),
                     const SizedBox(height: 2),
-                    Text(
-                      stat['label'] as String,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize:
-                            isMobile ? 10 : 11,
-                        color: _muted,
-                        fontWeight:
-                            FontWeight.w600,
-                      ),
-                    ),
+                    Text(stat['label'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 10 : 11, color: _muted, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -1658,22 +1174,15 @@ void _openForm({Map<String, dynamic>? employee}) async {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _border),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              _searchQuery.isEmpty
-                  ? 'Manage team accounts and platform access'
-                  : 'Showing results for "$_searchQuery"',
-              style: const TextStyle(
-                color: _muted,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+              _searchQuery.isEmpty ? 'Manage team accounts and platform access' : 'Showing results for "$_searchQuery"',
+              style: const TextStyle(color: _muted, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
           IconButton(
@@ -1682,64 +1191,33 @@ void _openForm({Map<String, dynamic>? employee}) async {
             style: IconButton.styleFrom(
               backgroundColor: _primaryLight,
               foregroundColor: _primary,
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(12),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            icon: const Icon(
-              Icons.refresh_rounded,
-            ),
+            icon: const Icon(Icons.refresh_rounded),
           ),
           const SizedBox(width: 10),
           OutlinedButton.icon(
-            onPressed:
-                _showUserRoleMasterDialog,
-            icon: const Icon(
-              Icons.settings_suggest_rounded,
-              size: 18,
-            ),
+            onPressed: _showUserRoleMasterDialog,
+            icon: const Icon(Icons.settings_suggest_rounded, size: 18),
             label: const Text('Role Master'),
             style: OutlinedButton.styleFrom(
-              foregroundColor:
-                  const Color(0xFFE67E22),
-              side: const BorderSide(
-                color: Color(0xFFFCD9A6),
-              ),
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 16,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(12),
-              ),
+              foregroundColor: const Color(0xFFE67E22),
+              side: const BorderSide(color: Color(0xFFFCD9A6)),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
           const SizedBox(width: 10),
           ElevatedButton.icon(
             onPressed: () => _openForm(),
-            icon: const Icon(
-              Icons.person_add_alt_1_rounded,
-              size: 18,
-            ),
-            label: const Text(
-              'Add Employee',
-            ),
+            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+            label: const Text('Add Employee'),
             style: ElevatedButton.styleFrom(
               backgroundColor: _primary,
               foregroundColor: Colors.white,
               elevation: 0,
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 17,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(12),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ],
@@ -1752,8 +1230,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _border),
       ),
       child: Column(
@@ -1762,28 +1239,13 @@ void _openForm({Map<String, dynamic>? employee}) async {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed:
-                      _showUserRoleMasterDialog,
-                  icon: const Icon(
-                    Icons.settings_suggest_rounded,
-                    size: 17,
-                  ),
-                  label: const Text(
-                    'Role Master',
-                  ),
-                  style:
-                      OutlinedButton.styleFrom(
-                    foregroundColor:
-                        const Color(0xFFE67E22),
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 15,
-                    ),
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(12),
-                    ),
+                  onPressed: _showUserRoleMasterDialog,
+                  icon: const Icon(Icons.settings_suggest_rounded, size: 17),
+                  label: const Text('Role Master'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE67E22),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -1791,15 +1253,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
               IconButton(
                 onPressed: _fetchEmployees,
                 style: IconButton.styleFrom(
-                  backgroundColor:
-                      _primaryLight,
+                  backgroundColor: _primaryLight,
                   foregroundColor: _primary,
-                  minimumSize:
-                      const Size(52, 52),
+                  minimumSize: const Size(52, 52),
                 ),
-                icon: const Icon(
-                  Icons.refresh_rounded,
-                ),
+                icon: const Icon(Icons.refresh_rounded),
               ),
             ],
           ),
@@ -1808,26 +1266,14 @@ void _openForm({Map<String, dynamic>? employee}) async {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () => _openForm(),
-              icon: const Icon(
-                Icons.person_add_alt_1_rounded,
-              ),
-              label: const Text(
-                'Add New Employee',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Add New Employee'),
+              style: ElevatedButton.styleFrom(
                 backgroundColor: _primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(
-                  vertical: 16,
-                ),
-                shape:
-                    RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(13),
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
               ),
             ),
           ),
@@ -1888,15 +1334,14 @@ void _openForm({Map<String, dynamic>? employee}) async {
                     label: 'USER TYPE',
                     value: _tableUserTypeFilter,
                     items: const ['all', 'employee', 'admin'],
-                    onChanged: (value) =>
-                        setState(() => _tableUserTypeFilter = value),
+                    onChanged: (value) => setState(() => _tableUserTypeFilter = value),
                   ),
                 ),
                 const Expanded(
                   flex: 3,
                   child: Center(
-                  child: Text('ROLE', style: _tableHeading),
-                ),
+                    child: Text('ROLE', style: _tableHeading),
+                  ),
                 ),
                 SizedBox(
                   width: 132,
@@ -1904,14 +1349,12 @@ void _openForm({Map<String, dynamic>? employee}) async {
                     label: 'STATUS',
                     value: _tableStatusFilter,
                     items: const ['active', 'inactive', 'all'],
-                    onChanged: (value) =>
-                        setState(() => _tableStatusFilter = value),
+                    onChanged: (value) => setState(() => _tableStatusFilter = value),
                   ),
                 ),
                 const SizedBox(
                   width: 110,
-                  child: Text('ACTIONS',
-                      textAlign: TextAlign.center, style: _tableHeading),
+                  child: Text('ACTIONS', textAlign: TextAlign.center, style: _tableHeading),
                 ),
               ],
             ),
@@ -1930,10 +1373,8 @@ void _openForm({Map<String, dynamic>? employee}) async {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredEmployees.length,
-              separatorBuilder: (_, _) =>
-                  const Divider(height: 1, color: _border),
-              itemBuilder: (_, index) =>
-                  _buildDesktopEmployeeRow(_filteredEmployees[index], index),
+              separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
+              itemBuilder: (_, index) => _buildDesktopEmployeeRow(_filteredEmployees[index], index),
             ),
         ],
       ),
@@ -1994,17 +1435,12 @@ void _openForm({Map<String, dynamic>? employee}) async {
               child: Row(
                 children: [
                   Icon(
-                    item == value
-                        ? Icons.check_circle_rounded
-                        : Icons.circle_outlined,
+                    item == value ? Icons.check_circle_rounded : Icons.circle_outlined,
                     size: 16,
                     color: item == value ? _primary : _muted,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    item.toUpperCase(),
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-                  ),
+                  Text(item.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                 ],
               ),
             ),
@@ -2027,106 +1463,65 @@ void _openForm({Map<String, dynamic>? employee}) async {
             ),
           ),
           const SizedBox(width: 3),
-          Icon(Icons.keyboard_arrow_down_rounded,
-              size: 16, color: value == 'all' ? _muted : _primary),
+          Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: value == 'all' ? _muted : _primary),
         ],
       ),
     );
   }
 
-  Widget _buildDesktopEmployeeRow(
-    Map<String, dynamic> item,
-    int index,
-  ) {
-    final active =
-        _isTrue(item['is_active']);
-
+  Widget _buildDesktopEmployeeRow(Map<String, dynamic> item, int index) {
+    final active = _isTrue(item['is_active']);
     final id = _toInt(item['id']) ?? 0;
-
-    final isMain =
-        _isTrue(item['is_main_admin']);
-
-    final userType =
-        _normalizeUserType(item['user_type']);
+    final isMain = _isTrue(item['is_main_admin']);
+    final userType = _normalizeUserType(item['user_type']);
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 14,
-      ),
-      color: index.isEven
-          ? Colors.white
-          : const Color(0xFFFBFCFE),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
       child: Row(
         children: [
           SizedBox(
             width: 68,
             child: Align(
-  alignment: Alignment.centerLeft,
+              alignment: Alignment.centerLeft,
               child: Text(
                 '${index + 1}',
-                style: const TextStyle(
-                  color: _muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: const TextStyle(color: _muted, fontSize: 12, fontWeight: FontWeight.w800),
               ),
             ),
           ),
+          Expanded(flex: 4, child: _employeeIdentity(item)),
           Expanded(
-            flex: 4,
-            child: _employeeIdentity(item),
-          ),
-          Expanded(
-  flex: 2,
-  child: Align(
-    alignment: Alignment.centerLeft,
-    child: Text(
-      item['staff_id']?.toString() ?? '-',
-      style: const TextStyle(
-        color: _muted,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  ),
-),
-         Expanded(
-  flex: 2,
-    child: _userTypeBadge(
-      userType,
-      isMain,
-    ),
-  ),
-          Expanded(
-            flex: 3,child: Center(
-    // alignment: Alignment.center,
-            child: Text(
-              item['role']?.toString() ?? '-',
-              style: const TextStyle(
-                color: _ink,
-                fontWeight: FontWeight.w600,
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                item['staff_id']?.toString() ?? '-',
+                style: const TextStyle(color: _muted, fontWeight: FontWeight.w600),
               ),
             ),
           ),
+          Expanded(flex: 2, child: _userTypeBadge(userType, isMain)),
+          Expanded(
+            flex: 3,
+            child: Center(
+              child: Text(
+                item['role']?.toString() ?? '-',
+                style: const TextStyle(color: _ink, fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
-          
           SizedBox(
             width: 110,
             child: Align(
-    alignment: Alignment.centerLeft,
-              child: _statusButton(
-                id: id,
-                active: active,
-              ),
+              alignment: Alignment.centerLeft,
+              child: _statusButton(id: id, active: active),
             ),
           ),
           SizedBox(
             width: 110,
             child: Center(
-              child: _actionButtons(
-                item,
-                id,
-              ),
+              child: _actionButtons(item, id),
             ),
           ),
         ],
@@ -2138,41 +1533,25 @@ void _openForm({Map<String, dynamic>? employee}) async {
     if (_loading) {
       return const SizedBox(
         height: 260,
-        child: Center(
-          child:
-              CircularProgressIndicator(
-            color: _primary,
-          ),
-        ),
+        child: Center(child: CircularProgressIndicator(color: _primary)),
       );
     }
-
-    if (_error != null) {
-      return _buildErrorState();
-    }
-
-    if (_filteredEmployees.isEmpty) {
-      return _buildEmptyState();
-    }
+    if (_error != null) return _buildErrorState();
+    if (_filteredEmployees.isEmpty) return _buildEmptyState();
 
     return Column(
       children: [
         _buildMobileTableFilters(),
         const SizedBox(height: 12),
         ListView.separated(
-      shrinkWrap: true,
-      physics:
-          const NeverScrollableScrollPhysics(),
-      itemCount: _filteredEmployees.length,
-      separatorBuilder: (_, _) =>
-          const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-          return _buildMobileEmployeeCard(
-            _filteredEmployees[index],
-            index,
-          );
-        },
-      ),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _filteredEmployees.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            return _buildMobileEmployeeCard(_filteredEmployees[index], index);
+          },
+        ),
       ],
     );
   }
@@ -2193,13 +1572,8 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 child: _buildMobileFilterDropdown(
                   value: _tableUserTypeFilter,
                   icon: Icons.badge_outlined,
-                  items: const {
-                    'all': 'All Types',
-                    'employee': 'Employee',
-                    'admin': 'Admin',
-                  },
-                  onChanged: (value) =>
-                      setState(() => _tableUserTypeFilter = value),
+                  items: const {'all': 'All Types', 'employee': 'Employee', 'admin': 'Admin'},
+                  onChanged: (value) => setState(() => _tableUserTypeFilter = value),
                 ),
               ),
               const SizedBox(width: 10),
@@ -2207,13 +1581,8 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 child: _buildMobileFilterDropdown(
                   value: _tableStatusFilter,
                   icon: Icons.verified_outlined,
-                  items: const {
-                    'active': 'Active',
-                    'inactive': 'Inactive',
-                    'all': 'All Status',
-                  },
-                  onChanged: (value) =>
-                      setState(() => _tableStatusFilter = value),
+                  items: const {'active': 'Active', 'inactive': 'Inactive', 'all': 'All Status'},
+                  onChanged: (value) => setState(() => _tableStatusFilter = value),
                 ),
               ),
             ],
@@ -2275,11 +1644,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
                         child: Text(
                           entry.value,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: _ink,
-                          ),
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _ink),
                         ),
                       ),
                     ],
@@ -2303,18 +1668,11 @@ void _openForm({Map<String, dynamic>? employee}) async {
   }) {
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(
-        ascending
-            ? Icons.arrow_upward_rounded
-            : Icons.arrow_downward_rounded,
-        size: 15,
-      ),
+      icon: Icon(ascending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 15),
       label: Text(label),
       style: OutlinedButton.styleFrom(
         foregroundColor: active ? _primary : _muted,
-        side: BorderSide(
-          color: active ? _primary.withValues(alpha: 0.35) : _border,
-        ),
+        side: BorderSide(color: active ? _primary.withValues(alpha: 0.35) : _border),
         padding: const EdgeInsets.symmetric(vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
         textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
@@ -2322,41 +1680,28 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _buildMobileEmployeeCard(
-    Map<String, dynamic> item,
-    int index,
-  ) {
-    final active =
-        _isTrue(item['is_active']);
-
+  Widget _buildMobileEmployeeCard(Map<String, dynamic> item, int index) {
+    final active = _isTrue(item['is_active']);
     final id = _toInt(item['id']) ?? 0;
-
-    final isMain =
-        _isTrue(item['is_main_admin']);
-
-    final userType =
-        _normalizeUserType(item['user_type']);
+    final isMain = _isTrue(item['is_main_admin']);
+    final userType = _normalizeUserType(item['user_type']);
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: 0.025,
-            ),
+            color: Colors.black.withValues(alpha: 0.025),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -2364,93 +1709,40 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 width: 34,
                 height: 34,
                 alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: _primaryLight,
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: Text(
-                  '${index + 1}',
-                  style: const TextStyle(
-                    color: _primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+                decoration: BoxDecoration(color: _primaryLight, borderRadius: BorderRadius.circular(11)),
+                child: Text('${index + 1}', style: const TextStyle(color: _primary, fontSize: 11, fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              Expanded(
-                child: _employeeIdentity(item),
-              ),
+              Expanded(child: _employeeIdentity(item)),
               const SizedBox(width: 10),
-              _statusButton(
-                id: id,
-                active: active,
-              ),
+              _statusButton(id: id, active: active),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          Container(
-            height: 1,
-            color: _border,
-          ),
-
+          Container(height: 1, color: _border),
           const SizedBox(height: 14),
-
-          _mobileInfoRow(
-            Icons.badge_outlined,
-            'Staff ID',
-            item['staff_id']?.toString() ?? '-',
-          ),
-
+          _mobileInfoRow(Icons.badge_outlined, 'Staff ID', item['staff_id']?.toString() ?? '-'),
           const SizedBox(height: 10),
-
-          _mobileInfoRow(
-            Icons.work_outline_rounded,
-            'Role',
-            item['role']?.toString() ?? '-',
-          ),
-
+          _mobileInfoRow(Icons.work_outline_rounded, 'Role', item['role']?.toString() ?? '-'),
           const SizedBox(height: 12),
-
-          _userTypeBadge(
-            userType,
-            isMain,
-          ),
-
+          _userTypeBadge(userType, isMain),
           const SizedBox(height: 14),
-
-          Container(
-            height: 1,
-            color: _border,
-          ),
-
+          Container(height: 1, color: _border),
           const SizedBox(height: 6),
-
           Align(
             alignment: Alignment.centerRight,
-            child: _actionButtons(
-              item,
-              id,
-              mobile: true,
-            ),
+            child: _actionButtons(item, id, mobile: true),
           ),
         ],
       ),
     );
   }
 
-  Widget _employeeIdentity(
-    Map<String, dynamic> item,
-  ) {
-    final name =
-        item['full_name']?.toString() ?? '';
-
-    final initials =
-        item['initials']?.toString().isNotEmpty == true
-            ? item['initials'].toString()
-            : _getInitials(name);
+  Widget _employeeIdentity(Map<String, dynamic> item) {
+    final name = item['full_name']?.toString() ?? '';
+    final initials = item['initials']?.toString().isNotEmpty == true
+        ? item['initials'].toString()
+        : _getInitials(name);
 
     return Row(
       children: [
@@ -2458,51 +1750,32 @@ void _openForm({Map<String, dynamic>? employee}) async {
           width: 44,
           height: 44,
           decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                _primary,
-                Color(0xFF2879EE),
-              ],
-            ),
+            gradient: LinearGradient(colors: [_primary, Color(0xFF2879EE)]),
             shape: BoxShape.circle,
           ),
           alignment: Alignment.center,
           child: Text(
             initials,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
+            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900),
           ),
         ),
         const SizedBox(width: 11),
         Expanded(
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 name.isEmpty ? 'Unknown User' : name,
                 maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: _ink,
-                  fontSize: 14,
-                ),
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800, color: _ink, fontSize: 14),
               ),
               const SizedBox(height: 3),
               Text(
                 item['email']?.toString() ?? '',
                 maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: _muted,
-                  fontSize: 11,
-                ),
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: _muted, fontSize: 11),
               ),
             ],
           ),
@@ -2511,84 +1784,44 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _userTypeBadge(
-    String userType,
-    bool isMain,
-  ) {
+  Widget _userTypeBadge(String userType, bool isMain) {
     final isAdmin = userType == 'admin';
-
-    final label = isAdmin
-        ? (isMain ? 'MAIN ADMIN' : 'ADMIN')
-        : 'EMPLOYEE';
-
-    final color = isAdmin
-        ? const Color(0xFFE67E22)
-        : _primary;
+    final label = isAdmin ? (isMain ? 'MAIN ADMIN' : 'ADMIN') : 'EMPLOYEE';
+    final color = isAdmin ? const Color(0xFFE67E22) : _primary;
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 4,
-        vertical: 7,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.09),
-        borderRadius:
-            BorderRadius.circular(10),
-        border: Border.all(
-          color: color.withValues(alpha: 0.16),
-        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
       ),
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: TextStyle(
-          color: color,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.5,
-        ),
+        style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5),
       ),
     );
   }
 
-  Widget _statusButton({
-    required int id,
-    required bool active,
-  }) {
+  Widget _statusButton({required int id, required bool active}) {
     return InkWell(
-      onTap: id == 0
-          ? null
-          : () => _toggleStatus(id, active),
-      borderRadius:
-          BorderRadius.circular(20),
+      onTap: id == 0 ? null : () => _toggleStatus(id, active),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 7,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFFE9F9F2)
-              : const Color(0xFFF1F5F9),
-          borderRadius:
-              BorderRadius.circular(20),
-          border: Border.all(
-            color: active
-                ? const Color(0xFFB7EFD8)
-                : const Color(0xFFE2E8F0),
-          ),
+          color: active ? const Color(0xFFE9F9F2) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: active ? const Color(0xFFB7EFD8) : const Color(0xFFE2E8F0)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              active
-                  ? Icons.check_circle_rounded
-                  : Icons.pause_circle_outline_rounded,
+              active ? Icons.check_circle_rounded : Icons.pause_circle_outline_rounded,
               size: 13,
-              color: active
-                  ? const Color(0xFF059669)
-                  : _muted,
+              color: active ? const Color(0xFF059669) : _muted,
             ),
             const SizedBox(width: 5),
             Text(
@@ -2597,9 +1830,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 fontSize: 9,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.5,
-                color: active
-                    ? const Color(0xFF059669)
-                    : _muted,
+                color: active ? const Color(0xFF059669) : _muted,
               ),
             ),
           ],
@@ -2608,11 +1839,7 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _actionButtons(
-    Map<String, dynamic> item,
-    int id, {
-    bool mobile = false,
-  }) {
+  Widget _actionButtons(Map<String, dynamic> item, int id, {bool mobile = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2621,35 +1848,19 @@ void _openForm({Map<String, dynamic>? employee}) async {
           onPressed: id == 0
               ? null
               : () async {
-                  final data =
-                      await _fetchSingleEmployee(
-                    id,
-                  );
-
-                  if (data != null &&
-                      context.mounted) {
-                    _openForm(
-                      employee: data,
-                    );
+                  final data = await _fetchSingleEmployee(id);
+                  if (data != null && context.mounted) {
+                    _openForm(employee: data);
                   } else {
-                    _showSnack(
-                      'Failed to load employee data',
-                    );
+                    _showSnack('Failed to load employee data');
                   }
                 },
           style: IconButton.styleFrom(
-            backgroundColor:
-                _primaryLight,
+            backgroundColor: _primaryLight,
             foregroundColor: _primary,
-            minimumSize: Size(
-              mobile ? 44 : 38,
-              mobile ? 44 : 38,
-            ),
+            minimumSize: Size(mobile ? 44 : 38, mobile ? 44 : 38),
           ),
-          icon: const Icon(
-            Icons.edit_outlined,
-            size: 18,
-          ),
+          icon: const Icon(Icons.edit_outlined, size: 18),
         ),
         const SizedBox(width: 8),
         IconButton(
@@ -2657,70 +1868,39 @@ void _openForm({Map<String, dynamic>? employee}) async {
           onPressed: id == 0
               ? null
               : () async {
-                  final confirm =
-                      await _showConfirmDialog(
+                  final confirm = await _showConfirmDialog(
                     title: 'Delete Employee',
-                    message:
-                        'Remove ${item['full_name']} from the platform?',
+                    message: 'Remove ${item['full_name']} from the platform?',
                     confirmText: 'Delete',
                   );
-
                   if (confirm == true) {
                     _deleteEmployee(id);
                   }
                 },
           style: IconButton.styleFrom(
-            backgroundColor:
-                const Color(0xFFFFEEEE),
-            foregroundColor:
-                const Color(0xFFDC2626),
-            minimumSize: Size(
-              mobile ? 44 : 38,
-              mobile ? 44 : 38,
-            ),
+            backgroundColor: const Color(0xFFFFEEEE),
+            foregroundColor: const Color(0xFFDC2626),
+            minimumSize: Size(mobile ? 44 : 38, mobile ? 44 : 38),
           ),
-          icon: const Icon(
-            Icons.delete_outline_rounded,
-            size: 18,
-          ),
+          icon: const Icon(Icons.delete_outline_rounded, size: 18),
         ),
       ],
     );
   }
 
-  Widget _mobileInfoRow(
-    IconData icon,
-    String label,
-    String value,
-  ) {
+  Widget _mobileInfoRow(IconData icon, String label, String value) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 16,
-          color: _primary,
-        ),
+        Icon(icon, size: 16, color: _primary),
         const SizedBox(width: 9),
-        Text(
-          '$label:',
-          style: const TextStyle(
-            color: _muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        Text('$label:', style: const TextStyle(color: _muted, fontSize: 11, fontWeight: FontWeight.w700)),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
-            overflow:
-                TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: _ink,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: _ink, fontSize: 12, fontWeight: FontWeight.w700),
           ),
         ),
       ],
@@ -2731,39 +1911,18 @@ void _openForm({Map<String, dynamic>? employee}) async {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(20),
-        border: Border.all(color: _border),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
       child: Column(
         children: [
-          const Icon(
-            Icons.cloud_off_rounded,
-            size: 50,
-            color: Color(0xFFCBD5E1),
-          ),
+          const Icon(Icons.cloud_off_rounded, size: 50, color: Color(0xFFCBD5E1)),
           const SizedBox(height: 14),
-          Text(
-            _error ?? 'Something went wrong',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _muted,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          Text(_error ?? 'Something went wrong', textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontWeight: FontWeight.w600)),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _fetchEmployees,
-            icon: const Icon(
-              Icons.refresh_rounded,
-            ),
+            icon: const Icon(Icons.refresh_rounded),
             label: const Text('Retry'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primary,
-              foregroundColor: Colors.white,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: _primary, foregroundColor: Colors.white),
           ),
         ],
       ),
@@ -2774,365 +1933,211 @@ void _openForm({Map<String, dynamic>? employee}) async {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(45),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(20),
-        border: Border.all(color: _border),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
       child: Column(
         children: [
           Container(
             width: 68,
             height: 68,
-            decoration: const BoxDecoration(
-              color: _primaryLight,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.person_search_rounded,
-              color: _primary,
-              size: 32,
-            ),
+            decoration: const BoxDecoration(color: _primaryLight, shape: BoxShape.circle),
+            child: const Icon(Icons.person_search_rounded, color: _primary, size: 32),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'No users found',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          const Text('No users found', style: TextStyle(color: _ink, fontSize: 17, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
-          const Text(
-            'Create a new employee account to get started.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: _muted,
-              fontSize: 12,
-            ),
-          ),
+          const Text('Create a new employee account to get started.', textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12)),
         ],
       ),
     );
   }
 
   Widget _buildFormView() {
-    final isEditMode =
-        _editingEmployee != null;
-
-    final activeRoles =
-        _getActiveRoleOptions();
+    final isEditMode = _editingEmployee != null;
+    final activeRoles = _getActiveRoleOptions();
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isMobile =
-            constraints.maxWidth < 760;
+        final isMobile = constraints.maxWidth < 760;
 
         return SingleChildScrollView(
-          padding: EdgeInsets.all(
-            isMobile ? 14 : 24,
-          ),
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildFormHero(
-                isEditMode,
-                isMobile,
-              ),
-
+              _buildFormHero(isEditMode, isMobile),
               const SizedBox(height: 20),
-
-              if (_modalError != null)
-                _buildFormError(),
-
-              if (_modalError != null)
-                const SizedBox(height: 16),
-
+              if (_modalError != null) _buildFormError(),
+              if (_modalError != null) const SizedBox(height: 16),
               Container(
-                padding: EdgeInsets.all(
-                  isMobile ? 18 : 28,
-                ),
+                padding: EdgeInsets.all(isMobile ? 18 : 28),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(
-                    isMobile ? 20 : 24,
-                  ),
-                  border: Border.all(
-                    color: _border,
-                  ),
+                  borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
+                  border: Border.all(color: _border),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: 0.025,
-                      ),
+                      color: Colors.black.withValues(alpha: 0.025),
                       blurRadius: 24,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _sectionLabel(
-                      'Personal Information',
-                      Icons.person_outline_rounded,
-                    ),
-
+                    _sectionLabel('Personal Information', Icons.person_outline_rounded),
                     const SizedBox(height: 18),
-
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(
-                          controller:
-                              _firstNameCtrl,
-                          label: 'First Name *',
-                          hint: 'Enter first name',
-                          icon:
-                              Icons.person_outline_rounded,
-                        ),
-                        _modernTextField(
-                          controller:
-                              _middleNameCtrl,
-                          label: 'Middle Name',
-                          hint: 'Optional',
-                          icon:
-                              Icons.person_outline_rounded,
-                        ),
-                        _modernTextField(
-                          controller:
-                              _lastNameCtrl,
-                          label: 'Last Name *',
-                          hint: 'Enter last name',
-                          icon:
-                              Icons.person_outline_rounded,
-                        ),
+                        _modernTextField(controller: _firstNameCtrl, label: 'First Name *', hint: 'Enter first name', icon: Icons.person_outline_rounded),
+                        _modernTextField(controller: _middleNameCtrl, label: 'Middle Name', hint: 'Optional', icon: Icons.person_outline_rounded),
+                        _modernTextField(controller: _lastNameCtrl, label: 'Last Name *', hint: 'Enter last name', icon: Icons.person_outline_rounded),
                       ],
                     ),
-
                     const SizedBox(height: 28),
 
-                    _sectionLabel(
-                      'Account Configuration',
-                      Icons.manage_accounts_outlined,
-                    ),
-
+                    // 🟢 Additional Identification Section (Phone, Aadhaar, PAN)
+                    _sectionLabel('Additional Identification & Contact', Icons.badge_outlined),
                     const SizedBox(height: 18),
+                    _responsiveFields(
+                      isMobile: isMobile,
+                      children: [
+                        _modernTextField(controller: _phoneCtrl, label: 'Phone Number', hint: 'Optional', icon: Icons.phone_outlined),
+                        _modernTextField(controller: _aadharCtrl, label: 'Aadhaar Number', hint: 'Optional', icon: Icons.badge_outlined),
+                        _modernTextField(controller: _panCtrl, label: 'PAN Card Number', hint: 'Optional', icon: Icons.credit_card_outlined),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
 
+                    // 🟢 Bank Details for Pay Slip Section
+                    _sectionLabel('Bank Details (For Pay Slip)', Icons.account_balance_outlined),
+                    const SizedBox(height: 18),
+                    _responsiveFields(
+                      isMobile: isMobile,
+                      children: [
+                        _modernTextField(controller: _bankAccountNameCtrl, label: 'Account Holder Name', hint: 'Optional', icon: Icons.person_outline),
+                        _modernTextField(controller: _bankAccountNumberCtrl, label: 'Account Number', hint: 'Optional', icon: Icons.numbers_outlined),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _responsiveFields(
+                      isMobile: isMobile,
+                      children: [
+                        _modernTextField(controller: _bankIfscCtrl, label: 'IFSC Code', hint: 'Optional', icon: Icons.code_outlined),
+                        _modernTextField(controller: _bankNameCtrl, label: 'Bank Name & Branch', hint: 'Optional', icon: Icons.account_balance_wallet_outlined),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+
+                    // 🟢 Address Details Section
+                    _sectionLabel('Address Details', Icons.location_on_outlined),
+                    const SizedBox(height: 18),
+                    _responsiveFields(
+                      isMobile: isMobile,
+                      children: [
+                        _modernTextField(controller: _permAddressCtrl, label: 'Permanent Address', hint: 'Optional', icon: Icons.home_outlined),
+                        _modernTextField(controller: _tempAddressCtrl, label: 'Temporary Address', hint: 'Optional', icon: Icons.location_city_outlined),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+
+                    _sectionLabel('Account Configuration', Icons.manage_accounts_outlined),
+                    const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
                         _buildUserTypeSelector(),
                         _modernDropdown(
                           label: 'Role *',
-                          icon:
-                              Icons.work_outline_rounded,
-                          value:
-                              activeRoles.contains(
-                            _selectedRole,
-                          )
-                                  ? _selectedRole
-                                  : null,
-                          hint: activeRoles.isEmpty
-                              ? 'No roles available'
-                              : 'Select role',
+                          icon: Icons.work_outline_rounded,
+                          value: activeRoles.contains(_selectedRole) ? _selectedRole : null,
+                          hint: activeRoles.isEmpty ? 'No roles available' : 'Select role',
                           items: activeRoles,
                           onChanged: (value) {
                             if (value == null) return;
-
-                            setState(() {
-                              _selectedRole = value;
-                            });
+                            setState(() => _selectedRole = value);
                           },
                         ),
                         _modernTextField(
-                          controller:
-                              _staffIdCtrl,
+                          controller: _staffIdCtrl,
                           label: 'Staff ID *',
                           hint: 'Enter staff ID',
-                          icon:
-                              Icons.badge_outlined,
+                          icon: Icons.badge_outlined,
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 16),
-
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
+                        _modernTextField(controller: _emailCtrl, label: 'Email Address *', hint: 'employee@godigital.in', icon: Icons.email_outlined),
+                        _modernTextField(controller: _usernameCtrl, label: 'Username *', hint: 'Enter username', icon: Icons.alternate_email_rounded),
                         _modernTextField(
-                          controller: _emailCtrl,
-                          label: 'Email Address *',
-                          hint: 'employee@godigital.in',
-                          icon:
-                              Icons.email_outlined,
-                        ),
-                        _modernTextField(
-                          controller:
-                              _usernameCtrl,
-                          label: 'Username *',
-                          hint: 'Enter username',
-                          icon:
-                              Icons.alternate_email_rounded,
-                        ),
-                        _modernTextField(
-                          controller:
-                              _passwordCtrl,
-                          label: isEditMode
-                              ? 'Password'
-                              : 'Password *',
-                          hint: isEditMode
-                              ? 'Leave blank to keep current'
-                              : 'Minimum 6 characters',
-                          icon:
-                              Icons.lock_outline_rounded,
+                          controller: _passwordCtrl,
+                          label: isEditMode ? 'Password' : 'Password *',
+                          hint: isEditMode ? 'Leave blank to keep current' : 'Minimum 6 characters',
+                          icon: Icons.lock_outline_rounded,
                           isPassword: true,
                         ),
                       ],
                     ),
-
-                    if (_selectedUserType ==
-                        'admin') ...[
+                    if (_selectedUserType == 'admin') ...[
                       const SizedBox(height: 20),
                       _buildMainAdminToggle(),
                     ],
-
                     const SizedBox(height: 30),
-
                     _sectionLabel(
-                      _selectedUserType == 'admin'
-                          ? 'Admin Access Permissions'
-                          : 'Employee Access Permissions',
+                      _selectedUserType == 'admin' ? 'Admin Access Permissions' : 'Employee Access Permissions',
                       Icons.security_rounded,
                     ),
-
                     const SizedBox(height: 6),
-
                     Text(
-                      _isMainAdmin &&
-                              _selectedUserType ==
-                                  'admin'
+                      _isMainAdmin && _selectedUserType == 'admin'
                           ? 'Main admin has complete access to all platform modules.'
                           : 'Select the modules this user can access.',
-                      style: const TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                      ),
+                      style: const TextStyle(color: _muted, fontSize: 12),
                     ),
-
                     const SizedBox(height: 16),
-
-                    _buildPermissionGrid(
-                      isMobile,
-                    ),
-
+                    _buildPermissionGrid(isMobile),
                     const SizedBox(height: 28),
-
-                    Container(
-                      height: 1,
-                      color: _border,
-                    ),
-
+                    Container(height: 1, color: _border),
                     const SizedBox(height: 18),
-
                     isMobile
                         ? Column(
                             children: [
                               SizedBox(
                                 width: double.infinity,
-                                child:
-                                    OutlinedButton(
-                                  onPressed:
-                                      _isSubmitting
-                                          ? null
-                                          : _closeForm,
-                                  style:
-                                      OutlinedButton.styleFrom(
-                                    foregroundColor:
-                                        _muted,
-                                    side:
-                                        const BorderSide(
-                                      color: _border,
-                                    ),
-                                    padding:
-                                        const EdgeInsets
-                                            .symmetric(
-                                      vertical: 16,
-                                    ),
-                                    shape:
-                                        RoundedRectangleBorder(
-                                      borderRadius:
-                                          BorderRadius
-                                              .circular(
-                                        14,
-                                      ),
-                                    ),
+                                child: OutlinedButton(
+                                  onPressed: _isSubmitting ? null : _closeForm,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _muted,
+                                    side: const BorderSide(color: _border),
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                   ),
-                                  child:
-                                      const Text(
-                                    'Cancel',
-                                  ),
+                                  child: const Text('Cancel'),
                                 ),
                               ),
-                              const SizedBox(
-                                height: 10,
-                              ),
-                              SizedBox(
-                                width: double.infinity,
-                                child:
-                                    _buildSubmitButton(
-                                  isEditMode,
-                                ),
-                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(width: double.infinity, child: _buildSubmitButton(isEditMode)),
                             ],
                           )
                         : Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.end,
                             children: [
                               OutlinedButton(
-                                onPressed:
-                                    _isSubmitting
-                                        ? null
-                                        : _closeForm,
-                                style:
-                                    OutlinedButton.styleFrom(
-                                  foregroundColor:
-                                      _muted,
-                                  side:
-                                      const BorderSide(
-                                    color: _border,
-                                  ),
-                                  padding:
-                                      const EdgeInsets
-                                          .symmetric(
-                                    horizontal: 24,
-                                    vertical: 16,
-                                  ),
-                                  shape:
-                                      RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius
-                                            .circular(
-                                      14,
-                                    ),
-                                  ),
+                                onPressed: _isSubmitting ? null : _closeForm,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _muted,
+                                  side: const BorderSide(color: _border),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
-                                child:
-                                    const Text('Cancel'),
+                                child: const Text('Cancel'),
                               ),
-                              const SizedBox(
-                                width: 12,
-                              ),
-                              _buildSubmitButton(
-                                isEditMode,
-                              ),
+                              const SizedBox(width: 12),
+                              _buildSubmitButton(isEditMode),
                             ],
                           ),
                   ],
@@ -3146,31 +2151,18 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _buildFormHero(
-    bool isEditMode,
-    bool isMobile,
-  ) {
+  Widget _buildFormHero(bool isEditMode, bool isMobile) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(
-        isMobile ? 20 : 24,
-      ),
+      padding: EdgeInsets.all(isMobile ? 20 : 24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            _primaryDark,
-            _primary,
-          ],
-        ),
-        borderRadius:
-            BorderRadius.circular(24),
+        gradient: const LinearGradient(colors: [_primaryDark, _primary]),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Wrap(
-        alignment:
-            WrapAlignment.spaceBetween,
+        alignment: WrapAlignment.spaceBetween,
         runSpacing: 16,
-        crossAxisAlignment:
-            WrapCrossAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -3179,48 +2171,27 @@ void _openForm({Map<String, dynamic>? employee}) async {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(
-                    alpha: 0.14,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(16),
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
-                  isEditMode
-                      ? Icons.edit_rounded
-                      : Icons.person_add_alt_1_rounded,
+                  isEditMode ? Icons.edit_rounded : Icons.person_add_alt_1_rounded,
                   color: Colors.white,
                   size: 27,
                 ),
               ),
               const SizedBox(width: 14),
               Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isEditMode
-                        ? 'Edit Employee'
-                        : 'Create Employee',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize:
-                          isMobile ? 21 : 25,
-                      fontWeight:
-                          FontWeight.w900,
-                    ),
+                    isEditMode ? 'Edit Employee' : 'Create Employee',
+                    style: TextStyle(color: Colors.white, fontSize: isMobile ? 21 : 25, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    isEditMode
-                        ? 'Update account details and permissions.'
-                        : 'Configure a new secure employee account.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(
-                        alpha: 0.78,
-                      ),
-                      fontSize: 12,
-                    ),
+                    isEditMode ? 'Update account details and permissions.' : 'Configure a new secure employee account.',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.78), fontSize: 12),
                   ),
                 ],
               ),
@@ -3228,22 +2199,12 @@ void _openForm({Map<String, dynamic>? employee}) async {
           ),
           OutlinedButton.icon(
             onPressed: _closeForm,
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              size: 17,
-            ),
+            icon: const Icon(Icons.arrow_back_rounded, size: 17),
             label: const Text('Back'),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.white,
-              side: BorderSide(
-                color: Colors.white.withValues(
-                  alpha: 0.40,
-                ),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(12),
-              ),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.40)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ],
@@ -3257,27 +2218,17 @@ void _openForm({Map<String, dynamic>? employee}) async {
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF1F2),
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFFECACA),
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFECACA)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: Color(0xFFDC2626),
-          ),
+          const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               _modalError!,
-              style: const TextStyle(
-                color: Color(0xFFDC2626),
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
         ],
@@ -3287,50 +2238,32 @@ void _openForm({Map<String, dynamic>? employee}) async {
 
   Widget _buildUserTypeSelector() {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
           'User Type *',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            color: _ink,
-          ),
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink),
         ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
             color: _surface,
-            borderRadius:
-                BorderRadius.circular(14),
-            border: Border.all(
-              color: _border,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _border),
           ),
           child: Row(
             children: [
               Expanded(
                 child: _typeChoice(
                   label: 'Employee',
-                  icon:
-                      Icons.person_outline_rounded,
-                  selected:
-                      _selectedUserType ==
-                          'employee',
+                  icon: Icons.person_outline_rounded,
+                  selected: _selectedUserType == 'employee',
                   onTap: () {
                     setState(() {
-                      _selectedUserType =
-                          'employee';
+                      _selectedUserType = 'employee';
                       _isMainAdmin = false;
-
-                      final roles =
-                          _getActiveRoleOptions();
-
-                      _selectedRole =
-                          roles.isNotEmpty
-                              ? roles.first
-                              : '';
+                      final roles = _getActiveRoleOptions();
+                      _selectedRole = roles.isNotEmpty ? roles.first : '';
                     });
                   },
                 ),
@@ -3338,23 +2271,13 @@ void _openForm({Map<String, dynamic>? employee}) async {
               Expanded(
                 child: _typeChoice(
                   label: 'Admin',
-                  icon:
-                      Icons.admin_panel_settings_outlined,
-                  selected:
-                      _selectedUserType ==
-                          'admin',
+                  icon: Icons.admin_panel_settings_outlined,
+                  selected: _selectedUserType == 'admin',
                   onTap: () {
                     setState(() {
-                      _selectedUserType =
-                          'admin';
-
-                      final roles =
-                          _getActiveRoleOptions();
-
-                      _selectedRole =
-                          roles.isNotEmpty
-                              ? roles.first
-                              : '';
+                      _selectedUserType = 'admin';
+                      final roles = _getActiveRoleOptions();
+                      _selectedRole = roles.isNotEmpty ? roles.first : '';
                     });
                   },
                 ),
@@ -3374,43 +2297,23 @@ void _openForm({Map<String, dynamic>? employee}) async {
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius:
-          BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
-        duration:
-            const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.all(4),
-        padding: const EdgeInsets.symmetric(
-          vertical: 12,
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: selected
-              ? _primary
-              : Colors.transparent,
-          borderRadius:
-              BorderRadius.circular(10),
+          color: selected ? _primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 16,
-              color: selected
-                  ? Colors.white
-                  : _muted,
-            ),
+            Icon(icon, size: 16, color: selected ? Colors.white : _muted),
             const SizedBox(width: 6),
             Text(
               label,
-              style: TextStyle(
-                color: selected
-                    ? Colors.white
-                    : _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
+              style: TextStyle(color: selected ? Colors.white : _muted, fontSize: 12, fontWeight: FontWeight.w800),
             ),
           ],
         ),
@@ -3423,11 +2326,8 @@ void _openForm({Map<String, dynamic>? employee}) async {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF8ED),
-        borderRadius:
-            BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFFBE1B4),
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFBE1B4)),
       ),
       child: Row(
         children: [
@@ -3436,58 +2336,30 @@ void _openForm({Map<String, dynamic>? employee}) async {
             height: 44,
             decoration: const BoxDecoration(
               color: Color(0xFFFFE9C5),
-              borderRadius:
-                  BorderRadius.all(
-                Radius.circular(13),
-              ),
+              borderRadius: BorderRadius.all(Radius.circular(13)),
             ),
-            child: const Icon(
-              Icons.shield_rounded,
-              color: Color(0xFFE67E22),
-            ),
+            child: const Icon(Icons.shield_rounded, color: Color(0xFFE67E22)),
           ),
           const SizedBox(width: 12),
           const Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Main Administrator',
-                  style: TextStyle(
-                    color: _ink,
-                    fontWeight:
-                        FontWeight.w800,
-                  ),
-                ),
+                Text('Main Administrator', style: TextStyle(color: _ink, fontWeight: FontWeight.w800)),
                 SizedBox(height: 3),
-                Text(
-                  'Full access to all platform modules',
-                  style: TextStyle(
-                    color: _muted,
-                    fontSize: 11,
-                  ),
-                ),
+                Text('Full access to all platform modules', style: TextStyle(color: _muted, fontSize: 11)),
               ],
             ),
           ),
           Switch(
             value: _isMainAdmin,
             activeThumbColor: Colors.white,
-            activeTrackColor:
-                const Color(0xFFE67E22),
+            activeTrackColor: const Color(0xFFE67E22),
             onChanged: (value) {
               setState(() {
                 _isMainAdmin = value;
-
                 if (_isMainAdmin) {
-                  _selectedPermissions =
-                      availablePages
-                          .map(
-                            (page) =>
-                                page['route']!,
-                          )
-                          .toList();
+                  _selectedPermissions = availablePages.map((page) => page['route']!).toList();
                 } else {
                   _selectedPermissions.clear();
                 }
@@ -3499,116 +2371,69 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _buildPermissionGrid(
-    bool isMobile,
-  ) {
-    final currentPagesList =
-        _selectedUserType == 'admin'
-            ? adminPages
-            : employeePages;
+  Widget _buildPermissionGrid(bool isMobile) {
+    final currentPagesList = _selectedUserType == 'admin' ? adminPages : employeePages;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _surface,
-        borderRadius:
-            BorderRadius.circular(18),
-        border: Border.all(
-          color: _border,
-        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
       ),
       child: Wrap(
         spacing: 10,
         runSpacing: 10,
         children: currentPagesList.map((page) {
           final route = page['route']!;
-
-          final isLocked =
-              _selectedUserType == 'admin' &&
-                  _isMainAdmin;
-
-          final isChecked = isLocked ||
-              _selectedPermissions
-                  .contains(route);
+          final isLocked = _selectedUserType == 'admin' && _isMainAdmin;
+          final isChecked = isLocked || _selectedPermissions.contains(route);
 
           return SizedBox(
-            width: isMobile
-                ? double.infinity
-                : 250,
+            width: isMobile ? double.infinity : 250,
             child: InkWell(
               onTap: isLocked
                   ? null
                   : () {
                       setState(() {
                         if (isChecked) {
-                          _selectedPermissions
-                              .remove(route);
+                          _selectedPermissions.remove(route);
                         } else {
-                          _selectedPermissions
-                              .add(route);
+                          _selectedPermissions.add(route);
                         }
                       });
                     },
-              borderRadius:
-                  BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12),
               child: AnimatedContainer(
-                duration: const Duration(
-                  milliseconds: 160,
-                ),
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 11,
-                ),
+                duration: const Duration(milliseconds: 160),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                 decoration: BoxDecoration(
-                  color: isChecked
-                      ? _primaryLight
-                      : Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(12),
+                  color: isChecked ? _primaryLight : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isChecked
-                        ? _primary.withValues(
-                            alpha: 0.35,
-                          )
-                        : _border,
+                    color: isChecked ? _primary.withValues(alpha: 0.35) : _border,
                   ),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      isChecked
-                          ? Icons
-                              .check_circle_rounded
-                          : Icons
-                              .radio_button_unchecked_rounded,
+                      isChecked ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                       size: 18,
-                      color: isChecked
-                          ? _primary
-                          : const Color(
-                              0xFF94A3B8,
-                            ),
+                      color: isChecked ? _primary : const Color(0xFF94A3B8),
                     ),
                     const SizedBox(width: 9),
                     Expanded(
                       child: Text(
                         page['title']!,
                         style: TextStyle(
-                          color: isChecked
-                              ? _primaryDark
-                              : _muted,
+                          color: isChecked ? _primaryDark : _muted,
                           fontSize: 12,
-                          fontWeight:
-                              FontWeight.w700,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                     if (isLocked)
-                      const Icon(
-                        Icons.lock_rounded,
-                        size: 14,
-                        color: Color(0xFFE67E22),
-                      ),
+                      const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFE67E22)),
                   ],
                 ),
               ),
@@ -3619,99 +2444,59 @@ void _openForm({Map<String, dynamic>? employee}) async {
     );
   }
 
-  Widget _buildSubmitButton(
-    bool isEditMode,
-  ) {
+  Widget _buildSubmitButton(bool isEditMode) {
     return ElevatedButton(
-      onPressed:
-          _isSubmitting ? null : _handleSubmit,
+      onPressed: _isSubmitting ? null : _handleSubmit,
       style: ElevatedButton.styleFrom(
         backgroundColor: _primary,
         foregroundColor: Colors.white,
         elevation: 0,
-        padding:
-            const EdgeInsets.symmetric(
-          horizontal: 26,
-          vertical: 17,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.circular(14),
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 17),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       child: _isSubmitting
           ? const SizedBox(
               width: 20,
               height: 20,
-              child:
-                  CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  isEditMode
-                      ? Icons
-                          .save_as_rounded
-                      : Icons
-                          .person_add_alt_1_rounded,
-                  size: 18,
-                ),
+                Icon(isEditMode ? Icons.save_as_rounded : Icons.person_add_alt_1_rounded, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  isEditMode
-                      ? 'Update Employee'
-                      : 'Create Employee',
-                  style: const TextStyle(
-                    fontWeight:
-                        FontWeight.w800,
-                  ),
+                  isEditMode ? 'Update Employee' : 'Create Employee',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
     );
   }
 
-  Widget _responsiveFields({
-    required bool isMobile,
-    required List<Widget> children,
-  }) {
+  Widget _responsiveFields({required bool isMobile, required List<Widget> children}) {
     if (isMobile) {
       return Column(
         children: [
-          for (int i = 0;
-              i < children.length;
-              i++) ...[
+          for (int i = 0; i < children.length; i++) ...[
             children[i],
-            if (i != children.length - 1)
-              const SizedBox(height: 16),
+            if (i != children.length - 1) const SizedBox(height: 16),
           ],
         ],
       );
     }
-
     return Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (int i = 0;
-            i < children.length;
-            i++) ...[
+        for (int i = 0; i < children.length; i++) ...[
           Expanded(child: children[i]),
-          if (i != children.length - 1)
-            const SizedBox(width: 16),
+          if (i != children.length - 1) const SizedBox(width: 16),
         ],
       ],
     );
   }
 
-  Widget _sectionLabel(
-    String text,
-    IconData icon,
-  ) {
+  Widget _sectionLabel(String text, IconData icon) {
     return Row(
       children: [
         Container(
@@ -3719,26 +2504,12 @@ void _openForm({Map<String, dynamic>? employee}) async {
           height: 34,
           decoration: const BoxDecoration(
             color: _primaryLight,
-            borderRadius:
-                BorderRadius.all(
-              Radius.circular(10),
-            ),
+            borderRadius: BorderRadius.all(Radius.circular(10)),
           ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: _primary,
-          ),
+          child: Icon(icon, size: 18, color: _primary),
         ),
         const SizedBox(width: 10),
-        Text(
-          text,
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 15,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
+        Text(text, style: const TextStyle(color: _ink, fontSize: 15, fontWeight: FontWeight.w900)),
       ],
     );
   }
@@ -3751,79 +2522,38 @@ void _openForm({Map<String, dynamic>? employee}) async {
     bool isPassword = false,
   }) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            color: _ink,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink)),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          obscureText: isPassword ? _obscurePassword : false, // 🟢 Toggle password visibility
-          style: const TextStyle(
-            fontSize: 13,
-            color: _ink,
-            fontWeight: FontWeight.w600,
-          ),
+          obscureText: isPassword ? _obscurePassword : false,
+          style: const TextStyle(fontSize: 13, color: _ink, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(
-              color: Color(0xFF94A3B8),
-              fontSize: 12,
-            ),
-            prefixIcon: Icon(
-              icon,
-              size: 19,
-              color: _primary,
-            ),
-            // 🟢 Add eye icon suffix to toggle visibility if it's a password field
+            hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+            prefixIcon: Icon(icon, size: 19, color: _primary),
             suffixIcon: isPassword
                 ? IconButton(
                     icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
+                      _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                       color: _muted,
                       size: 19,
                     ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   )
                 : null,
             filled: true,
             fillColor: _surface,
-            contentPadding:
-                const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 16,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _border),
             ),
-            enabledBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _border,
-              ),
-            ),
-            focusedBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _primary,
-                width: 1.5,
-              ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _primary, width: 1.5),
             ),
           ),
         ),
@@ -3840,82 +2570,31 @@ void _openForm({Map<String, dynamic>? employee}) async {
     required ValueChanged<String?> onChanged,
   }) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            color: _ink,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: value,
           isExpanded: true,
-          icon: const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: _primary,
-          ),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: _primary),
           decoration: InputDecoration(
-            prefixIcon: Icon(
-              icon,
-              size: 19,
-              color: _primary,
-            ),
+            prefixIcon: Icon(icon, size: 19, color: _primary),
             filled: true,
             fillColor: _surface,
-            contentPadding:
-                const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 15,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _border),
             ),
-            enabledBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _border,
-              ),
-            ),
-            focusedBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _primary,
-                width: 1.5,
-              ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _primary, width: 1.5),
             ),
           ),
-          hint: Text(
-            hint,
-            style: const TextStyle(
-              color: Color(0xFF94A3B8),
-              fontSize: 12,
-            ),
-          ),
-          items: items
-              .map(
-                (role) =>
-                    DropdownMenuItem<String>(
-                  value: role,
-                  child: Text(
-                    role,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: _ink,
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged:
-              items.isEmpty ? null : onChanged,
+          hint: Text(hint, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+          items: items.map((role) => DropdownMenuItem<String>(value: role, child: Text(role, style: const TextStyle(fontSize: 13, color: _ink)))).toList(),
+          onChanged: items.isEmpty ? null : onChanged,
         ),
       ],
     );
@@ -3924,22 +2603,13 @@ void _openForm({Map<String, dynamic>? employee}) async {
   Widget _buildDialogDropdown({
     required String label,
     required String value,
-    required List<DropdownMenuItem<String>>
-        items,
+    required List<DropdownMenuItem<String>> items,
     required ValueChanged<String?> onChanged,
   }) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 12,
-            color: _ink,
-          ),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _ink)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: value,
@@ -3948,27 +2618,14 @@ void _openForm({Map<String, dynamic>? employee}) async {
           decoration: InputDecoration(
             filled: true,
             fillColor: _surface,
-            prefixIcon: const Icon(
-              Icons.category_outlined,
-              color: _primary,
+            prefixIcon: const Icon(Icons.category_outlined, color: _primary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _border),
             ),
-            border:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _border,
-              ),
-            ),
-            enabledBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(
-                color: _border,
-              ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: _border),
             ),
           ),
         ),
@@ -3977,26 +2634,13 @@ void _openForm({Map<String, dynamic>? employee}) async {
   }
 
   String _getInitials(String name) {
-    final parts = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((e) => e.isNotEmpty)
-        .toList();
-
+    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
-
-    if (parts.length == 1) {
-      return parts.first
-          .substring(0, 1)
-          .toUpperCase();
-    }
-
-    return '${parts.first[0]}${parts.last[0]}'
-        .toUpperCase();
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
-  static const TextStyle _tableHeading =
-      TextStyle(
+  static const TextStyle _tableHeading = TextStyle(
     fontSize: 10,
     fontWeight: FontWeight.w900,
     color: _muted,

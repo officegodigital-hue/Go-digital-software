@@ -128,6 +128,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       debugPrint("Polling error: $e");
     }
   }
+  
 
   void _triggerTopRightPopup(String message) {
     setState(() {
