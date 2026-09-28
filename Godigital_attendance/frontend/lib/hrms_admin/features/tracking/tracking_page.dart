@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -16,6 +18,24 @@ abstract final class HrmsColors {
   static const blue = Color(0xFF075EF7);
   static const navy = Color(0xFF061457);
   static const page = Color(0xFFFCFDFF);
+}
+
+Future<BitmapDescriptor> _adminRouteMarkerIcon(Color color, String label) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawCircle(const Offset(30, 31), 23, Paint()..color = const Color(0x33000000));
+  final pin = Path()
+    ..moveTo(28, 62)
+    ..lineTo(14, 35)
+    ..arcToPoint(const Offset(42, 35), radius: const Radius.circular(20))
+    ..close();
+  canvas.drawPath(pin, Paint()..color = color);
+  canvas.drawCircle(const Offset(28, 28), 16, Paint()..color = Colors.white);
+  final painter = TextPainter(text: TextSpan(text: label, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900)), textDirection: ui.TextDirection.ltr)..layout();
+  painter.paint(canvas, Offset(28 - painter.width / 2, 28 - painter.height / 2));
+  final image = await recorder.endRecording().toImage(56, 70);
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  return BitmapDescriptor.bytes(Uint8List.fromList(bytes!.buffer.asUint8List()));
 }
 
 class TrackingPage extends StatefulWidget {
@@ -848,6 +868,7 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
   bool _loading = true;
   String? _error;
   List<_RoutePoint> _points = const [];
+  BitmapDescriptor? _startMarker, _endMarker;
 
   List<LatLng> get _coordinates => _points
       .where((point) => point.latitude != null && point.longitude != null)
@@ -855,7 +876,12 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
       .toList();
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _loadMarkerIcons(); }
+
+  Future<void> _loadMarkerIcons() async {
+    final icons = await Future.wait([_adminRouteMarkerIcon(HrmsColors.blue, 'S'), _adminRouteMarkerIcon(const Color(0xFF7E20E8), 'E')]);
+    if (mounted) setState(() { _startMarker = icons[0]; _endMarker = icons[1]; });
+  }
 
   @override
   void didUpdateWidget(covariant _SelectedRouteMap oldWidget) {
@@ -952,10 +978,10 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
                           key: ValueKey('${widget.employee.employeeUserId}-${_date.toIso8601String()}-${route.length}'),
                           initialCameraPosition: CameraPosition(target: center, zoom: 15),
                           mapToolbarEnabled: false,
-                          polylines: {Polyline(polylineId: const PolylineId('selected-route'), points: route, color: const Color(0xFF00A878), width: 5)},
+                          polylines: {Polyline(polylineId: const PolylineId('selected-route'), points: route, color: HrmsColors.blue, width: 5)},
                           markers: {
-                            Marker(markerId: const MarkerId('route-start'), position: route.first, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-                            Marker(markerId: const MarkerId('route-latest'), position: route.last, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
+                            Marker(markerId: const MarkerId('route-start'), position: route.first, icon: _startMarker ?? BitmapDescriptor.defaultMarker, infoWindow: const InfoWindow(title: 'Start point')),
+                            if (route.length > 1) Marker(markerId: const MarkerId('route-end'), position: route.last, icon: _endMarker ?? BitmapDescriptor.defaultMarker, infoWindow: const InfoWindow(title: 'End point')),
                           },
                           circles: {
                             for (var index = 1; index < route.length - 1; index++)
@@ -1658,6 +1684,7 @@ class _RouteDialogState extends State<_RouteDialog> {
   List<_RoutePoint> points = [];
   GoogleMapController? _routeMapController;
   DateTime selectedDate = DateTime.now();
+  BitmapDescriptor? _startMarker, _endMarker;
 
   List<LatLng> get _routeCoordinates => points
       .where((point) => point.latitude != null && point.longitude != null)
@@ -1699,6 +1726,12 @@ class _RouteDialogState extends State<_RouteDialog> {
   void initState() {
     super.initState();
     _load();
+    _loadMarkerIcons();
+  }
+
+  Future<void> _loadMarkerIcons() async {
+    final icons = await Future.wait([_adminRouteMarkerIcon(HrmsColors.blue, 'S'), _adminRouteMarkerIcon(const Color(0xFF7E20E8), 'E')]);
+    if (mounted) setState(() { _startMarker = icons[0]; _endMarker = icons[1]; });
   }
 
   Future<void> _load() async {
@@ -1888,7 +1921,7 @@ class _RouteDialogState extends State<_RouteDialog> {
                                 Polyline(
                                   polylineId: const PolylineId('employee-route'),
                                   points: _routeCoordinates,
-                                  color: const Color(0xFF00A878),
+                                  color: HrmsColors.blue,
                                   width: 5,
                                 ),
                               },
@@ -1904,19 +1937,16 @@ class _RouteDialogState extends State<_RouteDialog> {
                                 Marker(
                                   markerId: const MarkerId('route-start'),
                                   position: _routeCoordinates.first,
-                                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                                    BitmapDescriptor.hueAzure,
-                                  ),
-                                  infoWindow: const InfoWindow(title: 'Start location'),
+                                    icon: _startMarker ?? BitmapDescriptor.defaultMarker,
+                                  infoWindow: const InfoWindow(title: 'Start point'),
                                 ),
-                                Marker(
-                                  markerId: const MarkerId('route-current'),
-                                  position: _routeCoordinates.last,
-                                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                                    BitmapDescriptor.hueRed,
+                                if (_routeCoordinates.length > 1)
+                                  Marker(
+                                    markerId: const MarkerId('route-end'),
+                                    position: _routeCoordinates.last,
+                                    icon: _endMarker ?? BitmapDescriptor.defaultMarker,
+                                    infoWindow: const InfoWindow(title: 'End point'),
                                   ),
-                                  infoWindow: const InfoWindow(title: 'Latest location'),
-                                ),
                               },
                             ),
                           ),

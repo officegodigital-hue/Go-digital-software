@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
+const crypto = require('crypto');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -199,6 +200,107 @@ async function list(req, res) {
 }
 
 const ACTIVE_WINDOW_MINUTES = 15;
+
+async function ensureRoadRouteCacheTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_road_route_cache (
+    employee_user_id INT NOT NULL,
+    route_date DATE NOT NULL,
+    source_signature CHAR(64) NOT NULL,
+    route_points_json LONGTEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (employee_user_id, route_date)
+  )`);
+}
+
+function rawRoutePoints(pings) {
+  return pings.map(function (row) {
+    return {
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      address: row.address,
+      recordedAt: row.recorded_at,
+    };
+  });
+}
+
+function routeSignature(points) {
+  return crypto.createHash('sha256').update(points.map(function (point) {
+    return [point.latitude, point.longitude, String(point.recordedAt || '')].join(',');
+  }).join('|')).digest('hex');
+}
+
+function withoutDuplicatePoints(points) {
+  return points.filter(function (point, index) {
+    if (!index) return true;
+    const previous = points[index - 1];
+    return previous.latitude !== point.latitude || previous.longitude !== point.longitude;
+  });
+}
+
+async function snapRouteToRoads(employeeUserId, date, rawPoints) {
+  const apiKey = String(process.env.GOOGLE_ROADS_API_KEY || '').trim();
+  if (rawPoints.length < 2 || !apiKey) {
+    return { points: rawPoints, roadSnapped: false };
+  }
+
+  const signature = routeSignature(rawPoints);
+  try {
+    await ensureRoadRouteCacheTable();
+    const [cachedRows] = await db.query(
+      `SELECT route_points_json FROM hrms_road_route_cache
+       WHERE employee_user_id = ? AND route_date = ? AND source_signature = ?`,
+      [employeeUserId, date, signature]
+    );
+    if (cachedRows.length) {
+      const cached = JSON.parse(cachedRows[0].route_points_json);
+      if (Array.isArray(cached) && cached.length >= 2) {
+        return { points: cached, roadSnapped: true };
+      }
+    }
+
+    // Roads API accepts at most 100 GPS points per request. Adjacent chunks
+    // share their boundary point so a long journey remains continuous.
+    const snapped = [];
+    for (let start = 0; start < rawPoints.length; start += 99) {
+      const chunk = rawPoints.slice(start, start + 100);
+      if (chunk.length < 2) break;
+      const path = chunk.map(function (point) {
+        return point.latitude + ',' + point.longitude;
+      }).join('|');
+      const url = 'https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' +
+        encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Roads API returned ' + response.status);
+      const body = await response.json();
+      const points = Array.isArray(body.snappedPoints) ? body.snappedPoints : [];
+      if (!points.length) throw new Error('Roads API returned no snapped points');
+      points.forEach(function (point) {
+        if (point.location) {
+          snapped.push({
+            latitude: Number(point.location.latitude),
+            longitude: Number(point.location.longitude),
+          });
+        }
+      });
+    }
+
+    const route = withoutDuplicatePoints(snapped);
+    if (route.length < 2) throw new Error('Roads API did not produce a usable route');
+    await db.query(
+      `INSERT INTO hrms_road_route_cache
+       (employee_user_id, route_date, source_signature, route_points_json)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE source_signature = VALUES(source_signature),
+         route_points_json = VALUES(route_points_json)`,
+      [employeeUserId, date, signature, JSON.stringify(route)]
+    );
+    return { points: route, roadSnapped: true };
+  } catch (error) {
+    console.error('Road snapping failed; using raw GPS route:', error.message);
+    return { points: rawPoints, roadSnapped: false };
+  }
+}
 const GEOCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h; rounded coords repeat a lot
 const geocodeCache = new Map();
 
@@ -595,17 +697,12 @@ async function routeHistory(req, res) {
       [employeeUserId, date]
     );
 
+    const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: employeeUserId,
       date: date,
-      points: pings.map(function (row) {
-        return {
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          address: row.address,
-          recordedAt: row.recorded_at,
-        };
-      }),
+      points: route.points,
+      roadSnapped: route.roadSnapped,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
@@ -624,15 +721,12 @@ async function myRouteHistory(req, res) {
        ORDER BY recorded_at ASC`,
       [req.user.id, date]
     );
+    const route = await snapRouteToRoads(req.user.id, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: req.user.id,
       date: date,
-      points: pings.map(function (row) {
-        return {
-          latitude: Number(row.latitude), longitude: Number(row.longitude),
-          address: row.address, recordedAt: row.recorded_at,
-        };
-      }),
+      points: route.points,
+      roadSnapped: route.roadSnapped,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/my', error);
