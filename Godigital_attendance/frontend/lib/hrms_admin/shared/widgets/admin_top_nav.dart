@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../services/hrms_notifications_api.dart';
 import '../../../services/auth_service.dart';
@@ -88,6 +89,8 @@ class AdminTopNav extends StatelessWidget {
             ),
           if (compact && !mobile) const SizedBox(width: 8),
           AdminNotificationBell(mobile: mobile),
+          const SizedBox(width: 8),
+          const AdminAccountButton(),
           SizedBox(
             width: mobile
                 ? 3
@@ -214,6 +217,116 @@ class AdminLogoutButton extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: const BorderSide(color: Color(0xFFD6E0F0)),
+        ),
+      ),
+    );
+  }
+}
+
+class AdminAccountButton extends StatelessWidget {
+  const AdminAccountButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Change username or password',
+    onPressed: () => _showDialog(context),
+    icon: const Icon(Icons.manage_accounts_outlined, color: _navy),
+  );
+
+  Future<void> _showDialog(BuildContext context) async {
+    final auth = context.read<AuthService>();
+    final currentUsername = TextEditingController(
+      text: auth.user?['username']?.toString() ?? '',
+    );
+    final newUsername = TextEditingController();
+    final currentPassword = TextEditingController();
+    final newPassword = TextEditingController();
+    var hidden = true;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Admin account credentials'),
+          content: SizedBox(
+            width: 390,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: currentUsername,
+                  decoration: const InputDecoration(
+                    labelText: 'Current username',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: currentPassword,
+                  obscureText: hidden,
+                  decoration: InputDecoration(
+                    labelText: 'Current password',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        hidden
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () => setDialogState(() => hidden = !hidden),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newUsername,
+                  decoration: const InputDecoration(
+                    labelText: 'New username (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newPassword,
+                  obscureText: hidden,
+                  decoration: const InputDecoration(
+                    labelText: 'New password (optional, minimum 8)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final message = await auth.changePassword(
+                  username: currentUsername.text,
+                  currentPassword: currentPassword.text,
+                  newPassword: newPassword.text,
+                  newUsername: newUsername.text,
+                );
+                if (!dialogContext.mounted) return;
+                if (message == null) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Admin credentials updated. Use the new details at your next login.',
+                      ),
+                    ),
+                  );
+                } else
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(message)));
+              },
+              child: const Text('Save'),
+            ),
+          ],
         ),
       ),
     );
