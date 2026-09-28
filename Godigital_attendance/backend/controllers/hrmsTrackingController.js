@@ -224,10 +224,10 @@ function rawRoutePoints(pings) {
   });
 }
 
-function routeSignature(points) {
+function routeSignature(points, engine) {
   return crypto.createHash('sha256').update(points.map(function (point) {
     return [point.latitude, point.longitude, String(point.recordedAt || '')].join(',');
-  }).join('|')).digest('hex');
+  }).join('|') + '|' + String(engine || 'raw')).digest('hex');
 }
 
 function withoutDuplicatePoints(points) {
@@ -238,13 +238,99 @@ function withoutDuplicatePoints(points) {
   });
 }
 
+// Google Routes returns a compact encoded polyline. Decode it on the server so
+// Flutter only receives ordinary latitude/longitude points.
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, latitude = 0, longitude = 0;
+  while (index < encoded.length) {
+    let result = 0, shift = 0, byte;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+    latitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+    result = 0; shift = 0;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+    longitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+    points.push({ latitude: latitude / 1e5, longitude: longitude / 1e5 });
+  }
+  return points;
+}
+
+function routesWaypoint(point) {
+  return { location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } } };
+}
+
+async function routeWithGoogleRoutes(rawPoints, apiKey) {
+  // Routes API accepts a limited number of intermediate waypoints. Each group
+  // overlaps one point, preserving a continuous whole-day journey.
+  const MAX_POINTS_PER_REQUEST = 27; // origin + 25 intermediates + destination
+  const geometry = [];
+  for (let start = 0; start < rawPoints.length - 1; start += MAX_POINTS_PER_REQUEST - 1) {
+    const chunk = rawPoints.slice(start, start + MAX_POINTS_PER_REQUEST);
+    if (chunk.length < 2) break;
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.polyline.encodedPolyline'
+      },
+      body: JSON.stringify({
+        origin: routesWaypoint(chunk[0]),
+        destination: routesWaypoint(chunk[chunk.length - 1]),
+        intermediates: chunk.slice(1, -1).map(routesWaypoint),
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_UNAWARE',
+        polylineQuality: 'HIGH_QUALITY',
+        polylineEncoding: 'ENCODED_POLYLINE'
+      })
+    });
+    if (!response.ok) throw new Error('Routes API returned ' + response.status + ': ' + (await response.text()).slice(0, 180));
+    const body = await response.json();
+    const encoded = body && body.routes && body.routes[0] && body.routes[0].polyline && body.routes[0].polyline.encodedPolyline;
+    const points = encoded ? decodePolyline(encoded) : [];
+    if (points.length < 2) throw new Error('Routes API returned no usable route polyline');
+    geometry.push.apply(geometry, points);
+  }
+  return withoutDuplicatePoints(geometry);
+}
+
 async function snapRouteToRoads(employeeUserId, date, rawPoints) {
   const apiKey = String(process.env.GOOGLE_ROADS_API_KEY || '').trim();
-  if (rawPoints.length < 2 || !apiKey) {
+  const routesApiKey = String(process.env.GOOGLE_ROUTES_API_KEY || process.env.GOOGLE_ROADS_API_KEY || '').trim();
+  if (rawPoints.length < 2 || (!apiKey && !routesApiKey)) {
     return { points: rawPoints, roadSnapped: false };
   }
 
-  const signature = routeSignature(rawPoints);
+  // Prefer Routes API: unlike point snapping, it calculates the road path
+  // between GPS readings. Cache it under a new signature so an old snapped
+  // route is never returned after this upgrade.
+  if (routesApiKey) {
+    const routesSignature = routeSignature(rawPoints, 'routes-v1');
+    try {
+      await ensureRoadRouteCacheTable();
+      const [cachedRows] = await db.query(
+        `SELECT route_points_json FROM hrms_road_route_cache
+         WHERE employee_user_id = ? AND route_date = ? AND source_signature = ?`,
+        [employeeUserId, date, routesSignature]
+      );
+      if (cachedRows.length) {
+        const cached = JSON.parse(cachedRows[0].route_points_json);
+        if (Array.isArray(cached) && cached.length >= 2) return { points: cached, roadSnapped: true, routeMatched: true };
+      }
+      const route = await routeWithGoogleRoutes(rawPoints, routesApiKey);
+      if (route.length < 2) throw new Error('Routes API did not produce a usable route');
+      await db.query(
+        `INSERT INTO hrms_road_route_cache (employee_user_id, route_date, source_signature, route_points_json)
+         VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE source_signature = VALUES(source_signature), route_points_json = VALUES(route_points_json)`,
+        [employeeUserId, date, routesSignature, JSON.stringify(route)]
+      );
+      return { points: route, roadSnapped: true, routeMatched: true };
+    } catch (error) {
+      console.error('Routes API failed; trying Roads API fallback:', error.message);
+    }
+  }
+
+  const signature = routeSignature(rawPoints, 'roads-v1');
   try {
     await ensureRoadRouteCacheTable();
     const [cachedRows] = await db.query(
