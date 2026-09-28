@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -32,6 +34,33 @@ class EmployeeTrackingPage extends StatelessWidget {
 }
 
 enum _WorkMode { office, hybrid, field }
+
+Future<BitmapDescriptor> _routeMarkerIcon(Color color, String label) async {
+  const width = 56.0;
+  const height = 70.0;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final shadow = Paint()..color = const Color(0x33000000);
+  canvas.drawCircle(const Offset(30, 31), 23, shadow);
+  final pin = Path()
+    ..moveTo(28, 62)
+    ..lineTo(14, 35)
+    ..arcToPoint(const Offset(42, 35), radius: const Radius.circular(20))
+    ..close();
+  canvas.drawPath(pin, Paint()..color = color);
+  canvas.drawCircle(const Offset(28, 28), 16, Paint()..color = Colors.white);
+  final painter = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900),
+    ),
+    textDirection: ui.TextDirection.ltr,
+  )..layout();
+  painter.paint(canvas, Offset(28 - painter.width / 2, 28 - painter.height / 2));
+  final image = await recorder.endRecording().toImage(width.toInt(), height.toInt());
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  return BitmapDescriptor.bytes(Uint8List.fromList(bytes!.buffer.asUint8List()));
+}
 
 class _EmployeeRoutePoint {
   const _EmployeeRoutePoint({
@@ -68,6 +97,8 @@ class _TrackingViewState extends State<_TrackingView> {
   Position? _stationaryStartPosition;
   DateTime? _stationarySince;
   bool _localWaitingDialogOpen = false;
+  BitmapDescriptor? _routeStartMarker;
+  BitmapDescriptor? _routeEndMarker;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
@@ -101,12 +132,26 @@ class _TrackingViewState extends State<_TrackingView> {
       _checkWaitingAlert();
       _loadOfficeSettings();
       _loadRoute();
+      _loadRouteMarkerIcons();
     });
 
     _waitingAlertTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _checkWaitingAlert(),
     );
+  }
+
+  Future<void> _loadRouteMarkerIcons() async {
+    final icons = await Future.wait([
+      _routeMarkerIcon(const Color(0xFF075EF7), 'S'),
+      _routeMarkerIcon(const Color(0xFF7E20E8), 'E'),
+    ]);
+    if (mounted) {
+      setState(() {
+        _routeStartMarker = icons[0];
+        _routeEndMarker = icons[1];
+      });
+    }
   }
 
   Future<void> _loadClockStatus() async {
@@ -586,6 +631,8 @@ class _TrackingViewState extends State<_TrackingView> {
       routePoints: _routePoints,
       routeLoading: _routeLoading,
       routeError: _routeError,
+      startMarker: _routeStartMarker,
+      endMarker: _routeEndMarker,
     );
 
     final routeDateButton = OutlinedButton.icon(
@@ -1121,6 +1168,8 @@ class _RouteMap extends StatelessWidget {
     required this.routePoints,
     required this.routeLoading,
     this.routeError,
+    this.startMarker,
+    this.endMarker,
   });
 
   final _WorkMode mode;
@@ -1130,6 +1179,8 @@ class _RouteMap extends StatelessWidget {
   final List<_EmployeeRoutePoint> routePoints;
   final bool routeLoading;
   final String? routeError;
+  final BitmapDescriptor? startMarker;
+  final BitmapDescriptor? endMarker;
 
   @override
   Widget build(BuildContext context) {
@@ -1186,9 +1237,7 @@ class _RouteMap extends StatelessWidget {
         ? homePoint
         : officePoint;
 
-    final markerColor = mode == _WorkMode.field
-        ? BitmapDescriptor.hueRed
-        : mode == _WorkMode.hybrid
+    final markerColor = mode == _WorkMode.hybrid
         ? BitmapDescriptor.hueGreen
         : BitmapDescriptor.hueAzure;
 
@@ -1239,15 +1288,15 @@ class _RouteMap extends StatelessWidget {
               Marker(
                 markerId: const MarkerId('route-start'),
                 position: routeCoordinates.first,
-                infoWindow: const InfoWindow(title: 'Route start'),
-                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                infoWindow: const InfoWindow(title: 'Start point'),
+                icon: startMarker ?? BitmapDescriptor.defaultMarker,
               ),
             if (routeCoordinates.length > 1)
               Marker(
-                markerId: const MarkerId('route-latest'),
+                markerId: const MarkerId('route-end'),
                 position: routeCoordinates.last,
-                infoWindow: const InfoWindow(title: 'Latest location'),
-                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                infoWindow: const InfoWindow(title: 'End point'),
+                icon: endMarker ?? BitmapDescriptor.defaultMarker,
               ),
           },
           circles: {
@@ -1267,7 +1316,7 @@ class _RouteMap extends StatelessWidget {
                   Polyline(
                     polylineId: const PolylineId('my-route'),
                     points: routeCoordinates,
-                    color: employeeGreen,
+                    color: employeeBlue,
                     width: 5,
                   ),
                 },
