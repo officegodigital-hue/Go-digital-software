@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/attendance_api.dart';
+import '../../services/auth_storage.dart';
+import '../../services/tracking_comments_api.dart';
 import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
@@ -30,6 +35,48 @@ class EmployeeTrackingPage extends StatelessWidget {
 
 enum _WorkMode { office, hybrid, field }
 
+Future<BitmapDescriptor> _routeMarkerIcon(Color color, String label) async {
+  const width = 56.0;
+  const height = 70.0;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final shadow = Paint()..color = const Color(0x33000000);
+  canvas.drawCircle(const Offset(30, 31), 23, shadow);
+  final pin = Path()
+    ..moveTo(28, 62)
+    ..lineTo(14, 35)
+    ..arcToPoint(const Offset(42, 35), radius: const Radius.circular(20))
+    ..close();
+  canvas.drawPath(pin, Paint()..color = color);
+  canvas.drawCircle(const Offset(28, 28), 16, Paint()..color = Colors.white);
+  final painter = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900),
+    ),
+    textDirection: ui.TextDirection.ltr,
+  )..layout();
+  painter.paint(canvas, Offset(28 - painter.width / 2, 28 - painter.height / 2));
+  final image = await recorder.endRecording().toImage(width.toInt(), height.toInt());
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  return BitmapDescriptor.bytes(Uint8List.fromList(bytes!.buffer.asUint8List()));
+}
+
+class _EmployeeRoutePoint {
+  const _EmployeeRoutePoint({
+    required this.latitude,
+    required this.longitude,
+  });
+  final double latitude;
+  final double longitude;
+
+  factory _EmployeeRoutePoint.fromApi(Map<String, dynamic> json) =>
+      _EmployeeRoutePoint(
+        latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
+        longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 class _TrackingView extends StatefulWidget {
   const _TrackingView({required this.mobile, required this.routeHistory});
   final bool mobile;
@@ -47,16 +94,26 @@ class _TrackingViewState extends State<_TrackingView> {
   Timer? _locationTimer;
   Timer? _waitingAlertTimer;
   Position? _lastPosition;
+  Position? _stationaryStartPosition;
+  DateTime? _stationarySince;
+  bool _localWaitingDialogOpen = false;
+  BitmapDescriptor? _routeStartMarker;
+  BitmapDescriptor? _routeEndMarker;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
+  bool _homeTrackingEnabled = false;
   String? _homeError;
 
   String distance = '—';
   String duration = '—';
   String avgSpeed = '—';
+  DateTime _routeDate = DateTime.now();
+  bool _routeLoading = true;
+  List<_EmployeeRoutePoint> _routePoints = const [];
+  String? _routeError;
 
   List<dynamic> activities = [
     {
@@ -73,14 +130,28 @@ class _TrackingViewState extends State<_TrackingView> {
       _loadFieldSession();
       _loadClockStatus();
       _checkWaitingAlert();
-      _loadHomeLocation();
       _loadOfficeSettings();
+      _loadRoute();
+      _loadRouteMarkerIcons();
     });
 
     _waitingAlertTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _checkWaitingAlert(),
     );
+  }
+
+  Future<void> _loadRouteMarkerIcons() async {
+    final icons = await Future.wait([
+      _routeMarkerIcon(const Color(0xFF075EF7), 'S'),
+      _routeMarkerIcon(const Color(0xFF7E20E8), 'E'),
+    ]);
+    if (mounted) {
+      setState(() {
+        _routeStartMarker = icons[0];
+        _routeEndMarker = icons[1];
+      });
+    }
   }
 
   Future<void> _loadClockStatus() async {
@@ -111,8 +182,11 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
       setState(() {
         _officeSettings = settings;
+        _homeTrackingEnabled = settings['home_tracking_enabled'] == true || settings['home_tracking_enabled'] == 1 || settings['home_tracking_enabled'] == '1';
         _officeLoading = false;
       });
+      if (trackingActive) _startLocationTimer();
+      if (_homeTrackingEnabled) await _loadHomeLocation();
     } catch (_) {
       if (!mounted) return;
       setState(() => _officeLoading = false);
@@ -207,8 +281,12 @@ class _TrackingViewState extends State<_TrackingView> {
 
   void _startLocationTimer() {
     _locationTimer?.cancel();
-
-    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+    final configuredMinutes = int.tryParse(
+          '${_officeSettings?['field_ping_interval_minutes'] ?? 15}',
+        ) ??
+        15;
+    final intervalMinutes = configuredMinutes.clamp(1, 60);
+    _locationTimer = Timer.periodic(Duration(minutes: intervalMinutes), (_) {
       _sendLocationPing(showMessage: false);
     });
   }
@@ -240,6 +318,8 @@ class _TrackingViewState extends State<_TrackingView> {
           ),
         ];
       });
+      _checkLocalStationaryPosition(position);
+      _loadRoute(silent: true);
 
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -255,6 +335,142 @@ class _TrackingViewState extends State<_TrackingView> {
         );
       }
     }
+  }
+
+  void _checkLocalStationaryPosition(Position position) {
+    if (!trackingActive || _localWaitingDialogOpen) return;
+    final radius = int.tryParse(
+          '${_officeSettings?['stationary_radius_meters'] ?? 50}',
+        ) ??
+        50;
+    final waitingMinutes = int.tryParse(
+          '${_officeSettings?['field_waiting_minutes'] ?? 60}',
+        ) ??
+        60;
+    final now = DateTime.now();
+    final start = _stationaryStartPosition;
+    if (start == null || _stationarySince == null) {
+      _stationaryStartPosition = position;
+      _stationarySince = now;
+      return;
+    }
+    final movedMeters = Geolocator.distanceBetween(
+      start.latitude,
+      start.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    if (movedMeters > radius) {
+      _stationaryStartPosition = position;
+      _stationarySince = now;
+      return;
+    }
+    if (now.difference(_stationarySince!).inMinutes >= waitingMinutes) {
+      _showLocalWaitingReasonDialog(position, waitingMinutes);
+    }
+  }
+
+  Future<void> _showLocalWaitingReasonDialog(
+    Position position,
+    int waitingMinutes,
+  ) async {
+    if (!mounted || _localWaitingDialogOpen) return;
+    _localWaitingDialogOpen = true;
+    final controller = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Field waiting reason'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'You have remained within the allowed radius for '
+                '$waitingMinutes minutes. Please enter the reason for waiting.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for waiting',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                final reason = controller.text.trim();
+                if (reason.isEmpty) return;
+                final token = await AuthStorage.getString('auth_token');
+                if (token == null || token.isEmpty) return;
+                await TrackingCommentsApi.addComment(
+                  token,
+                  'Waiting reason: $reason',
+                  latitude: position.latitude,
+                  longitude: position.longitude,
+                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Waiting reason submitted')),
+                  );
+                }
+              },
+              child: const Text('Submit reason'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+      _stationaryStartPosition = position;
+      _stationarySince = DateTime.now();
+      _localWaitingDialogOpen = false;
+    }
+  }
+
+  Future<void> _loadRoute({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _routeLoading = true);
+    try {
+      final data = await HrmsTrackingApi.myRoute(
+        date: DateFormat('yyyy-MM-dd').format(_routeDate),
+      );
+      final points = (data['points'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => _EmployeeRoutePoint.fromApi(Map<String, dynamic>.from(item)))
+          .where((point) => point.latitude != 0 && point.longitude != 0)
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _routePoints = points;
+        _routeLoading = false;
+        _routeError = null;
+      });
+    } catch (error) {
+      if (mounted && !silent) {
+        setState(() {
+          _routeLoading = false;
+          _routeError = error.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  Future<void> _selectRouteDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _routeDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _routeDate = picked);
+    await _loadRoute();
   }
 
   Future<void> toggleTracking() async {
@@ -273,6 +489,8 @@ class _TrackingViewState extends State<_TrackingView> {
         setState(() {
           trackingActive = true;
           _lastPosition = position;
+          _stationaryStartPosition = position;
+          _stationarySince = DateTime.now();
           updated = 'Updated just now';
           activities = [
             {
@@ -283,6 +501,7 @@ class _TrackingViewState extends State<_TrackingView> {
         });
 
         _startLocationTimer();
+        _loadRoute(silent: true);
 
         ScaffoldMessenger.of(
           context,
@@ -310,6 +529,7 @@ class _TrackingViewState extends State<_TrackingView> {
             ...activities,
           ];
         });
+        _loadRoute(silent: true);
 
         ScaffoldMessenger.of(
           context,
@@ -408,6 +628,17 @@ class _TrackingViewState extends State<_TrackingView> {
       position: _lastPosition,
       homeLocation: _homeLocation,
       officeSettings: _officeSettings,
+      routePoints: _routePoints,
+      routeLoading: _routeLoading,
+      routeError: _routeError,
+      startMarker: _routeStartMarker,
+      endMarker: _routeEndMarker,
+    );
+
+    final routeDateButton = OutlinedButton.icon(
+      onPressed: _routeLoading ? null : _selectRouteDate,
+      icon: const Icon(Icons.calendar_today_outlined, size: 16),
+      label: Text(DateFormat('dd MMM yyyy').format(_routeDate)),
     );
 
     final homeAction = Align(
@@ -452,7 +683,7 @@ class _TrackingViewState extends State<_TrackingView> {
           modes,
           const SizedBox(height: 14),
           status,
-          if (mode == _WorkMode.hybrid) ...[
+          if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[
             const SizedBox(height: 12),
             homeAction,
           ],
@@ -469,7 +700,7 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                 ),
               ),
-              Text(updated, style: const TextStyle(color: employeeMuted)),
+              routeDateButton,
             ],
           ),
           const SizedBox(height: 12),
@@ -501,7 +732,7 @@ class _TrackingViewState extends State<_TrackingView> {
         modes,
         const SizedBox(height: 18),
         status,
-        if (mode == _WorkMode.hybrid) ...[const SizedBox(height: 12), homeAction],
+        if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[const SizedBox(height: 12), homeAction],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -515,7 +746,7 @@ class _TrackingViewState extends State<_TrackingView> {
                 ),
               ),
             ),
-            Text(updated, style: const TextStyle(color: employeeMuted)),
+            routeDateButton,
           ],
         ),
         const SizedBox(height: 12),
@@ -934,15 +1165,51 @@ class _RouteMap extends StatelessWidget {
     required this.position,
     this.homeLocation,
     this.officeSettings,
+    required this.routePoints,
+    required this.routeLoading,
+    this.routeError,
+    this.startMarker,
+    this.endMarker,
   });
 
   final _WorkMode mode;
   final Position? position;
   final Map<String, dynamic>? homeLocation;
   final Map<String, dynamic>? officeSettings;
+  final List<_EmployeeRoutePoint> routePoints;
+  final bool routeLoading;
+  final String? routeError;
+  final BitmapDescriptor? startMarker;
+  final BitmapDescriptor? endMarker;
 
   @override
   Widget build(BuildContext context) {
+    if (routeLoading) {
+      return const AspectRatio(
+        aspectRatio: 1.95,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (routePoints.isEmpty) {
+      return AspectRatio(
+        aspectRatio: 1.95,
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFD),
+            border: Border.all(color: employeeLine),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Text(
+            routeError == null
+                ? 'No GPS route was recorded for the selected date.'
+                : 'Unable to load GPS route: $routeError',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: employeeMuted),
+          ),
+        ),
+      );
+    }
     final livePoint = position == null
         ? null
         : LatLng(position!.latitude, position!.longitude);
@@ -958,16 +1225,19 @@ class _RouteMap extends StatelessWidget {
         ? LatLng(officeLat, officeLng)
         : const LatLng(20.5937, 78.9629);
     final officeName = '${officeSettings?['office_name'] ?? 'Office'}';
+    final routeCoordinates = routePoints
+        .map((point) => LatLng(point.latitude, point.longitude))
+        .toList();
 
-    final center = mode == _WorkMode.field && livePoint != null
+    final center = routeCoordinates.isNotEmpty
+        ? routeCoordinates.first
+        : mode == _WorkMode.field && livePoint != null
         ? livePoint
         : mode == _WorkMode.hybrid && homePoint != null
         ? homePoint
         : officePoint;
 
-    final markerColor = mode == _WorkMode.field
-        ? BitmapDescriptor.hueRed
-        : mode == _WorkMode.hybrid
+    final markerColor = mode == _WorkMode.hybrid
         ? BitmapDescriptor.hueGreen
         : BitmapDescriptor.hueAzure;
 
@@ -977,7 +1247,7 @@ class _RouteMap extends StatelessWidget {
         aspectRatio: 1.95,
         child: GoogleMap(
           key: ValueKey(
-            'tracking-map-${mode.name}-${officePoint.latitude}-${officePoint.longitude}-${homePoint?.latitude}-${homePoint?.longitude}',
+            'tracking-map-${mode.name}-${officePoint.latitude}-${officePoint.longitude}-${homePoint?.latitude}-${homePoint?.longitude}-${routeCoordinates.length}-${routeCoordinates.isEmpty ? '' : routeCoordinates.first}-${routeCoordinates.isEmpty ? '' : routeCoordinates.last}',
           ),
           initialCameraPosition: CameraPosition(
             target: center,
@@ -1005,14 +1275,51 @@ class _RouteMap extends StatelessWidget {
                   BitmapDescriptor.hueGreen,
                 ),
               ),
-            if (mode == _WorkMode.field && livePoint != null)
+            if (mode == _WorkMode.field &&
+                livePoint != null &&
+                routeCoordinates.isEmpty)
               Marker(
                 markerId: const MarkerId('live-location'),
                 position: livePoint,
                 infoWindow: const InfoWindow(title: 'Your Live Location'),
                 icon: BitmapDescriptor.defaultMarkerWithHue(markerColor),
               ),
+            if (routeCoordinates.isNotEmpty)
+              Marker(
+                markerId: const MarkerId('route-start'),
+                position: routeCoordinates.first,
+                infoWindow: const InfoWindow(title: 'Start point'),
+                icon: startMarker ?? BitmapDescriptor.defaultMarker,
+              ),
+            if (routeCoordinates.length > 1)
+              Marker(
+                markerId: const MarkerId('route-end'),
+                position: routeCoordinates.last,
+                infoWindow: const InfoWindow(title: 'End point'),
+                icon: endMarker ?? BitmapDescriptor.defaultMarker,
+              ),
           },
+          circles: {
+            for (var index = 1; index < routeCoordinates.length - 1; index++)
+              Circle(
+                circleId: CircleId('route-point-$index'),
+                center: routeCoordinates[index],
+                radius: 1.5,
+                fillColor: employeeGreen,
+                strokeColor: Colors.white,
+                strokeWidth: 1,
+              ),
+          },
+          polylines: routeCoordinates.length < 2
+              ? const <Polyline>{}
+              : {
+                  Polyline(
+                    polylineId: const PolylineId('my-route'),
+                    points: routeCoordinates,
+                    color: employeeBlue,
+                    width: 5,
+                  ),
+                },
         ),
       ),
     );

@@ -171,6 +171,13 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> myRoute({required String date}) async {
+    final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/route/my')
+        .replace(queryParameters: {'date': date});
+    final response = await http.get(uri, headers: await _headers());
+    return _decode(response);
+  }
+
   static Future<void> setStatus(String status) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/status'),
@@ -288,6 +295,7 @@ class HrmsTrackingApi {
     required int fieldWaitingMinutes,
     required int stationaryRadiusMeters,
     required int fieldPingIntervalMinutes,
+    required bool homeTrackingEnabled,
   }) async {
     final response = await http.put(
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
@@ -296,6 +304,7 @@ class HrmsTrackingApi {
         'fieldWaitingMinutes': fieldWaitingMinutes,
         'stationaryRadiusMeters': stationaryRadiusMeters,
         'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
+        'homeTrackingEnabled': homeTrackingEnabled,
       }),
     );
 

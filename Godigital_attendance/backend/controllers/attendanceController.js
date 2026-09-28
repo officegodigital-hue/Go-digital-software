@@ -610,6 +610,35 @@ async function employeeDashboard(req, res) {
       return item;
     });
 
+    // Admin calendar holidays are shared data, unlike the former browser-only
+    // calendar setting. They override an empty attendance day for employees.
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
+      calendar_date DATE NOT NULL PRIMARY KEY,
+      status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
+      scope VARCHAR(40) NOT NULL DEFAULT 'All Employees',
+      reason VARCHAR(255) NOT NULL,
+      updated_by INT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`);
+    const [calendarOverrides] = await db.query(
+      `SELECT DATE_FORMAT(calendar_date, '%Y-%m-%d') AS work_date, status
+       FROM hrms_calendar_overrides
+       WHERE calendar_date >= ? AND calendar_date <= LAST_DAY(?)`,
+      [month + '-01', month + '-01']
+    );
+    calendarOverrides.forEach(function (override) {
+      if (override.status === 'Holiday' && !calendarData[override.work_date]) {
+        calendarData[override.work_date] = {
+          work_date: override.work_date,
+          status: 'holiday',
+          attendance_status: 'holiday',
+          is_late: false,
+          clock_in_at: null,
+          check_in_at: null,
+        };
+      }
+    });
+
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
     if (checkedIn) {
       const completedBreakMinutes = await breakMinutes(record.id);

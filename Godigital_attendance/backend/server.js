@@ -9,6 +9,7 @@ const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 const { ensureHrmsEmployeeTables } = require('./lib/ensureHrmsEmployeeTables');
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
 const attendancePolicy = require('./lib/attendancePolicy');
+const payroll = require('./controllers/hrmsPayrollController');
 const { createApp: createEmployeeAttendanceApp } = require('./attendance/app');
 
 const app = express();
@@ -49,6 +50,13 @@ async function start() {
   await attendancePolicy.getTimeSettings(db);
   await ensureHrmsEmployeeTables(db);
   await ensureHrmsTrackingTables(db);
+  // Auto mode safely regenerates only the current month's unpaid payroll once
+  // per local calendar day. Paid payroll rows remain immutable.
+  await payroll.runAutomaticPayroll();
+  setInterval(() => {
+    payroll.runAutomaticPayroll().catch((error) =>
+      console.error('Automatic payroll update failed:', error.message));
+  }, 15 * 60 * 1000).unref();
   app.listen(port, () => console.log(`Attendance API running at http://localhost:${port}`));
 }
 

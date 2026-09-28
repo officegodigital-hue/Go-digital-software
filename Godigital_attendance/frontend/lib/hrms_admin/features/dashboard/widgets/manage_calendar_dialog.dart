@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../services/hrms_dashboard_api.dart';
+
 const _blue = Color(0xFF075EF7);
 const _navy = Color(0xFF061457);
 const _line = Color(0xFFD8E1F1);
@@ -113,7 +115,23 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
 
   Future<void> _loadCalendar() async {
     final loadedWeeklyOff = await CalendarStore.loadWeeklyOff();
-    final loadedOverrides = await CalendarStore.loadOverrides();
+    var loadedOverrides = await CalendarStore.loadOverrides();
+    try {
+      final serverOverrides = await HrmsDashboardApi.calendarOverrides();
+      // Move existing browser-only calendar entries to the shared server
+      // calendar once, so older saved holidays become visible to employees.
+      for (final override in loadedOverrides) {
+        await HrmsDashboardApi.saveCalendarOverride(override);
+      }
+      final merged = <String, Map<String, dynamic>>{
+        for (final item in serverOverrides) item['date'].toString(): item,
+        for (final item in loadedOverrides) item['date'].toString(): item,
+      };
+      loadedOverrides = merged.values.toList();
+      await CalendarStore.saveOverrides(loadedOverrides);
+    } catch (_) {
+      // Retain local calendar data when the API is temporarily unavailable.
+    }
     if (!mounted) return;
     setState(() {
       weeklyOffDay = loadedWeeklyOff;
@@ -368,6 +386,15 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
       ...overrides.where((existing) => existing['date'] != item['date']),
       item,
     ];
+    try {
+      await HrmsDashboardApi.saveCalendarOverride(item);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Calendar was not saved for employees: $error')),
+      );
+      return;
+    }
     await CalendarStore.saveOverrides(updated);
     if (notifyEmployees) {
       await CalendarStore.addNotification({

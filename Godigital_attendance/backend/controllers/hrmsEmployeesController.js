@@ -92,6 +92,7 @@ function toUi(row) {
     modeColor: modeColor(row.work_mode),
       email: row.email || '',
     username: row.username || '',
+    passwordLastChangedAt: row.password_last_changed_at || null,
     employeeUserId: row.employee_user_id
   };
 }
@@ -115,6 +116,11 @@ async function summary(req, res) {
 
 async function list(req, res) {
   try {
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_password_change_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, employee_user_id BIGINT UNSIGNED NOT NULL,
+      changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, changed_by VARCHAR(30) NOT NULL DEFAULT 'employee',
+      KEY password_changed_employee (employee_user_id, changed_at)
+    )`);
     const search = String(req.query.search || req.query.query || '').trim();
     const department = String(req.query.department || '').trim();
     const status = String(req.query.status || '').trim();
@@ -150,7 +156,7 @@ async function list(req, res) {
     const offset = (safePage - 1) * limit;
 
     const [rows] = await db.query(
-      'SELECT p.*, u.username AS username FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id ' + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
+      'SELECT p.*, u.username AS username, (SELECT MAX(changed_at) FROM hrms_password_change_log l WHERE l.employee_user_id = p.employee_user_id) AS password_last_changed_at FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id ' + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
       params.concat([limit, offset])
     );
     const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee'");
@@ -245,6 +251,43 @@ async function resetPassword(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
+async function deviceRequests(req, res) {
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_device_change_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, employee_user_id BIGINT UNSIGNED NOT NULL,
+      proposed_device_hash CHAR(64) NOT NULL, proposed_device_label VARCHAR(180) NOT NULL DEFAULT 'New browser',
+      reason VARCHAR(500) NULL, status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+      requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at TIMESTAMP NULL, reviewed_by BIGINT UNSIGNED NULL,
+      review_note VARCHAR(500) NULL, KEY device_request_status (status, requested_at)
+    )`);
+    const [rows] = await db.query(`SELECT r.id, r.employee_user_id, r.proposed_device_label, r.reason, r.status, r.requested_at,
+      u.full_name, u.username, p.employee_code FROM hrms_device_change_requests r
+      INNER JOIN employee_users u ON u.id = r.employee_user_id LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = u.id
+      WHERE r.status = 'pending' ORDER BY r.requested_at DESC`);
+    return ok(res, { items: rows }, 'Device requests loaded');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function reviewDeviceRequest(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const approved = req.body && req.body.approved === true;
+    const note = String((req.body && req.body.note) || '').slice(0, 500);
+    const [rows] = await db.query("SELECT * FROM hrms_device_change_requests WHERE id = ? AND status = 'pending' FOR UPDATE", [id]);
+    if (!rows.length) return fail(res, 404, 'Pending device request not found');
+    const request = rows[0];
+    if (approved) {
+      await db.query(`INSERT INTO hrms_registered_devices (employee_user_id, device_hash, device_label, registered_at, last_seen_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE device_hash = VALUES(device_hash), device_label = VALUES(device_label), registered_at = CURRENT_TIMESTAMP, last_seen_at = CURRENT_TIMESTAMP`,
+        [request.employee_user_id, request.proposed_device_hash, request.proposed_device_label]);
+    }
+    await db.query("UPDATE hrms_device_change_requests SET status = ?, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = ? WHERE id = ?",
+      [approved ? 'approved' : 'rejected', req.user.id, note || null, id]);
+    return ok(res, { id: id, status: approved ? 'approved' : 'rejected' }, approved ? 'New browser approved. The employee can now sign in.' : 'Device request rejected.');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 async function update(req, res) {
   try {
     const id = Number(req.params.id);
@@ -263,12 +306,25 @@ async function update(req, res) {
     const cycle = salaryCycle(body);
     if (cycle.error) return fail(res, 400, cycle.error);
     const email = String(body.email || '').trim() || null;
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '');
 
     const [result] = await db.query(
       'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, employee_type = ?, overtime_eligible = ?, gender = ?, employment_status = ?, monthly_salary = ?, salary_type = ?, flexible_cycle_start_day = ?, flexible_cycle_end_day = ? WHERE id = ?',
       [code, name, email, department, workMode, employeeType, overtimeEligible, gender, status, salary, cycle.salaryType, cycle.cycleStartDay, cycle.cycleEndDay, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
+    const [profileRows] = await db.query('SELECT employee_user_id FROM hrms_employee_profiles WHERE id = ?', [id]);
+    const employeeUserId = profileRows[0] && profileRows[0].employee_user_id;
+    if (employeeUserId) {
+      if (password && password.length < 8) return fail(res, 400, 'New password must be at least 8 characters');
+      const updates = ['full_name = ?', 'email = ?'];
+      const values = [name, email];
+      if (username) { updates.push('username = ?'); values.push(username); }
+      if (password) { updates.push('password = ?'); values.push(await bcrypt.hash(password, 10)); }
+      values.push(employeeUserId);
+      await db.query('UPDATE employee_users SET ' + updates.join(', ') + ' WHERE id = ?', values);
+    }
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);
     await recordCompensation(rows[0], salary, req.user && req.user.id);
     return ok(res, toUi(rows[0]), 'Employee updated');
@@ -338,6 +394,8 @@ module.exports = {
   list: list,
   create: create,
   resetPassword: resetPassword,
+  deviceRequests: deviceRequests,
+  reviewDeviceRequest: reviewDeviceRequest,
   update: update,
   updateStatus: updateStatus,
   remove: remove,

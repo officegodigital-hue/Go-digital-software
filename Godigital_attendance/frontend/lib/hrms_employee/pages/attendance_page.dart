@@ -117,8 +117,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 final isLate = item['is_late'] == 1 || item['is_late'] == true || item['isLate'] == true;
                 final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
+                final isHoliday = statusStr == 'holiday';
                 daysMap[dayNum] = {
-                  'status': isAbsent ? 'A' : (isLate ? 'L' : 'P'),
+                  'status': isHoliday ? 'H' : (isAbsent ? 'A' : (isLate ? 'L' : 'P')),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -134,7 +135,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
               final statusStr = (rawRecord['status']?.toString() ?? '').toLowerCase();
               final isLate = rawRecord['isLate'] == true || statusStr == 'late';
               daysMap[dayNum] = {
-                'status': statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'),
+                'status': statusStr == 'holiday'
+                    ? 'H'
+                    : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P')),
                 'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
               };
             });
@@ -163,9 +166,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
                       (item['status']?.toString() ?? '').toLowerCase();
                   final isLate = item['isLate'] == true || statusStr == 'late';
                   daysMap[dayNum] = {
-                    'status': statusStr == 'absent'
-                        ? 'A'
-                        : (isLate ? 'L' : 'P'),
+                    'status': statusStr == 'holiday'
+                        ? 'H'
+                        : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P')),
                     'clock_in': item['checkInAt'] ?? item['clock_in_at'],
                   };
                 }
@@ -420,6 +423,7 @@ class _CalendarDay extends StatelessWidget {
   Color get color => switch (status) {
         'A' => const Color(0xFFF2212F),
         'L' => employeeOrange,
+        'H' => employeePurple,
         'LV' => employeePurple,
         'HL' => employeePurple,
         'OFF' => const Color(0xFF7D8FAA),

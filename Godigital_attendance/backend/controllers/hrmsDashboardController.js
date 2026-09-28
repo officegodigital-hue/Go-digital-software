@@ -64,6 +64,52 @@ function nextDate(date) {
   return ymd(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
 }
 
+async function ensureCalendarOverridesTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
+    calendar_date DATE NOT NULL PRIMARY KEY,
+    status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
+    scope VARCHAR(40) NOT NULL DEFAULT 'All Employees',
+    reason VARCHAR(255) NOT NULL,
+    updated_by INT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`);
+}
+
+async function calendarOverrides(req, res) {
+  try {
+    await ensureCalendarOverridesTable();
+    const [rows] = await db.query(`SELECT DATE_FORMAT(calendar_date, '%Y-%m-%d') AS date,
+      status, scope, reason, updated_at AS updatedAt
+      FROM hrms_calendar_overrides ORDER BY calendar_date ASC`);
+    return ok(res, { overrides: rows });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function saveCalendarOverride(req, res) {
+  try {
+    const body = req.body || {};
+    const date = String(body.date || '');
+    const status = String(body.status || '');
+    const scope = String(body.scope || 'All Employees').slice(0, 40);
+    const reason = String(body.reason || '').trim().slice(0, 255);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('A valid calendar date is required');
+    if (!['Working Day', 'Weekly Off', 'Holiday'].includes(status)) throw new Error('Invalid calendar status');
+    if (!reason) throw new Error('A reason is required');
+    await ensureCalendarOverridesTable();
+    await db.query(`INSERT INTO hrms_calendar_overrides
+      (calendar_date, status, scope, reason, updated_by)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE status = VALUES(status), scope = VALUES(scope),
+        reason = VALUES(reason), updated_by = VALUES(updated_by)`,
+      [date, status, scope, reason, req.user.id]);
+    return ok(res, { date: date, status: status, scope: scope, reason: reason }, 'Calendar override saved');
+  } catch (error) {
+    return fail(res, 400, error.message);
+  }
+}
+
 async function getPayrollPolicy() {
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
     id TINYINT UNSIGNED NOT NULL PRIMARY KEY, weekly_off_days JSON NOT NULL,
@@ -243,9 +289,15 @@ async function monthView(req, res) {
           if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
           if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
-          // A missing record is unrecorded during development, not absent.
-          days.push('–');
-          if (date <= today && payrollRules.missingIsAbsent) { unexcused += 1; absentDays += 1; }
+          // A missing clock-in for today is still pending. It becomes an
+          // absence only after the calendar date has finished (tomorrow).
+          if (date < today && payrollRules.missingIsAbsent) {
+            days.push('A');
+            unexcused += 1;
+            absentDays += 1;
+          } else {
+            days.push('–');
+          }
         }
       }
 
@@ -309,8 +361,6 @@ async function monthView(req, res) {
           } else {
             todayPresent += 1;
           }
-        } else if (!todayLeaveSet.has(userId) && payrollRules.missingIsAbsent) {
-          todayAbsent += 1;
         }
       });
     }
@@ -340,4 +390,6 @@ module.exports = {
   monthView,
   timeSettings,
   updateTimeSettings,
+  calendarOverrides,
+  saveCalendarOverride,
 };

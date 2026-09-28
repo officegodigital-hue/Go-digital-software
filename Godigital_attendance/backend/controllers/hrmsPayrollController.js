@@ -55,10 +55,14 @@ async function ensurePolicyTable() {
     deduct_explicit_absence TINYINT(1) NOT NULL DEFAULT 1,
     missing_attendance_is_absent TINYINT(1) NOT NULL DEFAULT 0,
     salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26,
+    auto_generate TINYINT(1) NOT NULL DEFAULT 0,
+    auto_last_generated_date DATE NULL,
     updated_by BIGINT UNSIGNED NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`);
   try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26'); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN auto_generate TINYINT(1) NOT NULL DEFAULT 0'); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN auto_last_generated_date DATE NULL'); } catch (_) {}
   try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN updated_by BIGINT UNSIGNED NULL'); } catch (_) {}
   try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'); } catch (_) {}
   await db.query(`INSERT IGNORE INTO hrms_payroll_policy (id, weekly_off_days, deduct_approved_leave, deduct_explicit_absence, missing_attendance_is_absent) VALUES (1, '[0]', 1, 1, 0)`);
@@ -76,6 +80,8 @@ async function payrollPolicy() {
     deductExplicitAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)),
     missingAttendanceIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)),
     salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)),
+    autoGenerate: Boolean(Number(row.auto_generate ?? 0)),
+    autoLastGeneratedDate: row.auto_last_generated_date ? isoDate(row.auto_last_generated_date) : null,
   };
 }
 
@@ -450,6 +456,7 @@ async function list(req, res) {
   try {
     const parsed = parseMonth(req);
     if (parsed.error) return fail(res, 400, parsed.error);
+    await runAutomaticPayroll();
     const employee = String(req.query.employee || '').trim();
     const status = String(req.query.status || '').trim();
     const allItems = await computeRows(parsed.year, parsed.month, parsed.today);
@@ -488,11 +495,26 @@ async function savePolicy(req, res) {
     const weekly = Array.isArray(body.weeklyOffDays) ? [...new Set(body.weeklyOffDays.map(Number).filter((day) => day >= 0 && day <= 6))] : null;
     if (!weekly) return fail(res, 400, 'weeklyOffDays must contain weekday numbers from 0 to 6');
     const divisor = Math.max(1, Math.min(31, Number(body.salaryDayDivisor || 26)));
-    const values = [JSON.stringify(weekly), body.deductApprovedLeave ? 1 : 0, body.deductExplicitAbsence ? 1 : 0, body.missingAttendanceIsAbsent ? 1 : 0, divisor, req.user.id];
     await ensurePolicyTable();
-    await db.query(`UPDATE hrms_payroll_policy SET weekly_off_days = ?, deduct_approved_leave = ?, deduct_explicit_absence = ?, missing_attendance_is_absent = ?, salary_day_divisor = ?, updated_by = ? WHERE id = 1`, values);
+    const current = await payrollPolicy();
+    const autoGenerate = body.autoGenerate === undefined
+      ? current.autoGenerate
+      : body.autoGenerate === true || body.autoGenerate === 1 || body.autoGenerate === '1';
+    const values = [JSON.stringify(weekly), body.deductApprovedLeave ? 1 : 0, body.deductExplicitAbsence ? 1 : 0, body.missingAttendanceIsAbsent ? 1 : 0, divisor, autoGenerate ? 1 : 0, req.user.id];
+    await db.query(`UPDATE hrms_payroll_policy SET weekly_off_days = ?, deduct_approved_leave = ?, deduct_explicit_absence = ?, missing_attendance_is_absent = ?, salary_day_divisor = ?, auto_generate = ?, updated_by = ? WHERE id = 1`, values);
     return ok(res, await payrollPolicy(), 'Payroll policy saved');
   } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function runAutomaticPayroll() {
+  const settings = await payrollPolicy();
+  if (!settings.autoGenerate) return false;
+  const today = policy.todayIstDate();
+  if (settings.autoLastGeneratedDate === today) return false;
+  const parts = today.split('-').map(Number);
+  await generatePayrollRun(parts[0], parts[1], today);
+  await db.query('UPDATE hrms_payroll_policy SET auto_last_generated_date = ? WHERE id = 1', [today]);
+  return true;
 }
 
 async function generate(req, res) {
@@ -665,4 +687,5 @@ module.exports = {
   getPolicy,
   savePolicy,
   generatePayrollRun,
+  runAutomaticPayroll,
 };
