@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hrms_design_system/hrms_design_system.dart';
 import 'package:hrms_responsive/hrms_responsive.dart';
+import '../../services/attendance_api.dart';
+import '../../services/hrms_tracking_api.dart';
 import 'employee_nav.dart';
 
 /// Responsive app shell per HRMS_PROJECT_BLUEPRINT.md, Section 3
@@ -10,18 +15,208 @@ import 'employee_nav.dart';
 /// - Mobile: no persistent nav at all. The Dashboard is the hub; other
 ///   pages are reached one level deep from it and use the platform back
 ///   button to return — no drawer, no bottom nav.
-class EmployeeShell extends StatelessWidget {
+class EmployeeShell extends StatefulWidget {
   final Widget body;
   final EmployeeNavItem current;
 
   const EmployeeShell({super.key, required this.body, required this.current});
 
   @override
+  State<EmployeeShell> createState() => _EmployeeShellState();
+}
+
+/// Runs after login on every employee page.  The backend remains the source
+/// of truth: it applies the admin-configured Office/Home radius and grace
+/// period, and returns `auto_checked_out` only when that rule is met.
+class _EmployeeShellState extends State<EmployeeShell> {
+  Timer? _locationTimer;
+  bool _sendingLocation = false;
+  String? _verificationMessage;
+  String? _autoCheckoutMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startLocationGuard());
+  }
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startLocationGuard() async {
+    try {
+      final settings = await HrmsTrackingApi.trackingSettings();
+      final minutes = int.tryParse('${settings['field_ping_interval_minutes']}');
+      if (minutes == null || minutes < 1) return;
+      await _sendLocationHeartbeat();
+      if (!mounted || _autoCheckoutMessage != null) return;
+      _locationTimer?.cancel();
+      _locationTimer = Timer.periodic(
+        Duration(minutes: minutes),
+        (_) => _sendLocationHeartbeat(),
+      );
+    } catch (_) {
+      // A settings/API failure must not block an employee from viewing pages.
+      // The next page load retries with the current admin settings.
+    }
+  }
+
+  Future<void> _sendLocationHeartbeat() async {
+    if (_sendingLocation || _autoCheckoutMessage != null) return;
+    _sendingLocation = true;
+    try {
+      final dashboard = await AttendanceApi.dashboard(DateTime.now());
+      if (dashboard['status'] != 'checked_in') {
+        _locationTimer?.cancel();
+        if (mounted && _verificationMessage != null) {
+          setState(() => _verificationMessage = null);
+        }
+        return;
+      }
+
+      final position = await _currentPosition();
+      final result = await AttendanceApi.locationHeartbeat(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+      );
+      if (!mounted) return;
+      final radiusState = '${result['radius_state'] ?? ''}';
+      if (radiusState == 'auto_checked_out') {
+        _locationTimer?.cancel();
+        setState(() {
+          _verificationMessage = null;
+          _autoCheckoutMessage =
+              'You were clocked out because you remained outside your approved location beyond the allowed grace period.';
+        });
+      } else if (_verificationMessage != null) {
+        setState(() => _verificationMessage = null);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _verificationMessage =
+              'Location verification is required while you are checked in. Enable precise location permission to continue.';
+        });
+      }
+    } finally {
+      _sendingLocation = false;
+    }
+  }
+
+  Future<Position> _currentPosition() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw Exception('Location services are turned off.');
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw Exception('Location permission was not granted.');
+    }
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ResponsiveBuilder(
-      mobile: (context) => _MobileShell(current: current, body: body),
-      tablet: (context) => _TopNavShell(current: current, body: body),
-      desktop: (context) => _TopNavShell(current: current, body: body),
+    return Stack(
+      children: [
+        ResponsiveBuilder(
+          mobile: (context) => _MobileShell(current: widget.current, body: widget.body),
+          tablet: (context) => _TopNavShell(current: widget.current, body: widget.body),
+          desktop: (context) => _TopNavShell(current: widget.current, body: widget.body),
+        ),
+        if (_verificationMessage != null)
+          _LocationVerificationOverlay(message: _verificationMessage!),
+        if (_autoCheckoutMessage != null)
+          _AutoCheckoutOverlay(
+            message: _autoCheckoutMessage!,
+            onClose: () => setState(() => _autoCheckoutMessage = null),
+          ),
+      ],
+    );
+  }
+}
+
+class _LocationVerificationOverlay extends StatelessWidget {
+  final String message;
+  const _LocationVerificationOverlay({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: Colors.black54,
+        child: Center(
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_off, color: HrmsColors.danger, size: 40),
+                    const SizedBox(height: 12),
+                    const Text('Location verification required',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(message, textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AutoCheckoutOverlay extends StatelessWidget {
+  final String message;
+  final VoidCallback onClose;
+  const _AutoCheckoutOverlay({required this.message, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: Colors.black54,
+        child: Center(
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.logout, color: HrmsColors.danger, size: 40),
+                    const SizedBox(height: 12),
+                    const Text('Automatically clocked out',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(message, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    FilledButton(onPressed: onClose, child: const Text('OK')),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
