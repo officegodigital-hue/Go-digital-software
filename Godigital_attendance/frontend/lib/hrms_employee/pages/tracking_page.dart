@@ -56,17 +56,22 @@ Future<BitmapDescriptor> _routeMarkerIcon(Color color, String label) async {
     ),
     textDirection: ui.TextDirection.ltr,
   )..layout();
-  painter.paint(canvas, Offset(28 - painter.width / 2, 28 - painter.height / 2));
-  final image = await recorder.endRecording().toImage(width.toInt(), height.toInt());
+  painter.paint(
+    canvas,
+    Offset(28 - painter.width / 2, 28 - painter.height / 2),
+  );
+  final image = await recorder.endRecording().toImage(
+    width.toInt(),
+    height.toInt(),
+  );
   final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  return BitmapDescriptor.bytes(Uint8List.fromList(bytes!.buffer.asUint8List()));
+  return BitmapDescriptor.bytes(
+    Uint8List.fromList(bytes!.buffer.asUint8List()),
+  );
 }
 
 class _EmployeeRoutePoint {
-  const _EmployeeRoutePoint({
-    required this.latitude,
-    required this.longitude,
-  });
+  const _EmployeeRoutePoint({required this.latitude, required this.longitude});
   final double latitude;
   final double longitude;
 
@@ -158,11 +163,19 @@ class _TrackingViewState extends State<_TrackingView> {
     try {
       final data = await AttendanceApi.dashboard(DateTime.now());
       final status = '${data['status'] ?? ''}'.toLowerCase();
-      final value = data['checkedIn'] ?? data['checked_in'] ??
-          data['isCheckedIn'] ?? data['is_checked_in'] ??
-          data['clockedIn'] ?? data['clocked_in'];
-      final active = status == 'checked_in' || value == true || value == 1 ||
-          value == '1' || value == 'true';
+      final value =
+          data['checkedIn'] ??
+          data['checked_in'] ??
+          data['isCheckedIn'] ??
+          data['is_checked_in'] ??
+          data['clockedIn'] ??
+          data['clocked_in'];
+      final active =
+          status == 'checked_in' ||
+          value == true ||
+          value == 1 ||
+          value == '1' ||
+          value == 'true';
       if (mounted) setState(() => clockedIn = active);
     } catch (_) {
       // The tracking page remains usable if attendance status is unavailable.
@@ -182,7 +195,10 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
       setState(() {
         _officeSettings = settings;
-        _homeTrackingEnabled = settings['home_tracking_enabled'] == true || settings['home_tracking_enabled'] == 1 || settings['home_tracking_enabled'] == '1';
+        _homeTrackingEnabled =
+            settings['home_tracking_enabled'] == true ||
+            settings['home_tracking_enabled'] == 1 ||
+            settings['home_tracking_enabled'] == '1';
         _officeLoading = false;
       });
       if (trackingActive) _startLocationTimer();
@@ -264,7 +280,9 @@ class _TrackingViewState extends State<_TrackingView> {
         trackingActive = active;
 
         if (active) {
-          final savedMode = '${session['work_mode'] ?? session['workMode'] ?? ''}'.toLowerCase();
+          final savedMode =
+              '${session['work_mode'] ?? session['workMode'] ?? ''}'
+                  .toLowerCase();
           if (savedMode == 'hybrid') mode = _WorkMode.hybrid;
           updated = 'Live tracking active';
         }
@@ -281,7 +299,8 @@ class _TrackingViewState extends State<_TrackingView> {
 
   void _startLocationTimer() {
     _locationTimer?.cancel();
-    final configuredMinutes = int.tryParse(
+    final configuredMinutes =
+        int.tryParse(
           '${_officeSettings?['field_ping_interval_minutes'] ?? 15}',
         ) ??
         15;
@@ -339,13 +358,11 @@ class _TrackingViewState extends State<_TrackingView> {
 
   void _checkLocalStationaryPosition(Position position) {
     if (!trackingActive || _localWaitingDialogOpen) return;
-    final radius = int.tryParse(
-          '${_officeSettings?['stationary_radius_meters'] ?? 50}',
-        ) ??
+    final radius =
+        int.tryParse('${_officeSettings?['stationary_radius_meters'] ?? 50}') ??
         50;
-    final waitingMinutes = int.tryParse(
-          '${_officeSettings?['field_waiting_minutes'] ?? 60}',
-        ) ??
+    final waitingMinutes =
+        int.tryParse('${_officeSettings?['field_waiting_minutes'] ?? 60}') ??
         60;
     final now = DateTime.now();
     final start = _stationaryStartPosition;
@@ -442,7 +459,10 @@ class _TrackingViewState extends State<_TrackingView> {
       );
       final points = (data['points'] as List? ?? [])
           .whereType<Map>()
-          .map((item) => _EmployeeRoutePoint.fromApi(Map<String, dynamic>.from(item)))
+          .map(
+            (item) =>
+                _EmployeeRoutePoint.fromApi(Map<String, dynamic>.from(item)),
+          )
           .where((point) => point.latitude != 0 && point.longitude != 0)
           .toList();
       if (!mounted) return;
@@ -732,7 +752,10 @@ class _TrackingViewState extends State<_TrackingView> {
         modes,
         const SizedBox(height: 18),
         status,
-        if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[const SizedBox(height: 12), homeAction],
+        if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[
+          const SizedBox(height: 12),
+          homeAction,
+        ],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -884,47 +907,109 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 }
 
-class _RouteHistoryView extends StatelessWidget {
+class _RouteHistoryView extends StatefulWidget {
   const _RouteHistoryView({required this.mobile});
   final bool mobile;
 
   @override
+  State<_RouteHistoryView> createState() => _RouteHistoryViewState();
+}
+
+class _RouteHistoryViewState extends State<_RouteHistoryView> {
+  late Future<Map<String, dynamic>> _history;
+
+  @override
+  void initState() {
+    super.initState();
+    _history = HrmsTrackingApi.myRouteHistory();
+  }
+
+  String _duration(int minutes) => '${minutes ~/ 60}h ${minutes % 60}m';
+
+  String _place(dynamic value) {
+    final text = '${value ?? ''}'.trim();
+    return text.isEmpty ? 'Location unavailable' : text;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final history = const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Recent Routes',
-          style: TextStyle(
-            color: employeeNavy,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          'Today',
-          'Sector 62 → Sector 63 → Sector 62',
-          '18.6 km',
-          '01h 48m',
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          '22 Aug 2026',
-          'Noida Office → Sector 18 → Noida Office',
-          '12.4 km',
-          '01h 12m',
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          '21 Aug 2026',
-          'Noida Office → Greater Noida',
-          '24.1 km',
-          '02h 06m',
-        ),
-      ],
+    final history = FutureBuilder<Map<String, dynamic>>(
+      future: _history,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done)
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(30),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        if (snapshot.hasError)
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                snapshot.error.toString().replaceFirst('Exception: ', ''),
+                style: const TextStyle(color: Colors.red),
+              ),
+              TextButton(
+                onPressed: () =>
+                    setState(() => _history = HrmsTrackingApi.myRouteHistory()),
+                child: const Text('Retry'),
+              ),
+            ],
+          );
+        final items = (snapshot.data?['items'] as List? ?? [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+        if (items.isEmpty)
+          return const Text(
+            'No route history has been recorded yet.',
+            style: TextStyle(color: employeeMuted),
+          );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Recent Routes',
+              style: TextStyle(
+                color: employeeNavy,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...items.expand((item) {
+              final date = DateTime.tryParse('${item['date'] ?? ''}');
+              final label =
+                  date != null && DateUtils.isSameDay(date, DateTime.now())
+                  ? 'Today'
+                  : date == null
+                  ? '${item['date'] ?? ''}'
+                  : DateFormat('dd MMM yyyy').format(date);
+              final distance =
+                  (item['distanceKm'] as num?)?.toDouble() ??
+                  double.tryParse('${item['distanceKm']}') ??
+                  0;
+              final minutes =
+                  (item['durationMinutes'] as num?)?.toInt() ??
+                  int.tryParse('${item['durationMinutes']}') ??
+                  0;
+              return [
+                _RouteHistoryCard(
+                  label,
+                  '${_place(item['startAddress'])} → ${_place(item['endAddress'])}',
+                  '${distance.toStringAsFixed(2)} km',
+                  _duration(minutes),
+                ),
+                const SizedBox(height: 12),
+              ];
+            }),
+          ],
+        );
+      },
     );
-    return mobile
+    return widget.mobile
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

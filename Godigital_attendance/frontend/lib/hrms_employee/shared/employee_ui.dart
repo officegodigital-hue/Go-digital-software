@@ -1380,9 +1380,17 @@ class MobileEmployeeHeader extends StatelessWidget {
       ),
       if (showGreeting) ...[
         const SizedBox(height: 22),
-        const Text(
-          'Hello, Arul 👋',
-          style: TextStyle(color: Color(0xFF495572), fontSize: 19),
+        Consumer<AuthService>(
+          builder: (_, auth, __) {
+            final name =
+                (auth.user?['fullName'] ?? auth.user?['name'] ?? 'Employee')
+                    .toString()
+                    .trim();
+            return Text(
+              'Hello, ${name.isEmpty ? 'Employee' : name}',
+              style: const TextStyle(color: Color(0xFF495572), fontSize: 19),
+            );
+          },
         ),
       ],
     ],

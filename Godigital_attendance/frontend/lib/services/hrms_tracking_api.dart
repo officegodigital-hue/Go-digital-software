@@ -172,8 +172,17 @@ class HrmsTrackingApi {
   }
 
   static Future<Map<String, dynamic>> myRoute({required String date}) async {
-    final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/route/my')
-        .replace(queryParameters: {'date': date});
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/tracking/route/my',
+    ).replace(queryParameters: {'date': date});
+    final response = await http.get(uri, headers: await _headers());
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> myRouteHistory({int limit = 10}) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/tracking/route/my/history',
+    ).replace(queryParameters: {'limit': '$limit'});
     final response = await http.get(uri, headers: await _headers());
     return _decode(response);
   }
