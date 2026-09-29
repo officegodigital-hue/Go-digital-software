@@ -488,7 +488,6 @@ class _TrackingViewState extends State<_TrackingView> {
           : mode == _WorkMode.home
           ? _loadHomeLocation
           : refreshLocation,
-      action: mode == _WorkMode.home ? homeAction : null,
     );
 
     final map = _RouteMap(
@@ -518,7 +517,10 @@ class _TrackingViewState extends State<_TrackingView> {
           const MobileEmployeeHeader(),
           const SizedBox(height: 14),
           const EmployeePageTitle(title: 'Live Tracking'),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
+          if (mode == _WorkMode.home)
+            Align(alignment: Alignment.centerRight, child: homeAction),
+          const SizedBox(height: 12),
           modes,
           const SizedBox(height: 14),
           status,
@@ -562,6 +564,9 @@ class _TrackingViewState extends State<_TrackingView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (mode == _WorkMode.home)
+          Align(alignment: Alignment.centerRight, child: homeAction),
+        if (mode == _WorkMode.home) const SizedBox(height: 12),
         modes,
         const SizedBox(height: 18),
         status,
@@ -1052,13 +1057,11 @@ class _CurrentStatusCard extends StatelessWidget {
     required this.address,
     required this.color,
     required this.onRefresh,
-    this.action,
   });
   final String mode;
   final String address;
   final Color color;
   final VoidCallback onRefresh;
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
@@ -1109,10 +1112,6 @@ class _CurrentStatusCard extends StatelessWidget {
                 style: const TextStyle(color: employeeMuted, height: 1.4),
               ),
             ),
-            if (action != null) ...[
-              const SizedBox(width: 12),
-              action!,
-            ],
             IconButton.outlined(
               tooltip: 'Refresh live location',
               onPressed: onRefresh,
