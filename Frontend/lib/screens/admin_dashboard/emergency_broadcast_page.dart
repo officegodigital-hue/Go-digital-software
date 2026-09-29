@@ -293,7 +293,7 @@ class _EmergencyBroadcastPageState extends State<EmergencyBroadcastPage>
       ),
     );
   }
-
+  
   Widget _buildControlGrid(bool isMobile) {
     final cards = [
       _buildToggleCard(

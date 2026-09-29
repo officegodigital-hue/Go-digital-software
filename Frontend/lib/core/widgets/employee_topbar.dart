@@ -1,3 +1,4 @@
+// lib/core/widgets/employee_topbar.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:shared_preferences/shared_preferences.dart'; // 🟢 Added for saving agreed state
 import '../constants/app_colors.dart';
 import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
@@ -43,13 +45,12 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
 
   String formattedTotalWorkingTime = "00h 00m";
 
-  // 🟢 Controllers for 3D rotation, High-intensity neon glow, and Color Shifting
   late AnimationController _rotateController;
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
 
-  // State to track hover or pause state for rotation
   bool _isPaused = false;
+  bool _isBroadcastPopupShowing = false;
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _startPolling();
     _fetchTodayWorkingHours();
     _connectNotificationSocket();
+    _checkActiveBroadcast();
   }
 
   @override
@@ -89,6 +91,674 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   String get _socketUrl {
     return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
   }
+
+
+
+// Future<void> _checkActiveBroadcast() async {
+//     final authService = Provider.of<AuthService>(context, listen: false);
+//     final employeeId = authService.user?['id'];
+//     final employeeName =
+//         authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+
+//     if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+
+//     try {
+//       final response =
+//           await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+
+//       if (response.statusCode != 200) return;
+
+//       final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+//       final bool isActive = data['isActive'] ?? false;
+//       final bool newClientOn = data['newClientEnabled'] ?? true;
+//       final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+//       final String adminMessage = (data['message'] ?? '').toString().trim();
+//       final String severity =
+//           (data['severity'] ?? 'Warning').toString().trim();
+
+//       final dynamic targetEmpId = data['targetEmployeeId'];
+//       final String dbBroadcastId = (data['id'] ?? 0).toString();
+
+//       if (!isActive) return;
+
+//       if (targetEmpId != null &&
+//           targetEmpId.toString() != employeeId.toString()) {
+//         return;
+//       }
+
+//       final prefs = await SharedPreferences.getInstance();
+
+//       // 1. ADMIN MANUAL MESSAGE
+//       if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+//         final manualKey = 'manual_agreed_$employeeId';
+//         final savedMsg = prefs.getString(manualKey) ?? '';
+
+//         // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
+//         if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+//           _showBlueWhiteAgreePopup(
+//             adminMessage,
+//             severity,
+//             manualKey,
+//             adminMessage,
+//             employeeId,
+//           );
+//           return;
+//         }
+//       }
+
+//       // 2. AUTOMATED CLIENT / TASK POPUPS
+//       final summaryRes = await http.get(
+//         Uri.parse(
+//           '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+//         ),
+//       );
+
+//       if (summaryRes.statusCode != 200) return;
+
+//       final summaryData =
+//           (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+
+//       // 2A. New client task assigned
+//       final newClientsList =
+//           List<dynamic>.from(summaryData['newClientsList'] ?? []);
+
+//       if (newClientOn && newClientsList.isNotEmpty) {
+//         final clientNames = newClientsList
+//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
+
+//         if (clientNames.isNotEmpty) {
+//           final namesStr = clientNames.join(', ');
+//           final triggerMsg =
+//               'New client task assigned for: $namesStr. '
+//               'Please check your task panel.';
+
+//           final newClientKey = 'new_client_agreed_$employeeId';
+//           final savedNewClient = prefs.getString(newClientKey) ?? '';
+
+//           if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+//             _showBlueWhiteAgreePopup(
+//               triggerMsg,
+//               'Information',
+//               newClientKey,
+//               namesStr,
+//               employeeId,
+//             );
+//             return;
+//           }
+//         }
+//       }
+
+//       // 2B. Inactive client
+//       final inactiveList =
+//           List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+
+//       if (inactiveClientOn && inactiveList.isNotEmpty) {
+//         final clientNames = inactiveList
+//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
+
+//         if (clientNames.isNotEmpty) {
+//           final namesStr = clientNames.join(', ');
+//           final triggerMsg =
+//               'Assigned client(s) marked inactive: $namesStr.';
+
+//           final inactiveKey = 'inactive_client_agreed_$employeeId';
+//           final savedInactive = prefs.getString(inactiveKey) ?? '';
+
+//           if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+//             _showBlueWhiteAgreePopup(
+//               triggerMsg,
+//               'Information',
+//               inactiveKey,
+//               namesStr,
+//               employeeId,
+//             );
+//             return;
+//           }
+//         }
+//       }
+//     } catch (e) {
+//       debugPrint("Broadcast check error: $e");
+//     }
+//   }
+
+//   void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
+//     if (!mounted) return;
+//     setState(() {
+//       _isBroadcastPopupShowing = true;
+//     });
+
+//     showDialog(
+//       context: context,
+//       barrierDismissible: false,
+//       builder: (BuildContext dialogContext) {
+//         return PopScope(
+//           canPop: false,
+//           child: AlertDialog(
+//             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+//             contentPadding: EdgeInsets.zero,
+//             content: Container(
+//               width: 420,
+//               padding: const EdgeInsets.all(24),
+//               decoration: BoxDecoration(
+//                 borderRadius: BorderRadius.circular(20),
+//                 gradient: const LinearGradient(
+//                   begin: Alignment.topCenter,
+//                   end: Alignment.bottomCenter,
+//                   colors: [Color(0xFFF0F5FF), Colors.white],
+//                 ),
+//               ),
+//               child: Column(
+//                 mainAxisSize: MainAxisSize.min,
+//                 children: [
+//                   Container(
+//                     padding: const EdgeInsets.all(12),
+//                     decoration: BoxDecoration(
+//                       color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+//                       shape: BoxShape.circle,
+//                     ),
+//                     child: Icon(
+//                       severity == 'Emergency' 
+//                           ? Icons.error_outline 
+//                           : severity == 'Warning' 
+//                               ? Icons.warning_amber_rounded 
+//                               : Icons.info_outline_rounded,
+//                       color: const Color(0xFF0757D5),
+//                       size: 32,
+//                     ),
+//                   ),
+//                   const SizedBox(height: 14),
+//                   Text(
+//                     '$severity Alert',
+//                     style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
+//                   ),
+//                   const SizedBox(height: 10),
+//                   Text(
+//                     message,
+//                     textAlign: TextAlign.center,
+//                     style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+//                   ),
+//                   const SizedBox(height: 24),
+//                   SizedBox(
+//                     width: double.infinity,
+//                     child: ElevatedButton(
+//                       style: ElevatedButton.styleFrom(
+//                         backgroundColor: const Color(0xFF0757D5),
+//                         padding: const EdgeInsets.symmetric(vertical: 14),
+//                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+//                         elevation: 0,
+//                       ),
+//                       onPressed: () async {
+//                         final prefs = await SharedPreferences.getInstance();
+//                         // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
+//                         await prefs.setString(storageKey, contentValue);
+
+//                         if (dialogContext.mounted) {
+//                           Navigator.of(dialogContext).pop();
+//                         }
+//                         setState(() {
+//                           _isBroadcastPopupShowing = false;
+//                         });
+//                       },
+//                       child: const Text(
+//                         'Agree',
+//                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+//                       ),
+//                     ),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+Future<void> _checkActiveBroadcast() async {
+  final authService = Provider.of<AuthService>(context, listen: false);
+  final employeeId = authService.user?['id'];
+  final employeeName =
+      authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+
+  if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+
+  try {
+    final response =
+        await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+
+    if (response.statusCode != 200) return;
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+    final bool isActive = data['isActive'] ?? false;
+    final bool newClientOn = data['newClientEnabled'] ?? true;
+    final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+    final String adminMessage = (data['message'] ?? '').toString().trim();
+    final String severity =
+        (data['severity'] ?? 'Warning').toString().trim();
+
+    final dynamic targetEmpId = data['targetEmployeeId'];
+    final String dbBroadcastId = (data['id'] ?? 0).toString();
+
+    if (!isActive) return;
+
+    if (targetEmpId != null &&
+        targetEmpId.toString() != employeeId.toString()) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. ADMIN MANUAL MESSAGE
+    if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+      final manualKey = 'manual_agreed_$employeeId';
+      final savedMsg = prefs.getString(manualKey) ?? '';
+
+      // Puthu message-ah iruntha mattum popup open aagum
+      if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+        _showBlueWhiteAgreePopup(
+          adminMessage,
+          severity,
+          manualKey,
+          adminMessage,
+          employeeId,
+        );
+        return;
+      }
+    }
+
+    // 2. AUTOMATED CLIENT / TASK POPUPS
+    final summaryRes = await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+      ),
+    );
+
+    if (summaryRes.statusCode != 200) return;
+
+    final summaryData =
+        (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+
+    // 2A. New client task assigned
+    final newClientsList =
+        List<dynamic>.from(summaryData['newClientsList'] ?? []);
+
+    if (newClientOn && newClientsList.isNotEmpty) {
+      final clientNames = newClientsList
+          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      if (clientNames.isNotEmpty) {
+        final namesStr = clientNames.join(', ');
+        final triggerMsg =
+            'New client task assigned for: $namesStr. '
+            'Please check your task panel.';
+
+        final newClientKey = 'new_client_agreed_$employeeId';
+        final savedNewClient = prefs.getString(newClientKey) ?? '';
+
+        if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+          _showBlueWhiteAgreePopup(
+            triggerMsg,
+            'Information',
+            newClientKey,
+            namesStr,
+            employeeId,
+          );
+          return;
+        }
+      }
+    }
+
+    // 2B. Inactive client
+    final inactiveList =
+        List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+
+    if (inactiveClientOn && inactiveList.isNotEmpty) {
+      final clientNames = inactiveList
+          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      if (clientNames.isNotEmpty) {
+        final namesStr = clientNames.join(', ');
+        final triggerMsg =
+            'Assigned client(s) marked inactive: $namesStr.';
+
+        final inactiveKey = 'inactive_client_agreed_$employeeId';
+        final savedInactive = prefs.getString(inactiveKey) ?? '';
+
+        if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+          _showBlueWhiteAgreePopup(
+            triggerMsg,
+            'Information',
+            inactiveKey,
+            namesStr,
+            employeeId,
+          );
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    debugPrint("Broadcast check error: $e");
+  }
+}
+
+
+// ============================================================
+// BLUE + WHITE BROADCAST POPUP
+// ============================================================
+
+void _showBlueWhiteAgreePopup(
+  String message,
+  String severity,
+  String storageKey,
+  String contentValue,
+  dynamic employeeId,
+) {
+  if (!mounted) return;
+
+  setState(() {
+    _isBroadcastPopupShowing = true;
+  });
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext dialogContext) {
+      return PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: 420,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFF0F5FF),
+                  Colors.white,
+                ],
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ------------------------------------------------
+                // ICON
+                // ------------------------------------------------
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    severity == 'Emergency'
+                        ? Icons.error_outline
+                        : severity == 'Warning'
+                            ? Icons.warning_amber_rounded
+                            : Icons.info_outline_rounded,
+                    color: const Color(0xFF0757D5),
+                    size: 32,
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // ------------------------------------------------
+                // TITLE
+                // ------------------------------------------------
+                Text(
+                  '$severity Alert',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    color: Color(0xFF04296B),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // ------------------------------------------------
+                // MESSAGE WITH HIGHLIGHT
+                // ------------------------------------------------
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: SelectableText.rich(
+                    TextSpan(
+                      children: _buildHighlightedMessage(message),
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFF475569),
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // ------------------------------------------------
+                // AGREE BUTTON
+                // ------------------------------------------------
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0757D5),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: () async {
+                      final prefs =
+                          await SharedPreferences.getInstance();
+
+                      // Same message / same client list-ku
+                      // next time popup varaama irukka save pannum.
+                      await prefs.setString(
+                        storageKey,
+                        contentValue,
+                      );
+
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
+
+                      if (mounted) {
+                        setState(() {
+                          _isBroadcastPopupShowing = false;
+                        });
+                      }
+                    },
+                    child: const Text(
+                      'Agree',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+
+// ============================================================
+// MESSAGE HIGHLIGHTER
+// ============================================================
+
+List<TextSpan> _buildHighlightedMessage(String message) {
+  final List<TextSpan> spans = [];
+
+  final RegExp regex = RegExp(
+    r'https?:\/\/[^\s]+|'
+    r'@[A-Za-z0-9_.]+|'
+    r'\b(?:click here|click|here|important|urgent|'
+    r'action required|please note|warning|emergency|'
+    r'new client|task assigned|inactive)\b',
+    caseSensitive: false,
+  );
+
+  final List<_HighlightPart> highlights = [];
+
+  // ---------------------------------------------
+  // Keyword / URL / @employee highlight
+  // ---------------------------------------------
+  for (final match in regex.allMatches(message)) {
+    highlights.add(
+      _HighlightPart(
+        start: match.start,
+        end: match.end,
+      ),
+    );
+  }
+
+  // ---------------------------------------------
+  // Highlight value after ":"
+  //
+  // Example:
+  // Assigned client(s) marked inactive: JEYASRI HOSTAL.
+  //
+  // "JEYASRI HOSTAL" will also be highlighted.
+  // ---------------------------------------------
+  final colonIndex = message.indexOf(':');
+
+  if (colonIndex != -1) {
+    final valueStart = colonIndex + 1;
+
+    final value = message
+        .substring(valueStart)
+        .trim();
+
+    if (value.isNotEmpty) {
+      final actualStart =
+          message.indexOf(value, valueStart);
+
+      if (actualStart >= 0) {
+        highlights.add(
+          _HighlightPart(
+            start: actualStart,
+            end: actualStart + value.length,
+          ),
+        );
+      }
+    }
+  }
+
+  // Sort
+  highlights.sort(
+    (a, b) => a.start.compareTo(b.start),
+  );
+
+  // Remove overlapping ranges
+  final List<_HighlightPart> cleanHighlights = [];
+
+  int lastEnd = -1;
+
+  for (final item in highlights) {
+    if (item.start >= lastEnd) {
+      cleanHighlights.add(item);
+      lastEnd = item.end;
+    }
+  }
+
+  // ---------------------------------------------
+  // Create TextSpans
+  // ---------------------------------------------
+  int lastIndex = 0;
+
+  for (final item in cleanHighlights) {
+    // Normal text
+    if (item.start > lastIndex) {
+      spans.add(
+        TextSpan(
+          text: message.substring(
+            lastIndex,
+            item.start,
+          ),
+          style: const TextStyle(
+            color: Color(0xFF475569),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+
+    // Highlight
+    spans.add(
+      TextSpan(
+        text: message.substring(
+          item.start,
+          item.end,
+        ),
+        style: const TextStyle(
+          color: Color(0xFF0757D5),
+          fontWeight: FontWeight.w900,
+          decoration: TextDecoration.underline,
+          decorationColor: Color(0xFF0757D5),
+          decorationThickness: 1.5,
+        ),
+      ),
+    );
+
+    lastIndex = item.end;
+  }
+
+  // Remaining text
+  if (lastIndex < message.length) {
+    spans.add(
+      TextSpan(
+        text: message.substring(lastIndex),
+        style: const TextStyle(
+          color: Color(0xFF475569),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  return spans;
+}
 
   void _connectNotificationSocket() {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -145,6 +815,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       await _checkNewNotifications();
       await _fetchTodayWorkingHours();
+      await _checkActiveBroadcast();
     });
   }
 
@@ -372,7 +1043,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                 
                 const SizedBox(width: 8),
 
-                // 🟢 3D Rotating Container with Mouse Hover and Tap Pause Functionality
                 MouseRegion(
                   onEnter: (_) {
                     setState(() {
@@ -441,7 +1111,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                         color: const Color.fromARGB(255, 245, 249, 255),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(8),
-                          onTap: () {}, // Handled by outer GestureDetector
+                          onTap: () {},
                           child: CustomPaint(
                             painter: MovingNeonBorderPainter(
                               animationValue: _isPaused ? 0.0 : _rotateController.value,
@@ -532,94 +1202,91 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                   const SizedBox(width: 14),
                 ],
 
-                // employee_topbar.dart-il ulla Consumer<AuthService> block-ai inthapadi update seiyungal:
+                Consumer<AuthService>(
+                  builder: (context, authService, _) {
+                    final user = authService.user;
+                    final employeeName = user?['fullName'] ?? 'Employee';
+                    final employeeRole = user?['role'] ?? widget.role.title;
+                    final initials = user?['initials'] ?? _generateInitials(employeeName);
 
-    Consumer<AuthService>(
-      builder: (context, authService, _) {
-        final user = authService.user;
-        final employeeName = user?['fullName'] ?? 'Employee';
-        final employeeRole = user?['role'] ?? widget.role.title;
-        final initials = user?['initials'] ?? _generateInitials(employeeName);
+                    final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
+                    final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
 
-        // 🟢 Profile photo and avatar color from auth session
-        final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
-        final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
+                    Color avatarColor = AppColors.primary;
+                    if (avatarColorHex.isNotEmpty) {
+                      try {
+                        final s = avatarColorHex.replaceAll('#', '');
+                        avatarColor = Color(int.parse('FF$s', radix: 16));
+                      } catch (_) {}
+                    }
 
-        Color avatarColor = AppColors.primary;
-        if (avatarColorHex.isNotEmpty) {
-          try {
-            final s = avatarColorHex.replaceAll('#', '');
-            avatarColor = Color(int.parse('FF$s', radix: 16));
-          } catch (_) {}
-        }
+                    ImageProvider? profileImage;
+                    if (profilePhoto != null && profilePhoto.isNotEmpty) {
+                      try {
+                        profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
+                      } catch (_) {}
+                    }
 
-        ImageProvider? profileImage;
-        if (profilePhoto != null && profilePhoto.isNotEmpty) {
-          try {
-            profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
-          } catch (_) {}
-        }
+                    if (!isDesktop) {
+                      return PopupMenuButton<int>(
+                        offset: const Offset(0, 45),
+                        icon: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: avatarColor,
+                          backgroundImage: profileImage,
+                          child: profileImage == null
+                              ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
+                              : null,
+                        ),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            enabled: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
+                                const SizedBox(height: 2),
+                                Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    }
 
-        if (!isDesktop) {
-          return PopupMenuButton<int>(
-            offset: const Offset(0, 45),
-            icon: CircleAvatar(
-              radius: 16,
-              backgroundColor: avatarColor,
-              backgroundImage: profileImage,
-              child: profileImage == null
-                  ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
-                  : null,
-            ),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                enabled: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
-                    const SizedBox(height: 2),
-                    Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                  ],
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Row(
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  employeeName,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
-                ),
-                Text(
-                  employeeRole,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                    return Row(
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              employeeName,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                            ),
+                            Text(
+                              employeeRole,
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 10),
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor: avatarColor,
+                          backgroundImage: profileImage,
+                          child: profileImage == null
+                              ? Text(
+                                  initials,
+                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                )
+                              : null,
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
-            ),
-            const SizedBox(width: 10),
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: avatarColor,
-              backgroundImage: profileImage,
-              child: profileImage == null
-                  ? Text(
-                      initials,
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                    )
-                  : null,
-            ),
-          ],
-        );
-      },
-    ),
-             ],
             ),
           ),
 
@@ -682,7 +1349,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   }
 }
 
-// 🟢 High-Intensity Neon Moving Border Custom Painter
 class MovingNeonBorderPainter extends CustomPainter {
   final double animationValue;
   final BorderRadius borderRadius;
@@ -726,4 +1392,14 @@ class MovingNeonBorderPainter extends CustomPainter {
         oldDelegate.borderRadius != borderRadius ||
         oldDelegate.strokeWidth != strokeWidth;
   }
+}
+
+class _HighlightPart {
+  final int start;
+  final int end;
+
+  _HighlightPart({
+    required this.start,
+    required this.end,
+  });
 }
