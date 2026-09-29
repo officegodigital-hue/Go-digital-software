@@ -218,7 +218,8 @@ async function reverseGeocode(latitude, longitude) {
     return cached.address;
   }
 
-  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
+  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY ||
+    process.env.GOOGLE_ROADS_API_KEY;
   if (!apiKey) return null;
 
   try {
@@ -607,16 +608,25 @@ async function routeHistory(req, res) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
 
     const [pings] = await db.query(
-      `SELECT latitude, longitude, address, recorded_at
+      `SELECT id, latitude, longitude, address, recorded_at
        FROM hrms_location_pings
        WHERE employee_user_id = ? AND DATE(recorded_at) = ?
        ORDER BY recorded_at ASC`,
       [employeeUserId, date]
     );
 
+    await Promise.all(pings
+      .filter(function (row) { return !String(row.address || '').trim(); })
+      .map(async function (row) {
+        const address = await reverseGeocode(Number(row.latitude), Number(row.longitude));
+        if (!address) return;
+        row.address = address;
+        await db.query('UPDATE hrms_location_pings SET address = ? WHERE id = ?', [address, row.id]);
+      }));
+
     const route = await buildRoute(employeeUserId, date, pings);
     const activities = pings.map(function (row) {
-      return { recordedAt: row.recorded_at, placeName: row.address || 'Location pending', latitude: Number(row.latitude), longitude: Number(row.longitude) };
+      return { recordedAt: row.recorded_at, placeName: row.address || 'Location name unavailable', latitude: Number(row.latitude), longitude: Number(row.longitude) };
     });
     return ok(res, {
       employeeUserId: employeeUserId,
@@ -691,6 +701,9 @@ async function updateTrackingSettings(req, res) {
     const officeRadiusMeters =
         Number(req.body.officeRadiusMeters ?? current.office_radius_meters);
 
+    const homeRadiusMeters =
+        Number(req.body.homeRadiusMeters ?? current.home_radius_meters);
+
     const fieldPingIntervalMinutes =
         Number(req.body.fieldPingIntervalMinutes ??
             current.field_ping_interval_minutes);
@@ -703,9 +716,19 @@ async function updateTrackingSettings(req, res) {
         Number(req.body.stationaryRadiusMeters ??
             current.stationary_radius_meters);
 
-    const outsideRadiusGraceMinutes =
-        Number(req.body.outsideRadiusGraceMinutes ??
-            current.outside_radius_grace_minutes);
+    const sharedOutsideRadiusGrace = req.body.outsideRadiusGraceMinutes;
+    const officeOutsideRadiusGraceMinutes = Number(
+      req.body.officeOutsideRadiusGraceMinutes ??
+      sharedOutsideRadiusGrace ??
+      current.office_outside_radius_grace_minutes ??
+      current.outside_radius_grace_minutes
+    );
+    const homeOutsideRadiusGraceMinutes = Number(
+      req.body.homeOutsideRadiusGraceMinutes ??
+      sharedOutsideRadiusGrace ??
+      current.home_outside_radius_grace_minutes ??
+      current.outside_radius_grace_minutes
+    );
 
     const homeTrackingEnabled = req.body.homeTrackingEnabled == null
       ? Number(current.home_tracking_enabled) !== 0
@@ -721,10 +744,12 @@ async function updateTrackingSettings(req, res) {
       officeLongitude < -180 ||
       officeLongitude > 180 ||
       officeRadiusMeters < 1 ||
+      homeRadiusMeters < 1 ||
       fieldPingIntervalMinutes < 1 ||
       fieldWaitingMinutes < 1 ||
       stationaryRadiusMeters < 1 ||
-      outsideRadiusGraceMinutes < 1
+      officeOutsideRadiusGraceMinutes < 1 ||
+      homeOutsideRadiusGraceMinutes < 1
     ) {
       return fail(res, 400, 'Invalid tracking settings');
     }
@@ -736,10 +761,12 @@ async function updateTrackingSettings(req, res) {
            office_latitude = ?,
            office_longitude = ?,
            office_radius_meters = ?,
+           home_radius_meters = ?,
            field_ping_interval_minutes = ?,
            field_waiting_minutes = ?,
            stationary_radius_meters = ?,
-           outside_radius_grace_minutes = ?,
+           office_outside_radius_grace_minutes = ?,
+           home_outside_radius_grace_minutes = ?,
            home_tracking_enabled = ?,
            updated_by = ?
        WHERE id = 1`,
@@ -749,10 +776,12 @@ async function updateTrackingSettings(req, res) {
         officeLatitude,
         officeLongitude,
         officeRadiusMeters,
+        homeRadiusMeters,
         fieldPingIntervalMinutes,
         fieldWaitingMinutes,
         stationaryRadiusMeters,
-        outsideRadiusGraceMinutes,
+        officeOutsideRadiusGraceMinutes,
+        homeOutsideRadiusGraceMinutes,
         homeTrackingEnabled ? 1 : 0,
         req.user.id,
       ]
@@ -806,7 +835,7 @@ async function submitHomeLocation(req, res) {
     await connection.beginTransaction();
     await locationPolicy.profileFor(connection, employeeUserId, true);
     const settings = await locationPolicy.settingsFor(connection, true);
-    const fix = locationPolicy.validateFix(body, settings.radiusMeters);
+    const fix = locationPolicy.validateFix(body, settings.homeRadiusMeters);
 
     await connection.query(
       `INSERT INTO hrms_employee_home_locations

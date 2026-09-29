@@ -351,7 +351,7 @@ class _PayrollKpis extends StatelessWidget {
           Icons.account_balance_wallet_outlined, _PayrollColors.blue),
       _PayrollKpi('Employees', '$employees', 'Active / on leave staff',
           Icons.groups_outlined, const Color(0xFF158C20)),
-      _PayrollKpi('Paid', '$paid', 'Marked paid in MySQL',
+      _PayrollKpi('Paid', '$paid', 'Marked paid',
           Icons.check_circle_outline_rounded, const Color(0xFF158C20)),
       _PayrollKpi('Unpaid', '$pending', 'Draft or pending rows',
           Icons.pending_actions_outlined, const Color(0xFFFF6500)),

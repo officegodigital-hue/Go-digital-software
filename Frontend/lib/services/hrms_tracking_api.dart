@@ -91,6 +91,17 @@ class HrmsTrackingApi {
     _decode(response);
   }
 
+  static Future<void> updateHomeRadius(int radiusMeters) async {
+    final response = await http
+        .put(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          headers: await _headers(),
+          body: jsonEncode({'homeRadiusMeters': radiusMeters}),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decode(response);
+  }
+
   static Future<Map<String, dynamic>> updateOfficeLocation({
     required String officeName,
     required String officeAddress,
@@ -336,7 +347,8 @@ class HrmsTrackingApi {
     required int fieldWaitingMinutes,
     required int stationaryRadiusMeters,
     required int fieldPingIntervalMinutes,
-    required int outsideRadiusGraceMinutes,
+    required int officeOutsideRadiusGraceMinutes,
+    required int homeOutsideRadiusGraceMinutes,
     bool? homeTrackingEnabled,
   }) async {
     final response = await http.put(
@@ -346,7 +358,8 @@ class HrmsTrackingApi {
         'fieldWaitingMinutes': fieldWaitingMinutes,
         'stationaryRadiusMeters': stationaryRadiusMeters,
         'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
-        'outsideRadiusGraceMinutes': outsideRadiusGraceMinutes,
+        'officeOutsideRadiusGraceMinutes': officeOutsideRadiusGraceMinutes,
+        'homeOutsideRadiusGraceMinutes': homeOutsideRadiusGraceMinutes,
         if (homeTrackingEnabled != null)
           'homeTrackingEnabled': homeTrackingEnabled,
       }),

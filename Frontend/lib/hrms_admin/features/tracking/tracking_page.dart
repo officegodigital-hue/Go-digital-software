@@ -44,7 +44,6 @@ class _TrackingPageState extends State<TrackingPage> {
   Timer? _pollTimer;
   _TrackedEmployee? _selectedEmployee;
   final _pageScrollController = ScrollController();
-  final _routePanelKey = GlobalKey();
 
   @override
   void initState() {
@@ -172,15 +171,17 @@ class _TrackingPageState extends State<TrackingPage> {
 
   void _viewRoute(_TrackedEmployee employee) {
     setState(() => _selectedEmployee = employee);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final routeContext = _routePanelKey.currentContext;
-      if (routeContext != null)
-        Scrollable.ensureVisible(
-          routeContext,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOut,
-        );
-    });
+  }
+
+  void _returnToLiveMap() {
+    setState(() => _selectedEmployee = null);
+  }
+
+  void _viewActivity(_TrackedEmployee employee) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _EmployeeActivityDialog(employee: employee),
+    );
   }
 
   @override
@@ -245,16 +246,10 @@ class _TrackingPageState extends State<TrackingPage> {
                             lastLoadedAt: lastLoadedAt,
                             onModeChanged: (value) => _setMode(value),
                             onViewRoute: _viewRoute,
+                            onViewActivity: _viewActivity,
+                            selectedEmployee: _selectedEmployee,
+                            onReturnToLiveMap: _returnToLiveMap,
                           ),
-                          if (_selectedEmployee != null) ...[
-                            const SizedBox(height: 20),
-                            KeyedSubtree(
-                              key: _routePanelKey,
-                              child: _AdminRoutePanel(
-                                employee: _selectedEmployee!,
-                              ),
-                            ),
-                          ],
                         ],
                       ],
                     ),
@@ -662,12 +657,18 @@ class _TrackingWorkspace extends StatelessWidget {
     required this.lastLoadedAt,
     required this.onModeChanged,
     required this.onViewRoute,
+    required this.onViewActivity,
+    required this.selectedEmployee,
+    required this.onReturnToLiveMap,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final DateTime? lastLoadedAt;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
+  final _TrackedEmployee? selectedEmployee;
+  final VoidCallback onReturnToLiveMap;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -687,25 +688,55 @@ class _TrackingWorkspace extends StatelessWidget {
     child: LayoutBuilder(
       builder: (_, constraints) {
         final stacked = constraints.maxWidth < 1050;
-        final map = _MapPanel(
-          mode: mode,
-          employees: employees,
-          onModeChanged: onModeChanged,
-          onViewRoute: onViewRoute,
-          fillHeight: !stacked,
-        );
+        final map = selectedEmployee == null
+            ? _MapPanel(
+                mode: mode,
+                employees: employees,
+                onModeChanged: onModeChanged,
+                onViewRoute: onViewRoute,
+                fillHeight: !stacked,
+              )
+            : Padding(
+                padding: const EdgeInsets.all(16),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: KeyedSubtree(
+                      key: ValueKey(selectedEmployee!.employeeUserId),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _MapModeTabs(
+                              mode: mode,
+                              onModeChanged: onModeChanged,
+                            ),
+                            const SizedBox(height: 15),
+                            _AdminRoutePanel(
+                              employee: selectedEmployee!,
+                              onReturnToLiveMap: onReturnToLiveMap,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
         final table = _TrackedEmployeesPanel(
           mode: mode,
           employees: employees,
           lastLoadedAt: lastLoadedAt,
           onViewRoute: onViewRoute,
+          onViewActivity: onViewActivity,
         );
         if (stacked) {
           return Column(
             children: [
-              map,
-              const Divider(height: 1, color: Color(0xFFE3E7EF)),
               table,
+              const Divider(height: 1, color: Color(0xFFE3E7EF)),
+              map,
             ],
           );
         }
@@ -713,9 +744,9 @@ class _TrackingWorkspace extends StatelessWidget {
           height: 615,
           child: Row(
             children: [
-              Expanded(flex: 11, child: map),
-              const VerticalDivider(width: 1, color: Color(0xFFE3E7EF)),
               Expanded(flex: 10, child: table),
+              const VerticalDivider(width: 1, color: Color(0xFFE3E7EF)),
+              Expanded(flex: 11, child: map),
             ],
           ),
         );
@@ -743,26 +774,7 @@ class _MapPanel extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(17, 16, 17, 18),
     child: Column(
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 340),
-            child: Row(
-              children: [
-                for (final item in ['Office', 'Home', 'Hybrid']) ...[
-                  if (item != 'Office') const SizedBox(width: 10),
-                  Expanded(
-                    child: _ModeButton(
-                      label: item,
-                      active: mode == item,
-                      onTap: () => onModeChanged(item),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+        _MapModeTabs(mode: mode, onModeChanged: onModeChanged),
         const SizedBox(height: 15),
         if (fillHeight)
           Expanded(
@@ -774,6 +786,35 @@ class _MapPanel extends StatelessWidget {
             child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
           ),
       ],
+    ),
+  );
+}
+
+class _MapModeTabs extends StatelessWidget {
+  const _MapModeTabs({required this.mode, required this.onModeChanged});
+
+  final String mode;
+  final ValueChanged<String> onModeChanged;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 340),
+      child: Row(
+        children: [
+          for (final item in ['Office', 'Home', 'Hybrid']) ...[
+            if (item != 'Office') const SizedBox(width: 10),
+            Expanded(
+              child: _ModeButton(
+                label: item,
+                active: mode == item,
+                onTap: () => onModeChanged(item),
+              ),
+            ),
+          ],
+        ],
+      ),
     ),
   );
 }
@@ -871,11 +912,13 @@ class _TrackedEmployeesPanel extends StatelessWidget {
     required this.employees,
     required this.lastLoadedAt,
     required this.onViewRoute,
+    required this.onViewActivity,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final DateTime? lastLoadedAt;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
 
   String get _updatedLabel {
     if (lastLoadedAt == null) return 'Updating…';
@@ -935,7 +978,7 @@ class _TrackedEmployeesPanel extends StatelessWidget {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(
-                    width: 630,
+                    width: 650,
                     child: Column(
                       children: [
                         const _TrackingTableHeader(),
@@ -943,6 +986,7 @@ class _TrackedEmployeesPanel extends StatelessWidget {
                           (employee) => _TrackingRow(
                             employee: employee,
                             onViewRoute: onViewRoute,
+                            onViewActivity: onViewActivity,
                           ),
                         ),
                       ],
@@ -1088,16 +1132,21 @@ class _TrackingTableHeader extends StatelessWidget {
           child: Text('Current Location', style: _headStyle),
         ),
         _TrackingCell(width: 110, child: Text('Status', style: _headStyle)),
-        _TrackingCell(width: 80, child: Text('View Route', style: _headStyle)),
+        _TrackingCell(width: 100, child: Text('Actions', style: _headStyle)),
       ],
     ),
   );
 }
 
 class _TrackingRow extends StatelessWidget {
-  const _TrackingRow({required this.employee, required this.onViewRoute});
+  const _TrackingRow({
+    required this.employee,
+    required this.onViewRoute,
+    required this.onViewActivity,
+  });
   final _TrackedEmployee employee;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1190,15 +1239,39 @@ class _TrackingRow extends StatelessWidget {
         ),
         _TrackingCell(width: 110, child: _ActiveBadge(active: employee.active)),
         _TrackingCell(
-          width: 80,
-          child: IconButton(
-            tooltip: 'View Route',
-            onPressed: () => onViewRoute(employee),
-            icon: const Icon(
-              Icons.map_outlined,
-              color: HrmsColors.blue,
-              size: 24,
-            ),
+          width: 100,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                tooltip: 'View route',
+                onPressed: () => onViewRoute(employee),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 34,
+                  height: 40,
+                ),
+                icon: const Icon(
+                  Icons.map_outlined,
+                  color: HrmsColors.blue,
+                  size: 24,
+                ),
+              ),
+              IconButton(
+                tooltip: 'View activity history',
+                onPressed: () => onViewActivity(employee),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 34,
+                  height: 40,
+                ),
+                icon: const Icon(
+                  Icons.history,
+                  color: Color(0xFF00AB84),
+                  size: 24,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1327,8 +1400,12 @@ class _RoutePoint {
 }
 
 class _AdminRoutePanel extends StatefulWidget {
-  const _AdminRoutePanel({required this.employee});
+  const _AdminRoutePanel({
+    required this.employee,
+    required this.onReturnToLiveMap,
+  });
   final _TrackedEmployee employee;
+  final VoidCallback onReturnToLiveMap;
   @override
   State<_AdminRoutePanel> createState() => _AdminRoutePanelState();
 }
@@ -1388,6 +1465,16 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
       setState(() => _date = picked);
       _load();
     }
+  }
+
+  String _lastUpdatedLabel(dynamic value) {
+    final timestamp = DateTime.tryParse('${value ?? ''}')?.toLocal();
+    if (timestamp == null) return 'No updates yet';
+    final difference = DateTime.now().difference(timestamp);
+    if (difference.inMinutes < 1) return 'Updated just now';
+    if (difference.inMinutes < 60) return 'Updated ${difference.inMinutes}m ago';
+    if (difference.inHours < 24) return 'Updated ${difference.inHours}h ago';
+    return 'Updated ${difference.inDays}d ago';
   }
 
   @override
@@ -1453,6 +1540,12 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
                 ),
               ),
               OutlinedButton.icon(
+                onPressed: widget.onReturnToLiveMap,
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Back to Live Map'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
                 onPressed: _pick,
                 icon: const Icon(Icons.calendar_month_outlined),
                 label: Text(DateFormat('dd MMM yyyy').format(_date)),
@@ -1498,9 +1591,14 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              'Distance: ${((_data?['distanceMeters'] as num? ?? 0) / 1000).toStringAsFixed(2)} km   •   Duration: ${((_data?['durationSeconds'] as num? ?? 0) / 60).round()} min   •   Average speed: ${(_data?['averageSpeedKmh'] as num? ?? 0).toStringAsFixed(1)} km/h',
-              style: const TextStyle(color: Color(0xFF596176)),
+            _AdminRouteSummaryStrip(
+              distance:
+                  '${((_data?['distanceMeters'] as num? ?? 0) / 1000).toStringAsFixed(2)} km',
+              duration:
+                  '${((_data?['durationSeconds'] as num? ?? 0) / 60).round()} min',
+              averageSpeed:
+                  '${(_data?['averageSpeedKmh'] as num? ?? 0).toStringAsFixed(1)} km/h',
+              updated: _lastUpdatedLabel(_data?['lastUpdated']),
             ),
             const SizedBox(height: 10),
             const Text(
@@ -1526,6 +1624,314 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
     );
   }
 }
+
+class _AdminRouteSummaryStrip extends StatelessWidget {
+  const _AdminRouteSummaryStrip({
+    required this.distance,
+    required this.duration,
+    required this.averageSpeed,
+    required this.updated,
+  });
+
+  final String distance;
+  final String duration;
+  final String averageSpeed;
+  final String updated;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7F9FD),
+      border: Border.all(color: const Color(0xFFE0E7F2)),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 420;
+        final items = [
+          _AdminRouteSummaryMetric(
+            icon: Icons.route_outlined,
+            label: 'Distance',
+            value: distance,
+          ),
+          _AdminRouteSummaryMetric(
+            icon: Icons.timer_outlined,
+            label: 'Duration',
+            value: duration,
+          ),
+          _AdminRouteSummaryMetric(
+            icon: Icons.speed_outlined,
+            label: 'Avg speed',
+            value: averageSpeed,
+          ),
+          _AdminRouteSummaryMetric(
+            icon: Icons.update_rounded,
+            label: 'Updated',
+            value: updated,
+          ),
+        ];
+        if (compact) {
+          return Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            children: items
+                .map((item) => SizedBox(width: 170, child: item))
+                .toList(),
+          );
+        }
+        return Row(
+          children: [
+            for (var index = 0; index < items.length; index++) ...[
+              Expanded(child: items[index]),
+              if (index < items.length - 1)
+                const SizedBox(
+                  height: 34,
+                  child: VerticalDivider(color: Color(0xFFE0E7F2)),
+                ),
+            ],
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _AdminRouteSummaryMetric extends StatelessWidget {
+  const _AdminRouteSummaryMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, color: const Color(0xFF00AB84), size: 20),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: Color(0xFF71809A), fontSize: 11),
+            ),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: HrmsColors.navy,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _EmployeeActivityDialog extends StatefulWidget {
+  const _EmployeeActivityDialog({required this.employee});
+  final _TrackedEmployee employee;
+
+  @override
+  State<_EmployeeActivityDialog> createState() => _EmployeeActivityDialogState();
+}
+
+class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _activities = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final employeeUserId = widget.employee.employeeUserId;
+    if (employeeUserId == null) {
+      setState(() {
+        _loading = false;
+        _error = 'No employee ID is available for this activity history.';
+      });
+      return;
+    }
+    try {
+      final data = await HrmsTrackingApi.route(
+        employeeUserId: employeeUserId,
+        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      );
+      if (!mounted) return;
+      setState(() {
+        _activities = (data['activities'] as List? ?? [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  String _displayTime(dynamic value) {
+    final date = DateTime.tryParse('${value ?? ''}');
+    return date == null
+        ? 'Time unavailable'
+        : DateFormat('hh:mm a').format(date.toLocal());
+  }
+
+  String _displayPlace(dynamic value) {
+    final place = '${value ?? ''}'.trim();
+    return place.isEmpty || place == 'Location pending'
+        ? 'Location name unavailable'
+        : place;
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    backgroundColor: const Color(0xFFF9F9FF),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 650, maxHeight: 540),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(26, 24, 26, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${widget.employee.name} — Today\'s Activity',
+                    style: const TextStyle(
+                      color: HrmsColors.navy,
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, size: 28),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFFEDEDF4),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${_activities.length} location update(s) today',
+              style: const TextStyle(color: Color(0xFF657087), fontSize: 14),
+            ),
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F3FA),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Row(
+                children: [
+                  SizedBox(
+                    width: 92,
+                    child: Text('TIME', style: _activityHeaderStyle),
+                  ),
+                  Text('PLACE', style: _activityHeaderStyle),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    )
+                  : _activities.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No GPS activity recorded today.',
+                        style: TextStyle(
+                          color: Color(0xFF657087),
+                          fontSize: 16,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _activities.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, color: Color(0xFFE2E6ED)),
+                      itemBuilder: (_, index) {
+                        final item = _activities[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 92,
+                                child: Text(
+                                  _displayTime(item['recordedAt']),
+                                  style: const TextStyle(
+                                    color: HrmsColors.navy,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  _displayPlace(item['placeName']),
+                                  style: const TextStyle(
+                                    color: Color(0xFF3E4658),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+const _activityHeaderStyle = TextStyle(
+  color: Color(0xFF657087),
+  fontSize: 12,
+  fontWeight: FontWeight.w700,
+);
 
 class _RouteDialog extends StatefulWidget {
   const _RouteDialog({required this.employee});
@@ -1758,7 +2164,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         _address.text = '${data['office_address'] ?? ''}';
         _latitude.text = '${data['office_latitude'] ?? ''}';
         _longitude.text = '${data['office_longitude'] ?? ''}';
-        _radius.text = '${data['office_radius_meters'] ?? 100}';
+        _radius.text = '${data['office_radius_meters'] ?? ''}';
         final lat = double.tryParse(_latitude.text);
         final lng = double.tryParse(_longitude.text);
         _pin = lat != null && lng != null && lat.isFinite && lng.isFinite
@@ -2093,7 +2499,8 @@ class _FieldWaitingSettingsDialogState
   final _waitingController = TextEditingController();
   final _radiusController = TextEditingController();
   final _pingController = TextEditingController();
-  final _outsideRadiusGraceController = TextEditingController();
+  final _officeOutsideRadiusGraceController = TextEditingController();
+  final _homeOutsideRadiusGraceController = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
@@ -2111,7 +2518,8 @@ class _FieldWaitingSettingsDialogState
     _waitingController.dispose();
     _radiusController.dispose();
     _pingController.dispose();
-    _outsideRadiusGraceController.dispose();
+    _officeOutsideRadiusGraceController.dispose();
+    _homeOutsideRadiusGraceController.dispose();
     super.dispose();
   }
 
@@ -2122,11 +2530,13 @@ class _FieldWaitingSettingsDialogState
       if (!mounted) return;
 
       setState(() {
-        _waitingController.text = '${data['field_waiting_minutes'] ?? 60}';
-        _radiusController.text = '${data['stationary_radius_meters'] ?? 50}';
-        _pingController.text = '${data['field_ping_interval_minutes'] ?? 15}';
-        _outsideRadiusGraceController.text =
-            '${data['outside_radius_grace_minutes'] ?? 5}';
+        _waitingController.text = '${data['field_waiting_minutes'] ?? ''}';
+        _radiusController.text = '${data['stationary_radius_meters'] ?? ''}';
+        _pingController.text = '${data['field_ping_interval_minutes'] ?? ''}';
+        _officeOutsideRadiusGraceController.text =
+            '${data['office_outside_radius_grace_minutes'] ?? ''}';
+        _homeOutsideRadiusGraceController.text =
+            '${data['home_outside_radius_grace_minutes'] ?? ''}';
         _homeTrackingEnabled = data['home_tracking_enabled'] != 0;
         _loading = false;
       });
@@ -2144,18 +2554,23 @@ class _FieldWaitingSettingsDialogState
     final waitingMinutes = int.tryParse(_waitingController.text.trim());
     final stationaryRadius = int.tryParse(_radiusController.text.trim());
     final pingInterval = int.tryParse(_pingController.text.trim());
-    final outsideRadiusGrace = int.tryParse(
-      _outsideRadiusGraceController.text.trim(),
+    final officeOutsideRadiusGrace = int.tryParse(
+      _officeOutsideRadiusGraceController.text.trim(),
+    );
+    final homeOutsideRadiusGrace = int.tryParse(
+      _homeOutsideRadiusGraceController.text.trim(),
     );
 
     if (waitingMinutes == null ||
         stationaryRadius == null ||
         pingInterval == null ||
-        outsideRadiusGrace == null ||
+        officeOutsideRadiusGrace == null ||
+        homeOutsideRadiusGrace == null ||
         waitingMinutes < 1 ||
         stationaryRadius < 1 ||
         pingInterval < 1 ||
-        outsideRadiusGrace < 1) {
+        officeOutsideRadiusGrace < 1 ||
+        homeOutsideRadiusGrace < 1) {
       setState(() {
         _error = 'Enter valid numbers greater than zero.';
       });
@@ -2172,7 +2587,8 @@ class _FieldWaitingSettingsDialogState
         fieldWaitingMinutes: waitingMinutes,
         stationaryRadiusMeters: stationaryRadius,
         fieldPingIntervalMinutes: pingInterval,
-        outsideRadiusGraceMinutes: outsideRadiusGrace,
+        officeOutsideRadiusGraceMinutes: officeOutsideRadiusGrace,
+        homeOutsideRadiusGraceMinutes: homeOutsideRadiusGrace,
         homeTrackingEnabled: _homeTrackingEnabled,
       );
 
@@ -2215,7 +2631,7 @@ class _FieldWaitingSettingsDialogState
       children: [
         Icon(Icons.timer_outlined, color: HrmsColors.blue),
         SizedBox(width: 10),
-        Text('Manage Hybrid Waiting Time'),
+        Text('Tracking and Checkout Settings'),
       ],
     ),
     content: SizedBox(
@@ -2230,7 +2646,7 @@ class _FieldWaitingSettingsDialogState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'These settings apply to Hybrid employees only.',
+                  'Hybrid waiting uses the first three settings. Office/Hybrid and Home checkout grace are saved separately.',
                   style: TextStyle(color: Color(0xFF657087), fontSize: 12),
                 ),
                 const SizedBox(height: 18),
@@ -2253,9 +2669,15 @@ class _FieldWaitingSettingsDialogState
                 ),
                 const SizedBox(height: 14),
                 _numberField(
-                  controller: _outsideRadiusGraceController,
-                  label: 'Outside-radius checkout grace (minutes)',
-                  hint: 'Example: 5',
+                  controller: _officeOutsideRadiusGraceController,
+                  label: 'Office / Hybrid checkout grace (minutes)',
+                  hint: 'Admin setting',
+                ),
+                const SizedBox(height: 14),
+                _numberField(
+                  controller: _homeOutsideRadiusGraceController,
+                  label: 'Home checkout grace (minutes)',
+                  hint: 'Admin setting',
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile.adaptive(

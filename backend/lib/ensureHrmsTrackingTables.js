@@ -16,9 +16,12 @@ async function ensureHrmsTrackingTables(db) {
       office_latitude DECIMAL(10,7) NOT NULL,
       office_longitude DECIMAL(10,7) NOT NULL,
       office_radius_meters INT NOT NULL DEFAULT 100,
+      home_radius_meters INT NOT NULL DEFAULT 100,
       field_ping_interval_minutes INT NOT NULL DEFAULT 15,
       field_waiting_minutes INT NOT NULL DEFAULT 60,
       stationary_radius_meters INT NOT NULL DEFAULT 50,
+      office_outside_radius_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5,
+      home_outside_radius_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
@@ -39,7 +42,23 @@ async function ensureHrmsTrackingTables(db) {
   } catch (error) {
     if (error && error.code !== 'ER_DUP_FIELDNAME') throw error;
   }
+  try {
+    await db.query(`ALTER TABLE hrms_tracking_settings
+      ADD COLUMN home_radius_meters INT NOT NULL DEFAULT 100 AFTER office_radius_meters`);
+    await db.query(`UPDATE hrms_tracking_settings
+      SET home_radius_meters = office_radius_meters`);
+  } catch (error) {
+    if (error && error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
   try { await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN outside_radius_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5'); } catch (error) { if (error && error.code !== 'ER_DUP_FIELDNAME') throw error; }
+  try {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_outside_radius_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5');
+    await db.query('UPDATE hrms_tracking_settings SET office_outside_radius_grace_minutes = outside_radius_grace_minutes');
+  } catch (error) { if (error && error.code !== 'ER_DUP_FIELDNAME') throw error; }
+  try {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_outside_radius_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5');
+    await db.query('UPDATE hrms_tracking_settings SET home_outside_radius_grace_minutes = outside_radius_grace_minutes');
+  } catch (error) { if (error && error.code !== 'ER_DUP_FIELDNAME') throw error; }
 
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_radius_departures (
     attendance_id BIGINT UNSIGNED PRIMARY KEY, employee_id BIGINT UNSIGNED NOT NULL,
@@ -52,10 +71,10 @@ async function ensureHrmsTrackingTables(db) {
   await db.query(`
     INSERT IGNORE INTO hrms_tracking_settings (
       id, office_name, office_address, office_latitude, office_longitude,
-      office_radius_meters, field_ping_interval_minutes,
+      office_radius_meters, home_radius_meters, field_ping_interval_minutes,
       field_waiting_minutes, stationary_radius_meters
     ) VALUES (1, 'Main Office', 'Configure this address in Admin > Tracking',
-      12.8542438, 80.0699862, 100, 15, 60, 50)
+      12.8542438, 80.0699862, 100, 100, 15, 60, 50)
   `);
 
   await db.query(`

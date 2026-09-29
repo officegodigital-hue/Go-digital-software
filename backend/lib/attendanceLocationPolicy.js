@@ -70,16 +70,18 @@ async function profileFor(db, employeeId, lock = false) {
 
 async function settingsFor(db, lock = false) {
   const [rows] = await db.query(
-    `SELECT office_latitude, office_longitude, office_radius_meters
+    `SELECT office_latitude, office_longitude, office_radius_meters, home_radius_meters
      FROM hrms_tracking_settings WHERE id = 1${lock ? ' FOR UPDATE' : ''}`);
   if (rows.length !== 1) {
     throw new LocationPolicyError(503, 'Office and Home location settings are unavailable. Contact admin.');
   }
-  const radiusMeters = number(rows[0].office_radius_meters);
-  if (!Number.isSafeInteger(radiusMeters) || radiusMeters < 1) {
-    throw new LocationPolicyError(503, 'Admin must configure a valid Office/Home radius.');
+  const officeRadiusMeters = number(rows[0].office_radius_meters);
+  const homeRadiusMeters = number(rows[0].home_radius_meters);
+  if (!Number.isSafeInteger(officeRadiusMeters) || officeRadiusMeters < 1 ||
+      !Number.isSafeInteger(homeRadiusMeters) || homeRadiusMeters < 1) {
+    throw new LocationPolicyError(503, 'Admin must configure valid Office and Home radii.');
   }
-  return { ...rows[0], radiusMeters };
+  return { ...rows[0], officeRadiusMeters, homeRadiusMeters };
 }
 
 async function getCheckInPolicy(db, employeeId, lock = false) {
@@ -114,7 +116,10 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
       throw new LocationPolicyError(503, 'The approved Home location is invalid. Contact admin.');
     }
   }
-  return { workMode, requiresLocation: true, radiusMeters: settings.radiusMeters, center };
+  const radiusMeters = workMode === 'Home'
+    ? settings.homeRadiusMeters
+    : settings.officeRadiusMeters;
+  return { workMode, requiresLocation: true, radiusMeters, center };
 }
 
 function validateCheckIn(locationPolicy, body, now) {
