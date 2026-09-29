@@ -796,6 +796,49 @@ async function routeHistory(req, res) {
   }
 }
 
+async function myRouteHistoryList(req, res) {
+  try {
+    const limit = Math.min(30, Math.max(1, Number(req.query.limit || 10)));
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings WHERE employee_user_id = ?
+       ORDER BY recorded_at DESC LIMIT 5000`,
+      [req.user.id]
+    );
+    const byDate = new Map();
+    pings.reverse().forEach(function (ping) {
+      const date = isoDate(ping.recorded_at);
+      if (!date) return;
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(ping);
+    });
+    const items = Array.from(byDate.entries()).sort(function (a, b) { return b[0].localeCompare(a[0]); }).slice(0, limit).map(function (entry) {
+      const date = entry[0];
+      const points = entry[1];
+      let meters = 0;
+      for (let i = 1; i < points.length; i += 1) {
+        meters += locationPolicy.distanceMeters(Number(points[i - 1].latitude), Number(points[i - 1].longitude), Number(points[i].latitude), Number(points[i].longitude));
+      }
+      const first = points[0];
+      const last = points[points.length - 1];
+      const started = new Date(first.recorded_at);
+      const ended = new Date(last.recorded_at);
+      return {
+        date: date,
+        startAddress: first.address || 'Starting location',
+        endAddress: last.address || 'Latest location',
+        distanceKm: Math.round((meters / 1000) * 100) / 100,
+        durationMinutes: Number.isNaN(started.getTime()) || Number.isNaN(ended.getTime()) ? 0 : Math.max(0, Math.round((ended.getTime() - started.getTime()) / 60000)),
+        pointCount: points.length
+      };
+    });
+    return ok(res, { items: items });
+  } catch (error) {
+    console.error('GET /hrms/tracking/route/my/history', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 async function myRouteHistory(req, res) {
   try {
     const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
@@ -1455,6 +1498,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistoryList,
   myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,

@@ -590,7 +590,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final authService = context.read<AuthService>();
     final isAdmin = _selectedTab == 1;
 
-    final success = await authService.login(
+    var loginSucceeded = await authService.login(
       email,
       password,
       isAdmin,
@@ -599,20 +599,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
-    if (!success && authService.errorCode == 'DEVICE_CHANGE_REASON_REQUIRED') {
+    if (!loginSucceeded &&
+        authService.errorCode == 'DEVICE_CHANGE_REASON_REQUIRED') {
       final reason = await _askDeviceChangeReason();
       if (reason == null || reason.isEmpty || !mounted) return;
-      await authService.login(
+      loginSucceeded = await authService.login(
         email,
         password,
         isAdmin,
         _rememberDevice,
         deviceChangeReason: reason,
       );
-      if (!mounted || !authService.isAuthenticated) return;
+      if (!mounted || !loginSucceeded) return;
     }
 
-    if (authService.isAuthenticated) {
+    // Do not route based on an old in-memory session. The destination must be
+    // reached only after this exact employee/admin login request succeeds.
+    if (loginSucceeded) {
       final prefs = await SharedPreferences.getInstance();
 
       if (_rememberDevice) {
