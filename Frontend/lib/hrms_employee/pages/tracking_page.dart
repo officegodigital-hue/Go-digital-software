@@ -469,6 +469,16 @@ class _TrackingViewState extends State<_TrackingView> {
       onChanged: (value) => setState(() => mode = value),
     );
 
+    final homeAction = OutlinedButton.icon(
+      onPressed: _homeDialogOpen ? null : _openHomeLocation,
+      icon: const Icon(Icons.add_home_outlined),
+      label: Text(
+        _homeLocation == null
+            ? 'Register Home Location'
+            : 'Manage Home Location',
+      ),
+    );
+
     final status = _CurrentStatusCard(
       mode: modeLabel,
       address: address,
@@ -478,6 +488,7 @@ class _TrackingViewState extends State<_TrackingView> {
           : mode == _WorkMode.home
           ? _loadHomeLocation
           : refreshLocation,
+      action: mode == _WorkMode.home ? homeAction : null,
     );
 
     final map = _RouteMap(
@@ -485,19 +496,6 @@ class _TrackingViewState extends State<_TrackingView> {
       position: _lastPosition,
       homeLocation: _homeLocation,
       officeSettings: _officeSettings,
-    );
-
-    final homeAction = Align(
-      alignment: Alignment.centerLeft,
-      child: OutlinedButton.icon(
-        onPressed: _homeDialogOpen ? null : _openHomeLocation,
-        icon: const Icon(Icons.add_home_outlined),
-        label: Text(
-          _homeLocation == null
-              ? 'Register Home Location'
-              : 'Manage Home Location',
-        ),
-      ),
     );
 
     final metrics = _TripMetrics(
@@ -524,10 +522,6 @@ class _TrackingViewState extends State<_TrackingView> {
           modes,
           const SizedBox(height: 14),
           status,
-          if (mode == _WorkMode.home) ...[
-            const SizedBox(height: 12),
-            homeAction,
-          ],
           const SizedBox(height: 20),
           Row(
             children: [
@@ -571,7 +565,6 @@ class _TrackingViewState extends State<_TrackingView> {
         modes,
         const SizedBox(height: 18),
         status,
-        if (mode == _WorkMode.home) ...[const SizedBox(height: 12), homeAction],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -1059,11 +1052,13 @@ class _CurrentStatusCard extends StatelessWidget {
     required this.address,
     required this.color,
     required this.onRefresh,
+    this.action,
   });
   final String mode;
   final String address;
   final Color color;
   final VoidCallback onRefresh;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
@@ -1114,6 +1109,10 @@ class _CurrentStatusCard extends StatelessWidget {
                 style: const TextStyle(color: employeeMuted, height: 1.4),
               ),
             ),
+            if (action != null) ...[
+              const SizedBox(width: 12),
+              action!,
+            ],
             IconButton.outlined(
               tooltip: 'Refresh live location',
               onPressed: onRefresh,
