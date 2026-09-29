@@ -10,11 +10,13 @@ const _muted = Color(0xFF63718F);
 const _orange = Color(0xFFFF6A00);
 const _red = Color(0xFFD7193F);
 
-Future<void> showManageTimeDialog(BuildContext context) => showDialog<void>(
-  context: context,
-  barrierColor: const Color(0x9907163E),
-  builder: (_) => const ManageTimeDialog(),
-);
+Future<bool> showManageTimeDialog(BuildContext context) async =>
+    (await showDialog<bool>(
+      context: context,
+      barrierColor: const Color(0x9907163E),
+      builder: (_) => const ManageTimeDialog(),
+    )) ??
+    false;
 
 class ManageTimeDialog extends StatefulWidget {
   const ManageTimeDialog({super.key});
@@ -51,10 +53,16 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
           values['absentAfter'],
           fallback: _absentAfter,
         );
-        final savedBreak = int.tryParse('${values['breakMinutes'] ?? 60}') ?? 60;
-        _breakMinutes = savedBreak < 0 ? 0 : (savedBreak > 180 ? 180 : savedBreak);
-        final savedGrace = int.tryParse('${values['breakGraceMinutes'] ?? 5}') ?? 5;
-        _breakGraceMinutes = savedGrace < 0 ? 0 : (savedGrace > 60 ? 60 : savedGrace);
+        final savedBreak =
+            int.tryParse('${values['breakMinutes'] ?? 60}') ?? 60;
+        _breakMinutes = savedBreak < 0
+            ? 0
+            : (savedBreak > 180 ? 180 : savedBreak);
+        final savedGrace =
+            int.tryParse('${values['breakGraceMinutes'] ?? 5}') ?? 5;
+        _breakGraceMinutes = savedGrace < 0
+            ? 0
+            : (savedGrace > 60 ? 60 : savedGrace);
       });
     } catch (error) {
       if (mounted) {
@@ -111,7 +119,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
         breakGraceMinutes: _breakGraceMinutes,
       );
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Attendance time settings saved.')),
       );
@@ -136,11 +144,21 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
           controller: controller,
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Minutes (0–180)', helperText: 'One break only per shift'),
+          decoration: const InputDecoration(
+            labelText: 'Minutes (0–180)',
+            helperText: 'One break only per shift',
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(controller.text.trim())), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, int.tryParse(controller.text.trim())),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -159,11 +177,21 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
           controller: controller,
           autofocus: true,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Minutes (0–60)', helperText: 'Reason required if overdue exceeds this'),
+          decoration: const InputDecoration(
+            labelText: 'Minutes (0–60)',
+            helperText: 'Reason required if overdue exceeds this',
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, int.tryParse(controller.text.trim())), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, int.tryParse(controller.text.trim())),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );

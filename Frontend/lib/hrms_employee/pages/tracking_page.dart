@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart';
 
 import '../../services/hrms_tracking_api.dart';
+import '../../services/attendance_api.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
 
@@ -19,7 +22,7 @@ class EmployeeTrackingPage extends StatelessWidget {
       title: routeHistory ? 'Route History' : 'Live Tracking',
       subtitle: routeHistory
           ? 'Your recent travel routes'
-          : 'Live employee location and today’s field activity',
+          : 'Live employee location and today’s hybrid activity',
       desktop: _TrackingView(mobile: false, routeHistory: routeHistory),
       mobile: _TrackingView(mobile: true, routeHistory: routeHistory),
     );
@@ -41,8 +44,11 @@ class _TrackingViewState extends State<_TrackingView> {
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
+  bool _isHybridEmployee = false;
   Timer? _locationTimer;
   Timer? _waitingAlertTimer;
+  Timer? _radiusHeartbeatTimer;
+  StreamSubscription<Position>? _androidBackgroundLocationSubscription;
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
@@ -83,7 +89,33 @@ class _TrackingViewState extends State<_TrackingView> {
   void dispose() {
     _locationTimer?.cancel();
     _waitingAlertTimer?.cancel();
+    _radiusHeartbeatTimer?.cancel();
+    _androidBackgroundLocationSubscription?.cancel();
     super.dispose();
+  }
+
+  void _startRadiusHeartbeat() {
+    _radiusHeartbeatTimer?.cancel();
+    final minutes = int.tryParse(
+      '${_officeSettings?['field_ping_interval_minutes']}',
+    );
+    if (minutes == null || minutes < 1) return;
+    _sendRadiusHeartbeat();
+    _radiusHeartbeatTimer = Timer.periodic(
+      Duration(minutes: minutes),
+      (_) => _sendRadiusHeartbeat(),
+    );
+  }
+
+  Future<void> _sendRadiusHeartbeat() async {
+    try {
+      final position = await _getCurrentPosition();
+      await AttendanceApi.locationHeartbeat(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+      );
+    } catch (_) {}
   }
 
   Future<void> _loadOfficeSettings() async {
@@ -94,6 +126,8 @@ class _TrackingViewState extends State<_TrackingView> {
         _officeSettings = settings;
         _officeLoading = false;
       });
+      _startRadiusHeartbeat();
+      if (trackingActive) _startLocationTimer();
     } catch (_) {
       if (!mounted) return;
       setState(() => _officeLoading = false);
@@ -158,7 +192,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> _loadFieldSession() async {
     try {
-      final session = await HrmsTrackingApi.fieldSession();
+      final session = await HrmsTrackingApi.hybridSession();
 
       final active =
           session['is_active'] == 1 ||
@@ -168,6 +202,8 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
 
       setState(() {
+        _isHybridEmployee =
+            session['isHybrid'] == true || session['is_hybrid'] == 1;
         trackingActive = active;
 
         if (active) {
@@ -188,7 +224,17 @@ class _TrackingViewState extends State<_TrackingView> {
   void _startLocationTimer() {
     _locationTimer?.cancel();
 
-    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+    final minutes = int.tryParse(
+      '${_officeSettings?['field_ping_interval_minutes']}',
+    );
+    if (minutes == null || minutes < 1) return;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _startAndroidBackgroundTracking(minutes);
+      return;
+    }
+    _locationTimer = Timer.periodic(Duration(minutes: minutes.clamp(1, 120)), (
+      _,
+    ) {
       _sendLocationPing(showMessage: false);
     });
   }
@@ -198,34 +244,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
     try {
       final position = await _getCurrentPosition();
-
-      await HrmsTrackingApi.ping(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _lastPosition = position;
-        updated = 'Updated just now';
-        activities = [
-          {
-            'activity_time': TimeOfDay.now().format(context),
-            'activity_text': 'Live location updated',
-          },
-          ...activities.where(
-            (item) => item['activity_text'] != 'No live tracking activity yet',
-          ),
-        ];
-      });
-
-      if (showMessage && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Live location refreshed.')),
-        );
-      }
+      await _sendPositionPing(position, showMessage: showMessage);
     } catch (error) {
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -237,12 +256,86 @@ class _TrackingViewState extends State<_TrackingView> {
     }
   }
 
+  Future<void> _sendPositionPing(
+    Position position, {
+    required bool showMessage,
+  }) async {
+    if (!trackingActive) return;
+    await HrmsTrackingApi.ping(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracy: position.accuracy,
+    );
+    if (!mounted) return;
+    setState(() {
+      _lastPosition = position;
+      updated = 'Updated just now';
+      activities = [
+        {
+          'activity_time': TimeOfDay.now().format(context),
+          'activity_text': 'Live location updated',
+        },
+        ...activities.where(
+          (item) => item['activity_text'] != 'No live tracking activity yet',
+        ),
+      ];
+    });
+    if (showMessage && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Live location refreshed.')));
+    }
+  }
+
+  Future<void> _startAndroidBackgroundTracking(int intervalMinutes) async {
+    await _androidBackgroundLocationSubscription?.cancel();
+    if (!trackingActive ||
+        kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.always) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.always) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Choose “Allow all the time” in Android location permission to keep Hybrid tracking active in the background.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    const notification = ForegroundNotificationConfig(
+      notificationTitle: 'Go Digital HRMS tracking is active',
+      notificationText: 'Your Hybrid work location is being updated.',
+      enableWakeLock: true,
+      setOngoing: true,
+    );
+    final settings = AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 0,
+      intervalDuration: Duration(minutes: intervalMinutes),
+      foregroundNotificationConfig: notification,
+    );
+    _androidBackgroundLocationSubscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen((
+          position,
+        ) {
+          _sendPositionPing(position, showMessage: false).catchError((_) {});
+        });
+  }
+
   Future<void> toggleTracking() async {
     try {
       final position = await _getCurrentPosition();
 
       if (!trackingActive) {
-        await HrmsTrackingApi.startFieldSession(
+        await HrmsTrackingApi.startHybridSession(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
@@ -258,7 +351,7 @@ class _TrackingViewState extends State<_TrackingView> {
           activities = [
             {
               'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Started live Field tracking',
+              'activity_text': 'Started live Hybrid tracking',
             },
           ];
         });
@@ -269,13 +362,15 @@ class _TrackingViewState extends State<_TrackingView> {
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
       } else {
-        await HrmsTrackingApi.stopFieldSession(
+        await HrmsTrackingApi.stopHybridSession(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
         );
 
         _locationTimer?.cancel();
+        await _androidBackgroundLocationSubscription?.cancel();
+        _androidBackgroundLocationSubscription = null;
 
         if (!mounted) return;
 
@@ -286,7 +381,7 @@ class _TrackingViewState extends State<_TrackingView> {
           activities = [
             {
               'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Stopped live Field tracking',
+              'activity_text': 'Stopped live Hybrid tracking',
             },
             ...activities,
           ];
@@ -314,7 +409,7 @@ class _TrackingViewState extends State<_TrackingView> {
   String get modeLabel => switch (mode) {
     _WorkMode.office => 'Office',
     _WorkMode.home => 'Home',
-    _WorkMode.field => 'Field',
+    _WorkMode.field => 'Hybrid',
   };
 
   String get address {
@@ -356,7 +451,7 @@ class _TrackingViewState extends State<_TrackingView> {
           '${_lastPosition!.longitude.toStringAsFixed(6)}';
     }
 
-    return 'Field location will appear after live tracking starts';
+    return 'Hybrid location will appear after live tracking starts';
   }
 
   Color get activeColor =>
@@ -370,6 +465,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
     final modes = _ModeTabs(
       selected: mode,
+      homeEnabled: _officeSettings?['home_tracking_enabled'] != 0,
       onChanged: (value) => setState(() => mode = value),
     );
 
@@ -464,7 +560,7 @@ class _TrackingViewState extends State<_TrackingView> {
           const SizedBox(height: 12),
           timeline,
           const SizedBox(height: 18),
-          live,
+          if (_isHybridEmployee) live,
         ],
       );
     }
@@ -521,7 +617,7 @@ class _TrackingViewState extends State<_TrackingView> {
                   const SizedBox(height: 12),
                   timeline,
                   const SizedBox(height: 18),
-                  live,
+                  if (_isHybridEmployee) live,
                 ],
               ),
             ),
@@ -567,7 +663,7 @@ class _TrackingViewState extends State<_TrackingView> {
       barrierDismissible: false,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Field waiting reason'),
+          title: const Text('Hybrid waiting reason'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -625,47 +721,174 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 }
 
-class _RouteHistoryView extends StatelessWidget {
+class _RouteHistoryView extends StatefulWidget {
   const _RouteHistoryView({required this.mobile});
   final bool mobile;
 
   @override
+  State<_RouteHistoryView> createState() => _RouteHistoryViewState();
+}
+
+class _RouteHistoryViewState extends State<_RouteHistoryView> {
+  DateTime _date = DateTime.now();
+  bool _loading = true;
+  Map<String, dynamic>? _route;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final route = await HrmsTrackingApi.myRoute(
+        date: _date.toIso8601String().substring(0, 10),
+      );
+      if (mounted)
+        setState(() {
+          _route = route;
+          _loading = false;
+        });
+    } catch (error) {
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = error.toString().replaceFirst('Exception: ', '');
+        });
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _date = picked);
+      _load();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final history = const Column(
+    final raw = (_route?['routePoints'] as List? ?? [])
+        .whereType<Map>()
+        .map(
+          (p) => LatLng(
+            (p['latitude'] as num).toDouble(),
+            (p['longitude'] as num).toDouble(),
+          ),
+        )
+        .toList();
+    final activities = (_route?['activities'] as List? ?? [])
+        .whereType<Map>()
+        .toList();
+    final markers = <Marker>{
+      if (raw.isNotEmpty)
+        Marker(
+          markerId: const MarkerId('start'),
+          position: raw.first,
+          infoWindow: const InfoWindow(title: 'S — Start'),
+        ),
+      if (raw.length > 1)
+        Marker(
+          markerId: const MarkerId('end'),
+          position: raw.last,
+          infoWindow: const InfoWindow(title: 'E — End'),
+        ),
+      ...raw
+          .skip(1)
+          .take(raw.length > 2 ? raw.length - 2 : 0)
+          .map(
+            (point) => Marker(
+              markerId: MarkerId('${point.latitude},${point.longitude}'),
+              position: point,
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueGreen,
+              ),
+            ),
+          ),
+    };
+    final history = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Recent Routes',
-          style: TextStyle(
-            color: employeeNavy,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Route History',
+                style: TextStyle(
+                  color: employeeNavy,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.calendar_month_outlined),
+              label: Text('${_date.day}/${_date.month}/${_date.year}'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else if (_error != null)
+          Text(_error!, style: const TextStyle(color: Colors.red))
+        else if (raw.isEmpty)
+          const EmployeeCard(
+            padding: EdgeInsets.all(20),
+            child: Text('No GPS route was recorded for the selected date'),
+          )
+        else ...[
+          SizedBox(
+            height: 280,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: raw.first,
+                  zoom: 14,
+                ),
+                polylines: {
+                  Polyline(
+                    polylineId: const PolylineId('route'),
+                    points: raw,
+                    color: employeeBlue,
+                    width: 5,
+                  ),
+                },
+                markers: markers,
+                mapToolbarEnabled: false,
+              ),
+            ),
           ),
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          'Today',
-          'Sector 62 → Sector 63 → Sector 62',
-          '18.6 km',
-          '01h 48m',
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          '22 Aug 2026',
-          'Noida Office → Sector 18 → Noida Office',
-          '12.4 km',
-          '01h 12m',
-        ),
-        SizedBox(height: 12),
-        _RouteHistoryCard(
-          '21 Aug 2026',
-          'Noida Office → Greater Noida',
-          '24.1 km',
-          '02h 06m',
-        ),
+          const SizedBox(height: 12),
+          _RouteHistoryCard(
+            DateFormat('dd MMM yyyy').format(_date),
+            '${((_route?['distanceMeters'] as num? ?? 0) / 1000).toStringAsFixed(2)} km · ${((_route?['averageSpeedKmh'] as num? ?? 0)).toStringAsFixed(1)} km/h',
+            '${((_route?['durationSeconds'] as num? ?? 0) / 60).round()} min',
+            '${activities.length} updates',
+          ),
+          for (final item in activities.take(8))
+            ListTile(
+              leading: const Icon(Icons.place_outlined, color: employeeBlue),
+              title: Text('${item['placeName'] ?? 'Location pending'}'),
+              subtitle: Text('${item['recordedAt'] ?? ''}'),
+            ),
+        ],
       ],
     );
-    return mobile
+    return widget.mobile
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -741,8 +964,13 @@ class _RouteHistoryCard extends StatelessWidget {
 }
 
 class _ModeTabs extends StatelessWidget {
-  const _ModeTabs({required this.selected, required this.onChanged});
+  const _ModeTabs({
+    required this.selected,
+    required this.homeEnabled,
+    required this.onChanged,
+  });
   final _WorkMode selected;
+  final bool homeEnabled;
   final ValueChanged<_WorkMode> onChanged;
 
   @override
@@ -754,17 +982,19 @@ class _ModeTabs extends StatelessWidget {
         active: selected == _WorkMode.office,
         onTap: () => onChanged(_WorkMode.office),
       ),
-      const SizedBox(width: 8),
-      _ModeTab(
-        icon: Icons.home_outlined,
-        label: 'Home',
-        active: selected == _WorkMode.home,
-        onTap: () => onChanged(_WorkMode.home),
-      ),
+      if (homeEnabled) ...[
+        const SizedBox(width: 8),
+        _ModeTab(
+          icon: Icons.home_outlined,
+          label: 'Home',
+          active: selected == _WorkMode.home,
+          onTap: () => onChanged(_WorkMode.home),
+        ),
+      ],
       const SizedBox(width: 8),
       _ModeTab(
         icon: Icons.person_outline_rounded,
-        label: 'Field',
+        label: 'Hybrid',
         active: selected == _WorkMode.field,
         onTap: () => onChanged(_WorkMode.field),
       ),

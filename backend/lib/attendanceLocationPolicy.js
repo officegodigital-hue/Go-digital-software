@@ -62,7 +62,7 @@ async function profileFor(db, employeeId, lock = false) {
     throw new LocationPolicyError(403, 'An employee profile must be configured by admin before clocking in.');
   }
   const profile = rows[0];
-  if (!['Office', 'Home', 'Field'].includes(profile.work_mode)) {
+  if (!['Office', 'Home', 'Hybrid'].includes(profile.work_mode)) {
     throw new LocationPolicyError(403, 'Employee work mode must be configured by admin.');
   }
   return profile;
@@ -85,10 +85,11 @@ async function settingsFor(db, lock = false) {
 async function getCheckInPolicy(db, employeeId, lock = false) {
   const profile = await profileFor(db, employeeId, lock);
   const workMode = profile.work_mode;
-  if (workMode === 'Field') return { workMode, requiresLocation: false, radiusMeters: null };
   const settings = await settingsFor(db, lock);
   let center;
-  if (workMode === 'Office') {
+  // Hybrid employees clock in at the Office in exactly the same way as
+  // Office employees. Live tracking is only needed after they leave for work.
+  if (workMode === 'Office' || workMode === 'Hybrid') {
     try {
       center = coordinates(settings.office_latitude, settings.office_longitude);
     } catch (_) {

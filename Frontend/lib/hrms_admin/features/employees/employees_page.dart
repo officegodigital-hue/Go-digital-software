@@ -140,7 +140,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: HrmsColors.page,
-      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/employees') : null,
+      bottomNavigationBar: mobile
+          ? const AdminMobileBottomNav(activeRoute: '/admin/employees')
+          : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/employees'),
@@ -261,57 +263,147 @@ class _EmployeesPageState extends State<EmployeesPage> {
     try {
       final csv = await HrmsEmployeesApi.exportCsv();
       final rows = _parseCsv(csv);
-      if (rows.length <= 1) throw Exception('No employees available to export.');
+      if (rows.length <= 1)
+        throw Exception('No employees available to export.');
       final logo = pw.MemoryImage(
-        (await rootBundle.load('assets/images/godigital_logo.png')).buffer.asUint8List(),
+        (await rootBundle.load(
+          'assets/images/godigital_logo.png',
+        )).buffer.asUint8List(),
       );
-      final generatedAt = DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now());
+      final generatedAt = DateFormat(
+        'dd MMM yyyy, hh:mm a',
+      ).format(DateTime.now());
       final document = pw.Document();
-      document.addPage(pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        margin: const pw.EdgeInsets.fromLTRB(28, 26, 28, 30),
-        header: (context) => pw.Column(children: [
-          pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-            pw.Container(width: 54, height: 54, padding: const pw.EdgeInsets.all(6), child: pw.Image(logo, fit: pw.BoxFit.contain)),
-            pw.SizedBox(width: 12),
-            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-              pw.Text('GO DIGITAL', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
-              pw.Text('Employee Directory', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
-            ]),
-            pw.Spacer(),
-            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-              pw.Text('EMPLOYEE MANAGEMENT', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blue700)),
-              pw.Text('Generated $generatedAt', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-            ]),
-          ]),
-          pw.SizedBox(height: 12),
-          pw.Container(height: 2, color: PdfColors.blue700),
-          pw.SizedBox(height: 14),
-        ]),
-        footer: (context) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-          pw.Text('GoDigital - Confidential internal record', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-          pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-        ]),
-        build: (context) => [
-          pw.Text('Employee Directory', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
-          pw.SizedBox(height: 5),
-          pw.Text('${rows.length - 1} employees', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-          pw.SizedBox(height: 12),
-          pw.Table.fromTextArray(
-            headers: rows.first,
-            data: rows.skip(1).toList(),
-            headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF075EF7)),
-            headerStyle: pw.TextStyle(color: PdfColors.white, fontSize: 9, fontWeight: pw.FontWeight.bold),
-            cellStyle: const pw.TextStyle(fontSize: 8, color: PdfColors.blue900),
-            cellHeight: 26,
-            border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFD8E1F1), width: .6),
-            oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF4F7FC)),
+      document.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.fromLTRB(28, 26, 28, 30),
+          header: (context) => pw.Column(
+            children: [
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    width: 54,
+                    height: 54,
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Image(logo, fit: pw.BoxFit.contain),
+                  ),
+                  pw.SizedBox(width: 12),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'GO DIGITAL',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blue900,
+                        ),
+                      ),
+                      pw.Text(
+                        'Employee Directory',
+                        style: pw.TextStyle(
+                          fontSize: 10,
+                          color: PdfColors.grey700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.Spacer(),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(
+                        'EMPLOYEE MANAGEMENT',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blue700,
+                        ),
+                      ),
+                      pw.Text(
+                        'Generated $generatedAt',
+                        style: const pw.TextStyle(
+                          fontSize: 8,
+                          color: PdfColors.grey600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 12),
+              pw.Container(height: 2, color: PdfColors.blue700),
+              pw.SizedBox(height: 14),
+            ],
           ),
-        ],
-      ));
+          footer: (context) => pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'GoDigital - Confidential internal record',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey600,
+                ),
+              ),
+              pw.Text(
+                'Page ${context.pageNumber} of ${context.pagesCount}',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey600,
+                ),
+              ),
+            ],
+          ),
+          build: (context) => [
+            pw.Text(
+              'Employee Directory',
+              style: pw.TextStyle(
+                fontSize: 16,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.blue900,
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Text(
+              '${rows.length - 1} employees',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Table.fromTextArray(
+              headers: rows.first,
+              data: rows.skip(1).toList(),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFF075EF7),
+              ),
+              headerStyle: pw.TextStyle(
+                color: PdfColors.white,
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellStyle: const pw.TextStyle(
+                fontSize: 8,
+                color: PdfColors.blue900,
+              ),
+              cellHeight: 26,
+              border: pw.TableBorder.all(
+                color: PdfColor.fromInt(0xFFD8E1F1),
+                width: .6,
+              ),
+              oddRowDecoration: const pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFF4F7FC),
+              ),
+            ),
+          ],
+        ),
+      );
       await Printing.layoutPdf(onLayout: (_) => document.save());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Professional employee PDF is ready.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Professional employee PDF is ready.')),
+      );
     } catch (err) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -325,7 +417,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
     for (final line in input.split(RegExp(r'\r?\n'))) {
       if (line.trim().isEmpty) continue;
       final values = line.contains('"')
-          ? RegExp(r'"((?:""|[^"])*)"').allMatches(line).map((match) => match.group(1)!.replaceAll('""', '"')).toList()
+          ? RegExp(r'"((?:""|[^"])*)"')
+                .allMatches(line)
+                .map((match) => match.group(1)!.replaceAll('""', '"'))
+                .toList()
           : line.split(',').map((value) => value.trim()).toList();
       if (values.isNotEmpty) rows.add(values);
     }
@@ -345,11 +440,17 @@ class _EmployeesPageState extends State<EmployeesPage> {
   }
 
   Future<void> _showLeavePolicies() async {
-    final saved = await showDialog<bool>(context: context, builder: (_) => const LeavePolicyDialog());
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => const LeavePolicyDialog(),
+    );
     if (saved == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Leave policies saved.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Leave policies saved.')));
     }
   }
+
   Future<void> _showEmployeeForm({_Employee? employee}) async {
     final name = TextEditingController(text: employee?.name ?? '');
     final id = TextEditingController(
@@ -434,7 +535,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                     _formDropdown('Work mode', selectedMode, const [
                       'Office',
                       'Home',
-                      'Field',
+                      'Hybrid',
                     ], (value) => setDialogState(() => selectedMode = value!)),
                     const SizedBox(height: 12),
                     _formDropdown(
@@ -458,52 +559,69 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       'Salary cycle type',
                       salaryType == 'flexible' ? 'Flexible' : 'Standard',
                       const ['Standard', 'Flexible'],
-                      (value) => setDialogState(() => salaryType = value == 'Flexible' ? 'flexible' : 'standard'),
+                      (value) => setDialogState(
+                        () => salaryType = value == 'Flexible'
+                            ? 'flexible'
+                            : 'standard',
+                      ),
                     ),
                     if (salaryType == 'flexible') ...[
                       const SizedBox(height: 12),
-                      Row(children: [
-                        Expanded(
-                          child: TextFormField(
-                            initialValue: '$cycleStartDay',
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Cycle start day',
-                              hintText: '1–28',
-                              border: OutlineInputBorder(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: '$cycleStartDay',
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Cycle start day',
+                                hintText: '1–28',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (v) {
+                                final n = int.tryParse(v ?? '');
+                                if (n == null || n < 1 || n > 28) return '1–28';
+                                return null;
+                              },
+                              onChanged: (v) {
+                                final n = int.tryParse(v);
+                                if (n != null && n >= 1 && n <= 28)
+                                  setDialogState(() => cycleStartDay = n);
+                              },
                             ),
-                            validator: (v) {
-                              final n = int.tryParse(v ?? '');
-                              if (n == null || n < 1 || n > 28) return '1–28';
-                              return null;
-                            },
-                            onChanged: (v) { final n = int.tryParse(v); if (n != null && n >= 1 && n <= 28) setDialogState(() => cycleStartDay = n); },
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            initialValue: '$cycleEndDay',
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Cycle end day',
-                              hintText: '1–28',
-                              border: OutlineInputBorder(),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: '$cycleEndDay',
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Cycle end day',
+                                hintText: '1–28',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (v) {
+                                final n = int.tryParse(v ?? '');
+                                if (n == null || n < 1 || n > 28) return '1–28';
+                                return null;
+                              },
+                              onChanged: (v) {
+                                final n = int.tryParse(v);
+                                if (n != null && n >= 1 && n <= 28)
+                                  setDialogState(() => cycleEndDay = n);
+                              },
                             ),
-                            validator: (v) {
-                              final n = int.tryParse(v ?? '');
-                              if (n == null || n < 1 || n > 28) return '1–28';
-                              return null;
-                            },
-                            onChanged: (v) { final n = int.tryParse(v); if (n != null && n >= 1 && n <= 28) setDialogState(() => cycleEndDay = n); },
                           ),
-                        ),
-                      ]),
+                        ],
+                      ),
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           'e.g. Day $cycleStartDay of previous month → Day $cycleEndDay of pay month',
-                          style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
+                          style: const TextStyle(
+                            color: Color(0xFF657087),
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -709,7 +827,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
 }
 
 class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.onAdd, required this.onExport, required this.onLeavePolicy});
+  const _PageHeader({
+    required this.onAdd,
+    required this.onExport,
+    required this.onLeavePolicy,
+  });
 
   final VoidCallback onAdd, onExport, onLeavePolicy;
 
@@ -720,7 +842,19 @@ class _PageHeader extends StatelessWidget {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        OutlinedButton.icon(onPressed: onLeavePolicy, icon: const Icon(Icons.event_available_outlined), label: const Text('Leave Policy'), style: OutlinedButton.styleFrom(foregroundColor: HrmsColors.navy, side: const BorderSide(color: HrmsColors.line), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)))),
+        OutlinedButton.icon(
+          onPressed: onLeavePolicy,
+          icon: const Icon(Icons.event_available_outlined),
+          label: const Text('Leave Policy'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: HrmsColors.navy,
+            side: const BorderSide(color: HrmsColors.line),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+            ),
+          ),
+        ),
         const SizedBox(width: 12),
         FilledButton.icon(
           onPressed: onAdd,
@@ -848,102 +982,117 @@ class _EmployeeKpi extends StatelessWidget {
           border: Border.all(color: color.withValues(alpha: .25)),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(mobileLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
-          const Spacer(),
-          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
-        ]),
-      );
-    }
-    return LayoutBuilder(
-    builder: (_, constraints) {
-      final compact = constraints.maxWidth < 220;
-      return Container(
-        height: 116,
-        padding: EdgeInsets.fromLTRB(
-          compact ? 12 : 16,
-          14,
-          compact ? 12 : 16,
-          9,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: color.withValues(alpha: .28)),
-          borderRadius: BorderRadius.circular(13),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x08071A72),
-              blurRadius: 12,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: compact ? 42 : 54,
-                  height: compact ? 42 : 54,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: .08),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: color, size: compact ? 23 : 29),
-                ),
-                SizedBox(width: compact ? 10 : 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: HrmsColors.navy,
-                          fontSize: compact ? 11 : 13,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        value,
-                        style: TextStyle(
-                          color: HrmsColors.navy,
-                          fontSize: compact ? 23 : 27,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (!compact)
-                        Text(
-                          caption,
-                          style: const TextStyle(
-                            color: Color(0xFF50649E),
-                            fontSize: 11,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              mobileLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
             ),
             const Spacer(),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                width: compact ? 40 : 55,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(4),
-                ),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ],
         ),
       );
-    },
-  );
+    }
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final compact = constraints.maxWidth < 220;
+        return Container(
+          height: 116,
+          padding: EdgeInsets.fromLTRB(
+            compact ? 12 : 16,
+            14,
+            compact ? 12 : 16,
+            9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: color.withValues(alpha: .28)),
+            borderRadius: BorderRadius.circular(13),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x08071A72),
+                blurRadius: 12,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: compact ? 42 : 54,
+                    height: compact ? 42 : 54,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: .08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, color: color, size: compact ? 23 : 29),
+                  ),
+                  SizedBox(width: compact ? 10 : 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: HrmsColors.navy,
+                            fontSize: compact ? 11 : 13,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          value,
+                          style: TextStyle(
+                            color: HrmsColors.navy,
+                            fontSize: compact ? 23 : 27,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (!compact)
+                          Text(
+                            caption,
+                            style: const TextStyle(
+                              color: Color(0xFF50649E),
+                              fontSize: 11,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  width: compact ? 40 : 55,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -972,15 +1121,19 @@ class _Filters extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 0 : 20),
     decoration: BoxDecoration(
-      color: MediaQuery.sizeOf(context).width < 600 ? Colors.transparent : Colors.white,
+      color: MediaQuery.sizeOf(context).width < 600
+          ? Colors.transparent
+          : Colors.white,
       borderRadius: BorderRadius.circular(14),
-      boxShadow: MediaQuery.sizeOf(context).width < 600 ? const [] : const [
-        BoxShadow(
-          color: Color(0x0C071A72),
-          blurRadius: 18,
-          offset: Offset(0, 6),
-        ),
-      ],
+      boxShadow: MediaQuery.sizeOf(context).width < 600
+          ? const []
+          : const [
+              BoxShadow(
+                color: Color(0x0C071A72),
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
+            ],
     ),
     child: LayoutBuilder(
       builder: (_, constraints) {
@@ -988,11 +1141,29 @@ class _Filters extends StatelessWidget {
         final search = TextField(
           controller: searchController,
           onChanged: onSearch,
-          decoration: _inputDecoration('Search by name, employee ID or email', Icons.search_rounded),
+          decoration: _inputDecoration(
+            'Search by name, employee ID or email',
+            Icons.search_rounded,
+          ),
         );
-        final departmentField = _FilterDropdown(label: 'Department', value: department, values: ['All Departments', ...departmentOptions], onChanged: onDepartment);
-        final statusField = _FilterDropdown(label: 'Status', value: status, values: const ['All Status', 'Active', 'On Leave', 'Inactive'], onChanged: onStatus);
-        final modeField = _FilterDropdown(label: 'Work Mode', value: workMode, values: const ['All Work Modes', 'Office', 'Home', 'Field'], onChanged: onMode);
+        final departmentField = _FilterDropdown(
+          label: 'Department',
+          value: department,
+          values: ['All Departments', ...departmentOptions],
+          onChanged: onDepartment,
+        );
+        final statusField = _FilterDropdown(
+          label: 'Status',
+          value: status,
+          values: const ['All Status', 'Active', 'On Leave', 'Inactive'],
+          onChanged: onStatus,
+        );
+        final modeField = _FilterDropdown(
+          label: 'Work Mode',
+          value: workMode,
+          values: const ['All Work Modes', 'Office', 'Home', 'Hybrid'],
+          onChanged: onMode,
+        );
         final reset = Tooltip(
           message: 'Reset filters',
           child: OutlinedButton(
@@ -1000,53 +1171,90 @@ class _Filters extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(56, 56),
               side: const BorderSide(color: Color(0xFFA8C0F8)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(9),
+              ),
             ),
-            child: const Icon(Icons.restart_alt_rounded, color: HrmsColors.blue),
+            child: const Icon(
+              Icons.restart_alt_rounded,
+              color: HrmsColors.blue,
+            ),
           ),
         );
         final mobile = MediaQuery.sizeOf(context).width < 600;
         if (mobile) {
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            search,
-            const SizedBox(height: 12),
-            Row(children: [
-              OutlinedButton.icon(
-                onPressed: () => _openMobileFilters(context),
-                icon: const Icon(Icons.tune_rounded, size: 20),
-                label: const Text('Filters'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: HrmsColors.blue,
-                  side: const BorderSide(color: HrmsColors.blue),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              search,
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _openMobileFilters(context),
+                    icon: const Icon(Icons.tune_rounded, size: 20),
+                    label: const Text('Filters'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: HrmsColors.blue,
+                      side: const BorderSide(color: HrmsColors.blue),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: onReset,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                    label: const Text('Reset'),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: onReset,
-                icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('Reset'),
-              ),
-            ]),
-          ]);
+            ],
+          );
         }
         if (narrow) {
           final stackFilters = constraints.maxWidth < 410;
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            search,
-            const SizedBox(height: 14),
-            if (stackFilters) ...[
-              departmentField,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              search,
+              const SizedBox(height: 14),
+              if (stackFilters) ...[
+                departmentField,
+                const SizedBox(height: 12),
+                statusField,
+              ] else
+                Row(
+                  children: [
+                    Expanded(child: departmentField),
+                    const SizedBox(width: 12),
+                    Expanded(child: statusField),
+                  ],
+                ),
               const SizedBox(height: 12),
-              statusField,
-            ] else
-              Row(children: [Expanded(child: departmentField), const SizedBox(width: 12), Expanded(child: statusField)]),
-            const SizedBox(height: 12),
-            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: modeField), const SizedBox(width: 12), reset]),
-          ]);
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(child: modeField),
+                  const SizedBox(width: 12),
+                  reset,
+                ],
+              ),
+            ],
+          );
         }
-        final fields = [SizedBox(width: 430, child: search), departmentField, statusField, modeField, reset];
+        final fields = [
+          SizedBox(width: 430, child: search),
+          departmentField,
+          statusField,
+          modeField,
+          reset,
+        ];
         return Wrap(
           spacing: 26,
           runSpacing: 16,
@@ -1070,23 +1278,73 @@ class _Filters extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Center(child: Container(width: 42, height: 4, decoration: BoxDecoration(color: const Color(0xFFD8E1F0), borderRadius: BorderRadius.circular(4)))),
-            const SizedBox(height: 18),
-            const Text('Filter employees', style: TextStyle(color: HrmsColors.navy, fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            _FilterDropdown(label: 'Department', value: department, values: ['All Departments', ...departmentOptions], onChanged: onDepartment),
-            const SizedBox(height: 12),
-            _FilterDropdown(label: 'Status', value: status, values: const ['All Status', 'Active', 'On Leave', 'Inactive'], onChanged: onStatus),
-            const SizedBox(height: 12),
-            _FilterDropdown(label: 'Work Mode', value: workMode, values: const ['All Work Modes', 'Office', 'Home', 'Field'], onChanged: onMode),
-            const SizedBox(height: 20),
-            Row(children: [
-              Expanded(child: OutlinedButton(onPressed: () { onReset(); Navigator.pop(sheetContext); }, child: const Text('Reset'))),
-              const SizedBox(width: 12),
-              Expanded(child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters'))),
-            ]),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD8E1F0),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Filter employees',
+                style: TextStyle(
+                  color: HrmsColors.navy,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _FilterDropdown(
+                label: 'Department',
+                value: department,
+                values: ['All Departments', ...departmentOptions],
+                onChanged: onDepartment,
+              ),
+              const SizedBox(height: 12),
+              _FilterDropdown(
+                label: 'Status',
+                value: status,
+                values: const ['All Status', 'Active', 'On Leave', 'Inactive'],
+                onChanged: onStatus,
+              ),
+              const SizedBox(height: 12),
+              _FilterDropdown(
+                label: 'Work Mode',
+                value: workMode,
+                values: const ['All Work Modes', 'Office', 'Home', 'Hybrid'],
+                onChanged: onMode,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        onReset();
+                        Navigator.pop(sheetContext);
+                      },
+                      child: const Text('Reset'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Text('Apply filters'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1104,7 +1362,10 @@ class _MobileFilterChip extends StatelessWidget {
     backgroundColor: const Color(0xFFEAF2FF),
     side: BorderSide.none,
     avatar: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF50649E)),
-    label: Text(label, style: const TextStyle(color: HrmsColors.navy, fontSize: 13)),
+    label: Text(
+      label,
+      style: const TextStyle(color: HrmsColors.navy, fontSize: 13),
+    ),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
   );
 }
@@ -1331,27 +1592,56 @@ class _MobileEmployeeList extends StatelessWidget {
         color: Colors.white,
         border: Border.all(color: const Color(0xFFE5EAF3)),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Color(0x08071A72), blurRadius: 14, offset: Offset(0, 5))],
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08071A72),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 15, 12, 12),
-          child: Row(children: [
-            Expanded(child: Text('Employees ($total)', style: const TextStyle(color: HrmsColors.navy, fontSize: 17, fontWeight: FontWeight.w800))),
-            const Text('Sort by', style: TextStyle(color: Color(0xFF657087), fontSize: 12)),
-            TextButton.icon(onPressed: () {}, iconAlignment: IconAlignment.end, icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18), label: const Text('Name')),
-          ]),
-        ),
-        const _MobileEmployeeHeader(),
-        ...employees.map((employee) => _CompactMobileEmployeeRow(
-          employee: employee,
-          onView: () => onView(employee),
-          onEdit: () => onEdit(employee),
-          onToggle: () => onToggle(employee),
-          onDelete: () => onDelete(employee),
-        )),
-      ]),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 15, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Employees ($total)',
+                    style: const TextStyle(
+                      color: HrmsColors.navy,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Sort by',
+                  style: TextStyle(color: Color(0xFF657087), fontSize: 12),
+                ),
+                TextButton.icon(
+                  onPressed: () {},
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+                  label: const Text('Name'),
+                ),
+              ],
+            ),
+          ),
+          const _MobileEmployeeHeader(),
+          ...employees.map(
+            (employee) => _CompactMobileEmployeeRow(
+              employee: employee,
+              onView: () => onView(employee),
+              onEdit: () => onEdit(employee),
+              onToggle: () => onToggle(employee),
+              onDelete: () => onDelete(employee),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1363,17 +1653,55 @@ class _MobileEmployeeHeader extends StatelessWidget {
     height: 38,
     color: const Color(0xFFF6F8FC),
     padding: const EdgeInsets.symmetric(horizontal: 16),
-    child: const Row(children: [
-      Expanded(flex: 4, child: Text('EMPLOYEE', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
-      Expanded(flex: 3, child: Text('DEPARTMENT', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
-      Expanded(flex: 2, child: Text('STATUS', style: TextStyle(color: Color(0xFF657087), fontSize: 10, fontWeight: FontWeight.w700))),
-      SizedBox(width: 24),
-    ]),
+    child: const Row(
+      children: [
+        Expanded(
+          flex: 4,
+          child: Text(
+            'EMPLOYEE',
+            style: TextStyle(
+              color: Color(0xFF657087),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            'DEPARTMENT',
+            style: TextStyle(
+              color: Color(0xFF657087),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            'STATUS',
+            style: TextStyle(
+              color: Color(0xFF657087),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        SizedBox(width: 24),
+      ],
+    ),
   );
 }
 
 class _CompactMobileEmployeeRow extends StatelessWidget {
-  const _CompactMobileEmployeeRow({required this.employee, required this.onView, required this.onEdit, required this.onToggle, required this.onDelete});
+  const _CompactMobileEmployeeRow({
+    required this.employee,
+    required this.onView,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onDelete,
+  });
   final _Employee employee;
   final VoidCallback onView, onEdit, onToggle, onDelete;
 
@@ -1381,31 +1709,102 @@ class _CompactMobileEmployeeRow extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 66,
     padding: const EdgeInsets.symmetric(horizontal: 16),
-    decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFE5EAF3)))),
-    child: Row(children: [
-      Expanded(flex: 4, child: Row(children: [
-        CircleAvatar(radius: 18, backgroundColor: const Color(0xFFEAF1FF), child: Text(employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(), style: const TextStyle(color: HrmsColors.navy, fontWeight: FontWeight.w700))),
-        const SizedBox(width: 8),
-        Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(employee.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: HrmsColors.navy, fontSize: 12, fontWeight: FontWeight.w700)),
-          Text(employee.id, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF657087), fontSize: 10)),
-        ])),
-      ])),
-      Expanded(flex: 3, child: Text(employee.department, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11))),
-      Expanded(flex: 2, child: FittedBox(alignment: Alignment.centerLeft, fit: BoxFit.scaleDown, child: _StatusBadge(status: employee.status))),
-      PopupMenuButton<String>(
-        tooltip: 'Employee actions',
-        padding: EdgeInsets.zero,
-        icon: const Icon(Icons.more_vert_rounded, color: HrmsColors.navy, size: 21),
-        onSelected: (value) { if (value == 'view') onView(); if (value == 'edit') onEdit(); if (value == 'toggle') onToggle(); if (value == 'delete') onDelete(); },
-        itemBuilder: (_) => [
-          const PopupMenuItem(value: 'view', child: Text('View employee')),
-          const PopupMenuItem(value: 'edit', child: Text('Edit employee')),
-          PopupMenuItem(value: 'toggle', child: Text(employee.status == 'Inactive' ? 'Reactivate' : 'Deactivate')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
-        ],
-      ),
-    ]),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: Color(0xFFE5EAF3))),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          flex: 4,
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0xFFEAF1FF),
+                child: Text(
+                  employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(),
+                  style: const TextStyle(
+                    color: HrmsColors.navy,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      employee.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: HrmsColors.navy,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      employee.id,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF657087),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            employee.department,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: FittedBox(
+            alignment: Alignment.centerLeft,
+            fit: BoxFit.scaleDown,
+            child: _StatusBadge(status: employee.status),
+          ),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Employee actions',
+          padding: EdgeInsets.zero,
+          icon: const Icon(
+            Icons.more_vert_rounded,
+            color: HrmsColors.navy,
+            size: 21,
+          ),
+          onSelected: (value) {
+            if (value == 'view') onView();
+            if (value == 'edit') onEdit();
+            if (value == 'toggle') onToggle();
+            if (value == 'delete') onDelete();
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'view', child: Text('View employee')),
+            const PopupMenuItem(value: 'edit', child: Text('Edit employee')),
+            PopupMenuItem(
+              value: 'toggle',
+              child: Text(
+                employee.status == 'Inactive' ? 'Reactivate' : 'Deactivate',
+              ),
+            ),
+            const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
+        ),
+      ],
+    ),
   );
 }
 
@@ -1757,15 +2156,19 @@ class _Employee {
       (json['status'] ?? 'Active').toString(),
       color is int ? color : _modeColor(mode),
       salaryType: (json['salaryType'] ?? 'standard').toString(),
-      salaryStartDay: json['salaryStartDay'] is int ? json['salaryStartDay'] as int : int.tryParse('${json['salaryStartDay'] ?? ''}'),
-      salaryEndDay: json['salaryEndDay'] is int ? json['salaryEndDay'] as int : int.tryParse('${json['salaryEndDay'] ?? ''}'),
+      salaryStartDay: json['salaryStartDay'] is int
+          ? json['salaryStartDay'] as int
+          : int.tryParse('${json['salaryStartDay'] ?? ''}'),
+      salaryEndDay: json['salaryEndDay'] is int
+          ? json['salaryEndDay'] as int
+          : int.tryParse('${json['salaryEndDay'] ?? ''}'),
     );
   }
 }
 
 int _modeColor(String mode) => switch (mode) {
   'Home' => 0xFF0B8B16,
-  'Field' => 0xFF16B9C5,
+  'Hybrid' => 0xFF16B9C5,
   _ => 0xFF0668F6,
 };
 

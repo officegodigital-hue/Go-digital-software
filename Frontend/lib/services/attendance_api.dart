@@ -79,6 +79,10 @@ class AttendanceApi {
     return _post('/attendance/check-out');
   }
 
+  static Future<void> locationHeartbeat({required double latitude, required double longitude, required double accuracy}) async {
+    await _post('/attendance/location-heartbeat', {'latitude': latitude, 'longitude': longitude, 'accuracy': accuracy});
+  }
+
   static Future<void> createRequest({
     required String type,
     required DateTime date,

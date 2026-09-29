@@ -9,8 +9,17 @@ const cron = require('node-cron');
 const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
+const { runAutoAbsence } = require('./jobs/auto-absence');
 const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
+
+// At 12:01 AM IST, mark only the preceding eligible working day absent.
+// The job is idempotent, and startup reconciliation covers a missed run.
+cron.schedule('1 0 * * *', async () => {
+  try { console.log('Auto-absence result:', await runAutoAbsence()); }
+  catch (error) { console.error('Auto-absence job failed:', error.message); }
+}, { timezone: 'Asia/Kolkata' });
+runAutoAbsence().catch((error) => console.error('Auto-absence reconciliation failed:', error.message));
 
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
@@ -141,7 +150,6 @@ const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
-const broadcastRoutes = require('./routes/broadcast');
 
 // near the other ensure imports
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
@@ -237,7 +245,6 @@ app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/broadcast', broadcastRoutes);
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);

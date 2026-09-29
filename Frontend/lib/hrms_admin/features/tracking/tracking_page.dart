@@ -26,7 +26,7 @@ class TrackingPage extends StatefulWidget {
 }
 
 class _TrackingPageState extends State<TrackingPage> {
-  String mode = 'Field';
+  String mode = 'Hybrid';
 
   static const _modeStorageKey = 'admin_tracking_last_mode';
   static const _pollInterval = Duration(seconds: 30);
@@ -42,6 +42,9 @@ class _TrackingPageState extends State<TrackingPage> {
   String? error;
   DateTime? lastLoadedAt;
   Timer? _pollTimer;
+  _TrackedEmployee? _selectedEmployee;
+  final _pageScrollController = ScrollController();
+  final _routePanelKey = GlobalKey();
 
   @override
   void initState() {
@@ -54,6 +57,7 @@ class _TrackingPageState extends State<TrackingPage> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _pageScrollController.dispose();
     super.dispose();
   }
 
@@ -93,7 +97,7 @@ class _TrackingPageState extends State<TrackingPage> {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getString(_modeStorageKey);
     if (!mounted || saved == null) return;
-    if (saved == 'Office' || saved == 'Home' || saved == 'Field') {
+    if (saved == 'Office' || saved == 'Home' || saved == 'Hybrid') {
       setState(() => mode = saved);
     }
   }
@@ -126,6 +130,7 @@ class _TrackingPageState extends State<TrackingPage> {
           )
           .toList();
       if (!mounted) return;
+      if (silent && _sameEmployees(employees, items)) return;
       setState(() {
         employees = items;
         counts = _TrackingCounts.fromApi(countsJson);
@@ -144,14 +149,38 @@ class _TrackingPageState extends State<TrackingPage> {
     }
   }
 
+  bool _sameEmployees(
+    List<_TrackedEmployee> before,
+    List<_TrackedEmployee> after,
+  ) {
+    if (before.length != after.length) return false;
+    for (var index = 0; index < before.length; index++) {
+      final oldItem = before[index];
+      final newItem = after[index];
+      if (oldItem.employeeUserId != newItem.employeeUserId ||
+          oldItem.active != newItem.active ||
+          oldItem.lastUpdated != newItem.lastUpdated ||
+          oldItem.lat != newItem.lat ||
+          oldItem.lng != newItem.lng)
+        return false;
+    }
+    return true;
+  }
+
   List<_TrackedEmployee> get _visibleEmployees =>
       employees.where((employee) => employee.mode == mode).toList();
 
   void _viewRoute(_TrackedEmployee employee) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => _RouteDialog(employee: employee),
-    );
+    setState(() => _selectedEmployee = employee);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final routeContext = _routePanelKey.currentContext;
+      if (routeContext != null)
+        Scrollable.ensureVisible(
+          routeContext,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+        );
+    });
   }
 
   @override
@@ -169,6 +198,7 @@ class _TrackingPageState extends State<TrackingPage> {
             child: RefreshIndicator(
               onRefresh: _load,
               child: SingleChildScrollView(
+                controller: _pageScrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   mobile ? 16 : 29,
@@ -216,6 +246,15 @@ class _TrackingPageState extends State<TrackingPage> {
                             onModeChanged: (value) => _setMode(value),
                             onViewRoute: _viewRoute,
                           ),
+                          if (_selectedEmployee != null) ...[
+                            const SizedBox(height: 20),
+                            KeyedSubtree(
+                              key: _routePanelKey,
+                              child: _AdminRoutePanel(
+                                employee: _selectedEmployee!,
+                              ),
+                            ),
+                          ],
                         ],
                       ],
                     ),
@@ -231,7 +270,12 @@ class _TrackingPageState extends State<TrackingPage> {
 }
 
 class _TrackingMobileActions extends StatelessWidget {
-  const _TrackingMobileActions({required this.onOfficeLocation, required this.onManageWaiting, required this.onHomeApprovals, required this.onRefresh});
+  const _TrackingMobileActions({
+    required this.onOfficeLocation,
+    required this.onManageWaiting,
+    required this.onHomeApprovals,
+    required this.onRefresh,
+  });
   final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
   final Future<void> Function() onRefresh;
 
@@ -239,19 +283,43 @@ class _TrackingMobileActions extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 72,
     padding: const EdgeInsets.symmetric(horizontal: 6),
-    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFC9D9F3)), borderRadius: BorderRadius.circular(18)),
-    child: Row(children: [
-      _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
-      _tool(Icons.timer_outlined, 'Field', onManageWaiting),
-      _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
-      _tool(Icons.refresh, 'Refresh', () => onRefresh()),
-    ]),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFC9D9F3)),
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Row(
+      children: [
+        _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
+        _tool(Icons.timer_outlined, 'Hybrid', onManageWaiting),
+        _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
+        _tool(Icons.refresh, 'Refresh', () => onRefresh()),
+      ],
+    ),
   );
 
-  Widget _tool(IconData icon, String label, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(14), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: HrmsColors.blue, size: 22), const SizedBox(height: 4), Text(label, style: const TextStyle(color: HrmsColors.navy, fontSize: 11, fontWeight: FontWeight.w700))])));
+  Widget _tool(IconData icon, String label, VoidCallback onTap) => Expanded(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: HrmsColors.blue, size: 22),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: HrmsColors.navy,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
-
-
 
 class _TrackingHeader extends StatelessWidget {
   const _TrackingHeader({
@@ -286,7 +354,7 @@ class _TrackingHeader extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: onManageWaiting,
           icon: const Icon(Icons.timer_outlined, size: 18),
-          label: const Text('Field Settings'),
+          label: const Text('Hybrid Settings'),
           style: OutlinedButton.styleFrom(
             foregroundColor: HrmsColors.blue,
             side: const BorderSide(color: Color(0xFFBFD4FF)),
@@ -371,7 +439,7 @@ class _TrackingCounts {
   factory _TrackingCounts.fromApi(Map<String, dynamic> json) => _TrackingCounts(
     office: _asInt(json['office']),
     home: _asInt(json['home']),
-    field: _asInt(json['field']),
+    field: _asInt(json['hybrid'] ?? json['field']),
     activeNow: _asInt(json['activeNow']),
   );
 
@@ -403,7 +471,7 @@ class _TrackingKpis extends StatelessWidget {
         const Color(0xFF138A20),
       ),
       _TrackingKpi(
-        'Field',
+        'Hybrid',
         '${counts.field}',
         'Tracked employees',
         Icons.hiking_outlined,
@@ -681,7 +749,7 @@ class _MapPanel extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 340),
             child: Row(
               children: [
-                for (final item in ['Office', 'Home', 'Field']) ...[
+                for (final item in ['Office', 'Home', 'Hybrid']) ...[
                   if (item != 'Office') const SizedBox(width: 10),
                   Expanded(
                     child: _ModeButton(
@@ -856,26 +924,30 @@ class _TrackedEmployeesPanel extends StatelessWidget {
         else if (MediaQuery.sizeOf(context).width < 600)
           _MobileTrackedList(employees: employees, onViewRoute: onViewRoute)
         else
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE2E6ED)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: 630,
-                child: Column(
-                  children: [
-                    const _TrackingTableHeader(),
-                    ...employees.map(
-                      (employee) => _TrackingRow(
-                        employee: employee,
-                        onViewRoute: onViewRoute,
-                      ),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFE2E6ED)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SingleChildScrollView(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: 630,
+                    child: Column(
+                      children: [
+                        const _TrackingTableHeader(),
+                        ...employees.map(
+                          (employee) => _TrackingRow(
+                            employee: employee,
+                            onViewRoute: onViewRoute,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1170,7 +1242,7 @@ class _ActiveBadge extends StatelessWidget {
 
 /// One employee row for the admin tracking dashboard, built entirely from
 /// `GET /api/hrms/tracking/live`. `mode` is normalized to 'Office' / 'Home'
-/// / 'Field' (title case) to match the tab labels in this UI; the backend
+/// / 'Hybrid' (title case) to match the tab labels in this UI; the backend
 /// itself stores it lowercase.
 class _TrackedEmployee {
   const _TrackedEmployee({
@@ -1194,7 +1266,11 @@ class _TrackedEmployee {
 
   factory _TrackedEmployee.fromApi(Map<String, dynamic> json) {
     final rawStatus = (json['status'] ?? 'office').toString();
-    final mode = rawStatus.isEmpty
+    final mode =
+        rawStatus.toLowerCase() == 'field' ||
+            rawStatus.toLowerCase() == 'hybrid'
+        ? 'Hybrid'
+        : rawStatus.isEmpty
         ? 'Office'
         : rawStatus[0].toUpperCase() + rawStatus.substring(1).toLowerCase();
     final rawUpdated = json['lastUpdated'];
@@ -1247,6 +1323,207 @@ class _RoutePoint {
         ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
         : 'Unknown location';
     return _RoutePoint(time: time, location: location);
+  }
+}
+
+class _AdminRoutePanel extends StatefulWidget {
+  const _AdminRoutePanel({required this.employee});
+  final _TrackedEmployee employee;
+  @override
+  State<_AdminRoutePanel> createState() => _AdminRoutePanelState();
+}
+
+class _AdminRoutePanelState extends State<_AdminRoutePanel> {
+  DateTime _date = DateTime.now();
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic>? _data;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AdminRoutePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId)
+      _load();
+  }
+
+  Future<void> _load() async {
+    final id = widget.employee.employeeUserId;
+    if (id == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await HrmsTrackingApi.route(
+        employeeUserId: id,
+        date: DateFormat('yyyy-MM-dd').format(_date),
+      );
+      if (mounted)
+        setState(() {
+          _data = data;
+          _loading = false;
+        });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+    }
+  }
+
+  Future<void> _pick() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _date = picked);
+      _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final points = (_data?['routePoints'] as List? ?? [])
+        .whereType<Map>()
+        .map(
+          (p) => LatLng(
+            (p['latitude'] as num).toDouble(),
+            (p['longitude'] as num).toDouble(),
+          ),
+        )
+        .toList();
+    final activities = (_data?['activities'] as List? ?? [])
+        .whereType<Map>()
+        .toList();
+    final markers = <Marker>{
+      if (points.isNotEmpty)
+        Marker(
+          markerId: const MarkerId('S'),
+          position: points.first,
+          infoWindow: const InfoWindow(title: 'S — Start'),
+        ),
+      if (points.length > 1)
+        Marker(
+          markerId: const MarkerId('E'),
+          position: points.last,
+          infoWindow: const InfoWindow(title: 'E — End'),
+        ),
+      ...points
+          .skip(1)
+          .take(points.length > 2 ? points.length - 2 : 0)
+          .map(
+            (p) => Marker(
+              markerId: MarkerId('${p.latitude},${p.longitude}'),
+              position: p,
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueGreen,
+              ),
+            ),
+          ),
+    };
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE3E7EF)),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${widget.employee.name} — Route history',
+                  style: const TextStyle(
+                    color: HrmsColors.navy,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _pick,
+                icon: const Icon(Icons.calendar_month_outlined),
+                label: Text(DateFormat('dd MMM yyyy').format(_date)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (_loading)
+            const SizedBox(
+              height: 250,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            Text(_error!, style: const TextStyle(color: Colors.red))
+          else if (points.isEmpty)
+            const SizedBox(
+              height: 180,
+              child: Center(
+                child: Text('No GPS route was recorded for the selected date'),
+              ),
+            )
+          else ...[
+            SizedBox(
+              height: 320,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: points.first,
+                    zoom: 14,
+                  ),
+                  polylines: {
+                    Polyline(
+                      polylineId: const PolylineId('route'),
+                      points: points,
+                      color: HrmsColors.blue,
+                      width: 5,
+                    ),
+                  },
+                  markers: markers,
+                  mapToolbarEnabled: false,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Distance: ${((_data?['distanceMeters'] as num? ?? 0) / 1000).toStringAsFixed(2)} km   •   Duration: ${((_data?['durationSeconds'] as num? ?? 0) / 60).round()} min   •   Average speed: ${(_data?['averageSpeedKmh'] as num? ?? 0).toStringAsFixed(1)} km/h',
+              style: const TextStyle(color: Color(0xFF596176)),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Activity history',
+              style: TextStyle(
+                color: HrmsColors.navy,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            for (final item in activities.take(8))
+              ListTile(
+                dense: true,
+                leading: const Icon(
+                  Icons.place_outlined,
+                  color: HrmsColors.blue,
+                ),
+                title: Text('${item['placeName'] ?? 'Location pending'}'),
+                subtitle: Text('${item['recordedAt'] ?? ''}'),
+              ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -1446,6 +1723,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   final _radius = TextEditingController();
   bool _loading = true;
   bool _saving = false;
+  bool _homeTrackingEnabled = true;
   String? _error;
 
   @override
@@ -1468,7 +1746,10 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final data = await HrmsTrackingApi.trackingSettings();
       if (!mounted) return;
@@ -1481,7 +1762,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         final lat = double.tryParse(_latitude.text);
         final lng = double.tryParse(_longitude.text);
         _pin = lat != null && lng != null && lat.isFinite && lng.isFinite
-            ? LatLng(lat, lng) : null;
+            ? LatLng(lat, lng)
+            : null;
         _loaded = true;
         _loading = false;
       });
@@ -1505,19 +1787,27 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       return;
     }
     final version = ++_searchVersion;
-    setState(() { _searching = true; _searchError = null; _matches = []; });
+    setState(() {
+      _searching = true;
+      _searchError = null;
+      _matches = [];
+    });
     try {
       final matches = await searchOfficeAddress(query);
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _matches = matches;
-        if (matches.isEmpty) _searchError = 'No matches. Add a city or postcode and search again.';
+        if (matches.isEmpty)
+          _searchError = 'No matches. Add a city or postcode and search again.';
       });
     } catch (error) {
       if (!mounted || version != _searchVersion) return;
-      setState(() => _searchError = error.toString().replaceFirst('Exception: ', ''));
+      setState(
+        () => _searchError = error.toString().replaceFirst('Exception: ', ''),
+      );
     } finally {
-      if (mounted && version == _searchVersion) setState(() => _searching = false);
+      if (mounted && version == _searchVersion)
+        setState(() => _searching = false);
     }
   }
 
@@ -1555,18 +1845,20 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         ),
       ),
       if (_searching) const LinearProgressIndicator(),
-      if (_searchError != null) Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
-      ),
-      for (final match in _matches) ListTile(
-        leading: const Icon(Icons.place_outlined),
-        title: Text('${match['address']}'),
-        onTap: () => _selectPin(
-          LatLng(match['latitude'] as double, match['longitude'] as double),
-          address: match['address'] as String,
+      if (_searchError != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
         ),
-      ),
+      for (final match in _matches)
+        ListTile(
+          leading: const Icon(Icons.place_outlined),
+          title: Text('${match['address']}'),
+          onTap: () => _selectPin(
+            LatLng(match['latitude'] as double, match['longitude'] as double),
+            address: match['address'] as String,
+          ),
+        ),
       const SizedBox(height: 12),
       ClipRRect(
         borderRadius: BorderRadius.circular(14),
@@ -1581,23 +1873,27 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
             onTap: _saving ? null : _selectPin,
             mapToolbarEnabled: false,
             markers: {
-              if (_pin != null) Marker(
-                markerId: const MarkerId('office-location'),
-                position: _pin!,
-                draggable: !_saving,
-                onDragEnd: _selectPin,
-                infoWindow: const InfoWindow(title: 'Office entrance'),
-              ),
+              if (_pin != null)
+                Marker(
+                  markerId: const MarkerId('office-location'),
+                  position: _pin!,
+                  draggable: !_saving,
+                  onDragEnd: _selectPin,
+                  infoWindow: const InfoWindow(title: 'Office entrance'),
+                ),
             },
             circles: {
-              if (_pin != null) Circle(
-                circleId: const CircleId('office-radius'),
-                center: _pin!,
-                radius: (int.tryParse(_radius.text) ?? 100).clamp(1, 100000).toDouble(),
-                strokeColor: HrmsColors.blue,
-                strokeWidth: 2,
-                fillColor: HrmsColors.blue.withValues(alpha: 0.12),
-              ),
+              if (_pin != null)
+                Circle(
+                  circleId: const CircleId('office-radius'),
+                  center: _pin!,
+                  radius: (int.tryParse(_radius.text) ?? 100)
+                      .clamp(1, 100000)
+                      .toDouble(),
+                  strokeColor: HrmsColors.blue,
+                  strokeWidth: 2,
+                  fillColor: HrmsColors.blue.withValues(alpha: 0.12),
+                ),
             },
           ),
         ),
@@ -1741,7 +2037,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
                     decoration: const InputDecoration(
                       labelText: 'Allowed Clock In radius (metres)',
                       border: OutlineInputBorder(),
-                      helperText: 'This distance also applies to approved home locations.',
+                      helperText:
+                          'This distance also applies to approved home locations.',
                     ),
                   ),
                   if (_error != null) ...[
@@ -1796,9 +2093,11 @@ class _FieldWaitingSettingsDialogState
   final _waitingController = TextEditingController();
   final _radiusController = TextEditingController();
   final _pingController = TextEditingController();
+  final _outsideRadiusGraceController = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
+  bool _homeTrackingEnabled = true;
   String? _error;
 
   @override
@@ -1812,6 +2111,7 @@ class _FieldWaitingSettingsDialogState
     _waitingController.dispose();
     _radiusController.dispose();
     _pingController.dispose();
+    _outsideRadiusGraceController.dispose();
     super.dispose();
   }
 
@@ -1825,6 +2125,9 @@ class _FieldWaitingSettingsDialogState
         _waitingController.text = '${data['field_waiting_minutes'] ?? 60}';
         _radiusController.text = '${data['stationary_radius_meters'] ?? 50}';
         _pingController.text = '${data['field_ping_interval_minutes'] ?? 15}';
+        _outsideRadiusGraceController.text =
+            '${data['outside_radius_grace_minutes'] ?? 5}';
+        _homeTrackingEnabled = data['home_tracking_enabled'] != 0;
         _loading = false;
       });
     } catch (error) {
@@ -1841,13 +2144,18 @@ class _FieldWaitingSettingsDialogState
     final waitingMinutes = int.tryParse(_waitingController.text.trim());
     final stationaryRadius = int.tryParse(_radiusController.text.trim());
     final pingInterval = int.tryParse(_pingController.text.trim());
+    final outsideRadiusGrace = int.tryParse(
+      _outsideRadiusGraceController.text.trim(),
+    );
 
     if (waitingMinutes == null ||
         stationaryRadius == null ||
         pingInterval == null ||
+        outsideRadiusGrace == null ||
         waitingMinutes < 1 ||
         stationaryRadius < 1 ||
-        pingInterval < 1) {
+        pingInterval < 1 ||
+        outsideRadiusGrace < 1) {
       setState(() {
         _error = 'Enter valid numbers greater than zero.';
       });
@@ -1864,6 +2172,8 @@ class _FieldWaitingSettingsDialogState
         fieldWaitingMinutes: waitingMinutes,
         stationaryRadiusMeters: stationaryRadius,
         fieldPingIntervalMinutes: pingInterval,
+        outsideRadiusGraceMinutes: outsideRadiusGrace,
+        homeTrackingEnabled: _homeTrackingEnabled,
       );
 
       if (!mounted) return;
@@ -1871,7 +2181,7 @@ class _FieldWaitingSettingsDialogState
       Navigator.of(context).pop();
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Field tracking settings saved')),
+        const SnackBar(content: Text('Hybrid tracking settings saved')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -1905,7 +2215,7 @@ class _FieldWaitingSettingsDialogState
       children: [
         Icon(Icons.timer_outlined, color: HrmsColors.blue),
         SizedBox(width: 10),
-        Text('Manage Field Waiting Time'),
+        Text('Manage Hybrid Waiting Time'),
       ],
     ),
     content: SizedBox(
@@ -1920,7 +2230,7 @@ class _FieldWaitingSettingsDialogState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'These settings apply to Field employees only.',
+                  'These settings apply to Hybrid employees only.',
                   style: TextStyle(color: Color(0xFF657087), fontSize: 12),
                 ),
                 const SizedBox(height: 18),
@@ -1940,6 +2250,24 @@ class _FieldWaitingSettingsDialogState
                   controller: _pingController,
                   label: 'GPS update interval (minutes)',
                   hint: 'Example: 15',
+                ),
+                const SizedBox(height: 14),
+                _numberField(
+                  controller: _outsideRadiusGraceController,
+                  label: 'Outside-radius checkout grace (minutes)',
+                  hint: 'Example: 5',
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Enable Home Tracking'),
+                  subtitle: const Text(
+                    'When off, Home tracking is hidden and blocked for employees.',
+                  ),
+                  value: _homeTrackingEnabled,
+                  onChanged: _saving
+                      ? null
+                      : (value) => setState(() => _homeTrackingEnabled = value),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
@@ -2143,4 +2471,3 @@ const _headStyle = TextStyle(
   fontSize: 12,
   fontWeight: FontWeight.w600,
 );
-

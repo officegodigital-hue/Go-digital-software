@@ -49,6 +49,11 @@ function weekdayIndex(date) {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
+async function homeTrackingIsEnabled() {
+  const [rows] = await db.query('SELECT home_tracking_enabled FROM hrms_tracking_settings WHERE id = 1');
+  return !rows.length || Number(rows[0].home_tracking_enabled) !== 0;
+}
+
 async function list(req, res) {
   try {
     const today = policy.todayIstDate();
@@ -245,8 +250,8 @@ async function setStatus(req, res) {
     const employeeUserId = req.user && req.user.id;
     const status = String(req.body.status || '').toLowerCase();
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    if (!['office', 'home', 'field'].includes(status)) {
-      return fail(res, 400, "status must be 'office', 'home', or 'field'");
+    if (!['office', 'home', 'hybrid'].includes(status)) {
+      return fail(res, 400, "status must be 'office', 'home', or 'hybrid'");
     }
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
@@ -277,6 +282,101 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
       Math.sin(dLng / 2);
 
   return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function routePoint(row) {
+  return { latitude: Number(row.latitude), longitude: Number(row.longitude) };
+}
+
+function rawDistanceMeters(points) {
+  return points.slice(1).reduce(function (total, point, index) {
+    const previous = points[index];
+    return total + distanceMeters(previous.latitude, previous.longitude, point.latitude, point.longitude);
+  }, 0);
+}
+
+// Google returns an encoded polyline. Decoding it here keeps the API key in
+// the backend and allows Flutter to draw the exact same route on every device.
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0; let lat = 0; let lng = 0;
+  while (index < encoded.length) {
+    let result = 1; let shift = 0; let byte;
+    do { byte = encoded.charCodeAt(index++) - 63 - 1; result += byte << shift; shift += 5; } while (byte >= 0x1f);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    result = 1; shift = 0;
+    do { byte = encoded.charCodeAt(index++) - 63 - 1; result += byte << shift; shift += 5; } while (byte >= 0x1f);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
+}
+
+async function routeViaRoutesApi(points) {
+  const apiKey = process.env.GOOGLE_ROUTES_API_KEY || process.env.GOOGLE_ROADS_API_KEY;
+  if (!apiKey || points.length < 2) return null;
+  const all = []; let meters = 0; let seconds = 0;
+  // Routes API supports limited intermediates; groups overlap by one point so
+  // the complete journey remains connected.
+  for (let start = 0; start < points.length - 1; start += 24) {
+    const group = points.slice(start, Math.min(start + 25, points.length));
+    const body = {
+      origin: { location: { latLng: { latitude: group[0].latitude, longitude: group[0].longitude } } },
+      destination: { location: { latLng: { latitude: group[group.length - 1].latitude, longitude: group[group.length - 1].longitude } } },
+      intermediates: group.slice(1, -1).map(function (point) { return { location: { latLng: { latitude: point.latitude, longitude: point.longitude } } }; }),
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_UNAWARE',
+      polylineQuality: 'HIGH_QUALITY',
+    };
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) return null;
+    const data = await response.json(); const route = data.routes && data.routes[0];
+    if (!route || !route.polyline || !route.polyline.encodedPolyline) return null;
+    const decoded = decodePolyline(route.polyline.encodedPolyline);
+    all.push.apply(all, all.length ? decoded.slice(1) : decoded);
+    meters += Number(route.distanceMeters || 0);
+    seconds += Number(String(route.duration || '0s').replace('s', '')) || 0;
+  }
+  return all.length ? { source: 'routes', points: all, distanceMeters: meters, durationSeconds: seconds } : null;
+}
+
+async function routeViaRoadsApi(points) {
+  const apiKey = process.env.GOOGLE_ROADS_API_KEY;
+  if (!apiKey || points.length < 2) return null;
+  const all = [];
+  for (let start = 0; start < points.length - 1; start += 95) {
+    const group = points.slice(start, Math.min(start + 100, points.length));
+    const path = group.map(function (p) { return p.latitude + ',' + p.longitude; }).join('|');
+    const response = await fetch('https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' + encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey));
+    if (!response.ok) return null;
+    const data = await response.json();
+    const snapped = (data.snappedPoints || []).map(function (p) { return { latitude: Number(p.location.latitude), longitude: Number(p.location.longitude) }; });
+    all.push.apply(all, all.length ? snapped.slice(1) : snapped);
+  }
+  return all.length ? { source: 'roads', points: all, distanceMeters: rawDistanceMeters(all), durationSeconds: 0 } : null;
+}
+
+async function buildRoute(employeeUserId, date, pingRows) {
+  const lastPing = pingRows.length ? pingRows[pingRows.length - 1].recorded_at : null;
+  const [cacheRows] = await db.query('SELECT * FROM hrms_tracking_route_cache WHERE employee_user_id = ? AND route_date = ?', [employeeUserId, date]);
+  const cached = cacheRows[0];
+  if (cached && String(cached.last_ping_at || '') === String(lastPing || '')) {
+    return { source: cached.source, points: JSON.parse(cached.route_points_json), distanceMeters: Number(cached.distance_meters), durationSeconds: Number(cached.duration_seconds), averageSpeedKmh: Number(cached.average_speed_kmh), lastUpdated: lastPing };
+  }
+  const raw = pingRows.map(routePoint);
+  let built = await routeViaRoutesApi(raw).catch(function () { return null; });
+  if (!built) built = await routeViaRoadsApi(raw).catch(function () { return null; });
+  if (!built) built = { source: 'raw', points: raw, distanceMeters: rawDistanceMeters(raw), durationSeconds: 0 };
+  if (!built.durationSeconds && pingRows.length > 1) built.durationSeconds = Math.max(0, Math.round((new Date(lastPing).getTime() - new Date(pingRows[0].recorded_at).getTime()) / 1000));
+  const averageSpeedKmh = built.durationSeconds ? (built.distanceMeters / 1000) / (built.durationSeconds / 3600) : 0;
+  await db.query(`INSERT INTO hrms_tracking_route_cache (employee_user_id, route_date, source, route_points_json, distance_meters, duration_seconds, average_speed_kmh, last_ping_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE source=VALUES(source), route_points_json=VALUES(route_points_json), distance_meters=VALUES(distance_meters), duration_seconds=VALUES(duration_seconds), average_speed_kmh=VALUES(average_speed_kmh), last_ping_at=VALUES(last_ping_at)`, [employeeUserId, date, built.source, JSON.stringify(built.points), built.distanceMeters, built.durationSeconds, averageSpeedKmh, lastPing]);
+  return Object.assign(built, { averageSpeedKmh: averageSpeedKmh, lastUpdated: lastPing });
 }
 
 async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
@@ -456,7 +556,7 @@ async function liveOverview(req, res) {
 
     const now = Date.now();
     let activeNow = 0;
-    const counts = { office: 0, home: 0, field: 0 };
+    const counts = { office: 0, home: 0, hybrid: 0 };
 
     const items = profiles.map(function (profile) {
       const uid = profile.employee_user_id ? Number(profile.employee_user_id) : null;
@@ -488,7 +588,7 @@ async function liveOverview(req, res) {
       counts: {
         office: counts.office || 0,
         home: counts.home || 0,
-        field: counts.field || 0,
+        hybrid: counts.hybrid || 0,
         activeNow: activeNow,
       },
       items: items,
@@ -514,6 +614,10 @@ async function routeHistory(req, res) {
       [employeeUserId, date]
     );
 
+    const route = await buildRoute(employeeUserId, date, pings);
+    const activities = pings.map(function (row) {
+      return { recordedAt: row.recorded_at, placeName: row.address || 'Location pending', latitude: Number(row.latitude), longitude: Number(row.longitude) };
+    });
     return ok(res, {
       employeeUserId: employeeUserId,
       date: date,
@@ -525,12 +629,24 @@ async function routeHistory(req, res) {
           recordedAt: row.recorded_at,
         };
       }),
+      routePoints: route.points,
+      routeSource: route.source,
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+      averageSpeedKmh: route.averageSpeedKmh,
+      lastUpdated: route.lastUpdated,
+      activities: activities,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
     return fail(res, 500, error.message);
   }
 }
+async function myRouteHistory(req, res) {
+  req.params.employeeUserId = String(req.user.id);
+  return routeHistory(req, res);
+}
+
 async function getTrackingSettings(req, res) {
   try {
     const [rows] = await db.query(
@@ -587,6 +703,14 @@ async function updateTrackingSettings(req, res) {
         Number(req.body.stationaryRadiusMeters ??
             current.stationary_radius_meters);
 
+    const outsideRadiusGraceMinutes =
+        Number(req.body.outsideRadiusGraceMinutes ??
+            current.outside_radius_grace_minutes);
+
+    const homeTrackingEnabled = req.body.homeTrackingEnabled == null
+      ? Number(current.home_tracking_enabled) !== 0
+      : Boolean(req.body.homeTrackingEnabled);
+
     if (
       !officeName ||
       !officeAddress ||
@@ -599,7 +723,8 @@ async function updateTrackingSettings(req, res) {
       officeRadiusMeters < 1 ||
       fieldPingIntervalMinutes < 1 ||
       fieldWaitingMinutes < 1 ||
-      stationaryRadiusMeters < 1
+      stationaryRadiusMeters < 1 ||
+      outsideRadiusGraceMinutes < 1
     ) {
       return fail(res, 400, 'Invalid tracking settings');
     }
@@ -614,6 +739,8 @@ async function updateTrackingSettings(req, res) {
            field_ping_interval_minutes = ?,
            field_waiting_minutes = ?,
            stationary_radius_meters = ?,
+           outside_radius_grace_minutes = ?,
+           home_tracking_enabled = ?,
            updated_by = ?
        WHERE id = 1`,
       [
@@ -625,6 +752,8 @@ async function updateTrackingSettings(req, res) {
         fieldPingIntervalMinutes,
         fieldWaitingMinutes,
         stationaryRadiusMeters,
+        outsideRadiusGraceMinutes,
+        homeTrackingEnabled ? 1 : 0,
         req.user.id,
       ]
     );
@@ -638,6 +767,7 @@ async function updateTrackingSettings(req, res) {
 
 async function getMyHomeLocation(req, res) {
   try {
+    if (!await homeTrackingIsEnabled()) return fail(res, 403, 'Home tracking is currently disabled by admin');
     const employeeUserId = req.user && req.user.id;
 
     if (!employeeUserId) {
@@ -662,6 +792,7 @@ async function getMyHomeLocation(req, res) {
 async function submitHomeLocation(req, res) {
   let connection;
   try {
+    if (!await homeTrackingIsEnabled()) return fail(res, 403, 'Home tracking is currently disabled by admin');
     const employeeUserId = req.user && req.user.id;
     const body = req.body || {};
     const address = typeof body.address === 'string' ? body.address.trim() : '';
@@ -812,6 +943,8 @@ async function getMyFieldSession(req, res) {
       return fail(res, 401, 'Unauthorized');
     }
 
+    const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1', [employeeUserId]);
+    const isHybrid = Boolean(profiles[0] && profiles[0].work_mode === 'Hybrid');
     const [rows] = await db.query(
       `SELECT *
        FROM hrms_field_tracking_sessions
@@ -821,7 +954,7 @@ async function getMyFieldSession(req, res) {
       [employeeUserId]
     );
 
-    return ok(res, rows[0] || { isActive: false });
+    return ok(res, Object.assign({ isActive: false, isHybrid: isHybrid }, rows[0] || {}));
   } catch (error) {
     console.error('GET /hrms/tracking/field-session', error);
     return fail(res, 500, error.message);
@@ -851,8 +984,8 @@ async function startFieldTracking(req, res) {
       [employeeUserId]
     );
 
-    if (!profiles.length || profiles[0].work_mode !== 'Field') {
-      return fail(res, 403, 'Field live tracking is only available for Field employees');
+    if (!profiles.length || profiles[0].work_mode !== 'Hybrid') {
+      return fail(res, 403, 'Hybrid live tracking is only available for Hybrid employees');
     }
 
     const [activeSessions] = await db.query(
@@ -864,6 +997,16 @@ async function startFieldTracking(req, res) {
     );
 
     if (activeSessions.length) {
+      await db.query(
+        `UPDATE hrms_attendance_radius_departures departure
+         INNER JOIN attendance_records attendance ON attendance.id = departure.attendance_id
+         SET departure.status = 'cancelled', departure.last_seen_at = ?
+         WHERE attendance.employee_id = ?
+           AND attendance.attendance_date = ?
+           AND attendance.check_out_at IS NULL
+           AND departure.status = 'pending'`,
+        [policy.nowIstDateTime(), employeeUserId, policy.todayIstDate()]
+      );
       return ok(
         res,
         { sessionId: activeSessions[0].id, isActive: true },
@@ -887,17 +1030,31 @@ async function startFieldTracking(req, res) {
 
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-       VALUES (?, 'field')
+       VALUES (?, 'hybrid')
        ON DUPLICATE KEY UPDATE
-         status = 'field',
+         status = 'hybrid',
          updated_at = CURRENT_TIMESTAMP`,
       [employeeUserId]
+    );
+
+    // A Hybrid employee may begin tracking during an outside-radius grace
+    // period. Cancel that pending checkout immediately rather than waiting
+    // for the next GPS heartbeat.
+    await db.query(
+      `UPDATE hrms_attendance_radius_departures departure
+       INNER JOIN attendance_records attendance ON attendance.id = departure.attendance_id
+       SET departure.status = 'cancelled', departure.last_seen_at = ?
+       WHERE attendance.employee_id = ?
+         AND attendance.attendance_date = ?
+         AND attendance.check_out_at IS NULL
+         AND departure.status = 'pending'`,
+      [policy.nowIstDateTime(), employeeUserId, policy.todayIstDate()]
     );
 
     return ok(
       res,
       { sessionId: session.insertId, isActive: true },
-      'Field live tracking started'
+      'Hybrid live tracking started'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/start', error);
@@ -960,7 +1117,7 @@ async function stopFieldTracking(req, res) {
     return ok(
       res,
       { sessionId: sessionId, isActive: false },
-      'Field live tracking stopped'
+      'Hybrid live tracking stopped'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/stop', error);
@@ -1073,6 +1230,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
   getMyHomeLocation,
