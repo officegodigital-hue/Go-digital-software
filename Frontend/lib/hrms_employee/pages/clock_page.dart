@@ -454,16 +454,16 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: const Color(0xFFFFECC8)),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: employeeOrange, size: 18),
-                    SizedBox(width: 8),
+                    const Icon(Icons.info_outline, color: employeeOrange, size: 18),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         hasSchedule
                             ? 'Policy: Extra hours beyond the ${_formatDuration(dailyTargetSeconds)} scheduled shift are recorded on your attendance log for visibility only. They do not add to salary or generate compensation.'
                             : 'Policy: Admin must configure the attendance schedule before extra hours can be calculated.',
-                        style: TextStyle(color: employeeNavy, fontSize: 12),
+                        style: const TextStyle(color: employeeNavy, fontSize: 12),
                       ),
                     ),
                   ],
