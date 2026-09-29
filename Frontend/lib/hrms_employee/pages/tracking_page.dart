@@ -23,6 +23,27 @@ class EmployeeTrackingPage extends StatelessWidget {
       subtitle: routeHistory
           ? 'Your recent travel routes'
           : 'Live employee location and today’s hybrid activity',
+      desktopHeaderAction: routeHistory
+          ? null
+          : FilledButton.icon(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => const HomeLocationDialog(),
+              ),
+              icon: const Icon(Icons.add_home_outlined),
+              label: const Text('Home Location'),
+              style: FilledButton.styleFrom(
+                backgroundColor: employeeBlue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 13,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
       desktop: _TrackingView(mobile: false, routeHistory: routeHistory),
       mobile: _TrackingView(mobile: true, routeHistory: routeHistory),
     );
@@ -469,16 +490,6 @@ class _TrackingViewState extends State<_TrackingView> {
       onChanged: (value) => setState(() => mode = value),
     );
 
-    final homeAction = OutlinedButton.icon(
-      onPressed: _homeDialogOpen ? null : _openHomeLocation,
-      icon: const Icon(Icons.add_home_outlined),
-      label: Text(
-        _homeLocation == null
-            ? 'Register Home Location'
-            : 'Manage Home Location',
-      ),
-    );
-
     final status = _CurrentStatusCard(
       mode: modeLabel,
       address: address,
@@ -517,9 +528,6 @@ class _TrackingViewState extends State<_TrackingView> {
           const MobileEmployeeHeader(),
           const SizedBox(height: 14),
           const EmployeePageTitle(title: 'Live Tracking'),
-          const SizedBox(height: 12),
-          if (mode == _WorkMode.home)
-            Align(alignment: Alignment.centerRight, child: homeAction),
           const SizedBox(height: 12),
           modes,
           const SizedBox(height: 14),
@@ -564,9 +572,6 @@ class _TrackingViewState extends State<_TrackingView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (mode == _WorkMode.home)
-          Align(alignment: Alignment.centerRight, child: homeAction),
-        if (mode == _WorkMode.home) const SizedBox(height: 12),
         modes,
         const SizedBox(height: 18),
         status,
