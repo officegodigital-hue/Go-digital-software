@@ -37,6 +37,38 @@ function formatHours(minutes) {
   return hours + 'h ' + String(mins).padStart(2, '0') + 'm';
 }
 
+async function snapRouteToRoads(points) {
+  const apiKey = String(process.env.GOOGLE_ROADS_API_KEY || '').trim();
+  if (!apiKey || points.length < 2 || typeof fetch !== 'function') return [];
+
+  // Roads API accepts up to 100 points. Keep the first, last and evenly
+  // distributed pings so a long field route remains representative.
+  const limit = 100;
+  const source = points.length <= limit
+    ? points
+    : Array.from({ length: limit }, (_, index) => {
+        const pointIndex = Math.round(index * (points.length - 1) / (limit - 1));
+        return points[pointIndex];
+      });
+  const path = source.map((point) => `${point.latitude},${point.longitude}`).join('|');
+
+  try {
+    const params = new URLSearchParams({ path, interpolate: 'true', key: apiKey });
+    const response = await fetch(`https://roads.googleapis.com/v1/snapToRoads?${params}`);
+    if (!response.ok) return [];
+    const payload = await response.json();
+    return (payload.snappedPoints || [])
+      .map((point) => ({
+        latitude: Number(point.location && point.location.latitude),
+        longitude: Number(point.location && point.location.longitude),
+      }))
+      .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+  } catch (_) {
+    // The recorded GPS line remains available if Roads is temporarily unavailable.
+    return [];
+  }
+}
+
 function minutesFromCheckIn(checkInAt) {
   if (!checkInAt) return 0;
   const start = new Date(String(checkInAt).replace(' ', 'T'));
@@ -514,17 +546,30 @@ async function routeHistory(req, res) {
       [employeeUserId, date]
     );
 
+    const points = await Promise.all(pings.map(async function (row) {
+      let address = (row.address && row.address.trim()) ? row.address.trim() : null;
+      if (!address) {
+        address = await reverseGeocode(Number(row.latitude), Number(row.longitude));
+        if (address) {
+          db.query(`UPDATE hrms_location_pings SET address = ? WHERE employee_user_id = ? AND recorded_at = ?`,
+            [address, employeeUserId, row.recorded_at]).catch(() => {});
+        }
+      }
+      return {
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        address: address,
+        recordedAt: row.recorded_at,
+      };
+    }));
+
+    const snappedPoints = await snapRouteToRoads(points);
+
     return ok(res, {
       employeeUserId: employeeUserId,
       date: date,
-      points: pings.map(function (row) {
-        return {
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          address: row.address,
-          recordedAt: row.recorded_at,
-        };
-      }),
+      points,
+      snappedPoints,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
@@ -1066,6 +1111,34 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
+async function backfillAddresses(req, res) {
+  try {
+    const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
+    if (!apiKey) return fail(res, 500, 'GOOGLE_GEOCODING_API_KEY not set');
+
+    const [rows] = await db.query(
+      `SELECT id, latitude, longitude FROM hrms_location_pings WHERE address IS NULL OR address = '' LIMIT 500`
+    );
+
+    if (!rows.length) return ok(res, { updated: 0, message: 'No pings need backfilling' });
+
+    let updated = 0;
+    for (const row of rows) {
+      const address = await reverseGeocode(Number(row.latitude), Number(row.longitude));
+      if (address) {
+        await db.query(`UPDATE hrms_location_pings SET address = ? WHERE id = ?`, [address, row.id]);
+        updated++;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    return ok(res, { updated, total: rows.length, message: `Backfilled ${updated} of ${rows.length} pings` });
+  } catch (error) {
+    console.error('Backfill addresses error:', error.message);
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1080,10 +1153,11 @@ module.exports = {
   listHomeLocations,
   reviewHomeLocation,
   getMyFieldSession,
-startFieldTracking,
-stopFieldTracking,
-getMyWaitingAlert,
-submitWaitingReason,
-listFieldWaitingReasons,
-reviewFieldWaitingReason,
+  startFieldTracking,
+  stopFieldTracking,
+  getMyWaitingAlert,
+  submitWaitingReason,
+  listFieldWaitingReasons,
+  reviewFieldWaitingReason,
+  backfillAddresses,
 };

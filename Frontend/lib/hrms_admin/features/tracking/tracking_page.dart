@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,6 +30,7 @@ class TrackingPage extends StatefulWidget {
 
 class _TrackingPageState extends State<TrackingPage> {
   String mode = 'Field';
+  DateTime _routeDate = DateTime.now();
 
   static const _modeStorageKey = 'admin_tracking_last_mode';
   static const _pollInterval = Duration(seconds: 30);
@@ -93,7 +97,7 @@ class _TrackingPageState extends State<TrackingPage> {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getString(_modeStorageKey);
     if (!mounted || saved == null) return;
-    if (saved == 'Office' || saved == 'Home' || saved == 'Field') {
+    if (saved == 'Office' || saved == 'Field') {
       setState(() => mode = saved);
     }
   }
@@ -147,11 +151,26 @@ class _TrackingPageState extends State<TrackingPage> {
   List<_TrackedEmployee> get _visibleEmployees =>
       employees.where((employee) => employee.mode == mode).toList();
 
+  _TrackedEmployee? _selectedRouteEmployee;
+
   void _viewRoute(_TrackedEmployee employee) {
-    showDialog<void>(
+    setState(() => _selectedRouteEmployee = employee);
+  }
+
+  void _clearRoute() {
+    setState(() => _selectedRouteEmployee = null);
+  }
+
+  Future<void> _pickRouteDate() async {
+    final selected = await showDatePicker(
       context: context,
-      builder: (context) => _RouteDialog(employee: employee),
+      initialDate: _routeDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
     );
+    if (selected != null && mounted) {
+      setState(() => _routeDate = selected);
+    }
   }
 
   @override
@@ -213,8 +232,15 @@ class _TrackingPageState extends State<TrackingPage> {
                             mode: mode,
                             employees: _visibleEmployees,
                             lastLoadedAt: lastLoadedAt,
-                            onModeChanged: (value) => _setMode(value),
+                            onModeChanged: (value) {
+                              _setMode(value);
+                              _clearRoute();
+                            },
                             onViewRoute: _viewRoute,
+                            selectedRouteEmployee: _selectedRouteEmployee,
+                            onClearRoute: _clearRoute,
+                            selectedDate: _routeDate,
+                            onSelectDate: _pickRouteDate,
                           ),
                         ],
                       ],
@@ -594,12 +620,20 @@ class _TrackingWorkspace extends StatelessWidget {
     required this.lastLoadedAt,
     required this.onModeChanged,
     required this.onViewRoute,
+    required this.selectedDate,
+    required this.onSelectDate,
+    this.selectedRouteEmployee,
+    this.onClearRoute,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final DateTime? lastLoadedAt;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final DateTime selectedDate;
+  final Future<void> Function() onSelectDate;
+  final _TrackedEmployee? selectedRouteEmployee;
+  final VoidCallback? onClearRoute;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -625,6 +659,10 @@ class _TrackingWorkspace extends StatelessWidget {
           onModeChanged: onModeChanged,
           onViewRoute: onViewRoute,
           fillHeight: !stacked,
+          selectedRouteEmployee: selectedRouteEmployee,
+          onClearRoute: onClearRoute,
+          selectedDate: selectedDate,
+          onSelectDate: onSelectDate,
         );
         final table = _TrackedEmployeesPanel(
           mode: mode,
@@ -662,94 +700,243 @@ class _MapPanel extends StatelessWidget {
     required this.employees,
     required this.onModeChanged,
     required this.onViewRoute,
+    required this.selectedDate,
+    required this.onSelectDate,
     this.fillHeight = false,
+    this.selectedRouteEmployee,
+    this.onClearRoute,
   });
   final String mode;
   final List<_TrackedEmployee> employees;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final DateTime selectedDate;
+  final Future<void> Function() onSelectDate;
   final bool fillHeight;
+  final _TrackedEmployee? selectedRouteEmployee;
+  final VoidCallback? onClearRoute;
 
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(17, 16, 17, 18),
     child: Column(
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 340),
-            child: Row(
-              children: [
-                for (final item in ['Office', 'Home', 'Field']) ...[
-                  if (item != 'Office') const SizedBox(width: 10),
-                  Expanded(
-                    child: _ModeButton(
-                      label: item,
-                      active: mode == item,
-                      onTap: () => onModeChanged(item),
-                    ),
-                  ),
-                ],
-              ],
+        Row(
+          children: [
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340),
+                child: Row(
+                  children: [
+                    for (final item in ['Office', 'Field']) ...[
+                      if (item != 'Office') const SizedBox(width: 10),
+                      Expanded(
+                        child: _ModeButton(
+                          label: item,
+                          active: mode == item,
+                          onTap: () => onModeChanged(item),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                selectedRouteEmployee?.name ?? 'Select an employee to view route',
+                style: const TextStyle(
+                  color: HrmsColors.navy,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (selectedRouteEmployee != null) ...[
+              IconButton(
+                tooltip: 'Clear route',
+                onPressed: onClearRoute,
+                icon: const Icon(Icons.close, size: 19),
+              ),
+              const SizedBox(width: 4),
+            ],
+            OutlinedButton.icon(
+              onPressed: onSelectDate,
+              icon: const Icon(Icons.calendar_today_outlined, size: 17),
+              label: Text(DateFormat('d MMM yyyy').format(selectedDate)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF303747),
+                side: const BorderSide(color: Color(0xFFDDE3EF)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 15),
         if (fillHeight)
           Expanded(
-            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
+            child: _LiveMap(
+              employees: employees,
+              onViewRoute: onViewRoute,
+              selectedRouteEmployee: selectedRouteEmployee,
+              selectedDate: selectedDate,
+            ),
           )
         else
           AspectRatio(
             aspectRatio: 1.44,
-            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
+            child: _LiveMap(
+              employees: employees,
+              onViewRoute: onViewRoute,
+              selectedRouteEmployee: selectedRouteEmployee,
+              selectedDate: selectedDate,
+            ),
           ),
       ],
     ),
   );
 }
 
-/// Google Maps display for the live employee markers. Only employees with
-/// at least one GPS ping recorded are shown as pins — an employee who has
-/// only set a status but never sent a location has nothing to plot yet.
-class _LiveMap extends StatelessWidget {
-  const _LiveMap({required this.employees, required this.onViewRoute});
+/// Google Maps display for the live employee markers. When a route employee
+/// is selected, also draws their today's route polyline on the same map.
+class _LiveMap extends StatefulWidget {
+  const _LiveMap({
+    required this.employees,
+    required this.onViewRoute,
+    required this.selectedDate,
+    this.selectedRouteEmployee,
+  });
   final List<_TrackedEmployee> employees;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final DateTime selectedDate;
+  final _TrackedEmployee? selectedRouteEmployee;
 
-  static const _delhiCenter = LatLng(28.6139, 77.2090);
+  @override
+  State<_LiveMap> createState() => _LiveMapState();
+}
+
+class _LiveMapState extends State<_LiveMap> {
+  static const _defaultCenter = LatLng(28.6139, 77.2090);
+
+  GoogleMapController? _ctrl;
+  Set<Polyline> _polylines = {};
+  Set<Marker> _routeMarkers = {};
+
+  @override
+  void didUpdateWidget(_LiveMap old) {
+    super.didUpdateWidget(old);
+    if (old.selectedRouteEmployee?.id != widget.selectedRouteEmployee?.id ||
+        old.selectedDate != widget.selectedDate) {
+      if (widget.selectedRouteEmployee == null) {
+        setState(() { _polylines = {}; _routeMarkers = {}; });
+      } else {
+        _loadRoute(widget.selectedRouteEmployee!);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadRoute(_TrackedEmployee emp) async {
+    final uid = emp.employeeUserId;
+    if (uid == null) return;
+    try {
+      final date = DateFormat('yyyy-MM-dd').format(widget.selectedDate);
+      final data = await HrmsTrackingApi.route(employeeUserId: uid, date: date);
+      final pts = (data['points'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => _RoutePoint.fromApi(Map<String, dynamic>.from(e)))
+          .where((p) => p.hasCoords)
+          .toList();
+      if (!mounted) return;
+      if (pts.isEmpty) {
+        setState(() {
+          _polylines = {};
+          _routeMarkers = {};
+        });
+        return;
+      }
+
+      final snapped = (data['snappedPoints'] as List? ?? [])
+          .whereType<Map>()
+          .map((point) => LatLng(
+                (point['latitude'] as num?)?.toDouble() ?? 0,
+                (point['longitude'] as num?)?.toDouble() ?? 0,
+              ))
+          .where((point) => point.latitude != 0 || point.longitude != 0)
+          .toList();
+      final poly = snapped.length >= 2
+          ? snapped
+          : pts.map((p) => LatLng(p.lat, p.lng)).toList();
+
+      final markers = <Marker>{
+        Marker(
+          markerId: const MarkerId('route_start'),
+          position: poly.first,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: InfoWindow(title: 'Start', snippet: pts.first.time),
+        ),
+        Marker(
+          markerId: const MarkerId('route_end'),
+          position: poly.last,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: InfoWindow(title: 'End', snippet: pts.last.time),
+        ),
+      };
+
+      if (!mounted) return;
+      setState(() {
+        _polylines = { Polyline(polylineId: const PolylineId('route'), points: poly, color: const Color(0xFF1A73E8), width: 5) };
+        _routeMarkers = markers;
+      });
+
+      // Fit bounds
+      if (_ctrl != null && poly.length >= 2) {
+        double minLat = poly.first.latitude, maxLat = poly.first.latitude;
+        double minLng = poly.first.longitude, maxLng = poly.first.longitude;
+        for (final p in poly) {
+          if (p.latitude < minLat) minLat = p.latitude;
+          if (p.latitude > maxLat) maxLat = p.latitude;
+          if (p.longitude < minLng) minLng = p.longitude;
+          if (p.longitude > maxLng) maxLng = p.longitude;
+        }
+        await _ctrl!.animateCamera(CameraUpdate.newLatLngBounds(
+          LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng)), 60));
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
-    final located = employees
-        .where((e) => e.lat != null && e.lng != null)
-        .toList();
-    final center = located.isNotEmpty
-        ? LatLng(located.first.lat!, located.first.lng!)
-        : _delhiCenter;
+    final located = widget.employees.where((e) => e.lat != null && e.lng != null).toList();
+    final center = located.isNotEmpty ? LatLng(located.first.lat!, located.first.lng!) : _defaultCenter;
+    final liveMarkers = located.map((emp) => Marker(
+      markerId: MarkerId(emp.id),
+      position: LatLng(emp.lat!, emp.lng!),
+      infoWindow: InfoWindow(title: emp.name, snippet: emp.address ?? 'No address'),
+      icon: BitmapDescriptor.defaultMarkerWithHue(_markerHue(emp.mode)),
+      onTap: () => widget.onViewRoute(emp),
+    )).toSet();
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: GoogleMap(
         initialCameraPosition: CameraPosition(target: center, zoom: 11),
         mapToolbarEnabled: false,
-        markers: located
-            .map(
-              (employee) => Marker(
-                markerId: MarkerId(employee.id),
-                position: LatLng(employee.lat!, employee.lng!),
-                infoWindow: InfoWindow(
-                  title: employee.name,
-                  snippet:
-                      employee.address ?? 'Location not yet reverse-geocoded',
-                ),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  _markerHue(employee.mode),
-                ),
-                onTap: () => onViewRoute(employee),
-              ),
-            )
-            .toSet(),
+        markers: {...liveMarkers, ..._routeMarkers},
+        polylines: _polylines,
+        onMapCreated: (ctrl) => _ctrl = ctrl,
       ),
     );
   }
@@ -1016,7 +1203,7 @@ class _TrackingTableHeader extends StatelessWidget {
           child: Text('Current Location', style: _headStyle),
         ),
         _TrackingCell(width: 110, child: Text('Status', style: _headStyle)),
-        _TrackingCell(width: 80, child: Text('View Route', style: _headStyle)),
+        _TrackingCell(width: 110, child: Text('Actions', style: _headStyle)),
       ],
     ),
   );
@@ -1118,15 +1305,23 @@ class _TrackingRow extends StatelessWidget {
         ),
         _TrackingCell(width: 110, child: _ActiveBadge(active: employee.active)),
         _TrackingCell(
-          width: 80,
-          child: IconButton(
-            tooltip: 'View Route',
-            onPressed: () => onViewRoute(employee),
-            icon: const Icon(
-              Icons.map_outlined,
-              color: HrmsColors.blue,
-              size: 24,
-            ),
+          width: 110,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'View Route',
+                onPressed: () => onViewRoute(employee),
+                icon: const Icon(Icons.map_outlined, color: HrmsColors.blue, size: 22),
+              ),
+              IconButton(
+                tooltip: 'Location History',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => _RouteDialog(employee: employee),
+                ),
+                icon: const Icon(Icons.history_outlined, color: Color(0xFF22C55E), size: 22),
+              ),
+            ],
           ),
         ),
       ],
@@ -1228,9 +1423,315 @@ class _TrackedEmployee {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Route history panel — shown inline in the left map slot
+// ---------------------------------------------------------------------------
+
+class _RouteHistoryPanel extends StatefulWidget {
+  const _RouteHistoryPanel({
+    required this.employee,
+    required this.onClose,
+    this.fillHeight = false,
+  });
+  final _TrackedEmployee employee;
+  final VoidCallback onClose;
+  final bool fillHeight;
+
+  @override
+  State<_RouteHistoryPanel> createState() => _RouteHistoryPanelState();
+}
+
+class _RouteHistoryPanelState extends State<_RouteHistoryPanel> {
+  static const _apiKey = String.fromEnvironment('GOOGLE_DIRECTIONS_API_KEY');
+
+  bool _loading = true;
+  String? _error;
+  List<_RoutePoint> _points = [];
+
+  Set<Polyline> _polylines = {};
+  Set<Marker> _markers = {};
+  LatLng? _center;
+  double _totalKm = 0;
+  String _duration = '--';
+  GoogleMapController? _mapCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_RouteHistoryPanel old) {
+    super.didUpdateWidget(old);
+    if (old.employee.id != widget.employee.id) {
+      setState(() { _loading = true; _error = null; _points = []; });
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _mapCtrl?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final uid = widget.employee.employeeUserId;
+    if (uid == null) {
+      setState(() { _loading = false; _error = 'No employee ID'; });
+      return;
+    }
+    try {
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final data = await HrmsTrackingApi.route(employeeUserId: uid, date: today);
+      final items = (data['points'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => _RoutePoint.fromApi(Map<String, dynamic>.from(e)))
+          .where((p) => p.hasCoords)
+          .toList();
+      if (!mounted) return;
+      await _buildRoute(items);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
+    }
+  }
+
+  Future<void> _buildRoute(List<_RoutePoint> items) async {
+    if (items.isEmpty) {
+      setState(() { _points = items; _loading = false; });
+      return;
+    }
+    List<LatLng> poly = items.map((p) => LatLng(p.lat, p.lng)).toList();
+    double km = 0;
+
+    if (_apiKey.isNotEmpty && items.length >= 2) {
+      try {
+        final o = items.first, d = items.last;
+        final wp = items.length > 2
+            ? '&waypoints=via:' + items.sublist(1, items.length - 1).map((p) => '${p.lat},${p.lng}').join('|')
+            : '';
+        final url = 'https://maps.googleapis.com/maps/api/directions/json'
+            '?origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}$wp&key=$_apiKey';
+        final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          final j = jsonDecode(res.body) as Map<String, dynamic>;
+          final routes = j['routes'] as List?;
+          if (routes != null && routes.isNotEmpty) {
+            final r = routes.first as Map<String, dynamic>;
+            final enc = (r['overview_polyline'] as Map?)['points'] as String?;
+            if (enc != null && enc.isNotEmpty) poly = _decodePolyline(enc);
+            for (final leg in (r['legs'] as List? ?? [])) {
+              km += ((leg as Map)['distance']?['value'] as num? ?? 0) / 1000;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (km == 0 && poly.length >= 2) {
+      for (int i = 1; i < poly.length; i++) km += _haversineKm(poly[i-1], poly[i]);
+    }
+
+    String dur = '--';
+    if (items.length >= 2) {
+      final d = items.last.recordedAt.difference(items.first.recordedAt);
+      dur = '${d.inHours}h ${d.inMinutes.remainder(60).toString().padLeft(2,'0')}m';
+    }
+
+    double latS = 0, lngS = 0;
+    for (final p in poly) { latS += p.latitude; lngS += p.longitude; }
+    final center = LatLng(latS / poly.length, lngS / poly.length);
+
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('s'),
+        position: poly.first,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        infoWindow: InfoWindow(title: 'S', snippet: items.first.time),
+      ),
+      Marker(
+        markerId: const MarkerId('e'),
+        position: poly.last,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: InfoWindow(title: 'E', snippet: items.last.time),
+      ),
+    };
+
+    setState(() {
+      _points = items;
+      _polylines = { Polyline(polylineId: const PolylineId('r'), points: poly, color: const Color(0xFF1A73E8), width: 5) };
+      _markers = markers;
+      _center = center;
+      _totalKm = km;
+      _duration = dur;
+      _loading = false;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_mapCtrl == null || poly.length < 2) return;
+      double minLat = poly.first.latitude, maxLat = poly.first.latitude;
+      double minLng = poly.first.longitude, maxLng = poly.first.longitude;
+      for (final p in poly) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      await _mapCtrl!.animateCamera(CameraUpdate.newLatLngBounds(
+        LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng)), 48));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final date = DateFormat('d MMM yyyy').format(DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(17, 16, 17, 18),
+      child: Column(
+        children: [
+          // Header row
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.employee.name,
+                  style: const TextStyle(color: HrmsColors.navy, fontSize: 15, fontWeight: FontWeight.w700),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFDDE3EF)),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.calendar_today_outlined, size: 13, color: Color(0xFF596176)),
+                    const SizedBox(width: 5),
+                    Text(date, style: const TextStyle(fontSize: 12, color: Color(0xFF596176))),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: widget.onClose,
+                child: Container(
+                  width: 28, height: 28,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFDDE3EF)),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: const Icon(Icons.close, size: 15, color: Color(0xFF596176)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Map + stats
+          if (widget.fillHeight)
+            Expanded(child: _buildMapArea())
+          else
+            SizedBox(height: 480, child: _buildMapArea()),
+        ],
+      ),
+    );
+  }
+
+  String get _updatedLabel {
+    if (_points.isEmpty) return '--';
+    final diff = DateTime.now().difference(_points.last.recordedAt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes}m ago';
+    return 'Updated ${diff.inHours}h ago';
+  }
+
+  Widget _buildMapArea() {
+    return Column(
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)))
+                : _points.isEmpty
+                ? const Center(child: Text('No location pings today.', style: TextStyle(color: Color(0xFF8492A6), fontSize: 13)))
+                : GoogleMap(
+                    initialCameraPosition: CameraPosition(target: _center ?? const LatLng(0, 0), zoom: 14),
+                    polylines: _polylines,
+                    markers: _markers,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: true,
+                    mapToolbarEnabled: false,
+                    onMapCreated: (ctrl) {
+                      _mapCtrl = ctrl;
+                      _buildRoute(_points);
+                    },
+                  ),
+          ),
+        ),
+        // Stats bar — outside the map
+        Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Color(0xFFE3E7EF))),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            children: [
+              _stat(Icons.route_outlined, 'Distance', '${_totalKm.toStringAsFixed(2)} km', const Color(0xFF22C55E)),
+              _div(),
+              _stat(Icons.timer_outlined, 'Duration', _duration, const Color(0xFF1A73E8)),
+              _div(),
+              _stat(Icons.speed_outlined, 'Avg speed', '--', const Color(0xFFF97316)),
+              _div(),
+              _stat(Icons.update_outlined, 'Updated', _updatedLabel, const Color(0xFF8B5CF6)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stat(IconData icon, String label, String value, Color color) => Expanded(
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 17, color: color),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 10, color: Color(0xFF8492A6))),
+            Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: HrmsColors.navy)),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _div() => Container(width: 1, height: 28, color: const Color(0xFFE3E7EF), margin: const EdgeInsets.symmetric(horizontal: 2));
+}
+
+// ---------------------------------------------------------------------------
+
 class _RoutePoint {
-  const _RoutePoint({required this.time, required this.location});
+  const _RoutePoint({
+    required this.time,
+    required this.location,
+    required this.lat,
+    required this.lng,
+    required this.recordedAt,
+  });
   final String time, location;
+  final double lat, lng;
+  final DateTime recordedAt;
+
+  bool get hasCoords => lat != 0.0 || lng != 0.0;
 
   factory _RoutePoint.fromApi(Map<String, dynamic> json) {
     final rawTime = json['recordedAt']?.toString();
@@ -1239,15 +1740,63 @@ class _RoutePoint {
         ? DateFormat('hh:mm a').format(recorded.toLocal())
         : '--:--';
     final address = (json['address'] as String?)?.trim();
-    final lat = (json['latitude'] as num?)?.toDouble();
-    final lng = (json['longitude'] as num?)?.toDouble();
+    final lat = (json['latitude'] as num?)?.toDouble() ?? 0.0;
+    final lng = (json['longitude'] as num?)?.toDouble() ?? 0.0;
     final location = (address != null && address.isNotEmpty)
         ? address
-        : (lat != null && lng != null)
+        : (lat != 0.0 || lng != 0.0)
         ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
         : 'Unknown location';
-    return _RoutePoint(time: time, location: location);
+    return _RoutePoint(
+      time: time,
+      location: location,
+      lat: lat,
+      lng: lng,
+      recordedAt: recorded ?? DateTime.now(),
+    );
   }
+}
+
+/// Decodes a Google encoded polyline string into a list of LatLng points.
+List<LatLng> _decodePolyline(String encoded) {
+  final result = <LatLng>[];
+  int index = 0;
+  int lat = 0, lng = 0;
+  while (index < encoded.length) {
+    int shift = 0, result0 = 0;
+    int b;
+    do {
+      b = encoded.codeUnitAt(index++) - 63;
+      result0 |= (b & 0x1F) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    final dLat = (result0 & 1) != 0 ? ~(result0 >> 1) : (result0 >> 1);
+    lat += dLat;
+    shift = 0;
+    result0 = 0;
+    do {
+      b = encoded.codeUnitAt(index++) - 63;
+      result0 |= (b & 0x1F) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    final dLng = (result0 & 1) != 0 ? ~(result0 >> 1) : (result0 >> 1);
+    lng += dLng;
+    result.add(LatLng(lat / 1e5, lng / 1e5));
+  }
+  return result;
+}
+
+double _haversineKm(LatLng a, LatLng b) {
+  const r = 6371.0;
+  final dLat = (b.latitude - a.latitude) * math.pi / 180;
+  final dLng = (b.longitude - a.longitude) * math.pi / 180;
+  final sinLat = math.sin(dLat / 2);
+  final sinLng = math.sin(dLng / 2);
+  final c = sinLat * sinLat +
+      math.cos(a.latitude * math.pi / 180) *
+          math.cos(b.latitude * math.pi / 180) *
+          sinLng * sinLng;
+  return r * 2 * math.asin(math.sqrt(c));
 }
 
 class _RouteDialog extends StatefulWidget {
@@ -1259,9 +1808,20 @@ class _RouteDialog extends StatefulWidget {
 }
 
 class _RouteDialogState extends State<_RouteDialog> {
+  static const _apiKey = String.fromEnvironment('GOOGLE_DIRECTIONS_API_KEY');
+
   bool loading = true;
   String? error;
   List<_RoutePoint> points = [];
+
+  // Map state
+  GoogleMapController? _mapCtrl;
+  Set<Polyline> _polylines = {};
+  Set<Marker> _markers = {};
+  LatLng? _center;
+  double _totalKm = 0;
+  String _duration = '--';
+  String _updated = '--';
 
   @override
   void initState() {
@@ -1269,157 +1829,314 @@ class _RouteDialogState extends State<_RouteDialog> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _mapCtrl?.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final employeeUserId = widget.employee.employeeUserId;
     if (employeeUserId == null) {
-      setState(() {
-        loading = false;
-        error = 'No employee ID available for this row';
-      });
+      setState(() { loading = false; error = 'No employee ID available for this row'; });
       return;
     }
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final data = await HrmsTrackingApi.route(
-        employeeUserId: employeeUserId,
-        date: today,
-      );
+      final data = await HrmsTrackingApi.route(employeeUserId: employeeUserId, date: today);
       final items = (data['points'] as List? ?? [])
           .whereType<Map>()
           .map((item) => _RoutePoint.fromApi(Map<String, dynamic>.from(item)))
+          .where((p) => p.hasCoords)
           .toList();
       if (!mounted) return;
-      setState(() {
-        points = items;
-        loading = false;
-      });
+      await _buildMapData(items);
     } catch (err) {
       if (!mounted) return;
-      setState(() {
-        error = err.toString().replaceFirst('Exception: ', '');
-        loading = false;
-      });
+      setState(() { error = err.toString().replaceFirst('Exception: ', ''); loading = false; });
     }
   }
 
+  Future<void> _buildMapData(List<_RoutePoint> items) async {
+    if (items.isEmpty) {
+      setState(() { points = items; loading = false; });
+      return;
+    }
+
+    List<LatLng> polylinePoints = items.map((p) => LatLng(p.lat, p.lng)).toList();
+    double totalKm = 0;
+
+    // Try Directions API for road-snapped polyline
+    if (_apiKey.isNotEmpty && items.length >= 2) {
+      try {
+        final origin = items.first;
+        final destination = items.last;
+        final waypoints = items.length > 2
+            ? items.sublist(1, items.length - 1)
+                .map((p) => '${p.lat},${p.lng}')
+                .join('|')
+            : null;
+        final waypointParam = waypoints != null ? '&waypoints=via:$waypoints' : '';
+        final url = 'https://maps.googleapis.com/maps/api/directions/json'
+            '?origin=${origin.lat},${origin.lng}'
+            '&destination=${destination.lat},${destination.lng}'
+            '$waypointParam'
+            '&key=$_apiKey';
+        final resp = await http.get(Uri.parse(url))
+            .timeout(const Duration(seconds: 10));
+        if (resp.statusCode == 200) {
+          final json = jsonDecode(resp.body) as Map<String, dynamic>;
+          final routes = json['routes'] as List?;
+          if (routes != null && routes.isNotEmpty) {
+            final route = routes.first as Map<String, dynamic>;
+            final overviewPolyline = route['overview_polyline'] as Map?;
+            final encoded = overviewPolyline?['points'] as String?;
+            if (encoded != null && encoded.isNotEmpty) {
+              polylinePoints = _decodePolyline(encoded);
+            }
+            final legs = route['legs'] as List?;
+            if (legs != null) {
+              for (final leg in legs) {
+                final dist = (leg as Map)['distance'] as Map?;
+                final meters = (dist?['value'] as num?)?.toDouble() ?? 0;
+                totalKm += meters / 1000;
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back to straight-line distance between pings
+        for (int i = 1; i < polylinePoints.length; i++) {
+          totalKm += _haversineKm(polylinePoints[i - 1], polylinePoints[i]);
+        }
+      }
+    }
+
+    // Compute straight-line distance if Directions returned 0
+    if (totalKm == 0 && polylinePoints.length >= 2) {
+      for (int i = 1; i < polylinePoints.length; i++) {
+        totalKm += _haversineKm(polylinePoints[i - 1], polylinePoints[i]);
+      }
+    }
+
+    // Duration
+    String duration = '--';
+    if (items.length >= 2) {
+      final diff = items.last.recordedAt.difference(items.first.recordedAt);
+      final h = diff.inHours;
+      final m = diff.inMinutes.remainder(60);
+      duration = '${h}h ${m.toString().padLeft(2, '0')}m';
+    }
+
+    // Updated ago
+    String updated = '--';
+    if (items.isNotEmpty) {
+      final diff = DateTime.now().difference(items.last.recordedAt);
+      if (diff.inMinutes < 2) updated = 'Just now';
+      else if (diff.inMinutes < 60) updated = '${diff.inMinutes}m ago';
+      else updated = '${diff.inHours}h ago';
+    }
+
+    // Markers
+    final markers = <Marker>{};
+    if (polylinePoints.isNotEmpty) {
+      markers.add(Marker(
+        markerId: const MarkerId('start'),
+        position: polylinePoints.first,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        infoWindow: InfoWindow(title: 'S', snippet: items.first.time),
+      ));
+      markers.add(Marker(
+        markerId: const MarkerId('end'),
+        position: polylinePoints.last,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: InfoWindow(title: 'E', snippet: items.last.time),
+      ));
+    }
+
+    // Center
+    double latSum = 0, lngSum = 0;
+    for (final p in polylinePoints) { latSum += p.latitude; lngSum += p.longitude; }
+    final center = LatLng(latSum / polylinePoints.length, lngSum / polylinePoints.length);
+
+    setState(() {
+      points = items;
+      _polylines = {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: polylinePoints,
+          color: const Color(0xFF1A73E8),
+          width: 5,
+        ),
+      };
+      _markers = markers;
+      _center = center;
+      _totalKm = totalKm;
+      _duration = duration;
+      _updated = updated;
+      loading = false;
+    });
+
+    // Fit bounds
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_mapCtrl == null || polylinePoints.length < 2) return;
+      double minLat = polylinePoints.first.latitude;
+      double maxLat = polylinePoints.first.latitude;
+      double minLng = polylinePoints.first.longitude;
+      double maxLng = polylinePoints.first.longitude;
+      for (final p in polylinePoints) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      await _mapCtrl!.animateCamera(CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        60,
+      ));
+    });
+  }
+
   @override
-  Widget build(BuildContext context) => Dialog(
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 420, maxHeight: 480),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${widget.employee.name} — Today\'s Route',
-                    style: const TextStyle(
-                      color: HrmsColors.navy,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final w = size.width * 0.88;
+    final h = size.height * 0.88;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A73E8).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(Icons.route, color: Color(0xFF1A73E8), size: 19),
                     ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close, size: 20),
-                ),
-              ],
-            ),
-            Text(
-              '${widget.employee.id} · ${widget.employee.mode} mode',
-              style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: loading
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 30),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : error != null
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Text(
-                        error!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12),
-                      ),
-                    )
-                  : points.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Text(
-                        'No location pings recorded for this employee today.',
-                        style: TextStyle(
-                          color: Color(0xFF657087),
-                          fontSize: 12,
-                        ),
-                      ),
-                    )
-                  : SingleChildScrollView(
+                    const SizedBox(width: 12),
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          for (final point in points)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 14),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    margin: const EdgeInsets.only(top: 4),
-                                    decoration: const BoxDecoration(
-                                      color: HrmsColors.blue,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          point.time,
-                                          style: const TextStyle(
-                                            color: HrmsColors.navy,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          point.location,
-                                          style: const TextStyle(
-                                            color: Color(0xFF596176),
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                          Text(
+                            widget.employee.name,
+                            style: const TextStyle(color: HrmsColors.navy, fontSize: 15, fontWeight: FontWeight.w700),
+                          ),
+                          Text(
+                            "Today's Route Map · ${widget.employee.id}",
+                            style: const TextStyle(color: Color(0xFF657087), fontSize: 11.5),
+                          ),
                         ],
                       ),
                     ),
-            ),
-          ],
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, size: 20, color: Color(0xFF8492A6)),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 1, color: Color(0xFFEDF0F7)),
+              // Map body
+              Expanded(
+                child: loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                        ),
+                      )
+                    : points.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No location pings recorded for this employee today.',
+                          style: TextStyle(color: Color(0xFF657087), fontSize: 13),
+                        ),
+                      )
+                    : GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: _center ?? const LatLng(0, 0),
+                          zoom: 14,
+                        ),
+                        polylines: _polylines,
+                        markers: _markers,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: true,
+                        mapToolbarEnabled: false,
+                        onMapCreated: (ctrl) {
+                          _mapCtrl = ctrl;
+                          // Trigger bounds fit after map is ready
+                          _buildMapData(points);
+                        },
+                      ),
+              ),
+              // Stats bar
+              if (!loading && error == null && points.isNotEmpty)
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  child: Row(
+                    children: [
+                      _buildStat(Icons.straighten, 'Distance', '${_totalKm.toStringAsFixed(2)} km'),
+                      _buildStatDivider(),
+                      _buildStat(Icons.timer_outlined, 'Duration', _duration),
+                      _buildStatDivider(),
+                      _buildStat(Icons.location_on_outlined, 'Pings', '${points.length}'),
+                      _buildStatDivider(),
+                      _buildStat(Icons.update, 'Updated', _updated),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    ),
+    );
+  }
+
+  Widget _buildStat(IconData icon, String label, String value) {
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF1A73E8)),
+          const SizedBox(width: 7),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value, style: const TextStyle(color: HrmsColors.navy, fontSize: 13, fontWeight: FontWeight.w700)),
+              Text(label, style: const TextStyle(color: Color(0xFF8492A6), fontSize: 10.5)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatDivider() => Container(
+    width: 1, height: 28, color: const Color(0xFFEDF0F7),
+    margin: const EdgeInsets.symmetric(horizontal: 4),
   );
 }
 

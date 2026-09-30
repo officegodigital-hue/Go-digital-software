@@ -188,7 +188,17 @@ class EmployeeSidebar extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
+    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? 'Employee')
+        .toString()
+        .trim();
+    final employeeCode = (user['employeeCode'] ?? user['employee_code'] ?? '')
+        .toString()
+        .trim();
+    final initials = name.isEmpty ? 'E' : name.substring(0, 1).toUpperCase();
+
+    return Container(
     width: 264,
     decoration: const BoxDecoration(
       color: Colors.white,
@@ -213,23 +223,23 @@ class EmployeeSidebar extends StatelessWidget {
               color: const Color(0xFFEEF4FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 CircleAvatar(
                   radius: 20,
                   backgroundColor: employeeBlue,
-                  child: Text('AK', style: TextStyle(color: Colors.white)),
+                  child: Text(initials, style: const TextStyle(color: Colors.white)),
                 ),
                 SizedBox(width: 10),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Arul Kumar',
+                      name,
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     Text(
-                      'EMP1001',
+                      employeeCode.isEmpty ? 'Employee' : employeeCode,
                       style: TextStyle(color: employeeBlue, fontSize: 12),
                     ),
                   ],
@@ -266,6 +276,7 @@ class EmployeeSidebar extends StatelessWidget {
       ],
     ),
   );
+  }
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -375,13 +386,12 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     super.initState();
     _updateClock();
     _loadStoredIdentity();
+    // The header must never refresh the whole employee app continuously.
+    // Time changes only by the minute, and attendance state refreshes after
+    // explicit employee actions or when the page is opened again.
     _clockTimer = Timer.periodic(
-      const Duration(seconds: 1),
+      const Duration(minutes: 1),
       (_) => _updateClock(),
-    );
-    _pollingTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _fetchHeaderStatus(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchProfile();
@@ -1216,7 +1226,14 @@ class MobileEmployeeHeader extends StatelessWidget {
   final bool showGreeting;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
+    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? '')
+        .toString()
+        .trim();
+    final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
+
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(
@@ -1230,11 +1247,12 @@ class MobileEmployeeHeader extends StatelessWidget {
       ),
       if (showGreeting) ...[
         const SizedBox(height: 22),
-        const Text(
-          'Hello, Arul 👋',
+        Text(
+          greeting,
           style: TextStyle(color: Color(0xFF495572), fontSize: 19),
         ),
       ],
     ],
-  );
+    );
+  }
 }
