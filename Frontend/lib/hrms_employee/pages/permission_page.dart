@@ -8,8 +8,39 @@ import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import '../shared/employee_ui.dart';
 
-class EmployeePermissionPage extends StatelessWidget {
+class EmployeePermissionPage extends StatefulWidget {
   const EmployeePermissionPage({super.key});
+
+  @override
+  State<EmployeePermissionPage> createState() => _EmployeePermissionPageState();
+}
+
+class _EmployeePermissionPageState extends State<EmployeePermissionPage> {
+  List<dynamic> _history = [];
+  bool _historyLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchHistory());
+  }
+
+  Future<void> _fetchHistory() async {
+    final token = context.read<AuthService>().token;
+    if (token == null) return;
+    setState(() => _historyLoading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/permissions/mine'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 12));
+      final body = jsonDecode(res.body);
+      if (res.statusCode == 200 && body['success'] == true && mounted) {
+        setState(() => _history = List<dynamic>.from(body['data'] as List? ?? []));
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _historyLoading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,16 +51,134 @@ class EmployeePermissionPage extends StatelessWidget {
       subtitle: logOnly
           ? 'Review your permission history'
           : 'Request short personal permission and review your history',
-      desktop: _PermissionContent(logOnly: logOnly),
-      mobile: _PermissionContent(mobile: true, logOnly: logOnly),
+      desktopHeaderAction: logOnly ? null : GestureDetector(
+        onTap: () => _showPermissionHistoryDialog(context, _history, _historyLoading),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F5FF),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFD0E1FF)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.history_rounded, size: 13, color: Color(0xFF0B72F5)),
+              SizedBox(width: 6),
+              Text('View History', style: TextStyle(fontSize: 12, color: Color(0xFF0B72F5), fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ),
+      desktop: _PermissionContent(logOnly: logOnly, history: _history, historyLoading: _historyLoading),
+      mobile: _PermissionContent(mobile: true, logOnly: logOnly, history: _history, historyLoading: _historyLoading),
     );
   }
 }
 
+void _showPermissionHistoryDialog(BuildContext context, List<dynamic> history, bool loading) {
+  String _fmtDate(String? v) {
+    final dt = DateTime.tryParse(v ?? '');
+    return dt == null ? (v ?? '--') : DateFormat('dd/MM/yyyy').format(dt);
+  }
+
+  String _fmtTime(String? start, String? end) {
+    String fmt(String? v) {
+      if (v == null || v.isEmpty) return '';
+      final parts = v.split(':');
+      if (parts.length < 2) return v;
+      final h = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      if (h == null || m == null) return v;
+      final now = DateTime.now();
+      final dt = DateTime(now.year, now.month, now.day, h, m);
+      return DateFormat('hh:mm a').format(dt);
+    }
+    final from = fmt(start);
+    final to = fmt(end);
+    return from.isEmpty || to.isEmpty ? 'Time not recorded' : '$from – $to';
+  }
+
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 540),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.history_rounded, color: employeePurple, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Permission History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close, size: 18),
+                  style: IconButton.styleFrom(backgroundColor: const Color(0xFFF4F6FB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                ),
+              ]),
+              const SizedBox(height: 4),
+              const Text('Past and pending permission requests', style: TextStyle(fontSize: 12, color: employeeMuted)),
+              const SizedBox(height: 16),
+              if (loading)
+                const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+              else if (history.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: Text('No permission requests recorded.', style: TextStyle(color: employeeMuted))),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: history.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final r = history[i];
+                      final status = r['status']?.toString() ?? 'Pending';
+                      final normalizedStatus = status.toUpperCase();
+                      final color = normalizedStatus == 'APPROVED'
+                          ? employeeGreen
+                          : (normalizedStatus == 'REJECTED' ? const Color(0xFFF12B46) : employeeOrange);
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(children: [
+                          const Icon(Icons.shield_outlined, color: employeePurple, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(_fmtDate(r['date']?.toString()), style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                            Text('${r['reason'] ?? ''} · ${_fmtTime(r['start_time']?.toString(), r['end_time']?.toString())}',
+                              style: const TextStyle(color: employeeMuted, fontSize: 11)),
+                          ])),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(5)),
+                            child: Text(status, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+                          ),
+                        ]),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _PermissionContent extends StatefulWidget {
-  const _PermissionContent({this.mobile = false, this.logOnly = false});
+  const _PermissionContent({this.mobile = false, this.logOnly = false, this.history = const [], this.historyLoading = false});
   final bool mobile;
   final bool logOnly;
+  final List<dynamic> history;
+  final bool historyLoading;
 
   @override
   State<_PermissionContent> createState() => _PermissionContentState();
@@ -44,16 +193,13 @@ class _PermissionContentState extends State<_PermissionContent> {
   TimeOfDay _startTime = const TimeOfDay(hour: 14, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 16, minute: 0);
 
-  bool _loading = false;
   bool _submitting = false;
-  List<dynamic> _history = [];
 
   @override
   void initState() {
     super.initState();
     _dateCtrl.text = DateFormat('dd/MM/yyyy').format(_selectedDate);
     _updateTimeText();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchHistory());
   }
 
   @override
@@ -74,27 +220,6 @@ class _PermissionContentState extends State<_PermissionContent> {
     final now = DateTime.now();
     final dt = DateTime(now.year, now.month, now.day, tod.hour, tod.minute);
     return DateFormat('hh:mm a').format(dt);
-  }
-
-  Future<void> _fetchHistory() async {
-    final token = context.read<AuthService>().token;
-    if (token == null) return;
-
-    setState(() => _loading = true);
-    try {
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/permissions/mine'),
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 12));
-      final body = jsonDecode(res.body);
-      if (res.statusCode == 200 && body['success'] == true && mounted) {
-        setState(() => _history = List<dynamic>.from(body['data'] as List? ?? []));
-      }
-    } catch (_) {
-      // The page remains usable while the history request is unavailable.
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
   }
 
   Future<void> _pickDate() async {
@@ -179,7 +304,6 @@ class _PermissionContentState extends State<_PermissionContent> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Permission request submitted successfully!')),
         );
-        _fetchHistory();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to submit permission request.')),
@@ -322,12 +446,12 @@ class _PermissionContentState extends State<_PermissionContent> {
               children: [
                 const SectionTitle('Permission Log', subtitle: 'Past and pending permission requests'),
                 const SizedBox(height: 12),
-                if (_loading)
+                if (widget.historyLoading)
                   const Padding(
                     padding: EdgeInsets.all(24),
                     child: Center(child: CircularProgressIndicator()),
                   )
-                else if (_history.isEmpty)
+                else if (widget.history.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(24),
                     child: Center(
@@ -335,7 +459,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                     ),
                   )
                 else
-                  ..._history.map((r) {
+                  ...widget.history.map((r) {
                     final status = r['status']?.toString() ?? 'Pending';
                     final normalizedStatus = status.toUpperCase();
                     final color = normalizedStatus == 'APPROVED'
@@ -371,7 +495,6 @@ class _PermissionContentState extends State<_PermissionContent> {
       if (hour == null || minute == null) return value;
       return _formatTimeOfDay(TimeOfDay(hour: hour, minute: minute));
     }
-
     final from = format(start);
     final to = format(end);
     return from.isEmpty || to.isEmpty ? 'Time not recorded' : '$from – $to';

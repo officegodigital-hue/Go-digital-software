@@ -224,7 +224,7 @@ class _TrackingViewState extends State<_TrackingView> {
       setState(() {
         duration = hours > 0
             ? '${hours}h ${remainingMinutes}m'
-            : '${minutes} min';
+            : '$minutes min';
         distance = '${distanceKm.toStringAsFixed(2)} km';
         avgSpeed = '${averageSpeed.toStringAsFixed(1)} km/h';
       });
