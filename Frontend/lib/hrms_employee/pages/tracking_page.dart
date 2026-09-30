@@ -1198,7 +1198,7 @@ class _ModeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Material(
-      color: active ? employeeGreen : Colors.white,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(11),
       child: InkWell(
         onTap: onTap,
@@ -1206,7 +1206,8 @@ class _ModeTab extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            border: Border.all(color: active ? employeeGreen : employeeLine),
+            gradient: active ? const LinearGradient(colors: [Color(0xFF13C58A), Color(0xFF00AE7B)]) : null,
+            border: Border.all(color: active ? Colors.transparent : employeeLine),
             borderRadius: BorderRadius.circular(11),
           ),
           child: Row(
@@ -1523,41 +1524,20 @@ class _TripMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final items = [
-          _TripMetric(Icons.route_outlined, 'Distance', distance, employeeGreen),
-          _TripMetric(Icons.timer_outlined, 'Duration', duration, employeeGreen),
-          _TripMetric(Icons.speed_outlined, 'Avg speed', avgSpeed, employeeGreen),
-          _TripMetric(Icons.update_rounded, 'Updated', updated, employeeGreen),
-        ];
-        if (constraints.maxWidth < 430) {
-          return Wrap(
-            spacing: 16,
-            runSpacing: 12,
-            children: items
-                .map((item) => SizedBox(width: 165, child: item))
-                .toList(),
-          );
-        }
-        return Row(
-          children: [
-            for (var index = 0; index < items.length; index++) ...[
-              Expanded(child: items[index]),
-              if (index < items.length - 1)
-                const SizedBox(
-                  height: 34,
-                  child: VerticalDivider(color: employeeLine),
-                ),
-            ],
-          ],
-        );
-      },
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
+    child: Row(
+      children: [
+        Expanded(child: _TripMetric(Icons.route_outlined, 'Distance', distance, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.timer_outlined, 'Duration', duration, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.speed_outlined, 'Avg speed', avgSpeed, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.update_rounded, 'Updated', updated.replaceFirst('Updated ', ''), employeeGreen)),
+      ],
     ),
   );
 }
-
 class _TripMetric extends StatelessWidget {
   const _TripMetric(this.icon, this.label, this.value, this.color);
   final IconData icon;

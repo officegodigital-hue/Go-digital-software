@@ -1287,7 +1287,12 @@ class MobileEmployeeHeader extends StatelessWidget {
   final bool showGreeting;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
+    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? '').toString().trim();
+    final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
+
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(
@@ -1301,11 +1306,12 @@ class MobileEmployeeHeader extends StatelessWidget {
       ),
       if (showGreeting) ...[
         const SizedBox(height: 22),
-        const Text(
-          'Hello, Arul 👋',
+        Text(
+          greeting,
           style: TextStyle(color: Color(0xFF495572), fontSize: 19),
         ),
       ],
     ],
-  );
+    );
+  }
 }
