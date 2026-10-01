@@ -1415,6 +1415,35 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _data;
+  GoogleMapController? _routeMapController;
+
+  Future<void> _fitRouteBounds(List<LatLng> points) async {
+    if (_routeMapController == null || points.isEmpty) return;
+    if (points.length == 1) {
+      await _routeMapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(points.first, 15),
+      );
+      return;
+    }
+    var south = points.first.latitude, north = south;
+    var west = points.first.longitude, east = west;
+    for (final point in points.skip(1)) {
+      south = point.latitude < south ? point.latitude : south;
+      north = point.latitude > north ? point.latitude : north;
+      west = point.longitude < west ? point.longitude : west;
+      east = point.longitude > east ? point.longitude : east;
+    }
+    await _routeMapController!.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(south, west),
+          northeast: LatLng(north, east),
+        ),
+        48,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1472,7 +1501,8 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
     if (timestamp == null) return 'No updates yet';
     final difference = DateTime.now().difference(timestamp);
     if (difference.inMinutes < 1) return 'Updated just now';
-    if (difference.inMinutes < 60) return 'Updated ${difference.inMinutes}m ago';
+    if (difference.inMinutes < 60)
+      return 'Updated ${difference.inMinutes}m ago';
     if (difference.inHours < 24) return 'Updated ${difference.inHours}h ago';
     return 'Updated ${difference.inDays}d ago';
   }
@@ -1587,6 +1617,13 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
                   },
                   markers: markers,
                   mapToolbarEnabled: false,
+                  onMapCreated: (controller) {
+                    _routeMapController = controller;
+                    Future.delayed(
+                      const Duration(milliseconds: 250),
+                      () => _fitRouteBounds(points),
+                    );
+                  },
                 ),
               ),
             ),
@@ -1746,7 +1783,8 @@ class _EmployeeActivityDialog extends StatefulWidget {
   final _TrackedEmployee employee;
 
   @override
-  State<_EmployeeActivityDialog> createState() => _EmployeeActivityDialogState();
+  State<_EmployeeActivityDialog> createState() =>
+      _EmployeeActivityDialogState();
 }
 
 class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
@@ -2334,8 +2372,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         radius == null ||
         radius < 1) {
       setState(
-        () => _error =
-            'Enter an office name and address, select its map pin, and enter a valid radius.',
+        () => _error = 'Enter an office name and address, select its map pin, and enter a valid radius.',
       );
       return;
     }
@@ -2443,8 +2480,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
                     decoration: const InputDecoration(
                       labelText: 'Allowed Clock In radius (metres)',
                       border: OutlineInputBorder(),
-                      helperText:
-                          'This distance also applies to approved home locations.',
+                      helperText: 'This distance also applies to approved home locations.',
                     ),
                   ),
                   if (_error != null) ...[
@@ -2773,9 +2809,8 @@ class _FieldWaitingReasonsDialogState
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
