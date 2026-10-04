@@ -60,12 +60,12 @@ class _MobileClockLogs extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         title: Image.asset('assets/images/godigital_logo.png', height: 38),
-        actions: const [
-          AdminNotificationBell(mobile: true),
-          SizedBox(width: 4),
-          AdminLogoutButton(compact: true),
-          SizedBox(width: 8),
-        ],
+      actions: [
+  AdminNotificationBell(mobile: true),
+  SizedBox(width: 4),
+  AdminProfileDropdown(),
+  SizedBox(width: 8),
+],
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())

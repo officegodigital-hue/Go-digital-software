@@ -29,6 +29,8 @@ class _HomeScreenState extends State<HomeScreen>
   late final Animation<double> _pulse;
 
   bool? _hasRepoAccess;
+  bool? _hasAttendanceAccess;
+  bool? _hasTaskAccess;
 
   @override
   void initState() {
@@ -62,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onAfterLogin();
-      _checkRepoAccess();
+      _checkAllAccess();
     });
   }
 
@@ -73,42 +75,112 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  Future<void> _checkRepoAccess() async {
+  Future<void> _checkAllAccess() async {
     final auth = context.read<AuthService>();
     final userType = auth.userType?.toLowerCase().trim() ?? '';
+    final isMainAdmin = auth.user?['is_main_admin'] == true || 
+                         auth.user?['is_main_admin'] == 1 || 
+                         auth.user?['is_main_admin'].toString() == '1';
 
-    if (userType == 'admin') {
-      if (mounted) setState(() => _hasRepoAccess = true);
+    if (userType == 'admin' || isMainAdmin) {
+      if (mounted) {
+        setState(() {
+          _hasRepoAccess = true;
+          _hasAttendanceAccess = true;
+          _hasTaskAccess = true;
+        });
+      }
       return;
     }
 
-    final token = auth.token;
-    if (token == null || token.isEmpty) {
-      if (mounted) setState(() => _hasRepoAccess = false);
-      return;
-    }
+    final user = auth.user ?? {};
+    final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
 
     try {
-      final response = await http
-          .get(
-            Uri.parse('${ApiConfig.baseUrl}/client-repository/permissions/me'),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(const Duration(seconds: 8));
+      final attendanceAcc = appAccess['attendance']?['access_type']?.toString().toLowerCase() ?? 'none';
+      final taskAcc = appAccess['task_manager']?['access_type']?.toString().toLowerCase() ?? 'none';
+      final repoAcc = appAccess['client_repository']?['access_type']?.toString().toLowerCase() ?? 'none';
 
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        final data = body['data'] as Map<String, dynamic>? ?? {};
-        final canView = data['can_view'] == true || data['can_view'] == 1;
-        setState(() => _hasRepoAccess = canView);
-      } else {
-        setState(() => _hasRepoAccess = false);
-      }
+      setState(() {
+        _hasAttendanceAccess = attendanceAcc != 'none';
+        _hasTaskAccess = taskAcc != 'none';
+        _hasRepoAccess = repoAcc != 'none';
+      });
     } catch (_) {
-      if (mounted) setState(() => _hasRepoAccess = false);
+      setState(() {
+        _hasAttendanceAccess = false;
+        _hasTaskAccess = false;
+        _hasRepoAccess = false;
+      });
     }
+  }
+
+  void _openTaskManager() {
+    if (_hasTaskAccess == false) return;
+    final authService = context.read<AuthService>();
+    final userType = authService.userType?.toLowerCase().trim() ?? '';
+    final isMainAdmin = authService.user?['is_main_admin'] == true || 
+                         authService.user?['is_main_admin'] == 1 || 
+                         authService.user?['is_main_admin'].toString() == '1';
+
+    final user = authService.user ?? {};
+    final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
+    final taskAccess = appAccess['task_manager'] as Map<String, dynamic>? ?? {};
+    final taskAccessType = taskAccess['access_type']?.toString().toLowerCase() ?? 'none';
+
+    // 🟢 If user has Admin Access for Task Manager, open admin dashboard
+    if (userType == 'admin' || isMainAdmin || taskAccessType == 'admin') {
+      Navigator.pushNamed(context, '/admin');
+      return;
+    }
+
+    if (taskAccessType == 'employee') {
+      final role = authService.userRole?.toLowerCase().trim() ?? '';
+      if (role.contains('ui') ||
+          role.contains('ux') ||
+          role.contains('graphic') ||
+          role.contains('designer') ||
+          role.contains('web')) {
+        Navigator.pushNamed(context, '/designer');
+        return;
+      }
+
+      if (role.contains('video') || role.contains('editor')) {
+        Navigator.pushNamed(context, '/videographer');
+        return;
+      }
+
+      if (role.contains('ads') || role.contains('digital')) {
+        Navigator.pushNamed(context, '/adsHandler');
+        return;
+      }
+
+      if (role.contains('page')) {
+        Navigator.pushNamed(context, '/pageHandler');
+        return;
+      }
+
+      Navigator.pushNamed(context, '/employee');
+    }
+  }
+
+  void _openAttendance() {
+    if (_hasAttendanceAccess == false) return;
+    final authService = context.read<AuthService>();
+    final userType = authService.userType?.toLowerCase().trim() ?? '';
+    final isMainAdmin = authService.user?['is_main_admin'] == true || 
+                         authService.user?['is_main_admin'] == 1 || 
+                         authService.user?['is_main_admin'].toString() == '1';
+
+    final user = authService.user ?? {};
+    final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
+    final attAccess = appAccess['attendance'] as Map<String, dynamic>? ?? {};
+    final attAccessType = attAccess['access_type']?.toString().toLowerCase() ?? 'none';
+
+    Navigator.pushNamed(
+      context,
+      (userType == 'admin' || isMainAdmin || attAccessType == 'admin') ? '/attendance' : '/employee/dashboard',
+    );
   }
 
   Future<void> _onAfterLogin() async {
@@ -119,52 +191,6 @@ class _HomeScreenState extends State<HomeScreen>
     debugPrint('👤 User Role: ${authService.userRole}');
   }
 
-  void _openTaskManager() {
-    final authService = context.read<AuthService>();
-    final userType = authService.userType?.toLowerCase().trim() ?? '';
-    final role = authService.userRole?.toLowerCase().trim() ?? '';
-
-    if (userType == 'admin') {
-      Navigator.pushNamed(context, '/admin');
-      return;
-    }
-
-    if (role.contains('ui') ||
-        role.contains('ux') ||
-        role.contains('graphic') ||
-        role.contains('designer') ||
-        role.contains('web')) {
-      Navigator.pushNamed(context, '/designer');
-      return;
-    }
-
-    if (role.contains('video') || role.contains('editor')) {
-      Navigator.pushNamed(context, '/videographer');
-      return;
-    }
-
-    if (role.contains('ads') || role.contains('digital')) {
-      Navigator.pushNamed(context, '/adsHandler');
-      return;
-    }
-
-    if (role.contains('page')) {
-      Navigator.pushNamed(context, '/pageHandler');
-      return;
-    }
-
-    Navigator.pushNamed(context, '/employee');
-  }
-
-  void _openAttendance() {
-    final userType =
-        context.read<AuthService>().userType?.toLowerCase().trim() ?? '';
-
-    Navigator.pushNamed(
-      context,
-      userType == 'admin' ? '/attendance' : '/employee/dashboard',
-    );
-  }
 
   void _openClientRepository() {
     if (_hasRepoAccess == false) return;
@@ -226,146 +252,135 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
- // lib/home_screen.dart-il ulla _buildTopBar method-ai ipadi replace pannunga:
-Widget _buildTopBar() {
-  final compact = MediaQuery.sizeOf(context).width < 600;
-  final authService = context.read<AuthService>();
-  
-  // User details for avatar/profile
-  final user = authService.user ?? {};
-  final firstName = (user['first_name'] ?? user['firstName'] ?? '').toString();
-  final lastName = (user['last_name'] ?? user['lastName'] ?? '').toString();
-  final initials = ((firstName.isNotEmpty ? firstName[0] : '') + (lastName.isNotEmpty ? lastName[0] : '')).toUpperCase();
-  final avatarColor = user['avatar_color'] ?? user['avatarColor'] ?? '#4F46E5';
-  final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
+  Widget _buildTopBar() {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final authService = context.read<AuthService>();
+    
+    final user = authService.user ?? {};
+    final firstName = (user['first_name'] ?? user['firstName'] ?? '').toString();
+    final lastName = (user['last_name'] ?? user['lastName'] ?? '').toString();
+    final initials = ((firstName.isNotEmpty ? firstName[0] : '') + (lastName.isNotEmpty ? lastName[0] : '')).toUpperCase();
+    final avatarColor = user['avatar_color'] ?? user['avatarColor'] ?? '#4F46E5';
+    final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
 
-  return Container(
-    margin: EdgeInsets.fromLTRB(compact ? 12 : 24, 10, compact ? 12 : 24, 0),
-    padding: EdgeInsets.symmetric(
-      horizontal: compact ? 12 : 22,
-      vertical: compact ? 8 : 10,
-    ),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.97),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: borderBlue),
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFF5E8FD8).withValues(alpha: 0.08),
-          blurRadius: 28,
-          offset: const Offset(0, 8),
-        ),
-      ],
-    ),
-    child: Row(
-      children: [
-        Container(
-          height: compact ? 38 : 42,
-          width: compact ? 38 : 42,
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
-            borderRadius: BorderRadius.circular(12),
+    return Container(
+      margin: EdgeInsets.fromLTRB(compact ? 12 : 24, 10, compact ? 12 : 24, 0),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 22,
+        vertical: compact ? 8 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderBlue),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF5E8FD8).withValues(alpha: 0.08),
+            blurRadius: 28,
+            offset: const Offset(0, 8),
           ),
-          child: Image.asset(
-            'assets/images/godigital_logo.png',
-            fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => const Icon(
-              Icons.grid_view_rounded,
-              color: primaryColor,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'GoDigital Portal',
-              style: TextStyle(
-                fontSize: compact ? 14 : 16,
-                fontWeight: FontWeight.w800,
-                color: darkColor,
-                letterSpacing: -0.3,
-              ),
-            ),
-            if (!compact)
-              const Text(
-                'WORKSPACE CONTROL CENTER',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w800,
-                  color: primaryColor,
-                  letterSpacing: 1.5,
-                ),
-              ),
-          ],
-        ),
-        const Spacer(),
-        
-        // 🟢 Profile Icon with Click to Profile Page
-        InkWell(
-          onTap: () {
-            // Employee or Admin profile page routing
-            final userType = authService.userType?.toLowerCase().trim() ?? '';
-            // if (userType == 'admin') {
-              Navigator.pushNamed(context, '/profile'); // Or admin profile route
-            // } else {
-            //   Navigator.pushNamed(context, '/employee/settings');
-            // }
-          },
-          borderRadius: BorderRadius.circular(30),
-          child: Container(
-            padding: const EdgeInsets.all(2),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            height: compact ? 38 : 42,
+            width: compact ? 38 : 42,
+            padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 2),
-            ),
-            child: CircleAvatar(
-              radius: compact ? 16 : 19,
-              backgroundColor: _parseColor(avatarColor),
-              backgroundImage: profilePhoto != null && profilePhoto.toString().isNotEmpty
-                  ? MemoryImage(base64Decode(profilePhoto.toString().split(',').last))
-                  : null,
-              child: profilePhoto == null || profilePhoto.toString().isEmpty
-                  ? Text(
-                      initials.isEmpty ? '?' : initials,
-                      style: TextStyle(color: Colors.white, fontSize: compact ? 12 : 14, fontWeight: FontWeight.w900),
-                    )
-                  : null,
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        
-        OutlinedButton.icon(
-          onPressed: _logout,
-          icon: const Icon(Icons.logout_rounded, size: 16),
-          label: compact ? const SizedBox.shrink() : const Text('Logout'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF1D4FA5),
-            side: const BorderSide(color: Color(0xFFD2E2FF)),
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
+              color: const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            minimumSize: Size(compact ? 42 : 0, 40),
-            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
+            child: Image.asset(
+              'assets/images/godigital_logo.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.grid_view_rounded,
+                color: primaryColor,
+              ),
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
-
-Color _parseColor(String h) {
-  try {
-    final s = h.replaceAll('#', '');
-    return Color(int.parse('FF$s', radix: 16));
-  } catch (_) {
-    return const Color(0xFF4F46E5);
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'GoDigital Portal',
+                style: TextStyle(
+                  fontSize: compact ? 14 : 16,
+                  fontWeight: FontWeight.w800,
+                  color: darkColor,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              if (!compact)
+                const Text(
+                  'WORKSPACE CONTROL CENTER',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w800,
+                    color: primaryColor,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+            ],
+          ),
+          const Spacer(),
+          InkWell(
+            onTap: () {
+              Navigator.pushNamed(context, '/profile');
+            },
+            borderRadius: BorderRadius.circular(30),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 2),
+              ),
+              child: CircleAvatar(
+                radius: compact ? 16 : 19,
+                backgroundColor: _parseColor(avatarColor),
+                backgroundImage: profilePhoto != null && profilePhoto.toString().isNotEmpty
+                    ? MemoryImage(base64Decode(profilePhoto.toString().split(',').last))
+                    : null,
+                child: profilePhoto == null || profilePhoto.toString().isEmpty
+                    ? Text(
+                        initials.isEmpty ? '?' : initials,
+                        style: TextStyle(color: Colors.white, fontSize: compact ? 12 : 14, fontWeight: FontWeight.w900),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded, size: 16),
+            label: compact ? const SizedBox.shrink() : const Text('Logout'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF1D4FA5),
+              side: const BorderSide(color: Color(0xFFD2E2FF)),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              minimumSize: Size(compact ? 42 : 0, 40),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
+            ),
+          ),
+        ],
+      ),
+    );
   }
-}
+
+  Color _parseColor(String h) {
+    try {
+      final s = h.replaceAll('#', '');
+      return Color(int.parse('FF$s', radix: 16));
+    } catch (_) {
+      return const Color(0xFF4F46E5);
+    }
+  }
 
   Widget _buildMainContent(double width) {
     final mobile = width < 650;
@@ -510,8 +525,12 @@ Color _parseColor(String h) {
                   child: _MenuButton(
                     icon: Icons.people_alt_outlined,
                     label: 'Attendance',
-                    description: 'Manage attendance and employee records.',
+                    description: _hasAttendanceAccess == false
+                        ? 'No Access — contact admin.'
+                        : 'Manage attendance and employee records.',
                     onPressed: _openAttendance,
+                    locked: _hasAttendanceAccess == false,
+                    loading: _hasAttendanceAccess == null,
                     accent: const Color(0xFF0A5BFF),
                   ),
                 ),
@@ -521,11 +540,16 @@ Color _parseColor(String h) {
                   child: _MenuButton(
                     icon: Icons.assignment_outlined,
                     label: 'Task Manager',
-                    description: 'View and manage your assigned tasks.',
+                    description: _hasTaskAccess == false
+                        ? 'No Access — contact admin.'
+                        : 'View and manage your assigned tasks.',
                     onPressed: _openTaskManager,
+                    locked: _hasTaskAccess == false,
+                    loading: _hasTaskAccess == null,
                     accent: const Color(0xFF1769E0),
                   ),
                 ),
+                // 3. Client Work Repository
                 SizedBox(
                   width: cardWidth,
                   child: _MenuButton(

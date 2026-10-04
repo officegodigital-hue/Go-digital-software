@@ -8,6 +8,7 @@ import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io_client;
+import 'package:url_launcher/url_launcher.dart';
 
 class EmployeeStatusScreen extends StatefulWidget {
   const EmployeeStatusScreen({super.key});
@@ -319,9 +320,165 @@ Future<void> _fetchEmployeeSummaryList() async {
     }
   }
 
+  Future<void> _sendWhatsAppTaskMessage({
+  required String employeeName,
+  required String employeePhone,
+  required String clientName,
+  required String taskName,
+  required int completed,
+  required int total,
+}) async {
+  String phone = employeePhone.trim();
+
+  if (phone.isEmpty) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('WhatsApp number is not available for this employee.'),
+        backgroundColor: Color(0xFFDC2626),
+      ),
+    );
+    return;
+  }
+
+  // Remove spaces, +, -, brackets etc.
+  phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+  // India number handling
+  if (phone.startsWith('0') && phone.length == 11) {
+    phone = '91${phone.substring(1)}';
+  } else if (phone.length == 10) {
+    phone = '91$phone';
+  }
+
+  final bool isPending = completed < total;
+
+  final String message = isPending
+      ? '''
+Hi $employeeName,
+
+Regarding the *$clientName* project, I noticed that the *$taskName* task is still pending ($completed/$total completed).
+
+Could you please let me know the reason for the pending status and when you expect to complete this task?
+
+Kindly share an update.
+
+Thank you.
+'''
+      : '''
+Hi $employeeName,
+
+Regarding the *$clientName* project, the *$taskName* task is currently showing $completed/$total completed.
+
+Could you please confirm that this task has been completed and updated from your side?
+
+Thank you.
+''';
+
+  final Uri whatsappUrl = Uri.parse(
+    'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
+  );
+
+try {
+  final launched = await launchUrl(
+    whatsappUrl,
+    mode: LaunchMode.externalApplication,
+  );
+
+  if (!mounted) return;
+
+  if (!launched) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not open WhatsApp.'),
+        backgroundColor: Color(0xFFDC2626),
+      ),
+    );
+  }
+} catch (e) {
+  debugPrint('WhatsApp launch error: $e');
+
+  if (!mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Unable to open WhatsApp.'),
+      backgroundColor: Color(0xFFDC2626),
+    ),
+  );
+}
+
+  // try {
+  //   final launched = await launchUrl(
+  //     whatsappUrl,
+  //     mode: LaunchMode.externalApplication,
+  //   );
+
+  //   if (!launched && mounted) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Could not open WhatsApp.'),
+  //         backgroundColor: Color(0xFFDC2626),
+  //       ),
+  //     );
+  //   }
+  // } catch (e) {
+  //   debugPrint('WhatsApp launch error: $e');
+
+  //   if (mounted) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Unable to open WhatsApp.'),
+  //         backgroundColor: Color(0xFFDC2626),
+  //       ),
+  //     );
+  //   }
+  // }
+}
+
 void _navigateToEmployeeDetailView(String employeeName) async {
-    List<Map<String, dynamic>> employeeAssignments = [];
-    Map<String, int> dbTaskProgressCounts = {};
+  List<Map<String, dynamic>> employeeAssignments = [];
+  Map<String, int> dbTaskProgressCounts = {};
+
+  // WhatsApp number for this employee
+  String employeePhone = '';
+
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final authHeaders = {
+      'Authorization': 'Bearer ${authService.token}',
+    };
+
+    // Get employee phone number
+    try {
+      final empRes = await http.get(
+        Uri.parse('$_baseUrl/employees'),
+        headers: authHeaders,
+      );
+
+      if (empRes.statusCode == 200) {
+        final empBody = jsonDecode(empRes.body);
+
+        final employees = List<Map<String, dynamic>>.from(
+          empBody['data'] ?? [],
+        );
+
+        for (final emp in employees) {
+          final empName =
+              (emp['full_name'] ?? '').toString().trim();
+
+          if (empName.toUpperCase() ==
+              employeeName.trim().toUpperCase()) {
+            employeePhone =
+                (emp['phone_number'] ?? emp['phone'] ?? '').toString().trim();
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Employee phone fetch error: $e');
+    }
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -337,6 +494,7 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           clientActiveMap[name] = (c['is_active'] == 1 || c['is_active'] == true);
         }
       }
+      
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
@@ -650,6 +808,39 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                         color: isFullyCompleted ? const Color(0xFF166534) : (isInProgress ? const Color(0xFF1E40AF) : const Color(0xFF334155)),
                                                       ),
                                                     ),
+                                                    const SizedBox(width: 8),
+
+InkWell(
+  borderRadius: BorderRadius.circular(20),
+  onTap: () {
+    _sendWhatsAppTaskMessage(
+      employeeName: employeeName,
+      employeePhone: employeePhone,
+      clientName: clientName.toString(),
+      taskName: tName,
+      completed: compR,
+      total: totalR,
+    );
+  },
+  child: Container(
+    width: 25,
+    height: 25,
+    decoration: BoxDecoration(
+      color: const Color(0xFFE8F5E9),
+      borderRadius: BorderRadius.circular(7),
+      border: Border.all(
+        color: const Color(0xFF25D366).withValues(alpha: 0.35),
+      ),
+    ),
+    child: const Icon(
+      Icons.chat_rounded,
+      size: 14,
+      color: Color(0xFF25D366),
+    ),
+  ),
+),
+
+const SizedBox(width: 8),
                                                     const SizedBox(width: 8),
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1776,3 +1967,4 @@ void _navigateToTaskDetailViewForSpecificRow(
     );
   }
 }
+
