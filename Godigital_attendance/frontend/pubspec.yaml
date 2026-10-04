@@ -61,7 +61,6 @@ dependencies:
     path: hrms_packages/hrms_design_system
   hrms_responsive:
     path: hrms_packages/hrms_responsive
-  file_picker: ^11.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -118,4 +117,3 @@ flutter:
   assets:
     - assets/images/
     - assets/sounds/
-

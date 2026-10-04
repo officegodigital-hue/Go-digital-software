@@ -12,7 +12,14 @@ async function isWorkingDay(date) {
   let weeklyOffDays = [0];
   try {
     const [rows] = await db.query('SELECT weekly_off_days FROM hrms_payroll_policy WHERE id = 1');
-    weeklyOffDays = JSON.parse((rows[0] && rows[0].weekly_off_days) || '[0]');
+    const parsed = JSON.parse((rows[0] && rows[0].weekly_off_days) || '[0]');
+    // Older live databases can contain an invalid/non-list JSON value.
+    // Treat it as the configured default instead of allowing the scheduler
+    // to fail before automatic absence processing.
+    weeklyOffDays = Array.isArray(parsed)
+      ? parsed.map(Number).filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      : [0];
+    if (!weeklyOffDays.length) weeklyOffDays = [0];
   } catch (_) {}
 
   try {
@@ -23,7 +30,7 @@ async function isWorkingDay(date) {
     if (override) return override.status === 'Working Day';
   } catch (_) {}
 
-  return !weeklyOffDays.map(Number).includes(day);
+  return !weeklyOffDays.includes(day);
 }
 
 async function ensureAuditTable() {
