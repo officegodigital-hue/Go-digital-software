@@ -20,12 +20,8 @@ class EmployeeStatusScreen extends StatefulWidget {
 class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  // Shared horizontal scroll for the employee-side table (header + rows
-  // must scroll together since we added 8 fixed-width role columns).
   final ScrollController _employeeTableHScroll = ScrollController();
   static const double _roleColumnWidth = 64;
-  // Minimum width for mobile/tablet. On desktop the table expands to
-  // the full width of the table card.
   static final double _employeeTableMinWidth =
       50 /*S.NO*/ + 170 /*name*/ + (_roleColumnWidth * 8) +
       110 /*total*/ + 60 /*view*/ + 40 /*horizontal padding*/;
@@ -36,7 +32,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
   List<Map<String, dynamic>> masterEmployeeSummaryData = [];
   List<Map<String, dynamic>> rawTasksList = [];
 
-  // Sorting and Filters State
   bool isSNoAscending = true;
   bool isClientAscending = true;
   bool isEmployeeAscending = true;
@@ -66,9 +61,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     super.dispose();
   }
 
-  // 🟢 Shows Active vs Inactive client breakdown for one employee — this is
-  // the "view list" the inactive clients now appear in, separate from the
-  // full task-detail dialog opened by the ▶ button.
   void _showClientsListDialog(Map<String, dynamic> empRow) {
     final activeClients = List<String>.from(empRow["activeClientsList"] ?? []);
     final inactiveClients = List<String>.from(empRow["inactiveClientsList"] ?? []);
@@ -189,9 +181,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     }
   }
 
-  // Role columns exactly as stored on task_assignments, in the display
-  // order requested: A.Handler, P.Handler, Video Editor, Video Shoot
-  // (Videographer), Designer, UI/UX Designer, Developer, Website Developer.
   static const List<Map<String, String>> _roleColumns = [
     {'field': 'ads_handling', 'label': 'A.Handler'},
     {'field': 'page_handling', 'label': 'P.Handler'},
@@ -203,7 +192,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     {'field': 'website_designer', 'label': 'Website Dev'},
   ];
 
-Future<void> _fetchEmployeeSummaryList() async {
+  Future<void> _fetchEmployeeSummaryList() async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
@@ -241,11 +230,9 @@ Future<void> _fetchEmployeeSummaryList() async {
           final client = (t['client_name'] ?? '').toString().trim();
           if (client.isEmpty) continue;
 
-          // 🟢 Exclude inactive clients
           final isActive = clientActiveMap[client.toUpperCase()] ?? true;
           if (!isActive) continue;
 
-          // 🟢 Exclude tasks whose submit date (deadline) has passed
           final rawDeadline = t['deadline'] ?? '';
           if (rawDeadline.toString().isNotEmpty) {
             try {
@@ -275,7 +262,6 @@ Future<void> _fetchEmployeeSummaryList() async {
           final name = (e['full_name'] ?? '').toString().trim().toUpperCase();
           if (name.isEmpty) continue;
 
-          // 🟢 FIX: don't show inactive employees on the employee side
           final isEmployeeActive = (e['is_active'] == 1 || e['is_active'] == true);
           if (!isEmployeeActive) continue;
 
@@ -321,41 +307,38 @@ Future<void> _fetchEmployeeSummaryList() async {
   }
 
   Future<void> _sendWhatsAppTaskMessage({
-  required String employeeName,
-  required String employeePhone,
-  required String clientName,
-  required String taskName,
-  required int completed,
-  required int total,
-}) async {
-  String phone = employeePhone.trim();
+    required String employeeName,
+    required String employeePhone,
+    required String clientName,
+    required String taskName,
+    required int completed,
+    required int total,
+  }) async {
+    String phone = employeePhone.trim();
 
-  if (phone.isEmpty) {
-    if (!mounted) return;
+    if (phone.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WhatsApp number is not available for this employee.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('WhatsApp number is not available for this employee.'),
-        backgroundColor: Color(0xFFDC2626),
-      ),
-    );
-    return;
-  }
+    phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
 
-  // Remove spaces, +, -, brackets etc.
-  phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (phone.startsWith('0') && phone.length == 11) {
+      phone = '91${phone.substring(1)}';
+    } else if (phone.length == 10) {
+      phone = '91$phone';
+    }
 
-  // India number handling
-  if (phone.startsWith('0') && phone.length == 11) {
-    phone = '91${phone.substring(1)}';
-  } else if (phone.length == 10) {
-    phone = '91$phone';
-  }
+    final bool isPending = completed < total;
 
-  final bool isPending = completed < total;
-
-  final String message = isPending
-      ? '''
+    final String message = isPending
+        ? '''
 Hi $employeeName,
 
 Regarding the *$clientName* project, I noticed that the *$taskName* task is still pending ($completed/$total completed).
@@ -366,7 +349,7 @@ Kindly share an update.
 
 Thank you.
 '''
-      : '''
+        : '''
 Hi $employeeName,
 
 Regarding the *$clientName* project, the *$taskName* task is currently showing $completed/$total completed.
@@ -376,102 +359,56 @@ Could you please confirm that this task has been completed and updated from your
 Thank you.
 ''';
 
-  final Uri whatsappUrl = Uri.parse(
-    'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
-  );
-
-try {
-  final launched = await launchUrl(
-    whatsappUrl,
-    mode: LaunchMode.externalApplication,
-  );
-
-  if (!mounted) return;
-
-  if (!launched) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Could not open WhatsApp.'),
-        backgroundColor: Color(0xFFDC2626),
-      ),
+    final Uri whatsappUrl = Uri.parse(
+      'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
     );
-  }
-} catch (e) {
-  debugPrint('WhatsApp launch error: $e');
 
-  if (!mounted) return;
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Unable to open WhatsApp.'),
-      backgroundColor: Color(0xFFDC2626),
-    ),
-  );
-}
-
-  // try {
-  //   final launched = await launchUrl(
-  //     whatsappUrl,
-  //     mode: LaunchMode.externalApplication,
-  //   );
-
-  //   if (!launched && mounted) {
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text('Could not open WhatsApp.'),
-  //         backgroundColor: Color(0xFFDC2626),
-  //       ),
-  //     );
-  //   }
-  // } catch (e) {
-  //   debugPrint('WhatsApp launch error: $e');
-
-  //   if (mounted) {
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text('Unable to open WhatsApp.'),
-  //         backgroundColor: Color(0xFFDC2626),
-  //       ),
-  //     );
-  //   }
-  // }
-}
-
-void _navigateToEmployeeDetailView(String employeeName) async {
-  List<Map<String, dynamic>> employeeAssignments = [];
-  Map<String, int> dbTaskProgressCounts = {};
-
-  // WhatsApp number for this employee
-  String employeePhone = '';
-
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final authHeaders = {
-      'Authorization': 'Bearer ${authService.token}',
-    };
-
-    // Get employee phone number
     try {
-      final empRes = await http.get(
-        Uri.parse('$_baseUrl/employees'),
-        headers: authHeaders,
+      final launched = await launchUrl(
+        whatsappUrl,
+        mode: LaunchMode.externalApplication,
       );
 
+      if (!mounted) return;
+
+      if (!launched) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open WhatsApp.'),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('WhatsApp launch error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open WhatsApp.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+    }
+  }
+
+  void _navigateToEmployeeDetailView(String employeeName) async {
+    List<Map<String, dynamic>> employeeAssignments = [];
+    Map<String, int> dbTaskProgressCounts = {};
+    String employeePhone = '';
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
+
+    try {
+      final empRes = await http.get(Uri.parse('$_baseUrl/employees'), headers: authHeaders);
       if (empRes.statusCode == 200) {
         final empBody = jsonDecode(empRes.body);
-
-        final employees = List<Map<String, dynamic>>.from(
-          empBody['data'] ?? [],
-        );
+        final employees = List<Map<String, dynamic>>.from(empBody['data'] ?? []);
 
         for (final emp in employees) {
-          final empName =
-              (emp['full_name'] ?? '').toString().trim();
-
-          if (empName.toUpperCase() ==
-              employeeName.trim().toUpperCase()) {
-            employeePhone =
-                (emp['phone_number'] ?? emp['phone'] ?? '').toString().trim();
+          final empName = (emp['full_name'] ?? '').toString().trim();
+          if (empName.toUpperCase() == employeeName.trim().toUpperCase()) {
+            employeePhone = (emp['phone_number'] ?? emp['phone'] ?? '').toString().trim();
             break;
           }
         }
@@ -481,8 +418,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
     }
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
       final clientsRes = await http.get(Uri.parse('$_baseUrl/clients'), headers: authHeaders);
       
       final Map<String, bool> clientActiveMap = {};
@@ -494,12 +429,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           clientActiveMap[name] = (c['is_active'] == 1 || c['is_active'] == true);
         }
       }
-      
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      // 🟢 1. Collect ALL active, non-expired task assignments matching this employee
       for (var row in rawTasksList) {
         bool matches = false;
         final roles = [
@@ -534,7 +467,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
         }
       }
 
-      // 🟢 2. Fetch tracking progress using exact task_assignment_id and task description mapping
       for (var assignment in employeeAssignments) {
         final clientName = assignment['client_name'] ?? '';
         final assignmentId = assignment['id'];
@@ -546,7 +478,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
           for (var tl in taskLists) {
-            // 🟢 STRICT MATCHING
             final tlAssignmentId = tl['task_assignment_id']?.toString();
             if (tlAssignmentId == null || tlAssignmentId != assignmentId?.toString()) {
               continue;
@@ -565,7 +496,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              // 🟢 FIX: Use += instead of =
               dbTaskProgressCounts['${assignmentId}_$deliverables'] = 
                   (dbTaskProgressCounts['${assignmentId}_$deliverables'] ?? 0) + completedRows;
 
@@ -578,7 +508,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                     return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
                   }).length;
                   
-                  // 🟢 FIX: Use += instead of =
                   dbTaskProgressCounts['${assignmentId}_$desc'] = 
                       (dbTaskProgressCounts['${assignmentId}_$desc'] ?? 0) + completedSubCount;
                 }
@@ -694,7 +623,49 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(clientName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                                  // 🟢 Added WhatsApp Chat Icon next to the Client Name header inside the card
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          clientName,
+                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                        ),
+                                      ),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(20),
+                                        onTap: () {
+                                          _sendWhatsAppTaskMessage(
+                                            employeeName: employeeName,
+                                            employeePhone: employeePhone,
+                                            clientName: clientName.toString(),
+                                            taskName: packageTitle,
+                                            completed: 0,
+                                            total: 1,
+                                          );
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFE8F5E9),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFF25D366).withValues(alpha: 0.35)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.chat_rounded, size: 14, color: Color(0xFF25D366)),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                'Chat',
+                                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF1B5E20)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                   const SizedBox(height: 4),
                                   Text('Package / Deliverables: $packageTitle', style: const TextStyle(fontSize: 11.5, color: Color(0xFF0052CC), fontWeight: FontWeight.w700)),
                                   const SizedBox(height: 3),
@@ -748,7 +719,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                               final tName = match != null ? match.group(1)!.trim() : tClean;
                                               final totalR = match != null ? int.parse(match.group(2)!) : 1;
 
-                                              // 🟢 Fetch exact count using assignmentId and task name
                                               int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
                                                           dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
 
@@ -809,38 +779,35 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                       ),
                                                     ),
                                                     const SizedBox(width: 8),
-
-InkWell(
-  borderRadius: BorderRadius.circular(20),
-  onTap: () {
-    _sendWhatsAppTaskMessage(
-      employeeName: employeeName,
-      employeePhone: employeePhone,
-      clientName: clientName.toString(),
-      taskName: tName,
-      completed: compR,
-      total: totalR,
-    );
-  },
-  child: Container(
-    width: 25,
-    height: 25,
-    decoration: BoxDecoration(
-      color: const Color(0xFFE8F5E9),
-      borderRadius: BorderRadius.circular(7),
-      border: Border.all(
-        color: const Color(0xFF25D366).withValues(alpha: 0.35),
-      ),
-    ),
-    child: const Icon(
-      Icons.chat_rounded,
-      size: 14,
-      color: Color(0xFF25D366),
-    ),
-  ),
-),
-
-const SizedBox(width: 8),
+                                                    InkWell(
+                                                      borderRadius: BorderRadius.circular(20),
+                                                      onTap: () {
+                                                        _sendWhatsAppTaskMessage(
+                                                          employeeName: employeeName,
+                                                          employeePhone: employeePhone,
+                                                          clientName: clientName.toString(),
+                                                          taskName: tName,
+                                                          completed: compR,
+                                                          total: totalR,
+                                                        );
+                                                      },
+                                                      child: Container(
+                                                        width: 25,
+                                                        height: 25,
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFE8F5E9),
+                                                          borderRadius: BorderRadius.circular(7),
+                                                          border: Border.all(
+                                                            color: const Color(0xFF25D366).withValues(alpha: 0.35),
+                                                          ),
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons.chat_rounded,
+                                                          size: 14,
+                                                          color: Color(0xFF25D366),
+                                                        ),
+                                                      ),
+                                                    ),
                                                     const SizedBox(width: 8),
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -907,8 +874,7 @@ const SizedBox(width: 8),
     );
   }
 
-  
- Map<String, dynamic> _mapRow(dynamic row) {
+  Map<String, dynamic> _mapRow(dynamic row) {
     String status = row['status'] ?? 'Processing';
     if (status.toLowerCase() == 'in progress' || status.toLowerCase() == 'processing') {
       status = 'Processing';
@@ -964,361 +930,355 @@ const SizedBox(width: 8),
     }
   }
 
+  void _navigateToTaskDetailViewForSpecificRow(
+    String clientName,
+    Map<String, dynamic> targetRow,
+  ) async {
+    final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString() ?? targetRow['id']?.toString();
+    
+    List<Map<String, dynamic>> clientAssignments = [];
+    Map<String, int> dbTaskProgressCounts = {};
 
+    try {
+      final tasksRes = await http.get(Uri.parse('$_baseUrl/tasks'));
+      if (tasksRes.statusCode == 200) {
+        final tasksBody = jsonDecode(tasksRes.body);
+        final allRows = List<Map<String, dynamic>>.from(tasksBody['data'] ?? []);
 
-
-void _navigateToTaskDetailViewForSpecificRow(
-  String clientName,
-  Map<String, dynamic> targetRow,
-) async {
-  final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString() ?? targetRow['id']?.toString();
-  
-  List<Map<String, dynamic>> clientAssignments = [];
-  Map<String, int> dbTaskProgressCounts = {};
-
-  try {
-    final tasksRes = await http.get(Uri.parse('$_baseUrl/tasks'));
-    if (tasksRes.statusCode == 200) {
-      final tasksBody = jsonDecode(tasksRes.body);
-      final allRows = List<Map<String, dynamic>>.from(tasksBody['data'] ?? []);
-
-      clientAssignments = allRows.where((row) {
-        final matchesClient = (row['client_name'] ?? '').toString().trim().toLowerCase() ==
-            clientName.toString().trim().toLowerCase();
-        if (!matchesClient) return false;
-        
-        if (targetAssignmentId != null) {
-          return row['id'].toString() == targetAssignmentId.toString();
-        }
-        return true;
-      }).toList();
-    }
-
-    if (clientAssignments.isEmpty) {
-      clientAssignments = [targetRow];
-    }
-
-    if (targetAssignmentId != null && targetAssignmentId.isNotEmpty) {
-      final trRes = await http.get(
-        Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'),
-      );
-
-      if (trRes.statusCode == 200) {
-        final trBody = jsonDecode(trRes.body);
-        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
-
-        for (final tl in taskLists) {
-          // 🟢 STRICT MATCHING: Pazhaya tasks (orphan) remove cheyyuka
-          final tlAssignmentId = tl['task_assignment_id']?.toString();
-          if (tlAssignmentId == null || tlAssignmentId != targetAssignmentId) {
-            continue;
+        clientAssignments = allRows.where((row) {
+          final matchesClient = (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+              clientName.toString().trim().toLowerCase();
+          if (!matchesClient) return false;
+          
+          if (targetAssignmentId != null) {
+            return row['id'].toString() == targetAssignmentId.toString();
           }
+          return true;
+        }).toList();
+      }
 
-          final tListId = tl['id'];
-          if (tListId == null) continue;
+      if (clientAssignments.isEmpty) {
+        clientAssignments = [targetRow];
+      }
 
-          final itemsRes = await http.get(
-            Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'),
-          );
+      if (targetAssignmentId != null && targetAssignmentId.isNotEmpty) {
+        final trRes = await http.get(
+          Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'),
+        );
 
-          if (itemsRes.statusCode == 200) {
-            final itemsBody = jsonDecode(itemsRes.body);
-            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+        if (trRes.statusCode == 200) {
+          final trBody = jsonDecode(trRes.body);
+          final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-            final completedRows = items.where((item) {
-              final status = (item['status'] ?? '').toString().trim().toUpperCase();
-              return status == 'COMPLETED' || status == 'REJECTED';
-            }).length;
+          for (final tl in taskLists) {
+            final tlAssignmentId = tl['task_assignment_id']?.toString();
+            if (tlAssignmentId == null || tlAssignmentId != targetAssignmentId) {
+              continue;
+            }
 
-            final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
-            if (deliverables.isNotEmpty) {
-              // 🟢 SAFELY ADD
-              dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
+            final tListId = tl['id'];
+            if (tListId == null) continue;
+
+            final itemsRes = await http.get(
+              Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'),
+            );
+
+            if (itemsRes.statusCode == 200) {
+              final itemsBody = jsonDecode(itemsRes.body);
+              final items = List<dynamic>.from(itemsBody['data'] ?? []);
+
+              final completedRows = items.where((item) {
+                final status = (item['status'] ?? '').toString().trim().toUpperCase();
+                return status == 'COMPLETED' || status == 'REJECTED';
+              }).length;
+
+              final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+              if (deliverables.isNotEmpty) {
+                dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
+              }
             }
           }
         }
       }
+    } catch (e) {
+      debugPrint('Error fetching specific row client details: $e');
     }
-  } catch (e) {
-    debugPrint('Error fetching specific row client details: $e');
-  }
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  final roleMappings = [
-    {'roleLabel': 'Ads Handler', 'icon': Icons.campaign_outlined, 'empField': 'ads_handling', 'taskField': 'ads_platform'},
-    {'roleLabel': 'Page Handler', 'icon': Icons.pages_outlined, 'empField': 'page_handling', 'taskField': 'pages_platform'},
-    {'roleLabel': 'Designer', 'icon': Icons.design_services_outlined, 'empField': 'designer', 'taskField': 'designer_tasks'},
-    {'roleLabel': 'Videographer', 'icon': Icons.videocam_outlined, 'empField': 'videographer', 'taskField': 'videographer_tasks'},
-    {'roleLabel': 'Video Editor', 'icon': Icons.video_settings_outlined, 'empField': 'video_editor', 'taskField': 'video_editor_task'},
-    {'roleLabel': 'UI/UX Designer', 'icon': Icons.web_outlined, 'empField': 'ui_ux_designer', 'taskField': 'ui_ux_tasks'},
-    {'roleLabel': 'Developer', 'icon': Icons.code_outlined, 'empField': 'developer', 'taskField': 'developer_tasks'},
-    {'roleLabel': 'Website Designer', 'icon': Icons.language_outlined, 'empField': 'website_designer', 'taskField': 'website_designer_tasks'},
-  ];
+    final roleMappings = [
+      {'roleLabel': 'Ads Handler', 'icon': Icons.campaign_outlined, 'empField': 'ads_handling', 'taskField': 'ads_platform'},
+      {'roleLabel': 'Page Handler', 'icon': Icons.pages_outlined, 'empField': 'page_handling', 'taskField': 'pages_platform'},
+      {'roleLabel': 'Designer', 'icon': Icons.design_services_outlined, 'empField': 'designer', 'taskField': 'designer_tasks'},
+      {'roleLabel': 'Videographer', 'icon': Icons.videocam_outlined, 'empField': 'videographer', 'taskField': 'videographer_tasks'},
+      {'roleLabel': 'Video Editor', 'icon': Icons.video_settings_outlined, 'empField': 'video_editor', 'taskField': 'video_editor_task'},
+      {'roleLabel': 'UI/UX Designer', 'icon': Icons.web_outlined, 'empField': 'ui_ux_designer', 'taskField': 'ui_ux_tasks'},
+      {'roleLabel': 'Developer', 'icon': Icons.code_outlined, 'empField': 'developer', 'taskField': 'developer_tasks'},
+      {'roleLabel': 'Website Designer', 'icon': Icons.language_outlined, 'empField': 'website_designer', 'taskField': 'website_designer_tasks'},
+    ];
 
-  showDialog(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
-    builder: (ctx) {
-      return Dialog(
-        backgroundColor: const Color(0xFFF8FAFC),
-        elevation: 12,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
-                  border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42, height: 42,
-                      decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
-                      child: const Icon(Icons.analytics_outlined, color: Color(0xFF004AAD), size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                          const SizedBox(height: 3),
-                          Text(clientName.toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-                        ],
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFFF8FAFC),
+          elevation: 12,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+                    border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42, height: 42,
+                        decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
+                        child: const Icon(Icons.analytics_outlined, color: Color(0xFF004AAD), size: 22),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close_rounded, size: 21, color: Color(0xFF64748B)),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: clientAssignments.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(30),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 64, height: 64,
-                                decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                                child: const Icon(Icons.assignment_outlined, size: 30, color: Color(0xFF94A3B8)),
-                              ),
-                              const SizedBox(height: 14),
-                              const Text('No assignments found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
-                            ],
-                          ),
-                        ),
-                      )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(18),
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Assigned Team', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                            const SizedBox(height: 4),
-                            const Text('View employees and their current task progress.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
-                            const SizedBox(height: 16),
-                            ...roleMappings.map((roleInfo) {
-                              final roleLabel = roleInfo['roleLabel'] as String;
-                              final icon = roleInfo['icon'] as IconData;
-                              final empField = roleInfo['empField'] as String;
-                              final taskField = roleInfo['taskField'] as String;
-
-                              final Map<String, List<String>> empTaskMap = {};
-
-                              for (var assignment in clientAssignments) {
-                                final empName = (assignment[empField] ?? '').toString().trim();
-                                final taskStr = (assignment[taskField] ?? '').toString().trim();
-
-                                if (empName.isEmpty || empName.toUpperCase() == 'NONE' || taskStr.isEmpty) continue;
-
-                                final tasksList = taskStr.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
-                                empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
-                              }
-
-                              if (empTaskMap.isEmpty) return const SizedBox.shrink();
-
-                              return Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 34, height: 34,
-                                            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(9)),
-                                            child: Icon(icon, size: 18, color: const Color(0xFF004AAD)),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
-                                            child: Text(
-                                              '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
-                                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                                    ...empTaskMap.entries.map((entry) {
-                                      final employeeName = entry.key;
-                                      final tasks = entry.value;
-
-                                      return Padding(
-                                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Container(
-                                                  width: 28, height: 28,
-                                                  decoration: BoxDecoration(color: const Color(0xFFF8FAFC), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2E8F0))),
-                                                  child: const Icon(Icons.person_outline, size: 16, color: Color(0xFF475569)),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: Text(employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 9),
-                                            Wrap(
-                                              spacing: 7,
-                                              runSpacing: 7,
-                                              children: tasks.map((tClean) {
-                                                final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(tClean.trim());
-                                                final tName = match != null ? match.group(1)!.trim() : tClean;
-                                                final totalR = match != null ? int.parse(match.group(2)!) : 1;
-
-                                                final normalizedTaskName = tName.trim().toLowerCase();
-                                                final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
-
-                                                final isCompleted = totalR > 0 && compR >= totalR;
-                                                final progressText = '$compR/$totalR';
-
-                                                return Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                                                  decoration: BoxDecoration(
-                                                    color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                                                    borderRadius: BorderRadius.circular(9),
-                                                    border: Border.all(color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Icon(
-                                                        isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
-                                                        size: 14,
-                                                        color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      Flexible(
-                                                        child: Text(
-                                                          tName,
-                                                          style: TextStyle(
-                                                            fontSize: 10.5,
-                                                            fontWeight: FontWeight.w600,
-                                                            color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                        decoration: BoxDecoration(
-                                                          color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
-                                                          borderRadius: BorderRadius.circular(6),
-                                                        ),
-                                                        child: Text(
-                                                          progressText,
-                                                          style: TextStyle(
-                                                            fontSize: 9,
-                                                            fontWeight: FontWeight.w800,
-                                                            color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  ],
-                                ),
-                              );
-                            }),
+                            const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            const SizedBox(height: 3),
+                            Text(clientName.toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
                           ],
                         ),
                       ),
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
-                  border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, size: 15, color: Color(0xFF94A3B8)),
-                    const SizedBox(width: 6),
-                    const Expanded(child: Text('Progress is updated from the assigned tasks.', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      height: 36,
-                      child: ElevatedButton(
+                      IconButton(
+                        tooltip: 'Close',
                         onPressed: () => Navigator.pop(ctx),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF004AAD),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 18),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                        ),
-                        child: const Text('Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                        icon: const Icon(Icons.close_rounded, size: 21, color: Color(0xFF64748B)),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
+                Expanded(
+                  child: clientAssignments.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(30),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 64, height: 64,
+                                  decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
+                                  child: const Icon(Icons.assignment_outlined, size: 30, color: Color(0xFF94A3B8)),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text('No assignments found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                              ],
+                            ),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Assigned Team', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                              const SizedBox(height: 4),
+                              const Text('View employees and their current task progress.', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                              const SizedBox(height: 16),
+                              ...roleMappings.map((roleInfo) {
+                                final roleLabel = roleInfo['roleLabel'] as String;
+                                final icon = roleInfo['icon'] as IconData;
+                                final empField = roleInfo['empField'] as String;
+                                final taskField = roleInfo['taskField'] as String;
 
+                                final Map<String, List<String>> empTaskMap = {};
+
+                                for (var assignment in clientAssignments) {
+                                  final empName = (assignment[empField] ?? '').toString().trim();
+                                  final taskStr = (assignment[taskField] ?? '').toString().trim();
+
+                                  if (empName.isEmpty || empName.toUpperCase() == 'NONE' || taskStr.isEmpty) continue;
+
+                                  final tasksList = taskStr.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+                                  empTaskMap.putIfAbsent(empName, () => []).addAll(tasksList);
+                                }
+
+                                if (empTaskMap.isEmpty) return const SizedBox.shrink();
+
+                                return Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(14, 13, 14, 11),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 34, height: 34,
+                                              decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(9)),
+                                              child: Icon(icon, size: 18, color: const Color(0xFF004AAD)),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
+                                              child: Text(
+                                                '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
+                                                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                      ...empTaskMap.entries.map((entry) {
+                                        final employeeName = entry.key;
+                                        final tasks = entry.value;
+
+                                        return Padding(
+                                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    width: 28, height: 28,
+                                                    decoration: BoxDecoration(color: const Color(0xFFF8FAFC), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2E8F0))),
+                                                    child: const Icon(Icons.person_outline, size: 16, color: Color(0xFF475569)),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 9),
+                                              Wrap(
+                                                spacing: 7,
+                                                runSpacing: 7,
+                                                children: tasks.map((tClean) {
+                                                  final match = RegExp(r'^(.*?)\s*\((\d+)\)$').firstMatch(tClean.trim());
+                                                  final tName = match != null ? match.group(1)!.trim() : tClean;
+                                                  final totalR = match != null ? int.parse(match.group(2)!) : 1;
+
+                                                  final normalizedTaskName = tName.trim().toLowerCase();
+                                                  final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
+
+                                                  final isCompleted = totalR > 0 && compR >= totalR;
+                                                  final progressText = '$compR/$totalR';
+
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                                    decoration: BoxDecoration(
+                                                      color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                                                      borderRadius: BorderRadius.circular(9),
+                                                      border: Border.all(color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                                                          size: 14,
+                                                          color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Flexible(
+                                                          child: Text(
+                                                            tName,
+                                                            style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            progressText,
+                                                            style: TextStyle(
+                                                              fontSize: 9,
+                                                              fontWeight: FontWeight.w800,
+                                                              color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(bottomLeft: Radius.circular(18), bottomRight: Radius.circular(18)),
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, size: 15, color: Color(0xFF94A3B8)),
+                      const SizedBox(width: 6),
+                      const Expanded(child: Text('Progress is updated from the assigned tasks.', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        height: 36,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF004AAD),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          ),
+                          child: const Text('Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1387,7 +1347,6 @@ void _navigateToTaskDetailViewForSpecificRow(
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // HEADER HERO SECTION
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(isMobile ? 20 : 28),
@@ -1460,8 +1419,6 @@ void _navigateToTaskDetailViewForSpecificRow(
                         ),
                       ],
                     ),
-                    
-                    // Split Client & Employee View Switcher Buttons
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
@@ -1516,7 +1473,6 @@ void _navigateToTaskDetailViewForSpecificRow(
               ),
               const SizedBox(height: 20),
 
-              // DATA TABLE CONTAINER
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -1569,7 +1525,6 @@ void _navigateToTaskDetailViewForSpecificRow(
                                 ),
                               ),
                             ),
-                            // Maintenance Header Filter
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1587,12 +1542,10 @@ void _navigateToTaskDetailViewForSpecificRow(
                                 ),
                               ),
                             ),
-                            // Packages Header
                             const Expanded(
                               flex: 2,
                               child: Text("PACKAGES", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7)),
                             ),
-                            // Submit Date Column with separate Month Filter Dropdown
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1619,7 +1572,6 @@ void _navigateToTaskDetailViewForSpecificRow(
                                 ),
                               ),
                             ),
-                            // Status Filter
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1655,74 +1607,73 @@ void _navigateToTaskDetailViewForSpecificRow(
                           );
 
                           return SingleChildScrollView(
-                        controller: _employeeTableHScroll,
-                        scrollDirection: Axis.horizontal,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFF7F9FC),
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                          ),
-                          height: 52,
-                          width: tableWidth,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Row(
-                            children: [
-                              InkWell(
-                                onTap: () => setState(() => isSNoAscending = !isSNoAscending),
-                                child: SizedBox(
-                                  width: 50,
-                                  child: Row(
-                                    children: [
-                                      const Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isSNoAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
-                                  ),
-                                ),
+                            controller: _employeeTableHScroll,
+                            scrollDirection: Axis.horizontal,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF7F9FC),
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                               ),
-                              SizedBox(
-                                width: 170,
-                                child: InkWell(
-                                  onTap: () => setState(() => isEmployeeAscending = !isEmployeeAscending),
-                                  child: Row(
-                                    children: [
-                                      const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isEmployeeAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
+                              height: 52,
+                              width: tableWidth,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Row(
+                                children: [
+                                  InkWell(
+                                    onTap: () => setState(() => isSNoAscending = !isSNoAscending),
+                                    child: SizedBox(
+                                      width: 50,
+                                      child: Row(
+                                        children: [
+                                          const Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isSNoAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              // 🟢 8 role columns between Employee Name and Total Clients
-                              for (final role in _roleColumns)
-                                SizedBox(
-                                  width: roleWidth,
-                                  child: Text(
-                                    role['label']!.toUpperCase(),
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64748B)),
+                                  SizedBox(
+                                    width: 170,
+                                    child: InkWell(
+                                      onTap: () => setState(() => isEmployeeAscending = !isEmployeeAscending),
+                                      child: Row(
+                                        children: [
+                                          const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isEmployeeAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              SizedBox(
-                                width: 110,
-                                child: InkWell(
-                                  onTap: () => setState(() => isTotalClientsAscending = !isTotalClientsAscending),
-                                  child: Row(
-                                    children: [
-                                      const Text("TOTAL CLIENTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isTotalClientsAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
+                                  for (final role in _roleColumns)
+                                    SizedBox(
+                                      width: roleWidth,
+                                      child: Text(
+                                        role['label']!.toUpperCase(),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64748B)),
+                                      ),
+                                    ),
+                                  SizedBox(
+                                    width: 110,
+                                    child: InkWell(
+                                      onTap: () => setState(() => isTotalClientsAscending = !isTotalClientsAscending),
+                                      child: Row(
+                                        children: [
+                                          const Text("TOTAL CLIENTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isTotalClientsAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(
+                                    width: 60,
+                                    child: Text("VIEW", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7), textAlign: TextAlign.center),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(
-                                width: 60,
-                                child: Text("VIEW", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7), textAlign: TextAlign.center),
-                              ),
-                            ],
-                          ),
-                        ),
+                            ),
                           );
                         },
                       ),
@@ -1756,97 +1707,96 @@ void _navigateToTaskDetailViewForSpecificRow(
                                                 width: tableWidth,
                                                 height: 480,
                                                 child: ListView.separated(
-                                              itemCount: filteredEmployeeRows.length,
-                                              separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                                              itemBuilder: (context, index) {
-                                                final empRow = filteredEmployeeRows[index];
-                                                final roleCounts = Map<String, int>.from(empRow["roleCounts"] ?? {});
-                                                final inactiveCount = (empRow["inactiveClientsList"] as List).length;
+                                                  itemCount: filteredEmployeeRows.length,
+                                                  separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                                  itemBuilder: (context, index) {
+                                                    final empRow = filteredEmployeeRows[index];
+                                                    final roleCounts = Map<String, int>.from(empRow["roleCounts"] ?? {});
+                                                    final inactiveCount = (empRow["inactiveClientsList"] as List).length;
 
-                                                return Container(
-                                                  height: 64,
-                                                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                                                  color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
-                                                  child: Row(
-                                                    children: [
-                                                      SizedBox(
-                                                        width: 50,
-                                                        child: Text(
-                                                          '${index + 1}',
-                                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
-                                                        ),
-                                                      ),
-                                                      SizedBox(
-                                                        width: 170,
-                                                        child: Text(
-                                                          empRow["employeeName"],
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                                                        ),
-                                                      ),
-                                                      // 🟢 8 role count columns — blank if 0, as requested
-                                                      for (final role in _roleColumns)
-                                                        SizedBox(
-                                                          width: roleWidth,
-                                                          child: Text(
-                                                            (roleCounts[role['field']] ?? 0) > 0 ? '${roleCounts[role['field']]}' : '-',
-                                                            textAlign: TextAlign.center,
-                                                            style: TextStyle(
-                                                              fontSize: 12,
-                                                              fontWeight: FontWeight.w800,
-                                                              color: (roleCounts[role['field']] ?? 0) > 0 ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
+                                                    return Container(
+                                                      height: 64,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                                                      color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
+                                                      child: Row(
+                                                        children: [
+                                                          SizedBox(
+                                                            width: 50,
+                                                            child: Text(
+                                                              '${index + 1}',
+                                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
                                                             ),
                                                           ),
-                                                        ),
-                                                      SizedBox(
-                                                        width: 110,
-                                                        child: InkWell(
-                                                          onTap: () => _showClientsListDialog(empRow),
-                                                          child: RichText(
-                                                            overflow: TextOverflow.ellipsis,
-                                                            text: TextSpan(
-                                                              children: [
-                                                                TextSpan(
-                                                                  text: '${(empRow["activeClientsList"] as List).length} Clients',
-                                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                          SizedBox(
+                                                            width: 170,
+                                                            child: Text(
+                                                              empRow["employeeName"],
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                                            ),
+                                                          ),
+                                                          for (final role in _roleColumns)
+                                                            SizedBox(
+                                                              width: roleWidth,
+                                                              child: Text(
+                                                                (roleCounts[role['field']] ?? 0) > 0 ? '${roleCounts[role['field']]}' : '-',
+                                                                textAlign: TextAlign.center,
+                                                                style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  fontWeight: FontWeight.w800,
+                                                                  color: (roleCounts[role['field']] ?? 0) > 0 ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
                                                                 ),
-                                                                if (inactiveCount > 0)
-                                                                  TextSpan(
-                                                                    text: '\n$inactiveCount inactive',
-                                                                    style: const TextStyle(fontSize: 9.5, color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
-                                                                  ),
-                                                              ],
+                                                              ),
+                                                            ),
+                                                          SizedBox(
+                                                            width: 110,
+                                                            child: InkWell(
+                                                              onTap: () => _showClientsListDialog(empRow),
+                                                              child: RichText(
+                                                                overflow: TextOverflow.ellipsis,
+                                                                text: TextSpan(
+                                                                  children: [
+                                                                    TextSpan(
+                                                                      text: '${(empRow["activeClientsList"] as List).length} Clients',
+                                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                                    ),
+                                                                    if (inactiveCount > 0)
+                                                                      TextSpan(
+                                                                        text: '\n$inactiveCount inactive',
+                                                                        style: const TextStyle(fontSize: 9.5, color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
+                                                                      ),
+                                                                  ],
+                                                                ),
+                                                              ),
                                                             ),
                                                           ),
-                                                        ),
-                                                      ),
-                                                      SizedBox(
-                                                        width: 60,
-                                                        child: Center(
-                                                          child: InkWell(
-                                                            onTap: () => _navigateToEmployeeDetailView(empRow["employeeName"]),
-                                                            borderRadius: BorderRadius.circular(10),
-                                                            child: Container(
-                                                              width: 36,
-                                                              height: 34,
-                                                              decoration: BoxDecoration(
-                                                                color: const Color(0xFF0052CC),
+                                                          SizedBox(
+                                                            width: 60,
+                                                            child: Center(
+                                                              child: InkWell(
+                                                                onTap: () => _navigateToEmployeeDetailView(empRow["employeeName"]),
                                                                 borderRadius: BorderRadius.circular(10),
-                                                              ),
-                                                              child: const Icon(
-                                                                Icons.play_arrow_rounded,
-                                                                color: Colors.white,
-                                                                size: 20,
+                                                                child: Container(
+                                                                  width: 36,
+                                                                  height: 34,
+                                                                  decoration: BoxDecoration(
+                                                                    color: const Color(0xFF0052CC),
+                                                                    borderRadius: BorderRadius.circular(10),
+                                                                  ),
+                                                                  child: const Icon(
+                                                                    Icons.play_arrow_rounded,
+                                                                    color: Colors.white,
+                                                                    size: 20,
+                                                                  ),
+                                                                ),
                                                               ),
                                                             ),
                                                           ),
-                                                        ),
+                                                        ],
                                                       ),
-                                                    ],
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                                    );
+                                                  },
+                                                ),
                                               ),
                                             );
                                           },
@@ -1967,4 +1917,3 @@ void _navigateToTaskDetailViewForSpecificRow(
     );
   }
 }
-
