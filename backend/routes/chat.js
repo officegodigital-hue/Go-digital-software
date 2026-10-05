@@ -829,13 +829,28 @@ router.post('/meetings', async (req, res) => {
     const attendees = Array.isArray(selectedPersons) ? selectedPersons : [];
     const groups = Array.isArray(selectedGroups) ? selectedGroups : [];
 
+    // Safety check: ensure required fields aren't missing or undefined
+    if (!title || !meetingTime || !meetingLink) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title, meetingTime, and meetingLink are required.'
+      });
+    }
+
     await db.query(
       `
         INSERT INTO scheduled_meetings
         (title, meeting_time, meeting_link, host_name, attendees, groups, status)
         VALUES (?, ?, ?, ?, ?, ?, 'Active')
       `,
-      [title, meetingTime, meetingLink, hostName || 'Admin', JSON.stringify(attendees), JSON.stringify(groups)]
+      [
+        title, 
+        meetingTime, 
+        meetingLink, 
+        hostName || 'Admin', 
+        JSON.stringify(attendees), 
+        JSON.stringify(groups)
+      ]
     );
 
     const io = req.app.get('io');
@@ -896,7 +911,8 @@ router.post('/meetings', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('POST /chat/meetings ERROR:', err.message);
+    // 🟢 THIS WILL NOW PRINT THE EXACT DATABASE REJECTION REASON IN YOUR SERVER LOGS
+    console.error('POST /chat/meetings CRITICAL ERROR:', err);
     return res.status(500).json({
       success: false,
       message: err.message
