@@ -675,10 +675,11 @@ class _TrackingViewState extends State<_TrackingView> {
     );
 
     final metrics = _TripMetrics(
-      distance: distance,
-      duration: duration,
-      avgSpeed: avgSpeed,
-    );
+  distance: distance,
+  duration: duration,
+  avgSpeed: avgSpeed,
+  updated: 'Updated just now',
+);
 
     final timeline = _ActivityTimeline(activities: activities);
 
