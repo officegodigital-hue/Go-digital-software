@@ -70,9 +70,9 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
     try {
       final settings = await HrmsTrackingApi.trackingSettings();
       if (!mounted) return;
-      final radius = settings['office_radius_meters'];
+      final radius = settings['home_radius_meters'];
       if (radius == null) {
-        throw Exception('Office/Home radius is not configured.');
+        throw Exception('Home radius is not configured.');
       }
       setState(() {
         _radiusController.text = '$radius';
@@ -100,9 +100,9 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
       _radiusNotice = null;
     });
     try {
-      await HrmsTrackingApi.updateOfficeRadius(radius);
+      await HrmsTrackingApi.updateHomeRadius(radius);
       if (!mounted) return;
-      setState(() => _radiusNotice = 'Office/Home Clock In radius saved.');
+      setState(() => _radiusNotice = 'Home Clock In radius saved. Office radius was not changed.');
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -155,13 +155,13 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       const Text(
-        'Office/Home Clock In radius',
+        'Home Clock In radius',
         style: TextStyle(fontWeight: FontWeight.w700),
       ),
       const SizedBox(height: 6),
       const Text(
-        'The same allowed distance applies around the office and '
-        'each approved home. Field waiting settings are separate.',
+        'This applies to approved Home locations only. '
+        'Office radius is configured separately in Manage Office Location.',
       ),
       const SizedBox(height: 12),
       if (_loadingRadius)

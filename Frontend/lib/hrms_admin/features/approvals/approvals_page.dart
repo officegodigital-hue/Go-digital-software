@@ -60,7 +60,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     try {
       final token = context.read<AuthService>().token ?? '';
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout/correction-requests'),
+        Uri.parse('${ApiConfig.baseUrl}/attendance/correction-requests'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 15));
       final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -87,7 +87,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     try {
       final token = context.read<AuthService>().token ?? '';
       final response = await http.patch(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout/correction-requests/$id/$action'),
+        Uri.parse('${ApiConfig.baseUrl}/attendance/correction-requests/$id/$action'),
         headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
         body: jsonEncode({}),
       ).timeout(const Duration(seconds: 15));
@@ -224,12 +224,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   rejected: kpiRejected,
                                 ),
                                 const SizedBox(height: 16),
-                                // Top-level tab: Leave vs Checkout Corrections
+                                // Top-level tab: Leave vs Attendance Corrections
                                 Row(children: [
                                   _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
                                   const SizedBox(width: 10),
                                   _MainTabBtn(
-                                    label: 'Checkout Corrections',
+                                    label: 'Attendance Corrections',
                                     active: _activeTab == 1,
                                     badge: _correctionsPendingCount,
                                     onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
@@ -1296,6 +1296,17 @@ class _CorrectionRequestsPanel extends StatelessWidget {
     } catch (_) { return '--'; }
   }
 
+  String _typeLabel(dynamic raw) {
+    switch (raw?.toString()) {
+      case 'missed_check_in': return 'Missed check-in';
+      case 'missed_check_out': return 'Missed check-out';
+      case 'incorrect_time': return 'Incorrect time';
+      case 'automatic_absence': return 'Automatic absence';
+      case 'checkout_correction': return 'Checkout correction';
+      default: return 'Attendance correction';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
@@ -1303,7 +1314,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(40),
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14)),
-        child: const Center(child: Text('No checkout correction requests.', style: TextStyle(color: Color(0xFF596176)))),
+        child: const Center(child: Text('No attendance correction requests.', style: TextStyle(color: Color(0xFF596176)))),
       );
     }
     return Container(
@@ -1344,9 +1355,13 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                 ),
               ]),
               const SizedBox(height: 10),
+              Text(_typeLabel(c['request_type']), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ApprovalsColors.blue)),
+              const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 6, children: [
-                _CorrChip('Check in', _fmt(c['check_in_at'])),
-                _CorrChip('Accidental checkout', _fmt(c['check_out_at'])),
+                _CorrChip('Recorded in', _fmt(c['check_in_at'])),
+                _CorrChip('Recorded out', _fmt(c['check_out_at'])),
+                if (c['requested_check_in_at'] != null) _CorrChip('Requested in', _fmt(c['requested_check_in_at'])),
+                if (c['requested_check_out_at'] != null) _CorrChip('Requested out', _fmt(c['requested_check_out_at'])),
               ]),
               const SizedBox(height: 10),
               const Text('REASON', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF8A94A6), letterSpacing: .06)),
@@ -1378,7 +1393,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       minimumSize: const Size(0, 34),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                    child: const Text('Approve & restore', style: TextStyle(fontSize: 13)),
+                    child: const Text('Approve correction', style: TextStyle(fontSize: 13)),
                   ),
                 ]),
               ],

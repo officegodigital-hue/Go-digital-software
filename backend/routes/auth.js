@@ -21,52 +21,34 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // Query employee_users table
-    // const [rows] = await db.query(
-    //   `SELECT id, first_name, last_name, full_name, email, username, 
-    //           password, role, user_type, is_active, staff_id, initials
-    //    FROM employee_users 
-    //    WHERE (email = ? OR username = ?) AND user_type = ?
-    //    LIMIT 1`,
-    //   [email, email, userType || 'employee']
-    // );
     const [rows] = await db.query(
-`
-SELECT id, first_name, last_name, full_name,
-email, username, password,
-role, user_type, is_active, is_main_admin,
-staff_id, initials
-FROM employee_users
-WHERE (
-LOWER(email) = LOWER(?)
-OR LOWER(username) = LOWER(?)
-)
-AND LOWER(user_type) = LOWER(?)
-LIMIT 1
-`,
-[email, email, userType || 'employee']
-);
-
-    // if (rows.length === 0) {
-    //   console.log(`❌ Login failed: No user found with email "${email}"`);
-    //   return res.status(401).json({
-    //     success: false,
-    //     message: 'Invalid email or password',
-    //   });
-    // }
+      `
+      SELECT id, first_name, last_name, full_name,
+             email, username, password,
+             role, user_type, is_active, is_main_admin,
+             staff_id, initials
+      FROM employee_users
+      WHERE (
+        LOWER(email) = LOWER(?)
+        OR LOWER(username) = LOWER(?)
+      )
+      AND LOWER(user_type) = LOWER(?)
+      LIMIT 1
+      `,
+      [email, email, userType || 'employee']
+    );
 
     if (rows.length === 0) {
-  console.log(`❌ Login failed: No user found with "${email}"`);
-  return res.status(401).json({
-    success: false,
-    message: 'Username or email not found.',
-  });
-}
+      console.log(`❌ Login failed: No user found with "${email}"`);
+      return res.status(401).json({
+        success: false,
+        message: 'Username or email not found.',
+      });
+    }
 
     const user = rows[0];
     console.log(`📌 User found: ${user.full_name} (${user.role})`);
 
-    // Check if user is active
     if (!user.is_active) {
       console.log(`❌ Login failed: User "${user.full_name}" is inactive`);
       return res.status(403).json({
@@ -75,37 +57,17 @@ LIMIT 1
       });
     }
 
-    // ⭐ FIXED: Use bcrypt to compare passwords ⭐
-    // const passwordMatch = await bcrypt.compare(password, user.password);
     const passwordMatch = password === user.password;
 
-    // if (!passwordMatch) {
-    //   console.log(`❌ Login failed: Invalid password for "${email}"`);
-    //   return res.status(401).json({
-    //     success: false,
-    //     message: 'Invalid email or password',
-    //   });
-    // }
-
     if (!passwordMatch) {
-  console.log(`❌ Login failed: Incorrect password for "${email}"`);
-  return res.status(401).json({
-    success: false,
-    message: 'Incorrect password.',
-  });
-}
+      console.log(`❌ Login failed: Incorrect password for "${email}"`);
+      return res.status(401).json({
+        success: false,
+        message: 'Incorrect password.',
+      });
+    }
 
-// Password check pannuthuku apram intha query-a podunga:
-const [accessRows] = await db.query(
-  `SELECT allowed_pages FROM role_page_access WHERE employee_id = ?`,
-  [user.id]
-);
-
-const allowedPages = accessRows.length > 0 
-  ? JSON.parse(accessRows[0].allowed_pages || '[]') 
-  : [];
-
-    // Generate JWT token
+    // 🟢 1. Generate JWT token first
     const token = jwt.sign(
       {
         id: user.id,
@@ -118,9 +80,54 @@ const allowedPages = accessRows.length > 0
       { expiresIn: JWT_EXPIRY }
     );
 
+    // 🟢 2. Fetch legacy allowed pages
+    const [accessRows] = await db.query(
+      `SELECT allowed_pages FROM role_page_access WHERE employee_id = ?`,
+      [user.id]
+    );
+
+    const allowedPages = accessRows.length > 0 
+      ? JSON.parse(accessRows[0].allowed_pages || '[]') 
+      : [];
+
+    // 🟢 3. Fetch application access (Attendance, Task Manager, Client Repository)
+    const [appAccessRows] = await db.query(
+      `SELECT application, access_type, allowed_pages FROM employee_application_access WHERE employee_id = ?`,
+      [user.id]
+    );
+
+    const applicationAccess = {};
+    for (const row of appAccessRows) {
+      let pages = [];
+      try { pages = JSON.parse(row.allowed_pages || '[]'); } catch (_) { pages = []; }
+      applicationAccess[row.application] = {
+        access_type: row.access_type || 'none',
+        allowed_pages: Array.isArray(pages) ? pages : [],
+      };
+    }
+
+    // Fallback to role_application_access if employee-specific is empty
+    if (Object.keys(applicationAccess).length === 0 && user.role) {
+      const [roleAccessRows] = await db.query(`
+        SELECT ra.application, ra.access_type, ra.allowed_pages 
+        FROM role_application_access ra
+        JOIN user_roles ur ON ur.id = ra.role_id
+        WHERE UPPER(TRIM(ur.role_name)) = UPPER(TRIM(?))
+      `, [user.role]);
+      
+      for (const ra of roleAccessRows) {
+        let pages = [];
+        try { pages = JSON.parse(ra.allowed_pages || '[]'); } catch (_) { pages = []; }
+        applicationAccess[ra.application] = {
+          access_type: ra.access_type || 'none',
+          allowed_pages: pages,
+        };
+      }
+    }
+
     console.log(`✅ Login successful: ${user.full_name} (${user.role})`);
 
-    // Return success response
+    // 🟢 4. Return success response with token & access data
     return res.json({
       success: true,
       message: 'Login successful',
@@ -136,9 +143,9 @@ const allowedPages = accessRows.length > 0
         userType: user.user_type,
         staffId: user.staff_id,
         initials: user.initials,
-        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true, // 🟢 itha add pannunga
-  allowed_pages: allowedPages, // 🟢 itha add pannunga
-
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
+        allowed_pages: allowedPages,
+        application_access: applicationAccess,
       },
     });
   } catch (err) {

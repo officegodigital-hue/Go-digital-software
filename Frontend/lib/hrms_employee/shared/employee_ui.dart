@@ -375,9 +375,6 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     super.initState();
     _updateClock();
     _loadStoredIdentity();
-    // The header must never refresh the whole employee app continuously.
-    // Time changes only by the minute, and attendance state refreshes after
-    // explicit employee actions or when the page is opened again.
     _clockTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _updateClock(),
@@ -791,69 +788,144 @@ class EmployeeProfileMenu extends StatelessWidget {
   final String fullName;
   final String staffId;
 
+  Color _parseColor(String h) {
+    try {
+      final s = h.replaceAll('#', '');
+      return Color(int.parse('FF$s', radix: 16));
+    } catch (_) {
+      return employeeBlue;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => PopupMenuButton<String>(
-    tooltip: 'Profile menu',
-    offset: const Offset(0, 52),
-    elevation: 8,
-    color: Colors.white,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    onSelected: (value) async {
-      if (value == 'workspace') {
-        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
-      }
-    },
-    itemBuilder: (_) => [
-      PopupMenuItem<String>(
-        enabled: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              fullName,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: employeeNavy,
+  Widget build(BuildContext context) {
+    final authService = context.watch<AuthService>();
+    final user = authService.user ?? {};
+    
+    // Backend-l irunthu varra data-ai eduthukollalam
+    final resolvedName = (user['full_name'] ?? user['fullName'] ?? fullName).toString();
+    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? staffId).toString();
+    final avatarColor = (user['avatar_color'] ?? user['avatarColor'] ?? '#0767F2').toString();
+    final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
+    
+    final nameParts = resolvedName.trim().split(RegExp(r'\s+'));
+    final resolvedInitials = nameParts.length > 1
+        ? '${nameParts[0][0]}${nameParts[1][0]}'.toUpperCase()
+        : (resolvedName.isNotEmpty ? resolvedName.substring(0, resolvedName.length >= 2 ? 2 : 1).toUpperCase() : initials);
+
+    ImageProvider? photoProvider;
+    if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
+      try {
+        photoProvider = MemoryImage(base64Decode(profilePhoto.toString().split(',').last));
+      } catch (_) {}
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Profile menu',
+      offset: const Offset(0, 52),
+      elevation: 8,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) async {
+        if (value == 'profile') {
+          Navigator.pushNamed(context, '/profile');
+        } else if (value == 'workspace') {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+        } else if (value == 'logout') {
+          await authService.logout();
+          if (context.mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                resolvedName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: employeeNavy,
+                ),
               ),
-            ),
-            Text(
-              staffId,
-              style: const TextStyle(color: employeeBlue, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-      const PopupMenuDivider(),
-      const PopupMenuItem<String>(
-        value: 'workspace',
-        child: Row(
-          children: [
-            Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
-            SizedBox(width: 10),
-            Text(
-              'Workspace',
-              style: TextStyle(
-                color: employeeBlue,
-                fontWeight: FontWeight.w600,
+              Text(
+                resolvedStaffId,
+                style: const TextStyle(color: employeeBlue, fontSize: 12),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-    child: CircleAvatar(
-      radius: radius,
-      backgroundColor: const Color(0xFFE8F0FF),
-      child: Text(
-        initials,
-        style: TextStyle(
-          color: employeeBlue,
-          fontSize: radius * .72,
-          fontWeight: FontWeight.w800,
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(
+            children: [
+              Icon(Icons.person_outline_rounded, size: 18, color: employeeBlue),
+              SizedBox(width: 10),
+              Text(
+                'Profile',
+                style: TextStyle(
+                  color: employeeBlue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
+        const PopupMenuItem<String>(
+          value: 'workspace',
+          child: Row(
+            children: [
+              Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
+              SizedBox(width: 10),
+              Text(
+                'Workspace',
+                style: TextStyle(
+                  color: employeeBlue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout_rounded, size: 18, color: Color(0xFFDC2626)),
+              SizedBox(width: 10),
+              Text(
+                'Logout',
+                style: TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: _parseColor(avatarColor),
+        backgroundImage: photoProvider,
+        child: photoProvider == null
+            ? Text(
+                resolvedInitials,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: radius * .72,
+                  fontWeight: FontWeight.w800,
+                ),
+              )
+            : null,
       ),
-    ),
-  );
+    );
+  }
 }
 
 class EmployeeCard extends StatelessWidget {
@@ -1215,7 +1287,12 @@ class MobileEmployeeHeader extends StatelessWidget {
   final bool showGreeting;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
+    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? '').toString().trim();
+    final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
+
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(
@@ -1229,11 +1306,12 @@ class MobileEmployeeHeader extends StatelessWidget {
       ),
       if (showGreeting) ...[
         const SizedBox(height: 22),
-        const Text(
-          'Hello, Arul 👋',
+        Text(
+          greeting,
           style: TextStyle(color: Color(0xFF495572), fontSize: 19),
         ),
       ],
     ],
-  );
+    );
+  }
 }

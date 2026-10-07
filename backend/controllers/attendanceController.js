@@ -2,6 +2,7 @@ const db = require('../config/db');
 const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
+const { isWorkingDay } = require('../jobs/auto-absence');
 
 function ok(res, data, message) {
   message = message || 'OK';
@@ -58,16 +59,35 @@ function shiftDurationMinutes(shiftStart, shiftEnd) {
   return Math.max(0, end - start);
 }
 
-function workingDaysInMonth(month) {
-  const parts = String(month).split('-').map(Number);
-  const year = parts[0];
-  const monthIndex = parts[1] - 1;
-  const days = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-  let count = 0;
-  for (let day = 1; day <= days; day += 1) {
-    if (new Date(Date.UTC(year, monthIndex, day)).getUTCDay() !== 0) count += 1;
-  }
-  return count;
+async function calendarSchedule(month) {
+  const [year, monthNumber] = String(month).split('-').map(Number);
+  const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  let weeklyOffDays = new Set([0]);
+  let overrides = new Map();
+  try {
+    const [policyRows] = await db.query('SELECT weekly_off_days FROM hrms_payroll_policy WHERE id = 1');
+    const parsed = JSON.parse((policyRows[0] && policyRows[0].weekly_off_days) || '[0]');
+    weeklyOffDays = new Set(Array.isArray(parsed) ? parsed.map(Number) : [0]);
+  } catch (_) {}
+  try {
+    const [rows] = await db.query(
+      `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') AS date, status FROM hrms_calendar_overrides
+        WHERE work_date >= ? AND work_date <= LAST_DAY(?)`,
+      [month + '-01', month + '-01']
+    );
+    overrides = new Map(rows.map((row) => [row.date, row.status]));
+  } catch (_) {}
+  const statusFor = function (day) {
+    const date = month + '-' + String(day).padStart(2, '0');
+    const override = overrides.get(date);
+    if (override === 'Holiday') return 'H';
+    if (override === 'Weekly Off') return 'OFF';
+    if (override === 'Working Day') return '';
+    return weeklyOffDays.has(new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay()) ? 'OFF' : '';
+  };
+  let workingDays = 0;
+  for (let day = 1; day <= days; day += 1) if (!statusFor(day)) workingDays += 1;
+  return { days, statusFor, workingDays };
 }
 
 function normalizeMethod(value) {
@@ -120,6 +140,11 @@ async function ensureAttendanceBreakTable() {
 }
 
 async function ensureAttendanceSafetyTables() {
+  try {
+    await db.query('ALTER TABLE attendance_records ADD COLUMN work_mode_snapshot VARCHAR(16) NULL');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+  }
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_break_alerts (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, attendance_break_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, overdue_minutes SMALLINT UNSIGNED NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'open', reason VARCHAR(500) NULL, reviewed_by BIGINT UNSIGNED NULL, reviewed_at DATETIME NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_break_alert (attendance_break_id))`);
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_checkout_audit (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -146,6 +171,15 @@ async function ensureAttendanceSafetyTables() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     KEY idx_correction_status (status, created_at)
   )`);
+  const additions = [
+    'ADD COLUMN requested_check_in_at DATETIME NULL',
+    'ADD COLUMN requested_check_out_at DATETIME NULL',
+    'ADD COLUMN admin_note VARCHAR(500) NULL'
+  ];
+  for (const addition of additions) {
+    try { await db.query(`ALTER TABLE hrms_attendance_correction_requests ${addition}`); }
+    catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
+  }
 }
 
 async function persistedWorkedMinutes(record) {
@@ -375,6 +409,7 @@ async function dashboard(req, res) {
 
 async function clockLogs(req, res) {
   try {
+    await ensureAttendanceSafetyTables();
     const view = req.query.view === 'day' ? 'day' : 'month';
     let start, end;
     if (view === 'day') {
@@ -408,12 +443,16 @@ async function clockLogs(req, res) {
     // Profile ID lookup (hrms_employee_profiles.id) keyed by employee_user_id
     const [profileRows] = ids.length
       ? await db.query(
-          'SELECT id AS profile_id, employee_user_id FROM hrms_employee_profiles WHERE employee_user_id IN (?) AND employment_status <> \'Inactive\'',
+          'SELECT id AS profile_id, employee_user_id, work_mode FROM hrms_employee_profiles WHERE employee_user_id IN (?) AND employment_status <> \'Inactive\'',
           [ids]
         ).catch(function () { return [[]]; })
       : [[]];
     const profileIdByUserId = new Map();
-    profileRows.forEach(function (r) { profileIdByUserId.set(Number(r.employee_user_id), Number(r.profile_id)); });
+    const workModeByUserId = new Map();
+    profileRows.forEach(function (r) {
+      profileIdByUserId.set(Number(r.employee_user_id), Number(r.profile_id));
+      workModeByUserId.set(Number(r.employee_user_id), r.work_mode || null);
+    });
 
     // A shift can contain several breaks. Fetch their persistent records in
     // one query and attach them to the matching clock-log row.
@@ -455,7 +494,24 @@ async function clockLogs(req, res) {
         item.breakStart = breaks.length ? breaks[0].start : '-';
         item.breakEnd = completed.length ? completed[completed.length - 1].end : '-';
         item.breaks = breaks;
+        item.breakMinutes = breaks.reduce(function (total, entry) {
+          if (entry.endAt) return total + Number(entry.durationMinutes || 0);
+          return total + Math.max(0, policy.minutesBetween(entry.startAt, policy.nowIstDateTime()));
+        }, 0);
+        // An active shift has no final stored duration yet. Calculate its
+        // current duration on every request so Clock Logs stays live without
+        // modifying historical, completed attendance records.
+        if (!row.check_out_at && sqlDate(row.attendance_date) === policy.todayIstDate()) {
+          const now = policy.nowIstDateTime();
+          const breakMinutesSoFar = breaks.reduce(function (total, entry) {
+            if (entry.endAt) return total + Number(entry.durationMinutes || 0);
+            return total + Math.max(0, policy.minutesBetween(entry.startAt, now));
+          }, 0);
+          item.workingMinutes = Math.max(0,
+            policy.minutesBetween(sqlDateTime(row.check_in_at), now) - breakMinutesSoFar);
+        }
         item.profileId = profileIdByUserId.get(Number(row.employee_id)) || null;
+        item.workMode = row.work_mode_snapshot || workModeByUserId.get(Number(row.employee_id)) || 'Not set';
         return item;
       });
 
@@ -545,10 +601,12 @@ async function myHistory(req, res) {
 async function employeeDashboard(req, res) {
   try {
     await ensureAttendanceBreakTable();
+    await ensureAttendanceSafetyTables();
     const employeeId = req.user.id;
     const date = policy.todayIstDate();
     const month = parseMonthParam(req.query.month);
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
+    const schedule = await calendarSchedule(month);
 
     const people = await staff.listActiveStaff(db);
     const person = people.find(function (item) {
@@ -557,6 +615,8 @@ async function employeeDashboard(req, res) {
     if (!person) return fail(res, 403, 'Employee account is not active');
 
     const record = await getRecord(employeeId, date);
+    const [[profile]] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1', [employeeId]);
+    const currentWorkMode = (profile && profile.work_mode) || 'Not set';
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
     const checkedOut = Boolean(record && record.check_out_at);
     let hasPendingCorrection = false;
@@ -571,7 +631,7 @@ async function employeeDashboard(req, res) {
     }
 
     const [monthRows] = await db.query(
-      `SELECT id, employee_id, attendance_date, check_in_at, check_out_at, is_late, attendance_status
+      `SELECT id, employee_id, attendance_date, check_in_at, check_out_at, is_late, attendance_status, work_mode_snapshot
        FROM attendance_records
        WHERE employee_id = ?
          AND attendance_date >= ?
@@ -580,15 +640,25 @@ async function employeeDashboard(req, res) {
       [employeeId, month + '-01', month + '-01']
     );
 
-    const presentDays = monthRows.filter(function (row) {
+    // Calendar is the source of truth for whether a date is eligible for
+    // attendance.  A previous automatic absence can remain in the audit trail
+    // after an admin changes that date back to Weekly Off/Holiday, but it must
+    // not be displayed or counted as an absence in either portal.
+    const displayRows = monthRows.filter(function (row) {
+      const rowDate = sqlDate(row.attendance_date);
+      const day = Number(String(rowDate).slice(-2));
+      return !schedule.statusFor(day);
+    });
+
+    const presentDays = displayRows.filter(function (row) {
       return Boolean(row.check_in_at) && String(row.attendance_status) !== 'absent';
     }).length;
 
-    const lateDays = monthRows.filter(function (row) {
+    const lateDays = displayRows.filter(function (row) {
       return Boolean(Number(row.is_late)) && String(row.attendance_status) !== 'absent';
     }).length;
 
-    const absentDays = monthRows.filter(function (row) {
+    const absentDays = displayRows.filter(function (row) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
@@ -599,15 +669,15 @@ async function employeeDashboard(req, res) {
       max_break_minutes: Number(timeSettings.breakMinutes || 60),
     };
     const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
-    const monthlyWorkingDays = workingDaysInMonth(month);
+    const monthlyWorkingDays = schedule.workingDays;
     const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
-    const completedMinutes = await Promise.all(monthRows.map(persistedWorkedMinutes));
+    const completedMinutes = await Promise.all(displayRows.map(persistedWorkedMinutes));
     let actualMinutes = completedMinutes.reduce(function (sum, minutes) {
       return sum + minutes;
     }, 0);
 
     // Fetch breaks for all attendance records in this month in one query.
-    const attendanceIds = monthRows.map(function (row) { return row.id; }).filter(Boolean);
+    const attendanceIds = displayRows.map(function (row) { return row.id; }).filter(Boolean);
     const breaksByAttendance = {};
     if (attendanceIds.length) {
       const [breakRows] = await db.query(
@@ -624,7 +694,14 @@ async function employeeDashboard(req, res) {
     // Keep a date-keyed representation as well as the list. Older employee
     // clients use the keyed form, while newer ones use month_records.
     const calendarData = {};
-    const monthRecords = monthRows.map(function (row) {
+    for (let day = 1; day <= schedule.days; day += 1) {
+      const status = schedule.statusFor(day);
+      if (status) {
+        const workDate = month + '-' + String(day).padStart(2, '0');
+        calendarData[workDate] = { work_date: workDate, attendance_status: status };
+      }
+    }
+    const monthRecords = displayRows.map(function (row) {
       const rowBreaks = breaksByAttendance[row.id] || [];
       const firstBreak = rowBreaks[0] || null;
       const item = {
@@ -637,12 +714,18 @@ async function employeeDashboard(req, res) {
         break_in_at: firstBreak ? sqlDateTime(firstBreak.started_at) : null,
         break_out_at: firstBreak && firstBreak.ended_at ? sqlDateTime(firstBreak.ended_at) : null,
         break_overdue_minutes: firstBreak ? Number(firstBreak.overdue_minutes || 0) : 0,
+        break_minutes: rowBreaks.reduce(function (total, brk) {
+          if (brk.ended_at) return total + Number(brk.duration_minutes || 0);
+          return total + Math.max(0, policy.minutesBetween(sqlDateTime(brk.started_at), policy.nowIstDateTime()));
+        }, 0),
+        work_mode: row.work_mode_snapshot || currentWorkMode,
       };
       calendarData[item.work_date] = item;
       return item;
     });
 
     let workedSeconds = Number(record && record.working_minutes || 0) * 60;
+    let breakSeconds = record ? (await breakMinutes(record.id)) * 60 : 0;
     if (checkedIn) {
       const completedBreakMinutes = await breakMinutes(record.id);
       const activeBreakMinutes = activeBreak
@@ -651,6 +734,7 @@ async function employeeDashboard(req, res) {
       const liveMinutes = Math.max(0,
         policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes - activeBreakMinutes);
       workedSeconds = liveMinutes * 60;
+      breakSeconds = (completedBreakMinutes + activeBreakMinutes) * 60;
       if (month === date.slice(0, 7)) actualMinutes += liveMinutes;
     }
 
@@ -666,6 +750,8 @@ async function employeeDashboard(req, res) {
         clock_in_at: sqlDateTime(record.check_in_at),
         clock_out_at: sqlDateTime(record.check_out_at),
         worked_seconds: workedSeconds,
+        break_seconds: breakSeconds,
+        work_mode: record.work_mode_snapshot || currentWorkMode,
         is_late: Boolean(Number(record.is_late))
       } : null,
       actions: { can_clock_in: !record || !record.check_in_at, can_clock_out: checkedIn, has_pending_correction: hasPendingCorrection },
@@ -715,6 +801,7 @@ async function checkInPolicy(req, res) {
 async function checkIn(req, res) {
   let connection;
   try {
+    await ensureAttendanceSafetyTables();
     if (!req.user || !req.user.id) return fail(res, 401, 'Unauthorized');
     const employeeId = req.user.id;
     const date = policy.todayIstDate();
@@ -734,13 +821,13 @@ async function checkIn(req, res) {
     const status = absent ? 'absent' : (late ? 'late' : 'present');
     if (existing) {
       await connection.query(
-        "UPDATE attendance_records SET check_in_at = ?, check_in_method = ?, is_late = ?, attendance_status = ?, session_status = 'active' WHERE id = ?",
-        [at, method, late ? 1 : 0, status, existing.id]
+        "UPDATE attendance_records SET check_in_at = ?, check_in_method = ?, is_late = ?, attendance_status = ?, session_status = 'active', work_mode_snapshot = ? WHERE id = ?",
+        [at, method, late ? 1 : 0, status, rules.workMode, existing.id]
       );
     } else {
       await connection.query(
-        "INSERT INTO attendance_records (employee_id, attendance_date, check_in_at, check_in_method, is_late, attendance_status, session_status) VALUES (?, ?, ?, ?, ?, ?, 'active')",
-        [employeeId, date, at, method, late ? 1 : 0, status]
+        "INSERT INTO attendance_records (employee_id, attendance_date, check_in_at, check_in_method, is_late, attendance_status, session_status, work_mode_snapshot) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
+        [employeeId, date, at, method, late ? 1 : 0, status, rules.workMode]
       );
     }
 
@@ -896,8 +983,47 @@ async function requestCheckoutCorrection(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
+function correctionTime(date, time) {
+  const value = String(time || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(value)) return null;
+  return `${date} ${value}:00`;
+}
+
+async function requestAttendanceCorrection(req, res) {
+  try {
+    await ensureAttendanceSafetyTables();
+    const date = String(req.body?.attendanceDate || '');
+    const requestType = String(req.body?.requestType || '');
+    const reason = String(req.body?.reason || '').trim().slice(0, 500);
+    const today = policy.todayIstDate();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= today) return fail(res, 400, 'Choose a past attendance date');
+    if (policy.minutesBetween(`${date} 00:00:00`, `${today} 00:00:00`) > 7 * 24 * 60) return fail(res, 400, 'Corrections are allowed within 7 days');
+    if (!['missed_check_in', 'missed_check_out', 'incorrect_time', 'automatic_absence'].includes(requestType)) return fail(res, 400, 'Choose a valid correction type');
+    if (!reason) return fail(res, 400, 'Provide a correction reason');
+    if (!await isWorkingDay(date)) return fail(res, 400, 'Corrections are available only for working days');
+    const requestedCheckIn = correctionTime(date, req.body?.checkInTime);
+    const requestedCheckOut = correctionTime(date, req.body?.checkOutTime);
+    if ((requestType === 'missed_check_in' || requestType === 'automatic_absence') && !requestedCheckIn) return fail(res, 400, 'Provide the corrected check-in time');
+    if (requestType === 'missed_check_out' && !requestedCheckOut) return fail(res, 400, 'Provide the corrected check-out time');
+    let record = await getRecord(req.user.id, date);
+    if (!record) {
+      const [result] = await db.query(`INSERT INTO attendance_records
+        (employee_id, attendance_date, attendance_status, session_status) VALUES (?, ?, 'absent', 'closed')`, [req.user.id, date]);
+      record = { id: result.insertId };
+    }
+    const [[existing]] = await db.query(`SELECT id FROM hrms_attendance_correction_requests
+      WHERE attendance_id=? AND status='pending' LIMIT 1`, [record.id]);
+    if (existing) return fail(res, 409, 'A correction request is already pending for this date');
+    const [result] = await db.query(`INSERT INTO hrms_attendance_correction_requests
+      (attendance_id, employee_id, request_type, reason, requested_check_in_at, requested_check_out_at)
+      VALUES (?, ?, ?, ?, ?, ?)`, [record.id, req.user.id, requestType, reason, requestedCheckIn, requestedCheckOut]);
+    return ok(res, { id: result.insertId }, 'Attendance correction request sent to Admin.');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 async function heartbeat(req, res) {
   try {
+    await ensureAttendanceSafetyTables();
     const employeeId = req.user.id;
     const record = await getRecord(employeeId, policy.todayIstDate());
     if (!record || !record.check_in_at || record.check_out_at) {
@@ -908,13 +1034,65 @@ async function heartbeat(req, res) {
     const activeBreakMinutes = activeBreaks[0]
       ? policy.minutesBetween(sqlDateTime(activeBreaks[0].started_at), policy.nowIstDateTime())
       : 0;
-    const workingMinutes = Math.max(0,
-      policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes - activeBreakMinutes);
+    const nowForWork = policy.nowIstDateTime();
+    const rawMinutes = policy.minutesBetween(sqlDateTime(record.check_in_at), nowForWork);
+    const workingMinutes = Math.max(0, rawMinutes - completedBreakMinutes - activeBreakMinutes);
     await db.query(
       "UPDATE attendance_records SET working_minutes = ? WHERE id = ? AND check_out_at IS NULL",
       [workingMinutes, record.id]
     );
-    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes });
+    const latitude = Number(req.body && req.body.latitude);
+    const longitude = Number(req.body && req.body.longitude);
+    let radiusState = 'not_evaluated';
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      const [[profile]] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeId]);
+      const mode = profile && profile.work_mode;
+      const [hybridRows] = mode === 'Hybrid' ? await db.query('SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id=? AND is_active=1 LIMIT 1', [employeeId]) : [[]];
+      const activeHybrid = hybridRows[0];
+      if (activeHybrid) {
+        // Starting Hybrid tracking during the grace period means the employee
+        // is now legitimately working away from the Office.
+        await db.query("UPDATE hrms_attendance_radius_departures SET status='cancelled', last_seen_at=? WHERE attendance_id=? AND status='pending'", [policy.nowIstDateTime(), record.id]);
+        radiusState = 'hybrid_tracking_active';
+      }
+      if ((mode === 'Office' || mode === 'Home' || mode === 'Hybrid') && !activeHybrid) {
+        const rules = mode === 'Hybrid' ? await locationPolicy.settingsFor(db) : await locationPolicy.getCheckInPolicy(db, employeeId);
+        const center = mode === 'Hybrid' ? locationPolicy.coordinates(rules.office_latitude, rules.office_longitude) : rules.center;
+        const radius = Number(mode === 'Hybrid'
+          ? rules.officeRadiusMeters
+          : rules.radiusMeters);
+        const distance = locationPolicy.distanceMeters(center, { latitude, longitude });
+        if (distance <= radius) {
+          await db.query("UPDATE hrms_attendance_radius_departures SET status='cancelled', last_seen_at=? WHERE attendance_id=? AND status='pending'", [policy.nowIstDateTime(), record.id]);
+          radiusState = 'inside_radius';
+        } else {
+          const now = policy.nowIstDateTime();
+          await db.query(`INSERT INTO hrms_attendance_radius_departures (attendance_id,employee_id,location_type,left_at,last_seen_at,latitude,longitude,distance_meters) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE left_at=IF(status='cancelled',VALUES(left_at),left_at),last_seen_at=VALUES(last_seen_at),latitude=VALUES(latitude),longitude=VALUES(longitude),distance_meters=VALUES(distance_meters),status=IF(status='cancelled','pending',status)`, [record.id, employeeId, mode, now, now, latitude, longitude, distance]);
+          const [[departure]] = await db.query('SELECT left_at FROM hrms_attendance_radius_departures WHERE attendance_id=? AND status=?', [record.id, 'pending']);
+          const [[tracking]] = await db.query(
+            'SELECT office_outside_radius_grace_minutes, home_outside_radius_grace_minutes FROM hrms_tracking_settings WHERE id=1'
+          );
+          const grace = Number(mode === 'Home'
+            ? tracking && tracking.home_outside_radius_grace_minutes
+            : tracking && tracking.office_outside_radius_grace_minutes);
+          if (departure && policy.minutesBetween(sqlDateTime(departure.left_at), now) >= grace) {
+            const status = computeStatus({
+              check_in_at: record.check_in_at,
+              check_out_at: now,
+              working_minutes: rawMinutes,
+              is_late: record.is_late,
+              attendance_status: record.attendance_status,
+            });
+            await db.query("UPDATE attendance_records SET check_out_at=?, working_minutes=?, attendance_status=?, session_status='completed' WHERE id=? AND check_out_at IS NULL", [now, workingMinutes, status, record.id]);
+            await db.query("UPDATE hrms_attendance_radius_departures SET status='auto_checked_out' WHERE attendance_id=?", [record.id]);
+            await db.query("UPDATE hrms_field_tracking_sessions SET is_active=0, stopped_at=? WHERE employee_user_id=? AND is_active=1", [now, employeeId]);
+            await db.query("INSERT INTO hrms_attendance_checkout_audit (attendance_id, employee_id, event_type, checkout_at, latitude, longitude, accuracy_meters, reason) VALUES (?, ?, 'outside_radius_auto_checkout', ?, ?, ?, ?, ?)", [record.id, employeeId, now, latitude, longitude, Number(req.body && req.body.accuracy) || null, `${mode} employee remained outside the approved radius for ${grace} minutes`]);
+            radiusState = 'auto_checked_out';
+          } else radiusState = 'outside_radius_grace';
+        }
+      }
+    }
+    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes, radius_state: radiusState });
   } catch (error) {
     console.error('POST /attendance/heartbeat', error);
     return fail(res, 500, 'Unable to save current work time.');
@@ -1117,13 +1295,13 @@ async function listCorrectionRequests(req, res) {
   try {
     await ensureAttendanceSafetyTables();
     const [rows] = await db.query(`
-      SELECT r.id, r.attendance_id, r.reason, r.status, r.created_at,
+      SELECT r.id, r.attendance_id, r.request_type, r.reason, r.status, r.created_at,
+             r.requested_check_in_at, r.requested_check_out_at, r.admin_note,
              e.full_name, e.staff_id,
              a.check_in_at, a.check_out_at
       FROM hrms_attendance_correction_requests r
       JOIN employee_users e ON e.id = r.employee_id
       JOIN attendance_records a ON a.id = r.attendance_id
-      WHERE r.request_type = 'checkout_correction'
       ORDER BY r.created_at DESC
     `);
     return ok(res, { items: rows });
@@ -1133,11 +1311,30 @@ async function listCorrectionRequests(req, res) {
 async function approveCorrectionRequest(req, res) {
   try {
     const { id } = req.params;
-    const [[req_row]] = await db.query('SELECT attendance_id FROM hrms_attendance_correction_requests WHERE id = ? AND request_type = ?', [id, 'checkout_correction']);
+    const [[req_row]] = await db.query('SELECT * FROM hrms_attendance_correction_requests WHERE id = ?', [id]);
     if (!req_row) return fail(res, 404, 'Correction request not found');
-    await db.query('UPDATE attendance_records SET check_out_at = NULL, working_minutes = 0 WHERE id = ?', [req_row.attendance_id]);
-    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, reviewed_at = NOW() WHERE id = ?', ['approved', id]);
-    return ok(res, {}, 'Session restored. Employee can check out again.');
+    if (req_row.request_type === 'checkout_correction') {
+      await db.query('UPDATE attendance_records SET check_out_at = NULL, working_minutes = 0 WHERE id = ?', [req_row.attendance_id]);
+    } else {
+      const [records] = await db.query('SELECT check_in_at, check_out_at FROM attendance_records WHERE id=?', [req_row.attendance_id]);
+      const record = records[0];
+      const checkIn = req_row.requested_check_in_at || record.check_in_at;
+      const checkOut = req_row.requested_check_out_at || record.check_out_at;
+      // A correction uses the same current admin-configured thresholds as a
+      // normal check-in.  The time is retained even when the result is Absent.
+      await policy.getTimeSettings(db);
+      const status = !checkIn ? 'absent' : policy.isAbsentCheckIn(sqlDateTime(checkIn))
+        ? 'absent' : policy.isLateCheckIn(sqlDateTime(checkIn)) ? 'late' : 'present';
+      const workingMinutes = checkIn && checkOut
+        ? policy.minutesBetween(sqlDateTime(checkIn), sqlDateTime(checkOut)) : 0;
+      await db.query(`UPDATE attendance_records SET check_in_at=?, check_out_at=?, attendance_status=?,
+        session_status=?, is_late=?, working_minutes=? WHERE id=?`, [
+        checkIn, checkOut, status, checkOut ? 'completed' : 'closed', status === 'late' ? 1 : 0,
+        workingMinutes, req_row.attendance_id
+      ]);
+    }
+    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, reviewed_by=?, reviewed_at = NOW() WHERE id = ?', ['approved', req.user.id, id]);
+    return ok(res, {}, 'Attendance correction approved.');
   } catch (error) { return fail(res, 500, error.message); }
 }
 
@@ -1145,9 +1342,9 @@ async function rejectCorrectionRequest(req, res) {
   try {
     const { id } = req.params;
     const adminNote = String(req.body?.admin_note || '').trim().slice(0, 300);
-    const [[req_row]] = await db.query('SELECT id FROM hrms_attendance_correction_requests WHERE id = ? AND request_type = ?', [id, 'checkout_correction']);
+    const [[req_row]] = await db.query('SELECT id FROM hrms_attendance_correction_requests WHERE id = ?', [id]);
     if (!req_row) return fail(res, 404, 'Correction request not found');
-    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, admin_note = ?, reviewed_at = NOW() WHERE id = ?', ['rejected', adminNote || null, id]);
+    await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, admin_note = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?', ['rejected', adminNote || null, req.user.id, id]);
     return ok(res, {}, 'Request rejected.');
   } catch (error) { return fail(res, 500, error.message); }
 }
@@ -1167,6 +1364,7 @@ module.exports = {
   getBreakReview: getBreakReview,
   undoCheckout: undoCheckout,
   requestCheckoutCorrection: requestCheckoutCorrection,
+  requestAttendanceCorrection: requestAttendanceCorrection,
   listCorrectionRequests: listCorrectionRequests,
   approveCorrectionRequest: approveCorrectionRequest,
   rejectCorrectionRequest: rejectCorrectionRequest,

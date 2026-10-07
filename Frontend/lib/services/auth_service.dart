@@ -135,9 +135,11 @@ class AuthService extends ChangeNotifier {
           data['user'] as Map,
         );
 
-        _user!['userType'] =
-            _user!['userType'] ??
-                selectedUserType;
+        // 🟢 Application Access and Allowed Pages synchronization
+        _user!['userType'] = _user!['userType'] ?? selectedUserType;
+        if (!_user!.containsKey('application_access')) {
+          _user!['application_access'] = {};
+        }
 
         await AuthStorage.setString(
           'auth_token',
@@ -148,7 +150,8 @@ class AuthService extends ChangeNotifier {
           'user_data',
           jsonEncode(_user),
         );
-
+        
+       
         await AuthStorage.setBool(
           'isLoggedIn',
           true,

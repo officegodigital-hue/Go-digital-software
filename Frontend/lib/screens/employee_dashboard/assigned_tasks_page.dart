@@ -181,7 +181,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     }
   }
 
-  return false;
+  return true;
 }
 
   List<int> get _visibleTabIndices {
@@ -372,7 +372,28 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     return 0;
   } 
 
-  String _calculatePerformance(String singleTask, Duration? actual) {
+  bool _isAdsPlatformExtraRow(Map<String, dynamic> task, int rowIndex) {
+    final originalCount = int.tryParse((task['rowCount'] ?? 1).toString()) ?? 1;
+    final assignedRole = (task['assignedRole'] ?? '').toString().trim().toLowerCase();
+    final taskType = (task['taskType'] ?? '').toString().trim().toLowerCase();
+
+    final isAdsPlatformTask =
+        widget.role == EmployeeRole.adsHandler ||
+        assignedRole == 'ads' ||
+        taskType == 'ads handler';
+
+    return isAdsPlatformTask && rowIndex >= originalCount;
+  }
+
+  String _calculatePerformance(String singleTask, Duration? actual, {bool isExtraRow = false, TaskStatus? status}) {
+    // 🟢 Ads Platform task-kkku extra row-il task COMPLETED aanal mattum 'Achieved' varum, illaiyenral 'N/A'
+    if (isExtraRow) {
+      if (status == TaskStatus.completed) {
+        return 'Achieved';
+      }
+      return 'N/A';
+    }
+
     if (actual == null) return 'N/A';
     final exp = expectedTimingMinutes[singleTask.trim().toLowerCase()];
     if (exp == null) return 'N/A';
@@ -828,10 +849,34 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     final taskListId = taskListIds[taskId];
     if (taskListId == null) return;
 
-    final status = taskStatus[taskKey] ?? TaskStatus.idle;
-    final total  = taskTotalDurations[taskKey];
-    final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
+    // final status = taskStatus[taskKey] ?? TaskStatus.idle;
+    // final total  = taskTotalDurations[taskKey];
+    // final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    // final perf   = _calculatePerformance(
+    //   task['singleTask'] ?? '',
+    //   total,
+    //   isExtraRow: isExtraRow,
+    //   status: status,
+    // );
 
+final status = taskStatus[taskKey] ?? TaskStatus.idle;
+final total  = taskTotalDurations[taskKey];
+
+final originalCount = (task['rowCount'] as int?) ?? 1;
+
+// Ads Handler:
+// row 0, 1, ... originalCount-1 = normal rows
+// row >= originalCount = extra added rows
+final isExtraRow =
+    widget.role == EmployeeRole.adsHandler &&
+    rowIndex >= originalCount;
+
+final perf = _calculatePerformance(
+  task['singleTask'] ?? '',
+  total,
+  isExtraRow: isExtraRow,
+  status: status,
+);
     final payload = {
       'taskListId': taskListId,
       'taskTimingId': null,
@@ -909,9 +954,31 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Map<String, dynamic> _buildPayload(String taskKey, Map<String, dynamic> task, int rowIndex) {
+    // final status = taskStatus[taskKey] ?? TaskStatus.idle;
+    // final total  = taskTotalDurations[taskKey];
+    // final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    // final perf   = _calculatePerformance(
+    //   task['singleTask'] ?? '',
+    //   total,
+    //   isExtraRow: isExtraRow,
+    //   status: status,
+    // );
+
     final status = taskStatus[taskKey] ?? TaskStatus.idle;
-    final total  = taskTotalDurations[taskKey];
-    final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
+final total  = taskTotalDurations[taskKey];
+
+final originalCount = (task['rowCount'] as int?) ?? 1;
+
+final isExtraRow =
+    widget.role == EmployeeRole.adsHandler &&
+    rowIndex >= originalCount;
+
+final perf = _calculatePerformance(
+  task['singleTask'] ?? '',
+  total,
+  isExtraRow: isExtraRow,
+  status: status,
+);
 
     return {
       'employeeName':      _employeeName,
@@ -934,7 +1001,7 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
       'status':            _statusString(status),
       'performance':       perf,
       'comment':           taskComments[taskKey] ?? '',
-      'isAdditional':      false,
+      'isAdditional':      isExtraRow,
       'taskAssignmentId':  task['taskAssignmentId'],
     };
   }
@@ -959,40 +1026,56 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
-    
-    // 🟢 Update submit date to current date when START is clicked
+
+    // Extra Ads Platform rows are completion-based rows.
+    // They can be started/completed, but they must not consume or accumulate
+    // the normal fixed timing / duration used by the assigned rows.
     final now = DateTime.now();
     final currentDateStr = '${now.day.toString().padLeft(2,'0')}/${now.month.toString().padLeft(2,'0')}/${now.year}';
     setState(() {
       editableSubmitDates[taskKey] = currentDateStr;
       taskStatus[taskKey]              = TaskStatus.running;
       taskStartTimes[taskKey]          = now;
-      taskCurrentSessionStart[taskKey] = now;
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
-      
-      taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) {
-          setState(() {
-            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-          });
-        }
-      });
+
+      if (isExtraRow) {
+        // No timer for an extra Ads Platform row. Duration remains 00:00:00.
+        taskCurrentSessionStart.remove(taskKey);
+        taskTimers[taskKey]?.cancel();
+        taskTimers.remove(taskKey);
+      } else {
+        taskCurrentSessionStart[taskKey] = now;
+        taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) {
+            setState(() {
+              taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+            });
+          }
+        });
+      }
     });
 
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
     await _recordTaskAction(taskKey, task, rowIndex, taskId, 'start');
   }
-  
+
   Future<void> _handleHold(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.held;
       (taskHoldTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -1005,24 +1088,34 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Future<void> _handleRestart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
     
+    final now = DateTime.now();
     setState(() {
       taskStatus[taskKey] = TaskStatus.running;
-      (taskRestartTimes[taskKey] ??= []).add(DateTime.now());
-      taskCurrentSessionStart[taskKey] = DateTime.now();
+      (taskRestartTimes[taskKey] ??= []).add(now);
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
-      
-      taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) {
-          setState(() {
-            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-          });
-        }
-      });
+
+      taskTimers[taskKey]?.cancel();
+      taskTimers.remove(taskKey);
+
+      if (isExtraRow) {
+        taskCurrentSessionStart.remove(taskKey);
+      } else {
+        taskCurrentSessionStart[taskKey] = now;
+        taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) {
+            setState(() {
+              taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+            });
+          }
+        });
+      }
     });
 
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
@@ -1030,11 +1123,16 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Future<void> _handleComplete(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.completed;
       (taskCompletedTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -1047,11 +1145,16 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   }
 
   Future<void> _handleReject(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.rejected;
       (taskRejectedTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -1095,10 +1198,33 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
     if (!validActions.contains(action)) return;
 
     final body = <String, dynamic>{};
+    // if (action == 'complete') {
+    //   final total = taskTotalDurations[taskKey];
+    //   final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    //   body['performance'] = _calculatePerformance(
+    //     task['singleTask'] ?? '',
+    //     total,
+    //     isExtraRow: isExtraRow,
+    //     status: TaskStatus.completed,
+    //   );
+    // }
+
     if (action == 'complete') {
-      final total = taskTotalDurations[taskKey];
-      body['performance'] = _calculatePerformance(task['singleTask'] ?? '', total);
-    }
+  final total = taskTotalDurations[taskKey];
+
+  final originalCount = (task['rowCount'] as int?) ?? 1;
+
+  final isExtraRow =
+      widget.role == EmployeeRole.adsHandler &&
+      rowIndex >= originalCount;
+
+  body['performance'] = _calculatePerformance(
+    task['singleTask'] ?? '',
+    total,
+    isExtraRow: isExtraRow,
+    status: TaskStatus.completed,
+  );
+}
 
     try {
       await http.post(
@@ -1666,17 +1792,24 @@ if (trRes.statusCode == 200) {
           if (durSecs > 0) taskTotalDurations[taskKey] = Duration(seconds: durSecs);
 
           if (_statusFromString(status) == TaskStatus.running) {
+            final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
             taskTimers[taskKey]?.cancel();
-            taskCurrentSessionStart[taskKey] = DateTime.now();
+            taskTimers.remove(taskKey);
             taskDurations[taskKey] = Duration.zero;
             currentRunningTaskKey = taskKey;
-            taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-              if (mounted) {
-                setState(() {
-                taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+
+            if (!isExtraRow) {
+              taskCurrentSessionStart[taskKey] = DateTime.now();
+              taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+                if (mounted) {
+                  setState(() {
+                    taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+                  });
+                }
               });
-              }
-            });
+            } else {
+              taskCurrentSessionStart.remove(taskKey);
+            }
           }
 
           final startTimeStr = row['start_time'] as String?;
@@ -3439,8 +3572,20 @@ Widget _buildTaskCategoryTab({
     }
 
     final totalDur = taskTotalDurations[taskKey];
-    final perf = _calculatePerformance(task['singleTask'] ?? '', totalDur);
+
+    final originalCount = (task['rowCount'] as int?) ?? 1;
+    final bool isExtra = index >= originalCount;
+
+    final perf = _calculatePerformance(
+      task['singleTask'] ?? '', 
+      totalDur, 
+      isExtraRow: isExtra, 
+      status: curStatus,
+    );
     final perfColor = _getPerformanceColor(perf);
+
+    // final perf = _calculatePerformance(task['singleTask'] ?? '', totalDur);
+    // final perfColor = _getPerformanceColor(perf);
     final rawDeadline = task['deadline'] ?? '';
     final editDate = _formatDateForDisplay(editableSubmitDates[taskKey] ?? rawDeadline);
     final editDesc = editableTaskDescs[taskKey] ?? task['singleTask'] ?? 'N/A';

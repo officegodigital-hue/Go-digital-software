@@ -30,6 +30,7 @@ router.get('/check-in-policy', attendance.checkInPolicy);
 router.post('/check-in', attendance.checkIn);
 router.post('/check-out', attendance.checkOut);
 router.post('/heartbeat', attendance.heartbeat);
+router.post('/location-heartbeat', attendance.heartbeat);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
@@ -39,9 +40,15 @@ router.get('/breaks/:id/review', attendance.requireAdmin, attendance.getBreakRev
 router.patch('/breaks/:id/review', attendance.requireAdmin, attendance.reviewBreak);
 router.post('/checkout/undo', attendance.undoCheckout);
 router.post('/checkout/correction-request', attendance.requestCheckoutCorrection);
+router.post('/corrections', attendance.requestAttendanceCorrection);
 router.get('/checkout/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
 router.patch('/checkout/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
 router.patch('/checkout/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
+// Clear, shared routes for all attendance correction types.  The checkout
+// routes above remain so older portal builds continue to work.
+router.get('/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
+router.patch('/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
+router.patch('/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
 router.get('/permissions/mine', attendance.myPermissions);
 router.post('/permissions', attendance.createPermission);
 

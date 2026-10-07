@@ -36,16 +36,37 @@ class HrmsDashboardApi {
   static Future<Map<String, dynamic>> month({
     required int year,
     required int month,
-    int weeklyOff = 7,
   }) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard').replace(
       queryParameters: {
         'year': '$year',
         'month': '$month',
-        'weeklyOff': '$weeklyOff',
       },
     );
     final response = await http.get(uri, headers: await _headers());
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> calendar() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard/calendar'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> saveCalendar({
+    int? weeklyOffDay,
+    Map<String, dynamic>? override,
+  }) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard/calendar'),
+      headers: await _headers(),
+      body: jsonEncode({
+        if (weeklyOffDay != null) 'weeklyOffDay': weeklyOffDay,
+        if (override != null) 'override': override,
+      }),
+    );
     return _decode(response);
   }
 }

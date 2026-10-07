@@ -6,6 +6,7 @@ import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
 import 'package:godigital_portal/hrms_admin/routing/app_router.dart';
 import 'package:godigital_portal/home_screen.dart';
+import 'package:godigital_portal/profile_page.dart';
 import 'package:godigital_portal/client_work_repository/client_work_repository_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_dashboard.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_layout_page.dart';
@@ -21,13 +22,11 @@ import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.d
 import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/emergency_broadcast_page.dart';
 
-// Replace client_onboarding_screen.dart import with:
 import 'package:godigital_portal/screens/admin_dashboard/client_details_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_credentials_screen.dart';
 
 import 'package:godigital_portal/screens/admin_dashboard/Package_Quotation_admin.dart';
 
-// Split panna 2 new screens import statements:
 import 'package:godigital_portal/screens/admin_dashboard/packages.dart';
 import 'package:godigital_portal/screens/admin_dashboard/quotations.dart';
 
@@ -39,6 +38,7 @@ import 'package:godigital_portal/screens/admin_dashboard/employee_status_screen.
 import 'package:godigital_portal/screens/admin_dashboard/manager_review_screen.dart';
 import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/access_master_screen.dart'; // 🟢 Added AccessMasterScreen import
 import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
@@ -64,15 +64,12 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // ChangeNotifierProvider for AuthService
         ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: "GoDigital Portal",
         initialRoute: '/',
-        // Register admin pages on the root navigator so direct browser URLs
-        // such as /#/admin/clock-logs work before the workspace is opened.
         onGenerateRoute: (settings) {
           final builder = AppRouter.routes[settings.name];
           if (builder == null) return null;
@@ -90,29 +87,22 @@ class MyApp extends StatelessWidget {
           );
         },
         routes: {
-          // Authentication
-          // '/': (context) => const LoginScreen(),
           '/': (context) => const AuthGate(),
 
-          // Home Screen (After Login)
           '/home': (context) => const HomeScreen(),
           '/client-work-repository': (context) => const ClientWorkRepositoryPage(),
 
-          // Admin Dashboard
+          '/profile': (context) => const ProfilePage(),
+  
           '/admin': (context) => const AdminGuard(child: AdminDashboard()),
 
-          // Employee Dashboard (General)
           '/employee': (context) => const EmployeeLayoutPage(),
 
-          // Role-specific employee dashboards
-          // These can all use EmployeeLayoutPage since it dynamically loads
-          // the correct dashboard based on the user's role from AuthService
           '/designer': (context) => const EmployeeLayoutPage(),
           '/pageHandler': (context) => const EmployeeLayoutPage(),
           '/adsHandler': (context) => const EmployeeLayoutPage(),
           '/videographer': (context) => const EmployeeLayoutPage(),
 
-          // Admin Management Routes
           '/client-details': (context) =>
               const AdminGuard(child: ClientOnboardingScreen()),
 
@@ -128,7 +118,6 @@ class MyApp extends StatelessWidget {
               const AdminGuard(child: ClientHistoryScreen()),
           '/quotation': (context) =>
               const AdminGuard(child: PackageQuotationAdmin()),
-          // Split routes for Packages and Quotations:
           '/packages': (context) =>
               const AdminGuard(child: PackagesAdminScreen()),
           '/quotations': (context) =>
@@ -150,14 +139,15 @@ class MyApp extends StatelessWidget {
               const AdminGuard(child: NotificationsScreen()),
           '/admin-panel': (context) =>
               const AdminGuard(child: AdminPanelScreen()),
+          '/access-master': (context) => 
+              const AdminGuard(child: AccessMasterScreen()), // 🟢 Added Access Master route
           '/time-manager': (context) =>
               const AdminGuard(child: TimeManagerScreen()),
           '/performance': (context) =>
               const AdminGuard(child: PerformanceScreen()),
           '/settings': (context) => const AdminGuard(child: SettingsPage()),
 
-          // main.dart-il ulla routes map-kkul intha line-ai serthu kollavum:
-'/emergency-broadcast': (context) => const AdminGuard(child: EmergencyBroadcastPage()),
+          '/emergency-broadcast': (context) => const AdminGuard(child: EmergencyBroadcastPage()),
 
           '/attendance': (context) => const HrmsAttendanceEntry(),
           '/employee/dashboard': (context) => const EmployeeDashboardPage(),
@@ -181,26 +171,22 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, auth, _) {
-        // Wait until localStorage authentication is loaded
         if (!auth.isInitialized) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        // No saved login
         if (!auth.isAuthenticated) {
           return const LoginScreen();
         }
 
-        // Every signed-in user first chooses a workspace.
         return const HomeScreen();
       },
     );
   }
 }
 
-/// Opens the new HRMS UI only from the Attendance workspace.
 class HrmsAttendanceEntry extends StatelessWidget {
   const HrmsAttendanceEntry({super.key});
 
@@ -208,16 +194,12 @@ class HrmsAttendanceEntry extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, auth, _) {
-        // Do not fall back to the employee portal after an admin logs out.
         if (!auth.isAuthenticated) {
           return const HomeScreen();
         }
         if (auth.userType?.toLowerCase().trim() == 'admin') {
           return const AdminGuard(child: hrms_admin.AdminPortalApp());
         }
-        // Keep employee HRMS pages in the main MaterialApp.  Creating a
-        // second MaterialApp here created a second navigator and could send
-        // an already signed-in employee back to a duplicate login page.
         return const EmployeeDashboardPage();
       },
     );
@@ -243,7 +225,29 @@ class AdminGuard extends StatelessWidget {
           return const LoginScreen();
         }
 
-        if (auth.userType?.toLowerCase().trim() != 'admin') {
+        final userType = auth.userType?.toLowerCase().trim() ?? '';
+        final isMainAdmin = auth.user?['is_main_admin'] == true || 
+                             auth.user?['is_main_admin'] == 1 || 
+                             auth.user?['is_main_admin'].toString() == '1';
+
+        if (userType == 'admin' || isMainAdmin) {
+          return child;
+        }
+
+        // 🟢 Access Master (application_access) moolama antha employee-kku admin access irukka nu check panrom
+        final user = auth.user ?? {};
+        final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
+        
+        bool hasAdminAccess = false;
+        for (var app in ['attendance', 'task_manager', 'client_repository']) {
+          final accType = appAccess[app]?['access_type']?.toString().toLowerCase() ?? '';
+          if (accType == 'admin') {
+            hasAdminAccess = true;
+            break;
+          }
+        }
+
+        if (!hasAdminAccess) {
           return const LoginScreen();
         }
 
@@ -252,3 +256,4 @@ class AdminGuard extends StatelessWidget {
     );
   }
 }
+

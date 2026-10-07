@@ -79,6 +79,18 @@ class AttendanceApi {
     return _post('/attendance/check-out');
   }
 
+  static Future<Map<String, dynamic>> locationHeartbeat({
+    required double latitude,
+    required double longitude,
+    required double accuracy,
+  }) {
+    return _post('/attendance/location-heartbeat', {
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracy': accuracy,
+    });
+  }
+
   static Future<void> createRequest({
     required String type,
     required DateTime date,

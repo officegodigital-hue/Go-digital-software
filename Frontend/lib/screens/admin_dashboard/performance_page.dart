@@ -2,14 +2,15 @@
 //
 // Employee Performance & Productivity Dashboard — v2.
 
-
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
@@ -68,6 +69,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   String? _detailError;
   Map<String, dynamic>? _detail;
   final Set<String> _expandedClients = {};
+  bool _isPdfExporting = false;
 
   @override
   void initState() {
@@ -201,6 +203,210 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     }
   }
 
+  Future<void> _exportEmployeeReportPdf() async {
+    if (_detail == null || _selectedEmployeeName == null) return;
+    setState(() => _isPdfExporting = true);
+
+    try {
+      final perf = _detail!['performance'];
+      final summary = _detail!['summary'];
+      final hours = _detail!['workingHours'];
+      final mr = _detail!['managerReview'];
+      final planner = _detail!['dayPlanner'];
+      final clients = List<Map<String, dynamic>>.from(_detail!['clients'] ?? []);
+
+      final font = await PdfGoogleFonts.notoSansRegular();
+      final fontBold = await PdfGoogleFonts.notoSansBold();
+
+      final pdf = pw.Document();
+
+      const PdfColor blue = PdfColor.fromInt(0xFF0759D4);
+      const PdfColor dark = PdfColor.fromInt(0xFF14213D);
+      const PdfColor greyBg = PdfColor.fromInt(0xFFF4F8FD);
+      const PdfColor white = PdfColor.fromInt(0xFFFFFFFF);
+      const PdfColor borderGrey = PdfColor.fromInt(0xFFD9E5F3);
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (pw.Context context) {
+            return [
+              pw.Container(
+                padding: const pw.EdgeInsets.all(16),
+                decoration: pw.BoxDecoration(color: blue, borderRadius: pw.BorderRadius.circular(10)),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('GODIGITAL PORTAL', style: pw.TextStyle(font: fontBold, fontSize: 10, color: white)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('Employee Performance Report', style: pw.TextStyle(font: fontBold, fontSize: 18, color: white)),
+                        pw.SizedBox(height: 2),
+                        pw.Text('Employee: $_selectedEmployeeName', style: pw.TextStyle(font: font, fontSize: 12, color: white)),
+                      ],
+                    ),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: pw.BoxDecoration(color: white, borderRadius: pw.BorderRadius.circular(8)),
+                      child: pw.Column(
+                        children: [
+                          pw.Text('Score', style: pw.TextStyle(font: font, fontSize: 9, color: dark)),
+                          pw.Text('${perf['score']}%', style: pw.TextStyle(font: fontBold, fontSize: 16, color: blue)),
+                          pw.Text('Grade: ${_gradeLabel(perf['grade'])}', style: pw.TextStyle(font: fontBold, fontSize: 10, color: dark)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text('Performance Summary', style: pw.TextStyle(font: fontBold, fontSize: 14, color: dark)),
+              pw.SizedBox(height: 8),
+              pw.Row(
+                children: [
+                  _pdfKpiBox('Total Clients', '${summary['totalClients']}', font, fontBold),
+                  _pdfKpiBox('Total Tasks', '${summary['totalTasks']}', font, fontBold),
+                  _pdfKpiBox('Completed', '${summary['completed']}', font, fontBold),
+                  _pdfKpiBox('Processing', '${summary['processing']}', font, fontBold),
+                  _pdfKpiBox('Pending', '${summary['pending']}', font, fontBold),
+                ],
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text('Working Hours & Productivity', style: pw.TextStyle(font: fontBold, fontSize: 14, color: dark)),
+              pw.SizedBox(height: 8),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(color: greyBg, borderRadius: pw.BorderRadius.circular(8), border: pw.Border.all(color: borderGrey)),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                  children: [
+                    _pdfHourCol('Total Time', '${hours['total']}', font, fontBold),
+                    _pdfHourCol('Productive', '${hours['productive']}', font, fontBold),
+                    _pdfHourCol('Idle Time', '${hours['idle']}', font, fontBold),
+                    _pdfHourCol('Efficiency', '${hours['efficiencyPct'] ?? hours['productivityPct']}%', font, fontBold),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(12),
+                      decoration: pw.BoxDecoration(color: greyBg, borderRadius: pw.BorderRadius.circular(8), border: pw.Border.all(color: borderGrey)),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Manager Approval', style: pw.TextStyle(font: fontBold, fontSize: 11, color: dark)),
+                          pw.SizedBox(height: 6),
+                          pw.Text('Approved: ${mr['approved']}', style: pw.TextStyle(font: font, fontSize: 10)),
+                          pw.Text('Rework: ${mr['rework']}', style: pw.TextStyle(font: font, fontSize: 10)),
+                          pw.Text('Rejected: ${mr['rejected']}', style: pw.TextStyle(font: font, fontSize: 10)),
+                          pw.Text('Approval Rate: ${mr['approvalRatePct']}%', style: pw.TextStyle(font: fontBold, fontSize: 10, color: blue)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 12),
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(12),
+                      decoration: pw.BoxDecoration(color: greyBg, borderRadius: pw.BorderRadius.circular(8), border: pw.Border.all(color: borderGrey)),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Day Planner Consistency', style: pw.TextStyle(font: fontBold, fontSize: 11, color: dark)),
+                          pw.SizedBox(height: 6),
+                          pw.Text('Submitted: ${planner['submittedDays']}', style: pw.TextStyle(font: font, fontSize: 10)),
+                          pw.Text('Missed: ${planner['missedDays']}', style: pw.TextStyle(font: font, fontSize: 10)),
+                          pw.Text('Consistency: ${planner['consistencyPct']}%', style: pw.TextStyle(font: fontBold, fontSize: 10, color: blue)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text('Client & Task Breakdown', style: pw.TextStyle(font: fontBold, fontSize: 14, color: dark)),
+              pw.SizedBox(height: 8),
+              if (clients.isEmpty)
+                pw.Text('No client activity recorded.', style: pw.TextStyle(font: font, fontSize: 10))
+              else
+                ...clients.map((c) {
+                  final tasks = List<Map<String, dynamic>>.from(c['tasks'] ?? []);
+                  return pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 10),
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(borderRadius: pw.BorderRadius.circular(8), border: pw.Border.all(color: borderGrey)),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(c['clientName'] ?? '', style: pw.TextStyle(font: fontBold, fontSize: 12, color: dark)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('Tasks: ${c['totalTasks']} | Done: ${c['completionPct']}% | Time: ${c['totalDuration']}', style: pw.TextStyle(font: font, fontSize: 9.5)),
+                        pw.SizedBox(height: 6),
+                        ...tasks.map((t) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 4, left: 8),
+                          child: pw.Row(
+                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                            children: [
+                              pw.Expanded(child: pw.Text('• ${t['deliverable']}', style: pw.TextStyle(font: font, fontSize: 9))),
+                              pw.Text('[${t['statusLabel']}] (${t['duration']})', style: pw.TextStyle(font: font, fontSize: 9)),
+                            ],
+                          ),
+                        )),
+                      ],
+                    ),
+                  );
+                }),
+            ];
+          },
+        ),
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdf.save(),
+        name: 'Performance_Report_${_selectedEmployeeName?.replaceAll(' ', '_')}',
+        format: PdfPageFormat.a4,
+      );
+    } catch (e) {
+      debugPrint('PDF Export error: $e');
+    } finally {
+      if (mounted) setState(() => _isPdfExporting = false);
+    }
+  }
+
+  pw.Widget _pdfKpiBox(String label, String val, pw.Font font, pw.Font fontBold) {
+    return pw.Expanded(
+      child: pw.Container(
+        margin: const pw.EdgeInsets.symmetric(horizontal: 2),
+        padding: const pw.EdgeInsets.all(8),
+        decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFF4F8FD), borderRadius: pw.BorderRadius.circular(6), border: pw.Border.all(color: const PdfColor.fromInt(0xFFD9E5F3))),
+        child: pw.Column(
+          children: [
+            pw.Text(val, style: pw.TextStyle(font: fontBold, fontSize: 13, color: const PdfColor.fromInt(0xFF0759D4))),
+            pw.SizedBox(height: 2),
+            pw.Text(label, style: pw.TextStyle(font: font, fontSize: 8, color: const PdfColor.fromInt(0xFF64748B)), textAlign: pw.TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _pdfHourCol(String label, String val, pw.Font font, pw.Font fontBold) {
+    return pw.Column(
+      children: [
+        pw.Text(val, style: pw.TextStyle(font: fontBold, fontSize: 13, color: const PdfColor.fromInt(0xFF14213D))),
+        pw.SizedBox(height: 2),
+        pw.Text(label, style: pw.TextStyle(font: font, fontSize: 9, color: const PdfColor.fromInt(0xFF64748B))),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AdminLayout(
@@ -309,6 +515,19 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 ),
               ),
               const SizedBox(width: 8),
+              if (detailMode) ...[
+                Container(
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8)]),
+                  child: IconButton(
+                    onPressed: _isPdfExporting ? null : _exportEmployeeReportPdf,
+                    icon: _isPdfExporting 
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: _Palette.primary))
+                        : const Icon(Icons.picture_as_pdf_rounded, color: _Palette.primary),
+                    tooltip: 'Export PDF Report',
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               Container(
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.22))),
                 child: IconButton(onPressed: _refreshCurrentView, icon: const Icon(Icons.refresh_rounded, color: Colors.white), tooltip: 'Refresh'),
@@ -765,11 +984,6 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       ),
     );
   }
-
- // ════════════════════════════════════════════════════════════════
-// Exact UI replacement code for Working Hours & Productivity card
-// matching the requested layout design (performance_screen.dart)
-// ════════════════════════════════════════════════════════════════
 
 Widget _workingHoursBody(Map hours) {
   final double prodPct =

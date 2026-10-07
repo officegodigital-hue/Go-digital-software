@@ -196,7 +196,6 @@ class _DesktopLeave extends StatelessWidget {
     }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _LeaveBalance(balances: balances),
         const SizedBox(height: 20),
@@ -986,6 +985,126 @@ class _DropdownField extends StatelessWidget {
   );
 }
 
+class _MobileLeaveBalance extends StatelessWidget {
+  const _MobileLeaveBalance({required this.balances});
+
+  final List<dynamic> balances;
+
+  Color _colorFor(String type) {
+    final value = type.toLowerCase();
+    if (value.contains('sick')) return const Color(0xFF7C2BEF);
+    if (value.contains('earned')) return const Color(0xFF126DF3);
+    if (value.contains('optional')) return const Color(0xFFFF6A00);
+    return const Color(0xFF00AE7B);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayBalances = balances.take(4).toList();
+    return EmployeeCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Leave Balance',
+                  style: TextStyle(
+                    color: employeeNavy,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  '/employee/leave',
+                  arguments: 'requests',
+                ),
+                icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                label: const Text('View Details'),
+                style: TextButton.styleFrom(
+                  foregroundColor: employeeBlue,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (displayBalances.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: Text('Leave balances are not available yet.')),
+            )
+          else
+            Row(
+              children: List.generate(displayBalances.length, (index) {
+                final balance = displayBalances[index];
+                final type = (balance['type'] ?? 'Leave').toString();
+                final total = (balance['total'] as num?)?.toInt() ?? 0;
+                final used = (balance['used'] as num?)?.toInt() ?? 0;
+                final remaining = (total - used).clamp(0, total).toInt();
+                final color = _colorFor(type);
+                return Expanded(
+                  child: Container(
+                    height: 112,
+                    margin: EdgeInsets.only(right: index == displayBalances.length - 1 ? 0 : 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.045),
+                      border: Border.all(color: color.withOpacity(0.26), width: 1.2),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          type,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: employeeMuted,
+                            fontSize: 11,
+                            height: 1.15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '$remaining',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 29,
+                            height: 1,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'of $total',
+                          style: const TextStyle(
+                            color: employeeMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+}
 class _MobileLeave extends StatelessWidget {
   const _MobileLeave({
     required this.mode,
@@ -1036,11 +1155,9 @@ class _MobileLeave extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const MobileEmployeeHeader(),
-        const SizedBox(height: 14),
-        const EmployeePageTitle(title: 'Leave'),
-        const SizedBox(height: 20),
-        _LeaveBalance(balances: balances),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
+        _MobileLeaveBalance(balances: balances),
+        const SizedBox(height: 18),
         _LeaveForm(desktop: false, onSuccess: onRefresh),
       ],
     );

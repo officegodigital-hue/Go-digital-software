@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../services/hrms_dashboard_api.dart';
 
 const _blue = Color(0xFF075EF7);
 const _navy = Color(0xFF061457);
@@ -22,23 +23,20 @@ class CalendarStore {
   static const notificationsKey = 'employee_calendar_notifications';
 
   static Future<int> loadWeeklyOff() async {
-    final preferences = await SharedPreferences.getInstance();
-    return preferences.getInt(weeklyOffKey) ?? DateTime.sunday;
+    final calendar = await HrmsDashboardApi.calendar();
+    return (calendar['weeklyOffDay'] as num?)?.toInt() ?? DateTime.sunday;
   }
 
   static Future<List<Map<String, dynamic>>> loadOverrides() async {
-    final preferences = await SharedPreferences.getInstance();
-    final encoded = preferences.getString(overridesKey);
-    if (encoded == null || encoded.isEmpty) return [];
-    final decoded = jsonDecode(encoded) as List<dynamic>;
-    return decoded
-        .map((item) => Map<String, dynamic>.from(item as Map))
+    final calendar = await HrmsDashboardApi.calendar();
+    return (calendar['overrides'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
         .toList();
   }
 
   static Future<void> saveWeeklyOff(int weekday) async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setInt(weeklyOffKey, weekday);
+    await HrmsDashboardApi.saveCalendar(weeklyOffDay: weekday);
   }
 
   static Future<void> saveOverrides(
@@ -118,6 +116,7 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
     setState(() {
       weeklyOffDay = loadedWeeklyOff;
       overrides = loadedOverrides;
+      selectedStatus = _statusFor(_selectedDate);
     });
   }
 
@@ -160,7 +159,7 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
                     onNext: _nextMonth,
                     weeklyOffDay: weeklyOffDay,
                     statusForDate: _calendarStatusFor,
-                    onSelected: (day) => setState(() => selectedDay = day)),
+                    onSelected: _selectDay),
                 const SizedBox(height: 12),
                 _EditDatePanel(
                   selectedDay: selectedDay,
@@ -192,8 +191,7 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
                             onNext: _nextMonth,
                             weeklyOffDay: weeklyOffDay,
                             statusForDate: _calendarStatusFor,
-                            onSelected: (day) =>
-                                setState(() => selectedDay = day))),
+                            onSelected: _selectDay)),
                     const SizedBox(width: 12),
                     Expanded(
                       flex: 4,
@@ -242,6 +240,14 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
   DateTime get _selectedDate =>
       DateTime(visibleMonth.year, visibleMonth.month, selectedDay);
 
+  void _selectDay(int day) {
+    final date = DateTime(visibleMonth.year, visibleMonth.month, day);
+    setState(() {
+      selectedDay = day;
+      selectedStatus = _statusFor(date);
+    });
+  }
+
   String _statusFor(DateTime date) {
     final key = _dateKey(date);
     final existing = overrides.where((item) => item['date'] == key).toList();
@@ -254,7 +260,7 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
     final existing = overrides.where((item) => item['date'] == key).toList();
     if (existing.isEmpty) return _statusFor(date);
     final savedStatus = existing.last['status'] as String;
-    return savedStatus == 'Holiday' ? 'Holiday' : 'Override';
+    return '$savedStatus override';
   }
 
   static String _dateKey(DateTime date) =>
@@ -368,7 +374,7 @@ class _ManageCalendarDialogState extends State<ManageCalendarDialog> {
       ...overrides.where((existing) => existing['date'] != item['date']),
       item,
     ];
-    await CalendarStore.saveOverrides(updated);
+    await HrmsDashboardApi.saveCalendar(override: item);
     if (notifyEmployees) {
       await CalendarStore.addNotification({
         'title': 'Work calendar updated',
@@ -646,7 +652,7 @@ class _CalendarPanel extends StatelessWidget {
                 _CalendarLegend('Working Day', HrmsColors.blue),
                 _CalendarLegend('Weekly Off', Color(0xFF63718F)),
                 _CalendarLegend('Holiday', Color(0xFF8500C8)),
-                _CalendarLegend('Override', Color(0xFF168B2A)),
+                _CalendarLegend('Saved change', Color(0xFF168B2A)),
               ],
             ),
           ],
@@ -703,11 +709,15 @@ class _CalendarDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final weeklyOff = status == 'Weekly Off';
-    final isAugust2026 = date.year == 2026 && date.month == 8;
-    final holiday = status == 'Holiday' || (isAugust2026 && day == 25);
-    final override = status == 'Override' ||
-        (!weeklyOff && !holiday && isAugust2026 && day == 15);
+    final override = status.endsWith(' override');
+    final savedStatus = override
+        ? status.substring(0, status.length - ' override'.length)
+        : status;
+    final defaultStatus = date.weekday == weeklyOffDay
+        ? 'Weekly Off'
+        : 'Working Day';
+    final weeklyOff = savedStatus == 'Weekly Off';
+    final holiday = savedStatus == 'Holiday';
     final color = holiday
         ? _purple
         : override
@@ -716,7 +726,7 @@ class _CalendarDay extends StatelessWidget {
                 ? _off
                 : HrmsColors.blue;
     final label = override
-        ? 'Override'
+        ? '${_shortStatus(defaultStatus)} → ${_shortStatus(savedStatus)}'
         : holiday
             ? 'Holiday'
             : weeklyOff
@@ -752,6 +762,7 @@ class _CalendarDay extends StatelessWidget {
               Flexible(
                   child: Text(label,
                       overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                       style:
                           const TextStyle(color: HrmsColors.navy, fontSize: 7)))
             ]),
@@ -760,6 +771,12 @@ class _CalendarDay extends StatelessWidget {
       ),
     );
   }
+
+  static String _shortStatus(String value) => switch (value) {
+        'Weekly Off' => 'OFF',
+        'Working Day' => 'Work',
+        _ => value,
+      };
 }
 
 class _CalendarLegend extends StatelessWidget {
