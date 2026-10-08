@@ -1192,6 +1192,98 @@ async function getMyFieldSession(req, res) {
   }
 }
 
+async function getTrackingPermissions(req, res) {
+  try {
+    const employeeUserId = req.user && req.user.id;
+    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
+
+    const [[profiles], [settingsRows]] = await Promise.all([
+      db.query(
+        `SELECT work_mode FROM hrms_employee_profiles
+         WHERE employee_user_id = ? LIMIT 1`,
+        [employeeUserId]
+      ),
+      db.query(
+        `SELECT home_tracking_enabled FROM hrms_tracking_settings
+         WHERE id = 1 LIMIT 1`
+      ),
+    ]);
+
+    const profile = profiles[0];
+    const settings = settingsRows[0];
+    const workMode = String((profile && profile.work_mode) || 'Office');
+    return ok(res, {
+      fieldTrackingEnabled: ['Field', 'Hybrid'].includes(workMode),
+      homeLocationEnabled: Number(settings && settings.home_tracking_enabled) === 1,
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/permissions', error);
+    return fail(res, 500, 'Unable to load tracking permissions');
+  }
+}
+
+async function getFieldSessionSummary(req, res) {
+  try {
+    const employeeUserId = req.user && req.user.id;
+    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
+
+    const [sessions] = await db.query(
+      `SELECT id, started_at
+       FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND is_active = 1
+       ORDER BY started_at DESC LIMIT 1`,
+      [employeeUserId]
+    );
+
+    if (!sessions.length) {
+      return ok(res, {
+        hasSession: false,
+        durationSeconds: 0,
+        distanceKm: 0,
+        averageSpeedKmph: 0,
+      });
+    }
+
+    const session = sessions[0];
+    const [pings] = await db.query(
+      `SELECT latitude, longitude
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND recorded_at >= ?
+       ORDER BY recorded_at ASC`,
+      [employeeUserId, session.started_at]
+    );
+
+    let meters = 0;
+    for (let index = 1; index < pings.length; index += 1) {
+      meters += distanceMeters(
+        Number(pings[index - 1].latitude),
+        Number(pings[index - 1].longitude),
+        Number(pings[index].latitude),
+        Number(pings[index].longitude)
+      );
+    }
+
+    const durationSeconds = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000) || 0
+    );
+    const distanceKm = Math.round((meters / 1000) * 100) / 100;
+    const averageSpeedKmph = durationSeconds > 0
+      ? Math.round(((meters / 1000) / (durationSeconds / 3600)) * 10) / 10
+      : 0;
+
+    return ok(res, {
+      hasSession: true,
+      durationSeconds,
+      distanceKm,
+      averageSpeedKmph,
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/field-session/summary', error);
+    return fail(res, 500, 'Unable to load field session summary');
+  }
+}
+
 async function startFieldTracking(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
@@ -1507,6 +1599,8 @@ module.exports = {
   listHomeLocations,
   reviewHomeLocation,
   getMyFieldSession,
+  getTrackingPermissions,
+  getFieldSessionSummary,
 startFieldTracking,
 stopFieldTracking,
 getMyWaitingAlert,

@@ -48,6 +48,8 @@ router.patch(
   hrms.reviewFieldWaitingReason
 );
 
+router.get('/permissions', hrms.getTrackingPermissions);
+router.get('/field-session/summary', hrms.getFieldSessionSummary);
 router.get('/field-session', hrms.getMyFieldSession);
 router.post('/field-session/start', hrms.startFieldTracking);
 router.post('/field-session/stop', hrms.stopFieldTracking);
