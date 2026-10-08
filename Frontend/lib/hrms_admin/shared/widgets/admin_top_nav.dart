@@ -21,7 +21,7 @@ class AdminTopNav extends StatelessWidget {
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
-    ('Announcements', '/admin/announcements'),
+    // ('Announcements', '/admin/announcements'), // TODO: uncomment when announcements feature is complete
   ];
 
   void _open(BuildContext context, String route) {

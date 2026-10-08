@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/attendance_api.dart';
+import '../../services/attendance_location.dart';
+import '../../services/office_address_search.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
 
@@ -97,7 +99,9 @@ Future<BitmapDescriptor> _routeMarkerIcon({
     size.height.toInt(),
   );
   final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  return BitmapDescriptor.bytes(Uint8List.fromList(bytes!.buffer.asUint8List()));
+  return BitmapDescriptor.bytes(
+    Uint8List.fromList(bytes!.buffer.asUint8List()),
+  );
 }
 
 class _TrackingView extends StatefulWidget {
@@ -233,7 +237,9 @@ class _TrackingViewState extends State<_TrackingView> {
   Map<String, dynamic> _activityFromRoute(Map<String, dynamic> item) {
     final recordedAt = DateTime.tryParse('${item['recordedAt'] ?? ''}');
     return {
-      'activity_time': recordedAt == null ? '--:--' : DateFormat.jm().format(recordedAt.toLocal()),
+      'activity_time': recordedAt == null
+          ? '--:--'
+          : DateFormat.jm().format(recordedAt.toLocal()),
       'activity_text': _placeName(item['placeName']),
     };
   }
@@ -246,7 +252,8 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   String _formatDistance(dynamic meters) {
-    final value = (meters as num?)?.toDouble() ?? double.tryParse('$meters') ?? 0;
+    final value =
+        (meters as num?)?.toDouble() ?? double.tryParse('$meters') ?? 0;
     return '${(value / 1000).toStringAsFixed(2)} km';
   }
 
@@ -262,7 +269,9 @@ class _TrackingViewState extends State<_TrackingView> {
 
   String _formatLastUpdated(dynamic value) {
     final date = DateTime.tryParse('${value ?? ''}');
-    return date == null ? 'No route updates yet' : 'Updated ${DateFormat.jm().format(date.toLocal())}';
+    return date == null
+        ? 'No route updates yet'
+        : 'Updated ${DateFormat.jm().format(date.toLocal())}';
   }
 
   Future<void> _selectRouteDate() async {
@@ -318,26 +327,7 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   Future<Position> _getCurrentPosition() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!enabled) {
-      throw Exception('Please turn on device location services.');
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission is required for live tracking.');
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
+    return AttendanceLocation.currentPosition();
   }
 
   Future<void> _loadHomeLocation() async {
@@ -444,10 +434,21 @@ class _TrackingViewState extends State<_TrackingView> {
     required bool showMessage,
   }) async {
     if (!trackingActive) return;
+    if (!position.accuracy.isFinite || position.accuracy > 200) {
+      throw Exception(
+        'Live tracking needs GPS accuracy of 200 metres or better. Current accuracy: ${position.accuracy.toStringAsFixed(0)} m.',
+      );
+    }
+    final address = await reverseGeocodeOfficeLocation(
+      position.latitude,
+      position.longitude,
+    );
     await HrmsTrackingApi.ping(
       latitude: position.latitude,
       longitude: position.longitude,
       accuracy: position.accuracy,
+      capturedAt: position.timestamp.toUtc().toIso8601String(),
+      address: address,
     );
     if (!mounted) return;
     setState(() {
@@ -519,10 +520,16 @@ class _TrackingViewState extends State<_TrackingView> {
       final position = await _getCurrentPosition();
 
       if (!trackingActive) {
+        final address = await reverseGeocodeOfficeLocation(
+          position.latitude,
+          position.longitude,
+        );
         await HrmsTrackingApi.startHybridSession(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
+          capturedAt: position.timestamp.toUtc().toIso8601String(),
+          address: address,
         );
 
         if (!mounted) return;
@@ -1208,8 +1215,14 @@ class _ModeTab extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            gradient: active ? const LinearGradient(colors: [Color(0xFF13C58A), Color(0xFF00AE7B)]) : null,
-            border: Border.all(color: active ? Colors.transparent : employeeLine),
+            gradient: active
+                ? const LinearGradient(
+                    colors: [Color(0xFF13C58A), Color(0xFF00AE7B)],
+                  )
+                : null,
+            border: Border.all(
+              color: active ? Colors.transparent : employeeLine,
+            ),
             borderRadius: BorderRadius.circular(11),
           ),
           child: Row(
@@ -1443,11 +1456,11 @@ class _RouteMap extends StatelessWidget {
               Marker(
                 markerId: const MarkerId('office'),
                 position: officePoint,
-              infoWindow: InfoWindow(title: officeName),
-              icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueAzure,
+                infoWindow: InfoWindow(title: officeName),
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
               ),
-            ),
             if (mode == _WorkMode.home && homePoint != null)
               Marker(
                 markerId: const MarkerId('registered-home'),
@@ -1529,17 +1542,46 @@ class _TripMetrics extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
     child: Row(
       children: [
-        Expanded(child: _TripMetric(Icons.route_outlined, 'Distance', distance, employeeGreen)),
+        Expanded(
+          child: _TripMetric(
+            Icons.route_outlined,
+            'Distance',
+            distance,
+            employeeGreen,
+          ),
+        ),
         const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.timer_outlined, 'Duration', duration, employeeGreen)),
+        Expanded(
+          child: _TripMetric(
+            Icons.timer_outlined,
+            'Duration',
+            duration,
+            employeeGreen,
+          ),
+        ),
         const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.speed_outlined, 'Avg speed', avgSpeed, employeeGreen)),
+        Expanded(
+          child: _TripMetric(
+            Icons.speed_outlined,
+            'Avg speed',
+            avgSpeed,
+            employeeGreen,
+          ),
+        ),
         const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.update_rounded, 'Updated', updated.replaceFirst('Updated ', ''), employeeGreen)),
+        Expanded(
+          child: _TripMetric(
+            Icons.update_rounded,
+            'Updated',
+            updated.replaceFirst('Updated ', ''),
+            employeeGreen,
+          ),
+        ),
       ],
     ),
   );
 }
+
 class _TripMetric extends StatelessWidget {
   const _TripMetric(this.icon, this.label, this.value, this.color);
   final IconData icon;

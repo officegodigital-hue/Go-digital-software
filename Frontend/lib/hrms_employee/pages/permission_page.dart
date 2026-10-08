@@ -77,12 +77,12 @@ class _EmployeePermissionPageState extends State<EmployeePermissionPage> {
 }
 
 void _showPermissionHistoryDialog(BuildContext context, List<dynamic> history, bool loading) {
-  String _fmtDate(String? v) {
+  String fmtDate(String? v) {
     final dt = DateTime.tryParse(v ?? '');
     return dt == null ? (v ?? '--') : DateFormat('dd/MM/yyyy').format(dt);
   }
 
-  String _fmtTime(String? start, String? end) {
+  String fmtTime(String? start, String? end) {
     String fmt(String? v) {
       if (v == null || v.isEmpty) return '';
       final parts = v.split(':');
@@ -136,7 +136,7 @@ void _showPermissionHistoryDialog(BuildContext context, List<dynamic> history, b
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: history.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final r = history[i];
                       final status = r['status']?.toString() ?? 'Pending';
@@ -150,8 +150,8 @@ void _showPermissionHistoryDialog(BuildContext context, List<dynamic> history, b
                           const Icon(Icons.shield_outlined, color: employeePurple, size: 18),
                           const SizedBox(width: 10),
                           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(_fmtDate(r['date']?.toString()), style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700, fontSize: 13)),
-                            Text('${r['reason'] ?? ''} · ${_fmtTime(r['start_time']?.toString(), r['end_time']?.toString())}',
+                            Text(fmtDate(r['date']?.toString()), style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                            Text('${r['reason'] ?? ''} · ${fmtTime(r['start_time']?.toString(), r['end_time']?.toString())}',
                               style: const TextStyle(color: employeeMuted, fontSize: 11)),
                           ])),
                           const SizedBox(width: 8),
@@ -193,8 +193,65 @@ class _PermissionContentState extends State<_PermissionContent> {
   TimeOfDay _startTime = const TimeOfDay(hour: 14, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 16, minute: 0);
 
+  // 'permission' = short time-off, 'wfh' = work from home all day
+  String _requestType = 'permission';
+
   bool _submitting = false;
 
+  Widget _buildMobileRequest(BuildContext context) {
+    InputDecoration input(String hint, IconData icon) => InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: employeeMuted, fontSize: 16),
+      prefixIcon: Icon(icon, color: const Color(0xFF657493), size: 24),
+      filled: true,
+      fillColor: const Color(0xFFFCFDFF),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Color(0xFFE0E7F2), width: 1.4), borderRadius: BorderRadius.circular(16)),
+      focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: employeeBlue, width: 1.5), borderRadius: BorderRadius.circular(16)),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const MobileEmployeeHeader(showGreeting: true),
+      const SizedBox(height: 12),
+      const Text('Permission', style: TextStyle(color: employeeNavy, fontSize: 36, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 32),
+      Container(width: double.infinity, padding: const EdgeInsets.all(24), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF6B27EC), Color(0xFF0875EF)], begin: Alignment.topLeft, end: Alignment.bottomRight), borderRadius: BorderRadius.circular(24)), child: Row(children: [
+        Container(width: 72, height: 72, decoration: BoxDecoration(color: const Color(0x26FFFFFF), border: Border.all(color: const Color(0x55FFFFFF)), borderRadius: BorderRadius.circular(20)), child: const Icon(Icons.verified_user_outlined, color: Colors.white, size: 42)),
+        const SizedBox(width: 18),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Permission\nRequest', style: TextStyle(color: Colors.white, fontSize: 24, height: 1.12, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          const Text('Select your time away\nand send it for approval.', style: TextStyle(color: Color(0xD9FFFFFF), fontSize: 15, height: 1.35)),
+          const SizedBox(height: 14),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7), decoration: BoxDecoration(color: const Color(0x22FFFFFF), borderRadius: BorderRadius.circular(20)), child: const Text('MANAGER APPROVAL', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: .45))),
+        ])),
+      ])),
+      const SizedBox(height: 22),
+      EmployeeCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Request type toggle
+        Row(children: [
+          Expanded(child: _TypeToggleButton(label: 'Permission', icon: Icons.verified_user_outlined, selected: _requestType == 'permission', onTap: () => setState(() => _requestType = 'permission'))),
+          const SizedBox(width: 10),
+          Expanded(child: _TypeToggleButton(label: 'Work From Home', icon: Icons.home_work_outlined, selected: _requestType == 'wfh', onTap: () => setState(() => _requestType = 'wfh'))),
+        ]),
+        const SizedBox(height: 22),
+        Text(_requestType == 'wfh' ? 'WFH Date' : 'Permission Date', style: const TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        TextField(controller: _dateCtrl, readOnly: true, onTap: _pickDate, style: const TextStyle(color: employeeNavy, fontSize: 18, fontWeight: FontWeight.w700), decoration: input('Select date', Icons.calendar_today_outlined)),
+        if (_requestType == 'permission') ...[
+          const SizedBox(height: 22),
+          const Text('Time Away', style: TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          TextField(controller: _timeCtrl, readOnly: true, onTap: _pickTimeRange, style: const TextStyle(color: employeeNavy, fontSize: 18, fontWeight: FontWeight.w700), decoration: input('Select time', Icons.schedule_outlined)),
+        ],
+        const SizedBox(height: 22),
+        const Text('Reason', style: TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        TextField(controller: _reasonCtrl, minLines: 4, maxLines: 4, style: const TextStyle(color: employeeNavy, fontSize: 16), decoration: input(_requestType == 'wfh' ? 'Why do you need to work from home?' : 'Briefly describe the reason…', Icons.edit_outlined)),
+        const SizedBox(height: 20),
+        SizedBox(width: double.infinity, height: 58, child: ElevatedButton.icon(onPressed: _submitting ? null : _submit, icon: _submitting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.send_outlined, size: 27), label: Text(_submitting ? 'Submitting…' : 'Submit Request'), style: ElevatedButton.styleFrom(backgroundColor: employeeBlue, foregroundColor: Colors.white, elevation: 0, textStyle: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))))),
+      ])),
+    ]);
+  }
   @override
   void initState() {
     super.initState();
@@ -272,20 +329,29 @@ class _PermissionContentState extends State<_PermissionContent> {
 
     setState(() => _submitting = true);
 
-    if (_startTime.hour == _endTime.hour && _startTime.minute == _endTime.minute) {
+    if (_requestType == 'permission' &&
+        _startTime.hour == _endTime.hour &&
+        _startTime.minute == _endTime.minute) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Choose an end time later than the start time.')),
       );
       return;
     }
 
-    final payload = {
-      'type': 'permission',
-      'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
-      'start_time': '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
-      'end_time': '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
-      'reason': _reasonCtrl.text.trim(),
-    };
+    final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final Map<String, dynamic> payload = _requestType == 'wfh'
+        ? {
+            'type': 'wfh',
+            'date': dateStr,
+            'reason': _reasonCtrl.text.trim(),
+          }
+        : {
+            'type': 'permission',
+            'date': dateStr,
+            'start_time': '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+            'end_time': '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+            'reason': _reasonCtrl.text.trim(),
+          };
 
     var ok = false;
     try {
@@ -313,7 +379,9 @@ class _PermissionContentState extends State<_PermissionContent> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    if (widget.mobile && !widget.logOnly) return _buildMobileRequest(context);
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.mobile) ...[
@@ -377,16 +445,44 @@ class _PermissionContentState extends State<_PermissionContent> {
                     ),
                   ),
                   const SizedBox(height: 22),
+                  // Request type toggle
+                  Row(children: [
+                    Expanded(
+                      child: _TypeToggleButton(
+                        label: 'Permission',
+                        icon: Icons.verified_user_outlined,
+                        selected: _requestType == 'permission',
+                        onTap: () => setState(() => _requestType = 'permission'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _TypeToggleButton(
+                        label: 'Work From Home',
+                        icon: Icons.home_work_outlined,
+                        selected: _requestType == 'wfh',
+                        onTap: () => setState(() => _requestType = 'wfh'),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
                   LayoutBuilder(builder: (context, constraints) {
                     final dateField = InkWell(
                       onTap: _pickDate,
                       child: IgnorePointer(
                         child: TextField(
                           controller: _dateCtrl,
-                          decoration: const InputDecoration(labelText: 'Permission date', prefixIcon: Icon(Icons.calendar_today_outlined), border: OutlineInputBorder()),
+                          decoration: InputDecoration(
+                            labelText: _requestType == 'wfh' ? 'WFH date' : 'Permission date',
+                            prefixIcon: const Icon(Icons.calendar_today_outlined),
+                            border: const OutlineInputBorder(),
+                          ),
                         ),
                       ),
                     );
+                    if (_requestType == 'wfh') {
+                      return dateField;
+                    }
                     final timeField = InkWell(
                       onTap: _pickTimeRange,
                       child: IgnorePointer(
@@ -406,10 +502,12 @@ class _PermissionContentState extends State<_PermissionContent> {
                     controller: _reasonCtrl,
                     minLines: 3,
                     maxLines: 4,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Reason',
-                      hintText: 'Briefly describe your request...',
-                      border: OutlineInputBorder(),
+                      hintText: _requestType == 'wfh'
+                          ? 'Why do you need to work from home?'
+                          : 'Briefly describe your request...',
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -465,12 +563,18 @@ class _PermissionContentState extends State<_PermissionContent> {
                     final color = normalizedStatus == 'APPROVED'
                         ? employeeGreen
                         : (normalizedStatus == 'REJECTED' ? const Color(0xFFF12B46) : employeeOrange);
+                    final type = r['type']?.toString() ?? '';
+                    final isWfh = type == 'wfh';
+                    final timeLabel = isWfh
+                        ? 'Work From Home'
+                        : _formatStoredTime(r['start_time']?.toString(), r['end_time']?.toString());
                     return _row(
                       _formatHistoryDate(r['date']?.toString() ?? ''),
                       r['reason']?.toString() ?? '',
-                      _formatStoredTime(r['start_time']?.toString(), r['end_time']?.toString()),
+                      timeLabel,
                       status,
                       color,
+                      isWfh: isWfh,
                     );
                   }),
               ],
@@ -479,6 +583,7 @@ class _PermissionContentState extends State<_PermissionContent> {
           ],
         ],
       );
+  }
 
   String _formatHistoryDate(String value) {
     final date = DateTime.tryParse(value);
@@ -500,17 +605,33 @@ class _PermissionContentState extends State<_PermissionContent> {
     return from.isEmpty || to.isEmpty ? 'Time not recorded' : '$from – $to';
   }
 
-  Widget _row(String date, String reason, String time, String status, Color color) => Padding(
+  Widget _typeToggle() => Row(children: [
+    Expanded(child: _TypeToggleButton(label: 'Permission', icon: Icons.verified_user_outlined, selected: _requestType == 'permission', onTap: () => setState(() => _requestType = 'permission'))),
+    const SizedBox(width: 10),
+    Expanded(child: _TypeToggleButton(label: 'Work From Home', icon: Icons.home_work_outlined, selected: _requestType == 'wfh', onTap: () => setState(() => _requestType = 'wfh'))),
+  ]);
+
+  Widget _row(String date, String reason, String time, String status, Color color, {bool isWfh = false}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
-            const Icon(Icons.shield_outlined, color: employeePurple),
+            Icon(isWfh ? Icons.home_work_outlined : Icons.shield_outlined, color: employeePurple),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(date, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700)),
+                  Row(children: [
+                    Text(date, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700)),
+                    if (isWfh) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: const Color(0xFFE8F4FF), borderRadius: BorderRadius.circular(4)),
+                        child: const Text('WFH', style: TextStyle(color: Color(0xFF0767F2), fontSize: 10, fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ]),
                   Text('$reason · $time', style: const TextStyle(color: employeeMuted, fontSize: 12)),
                 ],
               ),
@@ -519,4 +640,49 @@ class _PermissionContentState extends State<_PermissionContent> {
           ],
         ),
       );
+}
+
+class _TypeToggleButton extends StatelessWidget {
+  const _TypeToggleButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: selected ? employeeBlue : const Color(0xFFF4F6FB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: selected ? employeeBlue : const Color(0xFFDDE3EF),
+          width: 1.5,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18, color: selected ? Colors.white : employeeMuted),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : employeeNavy,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

@@ -224,6 +224,24 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> trackingPermissions() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/permissions'),
+      headers: await _headers(),
+    );
+
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> fieldSessionSummary() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/summary'),
+      headers: await _headers(),
+    );
+
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> startFieldSession({
     required double latitude,
     required double longitude,

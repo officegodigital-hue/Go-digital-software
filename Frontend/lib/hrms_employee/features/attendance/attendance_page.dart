@@ -204,7 +204,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 decoration: const InputDecoration(hintText: 'Choose correction type'),
                 items: const [
                   DropdownMenuItem(value: 'missed_check_in', child: Text('Missed check-in')),
