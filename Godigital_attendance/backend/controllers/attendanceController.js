@@ -152,6 +152,9 @@ function timeSeconds(value) {
 
 const PERMISSION_GRACE_SECONDS = 30 * 60;
 
+// Attendance exceptions are resolved here, on the server, immediately before
+// a Clock In is written.  The client only supplies its Clock In request; it
+// cannot choose Present, Late, or Half Leave for itself.
 async function approvedPermissionDecision(connection, employeeId, date, at) {
   const [rows] = await connection.query(
     `SELECT permission_start_time, permission_end_time, salary_mode
@@ -163,16 +166,20 @@ async function approvedPermissionDecision(connection, employeeId, date, at) {
     [employeeId, date]
   );
   const clockInSeconds = timeSeconds(String(at).slice(11, 19));
+
   for (const row of rows) {
     const start = timeSeconds(row.permission_start_time);
     const end = timeSeconds(row.permission_end_time);
     const salaryMode = String(row.salary_mode || '').toLowerCase();
+
+    // A later permission must never rewrite the normal morning late rule.
     if (clockInSeconds < start) continue;
+
     if (salaryMode === 'paid' && clockInSeconds <= end + PERMISSION_GRACE_SECONDS) {
-      return { status: 'present', isLate: false };
+      return { status: 'present', isLate: false, source: 'paid_permission' };
     }
     if (salaryMode === 'unpaid' && clockInSeconds <= end + PERMISSION_GRACE_SECONDS) {
-      return { status: 'half_leave', isLate: false };
+      return { status: 'half_leave', isLate: false, source: 'unpaid_permission' };
     }
   }
   return null;
@@ -539,6 +546,7 @@ async function myHistory(req, res) {
           type: String(row.request_type).replace(/_/g, ' '),
           date: row.request_date,
           reason: row.reason,
+          salary_mode: row.salary_mode || null,
           status: capitalize(row.status)
         };
       })
@@ -816,7 +824,10 @@ async function checkIn(req, res) {
     }
 
     const permissionDecision = await approvedPermissionDecision(
-      connection, employeeId, date, at
+      connection,
+      employeeId,
+      date,
+      at
     );
     let status = absent ? 'absent' : (late ? 'late' : 'present');
     if (permissionDecision) {
@@ -1184,11 +1195,21 @@ async function reviewPermission(req, res) {
   try {
     const id = Number(req.params.id);
     const status = String((req.body && req.body.status) || '').toLowerCase();
+    const salaryMode = String((req.body && req.body.salaryMode) || '').toLowerCase();
     if (status !== 'approved' && status !== 'rejected') return fail(res, 400, 'status must be approved or rejected');
     const at = policy.nowIstDateTime();
+    const [[request]] = await db.query(
+      "SELECT request_type FROM attendance_permission_requests WHERE id = ? AND status = 'pending'",
+      [id]
+    );
+    if (!request) return fail(res, 404, 'Pending request not found');
+    if (status === 'approved' && request.request_type === 'permission' &&
+        salaryMode !== 'paid' && salaryMode !== 'unpaid') {
+      return fail(res, 400, 'Choose paid or unpaid permission before approving');
+    }
     const [result] = await db.query(
-      "UPDATE attendance_permission_requests SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ? AND status = 'pending'",
-      [status, req.user.id, at, id]
+      "UPDATE attendance_permission_requests SET status = ?, salary_mode = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ? AND status = 'pending'",
+      [status, request.request_type === 'permission' && status === 'approved' ? salaryMode : null, req.user.id, at, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Pending request not found');
     return ok(res, { id: id, status: capitalize(status) }, 'Request updated');

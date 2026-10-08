@@ -108,15 +108,28 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
               'Unpaid permission is recorded as Half Leave and deducts half a day of salary.',
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              OutlinedButton(onPressed: () => Navigator.pop(context, 'unpaid'), child: const Text('Without salary')),
-              FilledButton(onPressed: () => Navigator.pop(context, 'paid'), child: const Text('With salary')),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(context, 'unpaid'),
+                child: const Text('Without salary'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, 'paid'),
+                child: const Text('With salary'),
+              ),
             ],
           ),
         );
         if (salaryMode == null) return;
       }
-      await HrmsApprovalsApi.review(request.requestId, nextStatus, salaryMode: salaryMode);
+      await HrmsApprovalsApi.review(
+        request.requestId,
+        nextStatus,
+        salaryMode: salaryMode,
+      );
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

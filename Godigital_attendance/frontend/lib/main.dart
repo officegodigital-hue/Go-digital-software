@@ -39,6 +39,10 @@ class AttendanceApp extends StatelessWidget {
         '/employee/salary': (_) => const EmployeeSalaryPage(),
         '/employee/tracking': (_) => const EmployeeTrackingPage(),
       },
+      // The admin portal is a nested MaterialApp. Register its deep links in
+      // the root app too, so a browser refresh or Flutter hot restart while
+      // on /admin/dashboard can rebuild the portal instead of falling back to
+      // the login route.
       onGenerateRoute: (settings) {
         if (settings.name?.startsWith('/admin/') ?? false) {
           return MaterialPageRoute<void>(

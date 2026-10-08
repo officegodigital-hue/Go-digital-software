@@ -138,7 +138,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
               daysMap[dayNum] = {
                 'status': statusStr == 'holiday'
                     ? 'H'
-                    : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P')),
+                    : (statusStr == 'half_leave' ? 'HL' : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'))),
                 'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
               };
             });

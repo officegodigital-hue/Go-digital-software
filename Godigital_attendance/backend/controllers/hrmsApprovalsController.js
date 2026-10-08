@@ -99,6 +99,8 @@ function toUi(row) {
     reason: row.reason || '',
     status: String(row.status || 'pending').replace(/^./, function (c) { return c.toUpperCase(); }),
     salaryMode: row.salary_mode || null,
+    permissionStartTime: row.permission_start_time || null,
+    permissionEndTime: row.permission_end_time || null,
     icon: meta.icon,
     color: meta.color,
     tab: extra ? 'extra' : 'leave',
@@ -206,6 +208,7 @@ async function list(req, res) {
 
     const [rows] = await db.query(
       `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
+              p.permission_start_time, p.permission_end_time,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
@@ -287,6 +290,7 @@ async function review(req, res) {
       [status === 'approved' ? 'APPROVED' : 'DENIED', id]
     );    const [rows] = await db.query(
       `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
+              p.permission_start_time, p.permission_end_time,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
