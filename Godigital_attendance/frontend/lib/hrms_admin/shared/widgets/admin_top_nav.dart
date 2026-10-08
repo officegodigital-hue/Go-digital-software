@@ -181,7 +181,9 @@ class AdminLogoutButton extends StatelessWidget {
   final bool compact;
 
   Future<void> _logout(BuildContext context) async {
-    await AuthService().logout();
+    // Use the app's provided service instead of constructing a separate
+    // instance. The provider must be notified so AuthGate switches to login.
+    await context.read<AuthService>().logout();
     if (context.mounted) {
       // AdminPortalApp is a nested MaterialApp, so '/' would resolve back to
       // the admin dashboard. Replace the whole visible stack with login.
