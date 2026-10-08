@@ -1520,7 +1520,7 @@ class _RouteHistoryPanelState extends State<_RouteHistoryPanel> {
           final routes = j['routes'] as List?;
           if (routes != null && routes.isNotEmpty) {
             final r = routes.first as Map<String, dynamic>;
-            final enc = (r['overview_polyline'] as Map?)['points'] as String?;
+            final enc = (r['overview_polyline'] as Map?)?['points'] as String?;
             if (enc != null && enc.isNotEmpty) poly = _decodePolyline(enc);
             for (final leg in (r['legs'] as List? ?? [])) {
               km += ((leg as Map)['distance']?['value'] as num? ?? 0) / 1000;
@@ -2581,6 +2581,8 @@ class _FieldWaitingSettingsDialogState
         fieldWaitingMinutes: waitingMinutes,
         stationaryRadiusMeters: stationaryRadius,
         fieldPingIntervalMinutes: pingInterval,
+        officeOutsideRadiusGraceMinutes: 0,
+        homeOutsideRadiusGraceMinutes: 0,
       );
 
       if (!mounted) return;
