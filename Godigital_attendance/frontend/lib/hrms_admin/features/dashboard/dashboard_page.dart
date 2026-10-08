@@ -4,8 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:provider/provider.dart';
 
 import '../../../screens/admin_dashboard/helpers/csv_export.dart';
+import '../../../screens/login_screen.dart';
+import '../../../services/auth_service.dart';
 import '../../../services/hrms_dashboard_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
 import 'widgets/attendance_grid.dart';
@@ -839,13 +842,18 @@ class _MobileDashboard extends StatelessWidget {
             const SizedBox(width: 8),
             PopupMenuButton<String>(
               tooltip: 'Workspace',
-              onSelected: (value) {
+              onSelected: (value) async {
                 if (value == 'workspace') {
                   Navigator.of(context, rootNavigator: true)
                       .pushNamedAndRemoveUntil('/home', (route) => false);
                 } else {
+                  await context.read<AuthService>().logout();
+                  if (!context.mounted) return;
                   Navigator.of(context, rootNavigator: true)
-                      .pushNamedAndRemoveUntil('/home', (route) => false);
+                      .pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        (route) => false,
+                      );
                 }
               },
               icon: const CircleAvatar(
@@ -980,6 +988,17 @@ class _MobileAdminDrawer extends StatelessWidget {
     Navigator.pushReplacementNamed(context, route);
   }
 
+  Future<void> _logout(BuildContext context) async {
+    final auth = context.read<AuthService>();
+    Navigator.pop(context);
+    await auth.logout();
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Drawer(
         child: SafeArea(
@@ -1014,7 +1033,7 @@ class _MobileAdminDrawer extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.logout_rounded, color: _red),
               title: const Text('Logout', style: TextStyle(color: _red, fontWeight: FontWeight.w700)),
-              onTap: () => Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil('/home', (route) => false),
+              onTap: () => _logout(context),
             ),
             const SizedBox(height: 10),
           ]),
