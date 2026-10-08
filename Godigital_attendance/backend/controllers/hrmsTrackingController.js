@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
+const crypto = require('crypto');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -199,6 +200,193 @@ async function list(req, res) {
 }
 
 const ACTIVE_WINDOW_MINUTES = 15;
+
+async function ensureRoadRouteCacheTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_road_route_cache (
+    employee_user_id INT NOT NULL,
+    route_date DATE NOT NULL,
+    source_signature CHAR(64) NOT NULL,
+    route_points_json LONGTEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (employee_user_id, route_date)
+  )`);
+}
+
+function rawRoutePoints(pings) {
+  return pings.map(function (row) {
+    return {
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      address: row.address,
+      recordedAt: row.recorded_at,
+    };
+  });
+}
+
+function routeSignature(points, engine) {
+  return crypto.createHash('sha256').update(points.map(function (point) {
+    return [point.latitude, point.longitude, String(point.recordedAt || '')].join(',');
+  }).join('|') + '|' + String(engine || 'raw')).digest('hex');
+}
+
+function withoutDuplicatePoints(points) {
+  return points.filter(function (point, index) {
+    if (!index) return true;
+    const previous = points[index - 1];
+    return previous.latitude !== point.latitude || previous.longitude !== point.longitude;
+  });
+}
+
+// Google Routes returns a compact encoded polyline. Decode it on the server so
+// Flutter only receives ordinary latitude/longitude points.
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, latitude = 0, longitude = 0;
+  while (index < encoded.length) {
+    let result = 0, shift = 0, byte;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+    latitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+    result = 0; shift = 0;
+    do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+    longitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+    points.push({ latitude: latitude / 1e5, longitude: longitude / 1e5 });
+  }
+  return points;
+}
+
+function routesWaypoint(point) {
+  return { location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } } };
+}
+
+async function routeWithGoogleRoutes(rawPoints, apiKey) {
+  // Routes API accepts a limited number of intermediate waypoints. Each group
+  // overlaps one point, preserving a continuous whole-day journey.
+  const MAX_POINTS_PER_REQUEST = 27; // origin + 25 intermediates + destination
+  const geometry = [];
+  for (let start = 0; start < rawPoints.length - 1; start += MAX_POINTS_PER_REQUEST - 1) {
+    const chunk = rawPoints.slice(start, start + MAX_POINTS_PER_REQUEST);
+    if (chunk.length < 2) break;
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.polyline.encodedPolyline'
+      },
+      body: JSON.stringify({
+        origin: routesWaypoint(chunk[0]),
+        destination: routesWaypoint(chunk[chunk.length - 1]),
+        intermediates: chunk.slice(1, -1).map(routesWaypoint),
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_UNAWARE',
+        polylineQuality: 'HIGH_QUALITY',
+        polylineEncoding: 'ENCODED_POLYLINE'
+      })
+    });
+    if (!response.ok) throw new Error('Routes API returned ' + response.status + ': ' + (await response.text()).slice(0, 180));
+    const body = await response.json();
+    const encoded = body && body.routes && body.routes[0] && body.routes[0].polyline && body.routes[0].polyline.encodedPolyline;
+    const points = encoded ? decodePolyline(encoded) : [];
+    if (points.length < 2) throw new Error('Routes API returned no usable route polyline');
+    geometry.push.apply(geometry, points);
+  }
+  return withoutDuplicatePoints(geometry);
+}
+
+async function snapRouteToRoads(employeeUserId, date, rawPoints) {
+  const apiKey = String(process.env.GOOGLE_ROADS_API_KEY || '').trim();
+  const routesApiKey = String(process.env.GOOGLE_ROUTES_API_KEY || process.env.GOOGLE_ROADS_API_KEY || '').trim();
+  if (rawPoints.length < 2 || (!apiKey && !routesApiKey)) {
+    return { points: rawPoints, roadSnapped: false };
+  }
+
+  // Prefer Routes API: unlike point snapping, it calculates the road path
+  // between GPS readings. Cache it under a new signature so an old snapped
+  // route is never returned after this upgrade.
+  if (routesApiKey) {
+    const routesSignature = routeSignature(rawPoints, 'routes-v1');
+    try {
+      await ensureRoadRouteCacheTable();
+      const [cachedRows] = await db.query(
+        `SELECT route_points_json FROM hrms_road_route_cache
+         WHERE employee_user_id = ? AND route_date = ? AND source_signature = ?`,
+        [employeeUserId, date, routesSignature]
+      );
+      if (cachedRows.length) {
+        const cached = JSON.parse(cachedRows[0].route_points_json);
+        if (Array.isArray(cached) && cached.length >= 2) return { points: cached, roadSnapped: true, routeMatched: true };
+      }
+      const route = await routeWithGoogleRoutes(rawPoints, routesApiKey);
+      if (route.length < 2) throw new Error('Routes API did not produce a usable route');
+      await db.query(
+        `INSERT INTO hrms_road_route_cache (employee_user_id, route_date, source_signature, route_points_json)
+         VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE source_signature = VALUES(source_signature), route_points_json = VALUES(route_points_json)`,
+        [employeeUserId, date, routesSignature, JSON.stringify(route)]
+      );
+      return { points: route, roadSnapped: true, routeMatched: true };
+    } catch (error) {
+      console.error('Routes API failed; trying Roads API fallback:', error.message);
+    }
+  }
+
+  const signature = routeSignature(rawPoints, 'roads-v1');
+  try {
+    await ensureRoadRouteCacheTable();
+    const [cachedRows] = await db.query(
+      `SELECT route_points_json FROM hrms_road_route_cache
+       WHERE employee_user_id = ? AND route_date = ? AND source_signature = ?`,
+      [employeeUserId, date, signature]
+    );
+    if (cachedRows.length) {
+      const cached = JSON.parse(cachedRows[0].route_points_json);
+      if (Array.isArray(cached) && cached.length >= 2) {
+        return { points: cached, roadSnapped: true };
+      }
+    }
+
+    // Roads API accepts at most 100 GPS points per request. Adjacent chunks
+    // share their boundary point so a long journey remains continuous.
+    const snapped = [];
+    for (let start = 0; start < rawPoints.length; start += 99) {
+      const chunk = rawPoints.slice(start, start + 100);
+      if (chunk.length < 2) break;
+      const path = chunk.map(function (point) {
+        return point.latitude + ',' + point.longitude;
+      }).join('|');
+      const url = 'https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' +
+        encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Roads API returned ' + response.status);
+      const body = await response.json();
+      const points = Array.isArray(body.snappedPoints) ? body.snappedPoints : [];
+      if (!points.length) throw new Error('Roads API returned no snapped points');
+      points.forEach(function (point) {
+        if (point.location) {
+          snapped.push({
+            latitude: Number(point.location.latitude),
+            longitude: Number(point.location.longitude),
+          });
+        }
+      });
+    }
+
+    const route = withoutDuplicatePoints(snapped);
+    if (route.length < 2) throw new Error('Roads API did not produce a usable route');
+    await db.query(
+      `INSERT INTO hrms_road_route_cache
+       (employee_user_id, route_date, source_signature, route_points_json)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE source_signature = VALUES(source_signature),
+         route_points_json = VALUES(route_points_json)`,
+      [employeeUserId, date, signature, JSON.stringify(route)]
+    );
+    return { points: route, roadSnapped: true };
+  } catch (error) {
+    console.error('Road snapping failed; using raw GPS route:', error.message);
+    return { points: rawPoints, roadSnapped: false };
+  }
+}
 const GEOCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h; rounded coords repeat a lot
 const geocodeCache = new Map();
 
@@ -213,15 +401,21 @@ async function reverseGeocode(latitude, longitude) {
     return cached.address;
   }
 
-  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
-  if (!apiKey) return null;
-
   try {
-    const url = 'https://maps.googleapis.com/maps/api/geocode/json'
-      + '?latlng=' + encodeURIComponent(latitude + ',' + longitude)
-      + '&key=' + apiKey;
-    const response = await fetch(url);
+    const apiKey = process.env.GOOGLE_GEOCODING_API_KEY;
+    const url = apiKey
+      ? 'https://maps.googleapis.com/maps/api/geocode/json?latlng=' + encodeURIComponent(latitude + ',' + longitude) + '&key=' + apiKey
+      : 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&lat=' + encodeURIComponent(latitude) + '&lon=' + encodeURIComponent(longitude);
+    const headers = apiKey ? {} : { 'User-Agent': 'GoDigital-Attendance/1.0' };
+    const response = await fetch(url, { headers: headers });
     const data = await response.json();
+
+    if (!apiKey) {
+      const address = data && data.display_name;
+      if (!address) return null;
+      geocodeCache.set(key, { address: address, expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS });
+      return address;
+    }
 
     if (data.status !== 'OK' || !data.results || !data.results.length) {
       return null;
@@ -399,11 +593,86 @@ async function ping(req, res) {
     );
     const pingId = result.insertId;
 
-    detectFieldWaitingTime(employeeUserId, latitude, longitude).catch(
-  function (error) {
-    console.error('Field waiting-time detection failed', error.message);
-  }
-);
+    // Enforce office-radius rules from the server. Hybrid employees may stay
+    // checked in outside the office only while live tracking is active.
+    const [profiles] = await db.query(
+      `SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?`,
+      [employeeUserId]
+    );
+    const workMode = profiles[0] && profiles[0].work_mode;
+    if (workMode === 'Office' || workMode === 'Hybrid') {
+      const settings = await locationPolicy.settingsFor(db, false);
+      const distance = locationPolicy.distanceMeters(
+        { latitude: settings.office_latitude, longitude: settings.office_longitude },
+        { latitude, longitude }
+      );
+      const [activeTracking] = await db.query(
+        `SELECT id FROM hrms_field_tracking_sessions
+         WHERE employee_user_id = ? AND is_active = 1 LIMIT 1`,
+        [employeeUserId]
+      );
+      const allowedOutside = workMode === 'Hybrid' && activeTracking.length > 0;
+      const [breakRows] = await db.query(
+        `SELECT b.id, TIMESTAMPDIFF(MINUTE, b.started_at, CURRENT_TIMESTAMP) AS break_minutes
+         FROM attendance_breaks b
+         INNER JOIN attendance_records a ON a.id = b.attendance_id
+         WHERE a.employee_id = ? AND a.attendance_date = ?
+           AND a.check_in_at IS NOT NULL AND a.check_out_at IS NULL
+           AND b.status = 'active'
+         ORDER BY b.id DESC LIMIT 1`,
+        [employeeUserId, policy.todayIstDate()]
+      );
+      const breakProtected = breakRows.length && Number(breakRows[0].break_minutes) < 70;
+      if (breakProtected) {
+        await db.query(
+          `UPDATE attendance_records SET outside_radius_since = NULL
+           WHERE employee_id = ? AND attendance_date = ? AND check_out_at IS NULL`,
+          [employeeUserId, policy.todayIstDate()]
+        );
+      } else if (distance > Number(settings.radiusMeters) && !allowedOutside) {
+        const [activeAttendance] = await db.query(
+          `SELECT id, check_in_at, outside_radius_since FROM attendance_records
+           WHERE employee_id = ? AND attendance_date = ?
+             AND check_in_at IS NOT NULL AND check_out_at IS NULL
+           ORDER BY id DESC LIMIT 1`,
+          [employeeUserId, policy.todayIstDate()]
+        );
+        if (activeAttendance.length) {
+          const attendance = activeAttendance[0];
+          if (!attendance.outside_radius_since) {
+            await db.query(`UPDATE attendance_records SET outside_radius_since = CURRENT_TIMESTAMP WHERE id = ? AND check_out_at IS NULL`, [attendance.id]);
+            return ok(res, { locationRecorded: true, outsideRadius: true, gracePeriodStarted: true }, 'You are outside the office radius. Return within 2 minutes or you will be clocked out.');
+          }
+          const [expired] = await db.query(
+            `SELECT id FROM attendance_records WHERE id = ? AND check_out_at IS NULL AND outside_radius_since <= (CURRENT_TIMESTAMP - INTERVAL ? MINUTE)`,
+            [attendance.id, settings.outsideRadiusGraceMinutes]
+          );
+          if (expired.length) {
+            await db.query(
+              `UPDATE attendance_records SET check_out_at = CURRENT_TIMESTAMP, working_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, check_in_at, CURRENT_TIMESTAMP)), outside_radius_since = NULL, session_status = 'completed' WHERE id = ? AND check_out_at IS NULL`,
+              [attendance.id]
+            );
+            await db.query(
+              `UPDATE attendance_breaks
+               SET ended_at = CURRENT_TIMESTAMP,
+                   duration_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP)),
+                   status = 'auto_closed'
+               WHERE attendance_id = ? AND status = 'active'`,
+              [attendance.id]
+            );
+            return ok(res, { locationRecorded: true, autoClockedOut: true }, `You remained outside the permitted office radius for ${settings.outsideRadiusGraceMinutes} minutes and were automatically clocked out.`);
+          }
+          return ok(res, { locationRecorded: true, outsideRadius: true, gracePeriodActive: true }, 'You are outside the office radius. Return within the remaining grace period.');
+        }
+      } else {
+        await db.query(`UPDATE attendance_records SET outside_radius_since = NULL WHERE employee_id = ? AND attendance_date = ? AND check_in_at IS NOT NULL AND check_out_at IS NULL`, [employeeUserId, policy.todayIstDate()]);
+      }
+    }
+
+    // Finish stationary-time detection before acknowledging the ping. This
+    // ensures the employee app can retrieve a newly-created waiting alert on
+    // its next one-minute check instead of racing a background task.
+    await detectFieldWaitingTime(employeeUserId, latitude, longitude);
 
     ok(res, null, 'Location recorded'); // respond right away, don't block on geocoding
 
@@ -421,7 +690,7 @@ async function ping(req, res) {
 async function liveOverview(req, res) {
   try {
     const [profiles] = await db.query(`
-      SELECT id, employee_user_id, full_name, employee_code, work_mode
+      SELECT id, employee_user_id, full_name, employee_code
       FROM hrms_employee_profiles
       WHERE employment_status <> 'Inactive'
     `);
@@ -460,16 +729,7 @@ async function liveOverview(req, res) {
 
     const items = profiles.map(function (profile) {
       const uid = profile.employee_user_id ? Number(profile.employee_user_id) : null;
-      // Before an employee sends a live status, show them under their
-      // admin-configured work mode instead of incorrectly defaulting to Office.
-      const configuredStatus = String(profile.work_mode || 'Office').toLowerCase();
-      const fallbackStatus = configuredStatus === 'home' ? 'home' : 'office';
-      const liveStatus = uid && statusMap.get(uid);
-      // A stale `office` status must not move a Home employee into the Office
-      // list. Field is the only live state that temporarily overrides Home.
-      const status = configuredStatus === 'home'
-        ? (liveStatus === 'field' ? 'field' : 'home')
-        : liveStatus || fallbackStatus;
+      const status = (uid && statusMap.get(uid)) || 'office';
       const ping = uid ? pingMap.get(uid) : null;
       counts[status] = (counts[status] || 0) + 1;
 
@@ -523,20 +783,82 @@ async function routeHistory(req, res) {
       [employeeUserId, date]
     );
 
+    const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: employeeUserId,
       date: date,
-      points: pings.map(function (row) {
-        return {
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          address: row.address,
-          recordedAt: row.recorded_at,
-        };
-      }),
+      points: route.points,
+      roadSnapped: route.roadSnapped,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function myRouteHistoryList(req, res) {
+  try {
+    const limit = Math.min(30, Math.max(1, Number(req.query.limit || 10)));
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings WHERE employee_user_id = ?
+       ORDER BY recorded_at DESC LIMIT 5000`,
+      [req.user.id]
+    );
+    const byDate = new Map();
+    pings.reverse().forEach(function (ping) {
+      const date = isoDate(ping.recorded_at);
+      if (!date) return;
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(ping);
+    });
+    const items = Array.from(byDate.entries()).sort(function (a, b) { return b[0].localeCompare(a[0]); }).slice(0, limit).map(function (entry) {
+      const date = entry[0];
+      const points = entry[1];
+      let meters = 0;
+      for (let i = 1; i < points.length; i += 1) {
+        meters += locationPolicy.distanceMeters(Number(points[i - 1].latitude), Number(points[i - 1].longitude), Number(points[i].latitude), Number(points[i].longitude));
+      }
+      const first = points[0];
+      const last = points[points.length - 1];
+      const started = new Date(first.recorded_at);
+      const ended = new Date(last.recorded_at);
+      return {
+        date: date,
+        startAddress: first.address || 'Starting location',
+        endAddress: last.address || 'Latest location',
+        distanceKm: Math.round((meters / 1000) * 100) / 100,
+        durationMinutes: Number.isNaN(started.getTime()) || Number.isNaN(ended.getTime()) ? 0 : Math.max(0, Math.round((ended.getTime() - started.getTime()) / 60000)),
+        pointCount: points.length
+      };
+    });
+    return ok(res, { items: items });
+  } catch (error) {
+    console.error('GET /hrms/tracking/route/my/history', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function myRouteHistory(req, res) {
+  try {
+    const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
+       ORDER BY recorded_at ASC`,
+      [req.user.id, date]
+    );
+    const route = await snapRouteToRoads(req.user.id, date, rawRoutePoints(pings));
+    return ok(res, {
+      employeeUserId: req.user.id,
+      date: date,
+      points: route.points,
+      roadSnapped: route.roadSnapped,
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/route/my', error);
     return fail(res, 500, error.message);
   }
 }
@@ -584,6 +906,9 @@ async function updateTrackingSettings(req, res) {
     const officeRadiusMeters =
         Number(req.body.officeRadiusMeters ?? current.office_radius_meters);
 
+    const outsideRadiusGraceMinutes =
+        Number(req.body.outsideRadiusGraceMinutes ?? current.outside_radius_grace_minutes ?? 2);
+
     const fieldPingIntervalMinutes =
         Number(req.body.fieldPingIntervalMinutes ??
             current.field_ping_interval_minutes);
@@ -592,9 +917,16 @@ async function updateTrackingSettings(req, res) {
         Number(req.body.fieldWaitingMinutes ??
             current.field_waiting_minutes);
 
+    const lunchBreakLimitMinutes =
+        Number(req.body.lunchBreakLimitMinutes ?? current.lunch_break_limit_minutes ?? 70);
+
     const stationaryRadiusMeters =
         Number(req.body.stationaryRadiusMeters ??
             current.stationary_radius_meters);
+
+    const homeTrackingEnabled = req.body.homeTrackingEnabled == null
+      ? Number(current.home_tracking_enabled || 0) === 1
+      : req.body.homeTrackingEnabled === true || req.body.homeTrackingEnabled === 1 || req.body.homeTrackingEnabled === '1';
 
     if (
       !officeName ||
@@ -606,8 +938,10 @@ async function updateTrackingSettings(req, res) {
       officeLongitude < -180 ||
       officeLongitude > 180 ||
       officeRadiusMeters < 1 ||
+      outsideRadiusGraceMinutes < 1 ||
       fieldPingIntervalMinutes < 1 ||
       fieldWaitingMinutes < 1 ||
+      lunchBreakLimitMinutes < 1 ||
       stationaryRadiusMeters < 1
     ) {
       return fail(res, 400, 'Invalid tracking settings');
@@ -620,9 +954,12 @@ async function updateTrackingSettings(req, res) {
            office_latitude = ?,
            office_longitude = ?,
            office_radius_meters = ?,
+           outside_radius_grace_minutes = ?,
            field_ping_interval_minutes = ?,
            field_waiting_minutes = ?,
+           lunch_break_limit_minutes = ?,
            stationary_radius_meters = ?,
+           home_tracking_enabled = ?,
            updated_by = ?
        WHERE id = 1`,
       [
@@ -631,9 +968,12 @@ async function updateTrackingSettings(req, res) {
         officeLatitude,
         officeLongitude,
         officeRadiusMeters,
+        outsideRadiusGraceMinutes,
         fieldPingIntervalMinutes,
         fieldWaitingMinutes,
+        lunchBreakLimitMinutes,
         stationaryRadiusMeters,
+        homeTrackingEnabled ? 1 : 0,
         req.user.id,
       ]
     );
@@ -645,8 +985,20 @@ async function updateTrackingSettings(req, res) {
   }
 }
 
+async function homeFeatureEnabled() {
+  const [rows] = await db.query('SELECT home_tracking_enabled FROM hrms_tracking_settings WHERE id = 1');
+  return Number(rows[0] && rows[0].home_tracking_enabled) === 1;
+}
+
+async function requireHomeFeature(res) {
+  if (await homeFeatureEnabled()) return true;
+  fail(res, 403, 'Home work functionality is disabled by the administrator');
+  return false;
+}
+
 async function getMyHomeLocation(req, res) {
   try {
+    if (!await requireHomeFeature(res)) return;
     const employeeUserId = req.user && req.user.id;
 
     if (!employeeUserId) {
@@ -671,6 +1023,7 @@ async function getMyHomeLocation(req, res) {
 async function submitHomeLocation(req, res) {
   let connection;
   try {
+    if (!await requireHomeFeature(res)) return;
     const employeeUserId = req.user && req.user.id;
     const body = req.body || {};
     const address = typeof body.address === 'string' ? body.address.trim() : '';
@@ -716,6 +1069,7 @@ async function submitHomeLocation(req, res) {
 
 async function listHomeLocations(req, res) {
   try {
+    if (!await requireHomeFeature(res)) return;
     if (String(req.user && req.user.userType || '').toLowerCase() !== 'admin') {
       return fail(res, 403, 'Admin access required');
     }
@@ -745,6 +1099,7 @@ async function listHomeLocations(req, res) {
 async function reviewHomeLocation(req, res) {
   let connection;
   try {
+    if (!await requireHomeFeature(res)) return;
     if (String(req.user && req.user.userType || '').toLowerCase() !== 'admin') {
       return fail(res, 403, 'Admin access required');
     }
@@ -837,74 +1192,6 @@ async function getMyFieldSession(req, res) {
   }
 }
 
-async function getMyFieldSessionSummary(req, res) {
-  try {
-    const employeeUserId = req.user && req.user.id;
-    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    const [sessions] = await db.query(
-      `SELECT id, started_at, stopped_at, is_active
-       FROM hrms_field_tracking_sessions
-       WHERE employee_user_id = ?
-       ORDER BY started_at DESC LIMIT 1`,
-      [employeeUserId]
-    );
-    if (!sessions.length) return ok(res, { hasSession: false });
-    const session = sessions[0];
-    const endAt = session.stopped_at || new Date();
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND recorded_at >= ? AND recorded_at <= ?
-       ORDER BY recorded_at ASC`,
-      [employeeUserId, session.started_at, endAt]
-    );
-    let distance = 0;
-    for (let index = 1; index < pings.length; index += 1) {
-      distance += distanceMeters(
-        Number(pings[index - 1].latitude), Number(pings[index - 1].longitude),
-        Number(pings[index].latitude), Number(pings[index].longitude)
-      );
-    }
-    const durationSeconds = Math.max(0,
-      Math.round((new Date(endAt).getTime() - new Date(session.started_at).getTime()) / 1000));
-    const distanceKm = distance / 1000;
-    return ok(res, {
-      hasSession: true,
-      isActive: Number(session.is_active) === 1,
-      durationSeconds: durationSeconds,
-      distanceKm: Number(distanceKm.toFixed(3)),
-      averageSpeedKmph: durationSeconds > 0
-        ? Number((distanceKm / (durationSeconds / 3600)).toFixed(2))
-        : 0,
-      pingCount: pings.length
-    });
-  } catch (error) {
-    console.error('GET /hrms/tracking/field-session/summary', error);
-    return fail(res, 500, error.message);
-  }
-}
-
-async function getMyTrackingPermissions(req, res) {
-  try {
-    const employeeUserId = req.user && req.user.id;
-    if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    const [profiles] = await db.query(
-      'SELECT work_mode, department, field_tracking_enabled FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
-      [employeeUserId]
-    );
-    if (!profiles.length) return fail(res, 403, 'An employee profile must be configured by admin');
-    return ok(res, {
-      workMode: profiles[0].work_mode,
-      department: profiles[0].department,
-      homeLocationEnabled: String(profiles[0].department || '').toLowerCase() !== 'sales',
-      fieldTrackingEnabled: Number(profiles[0].field_tracking_enabled) === 1
-    });
-  } catch (error) {
-    console.error('GET /hrms/tracking/permissions', error);
-    return fail(res, 500, error.message);
-  }
-}
-
 async function startFieldTracking(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
@@ -922,14 +1209,14 @@ async function startFieldTracking(req, res) {
     }
 
     const [profiles] = await db.query(
-      `SELECT work_mode, field_tracking_enabled
+      `SELECT work_mode
        FROM hrms_employee_profiles
        WHERE employee_user_id = ?`,
       [employeeUserId]
     );
 
-    if (!profiles.length || Number(profiles[0].field_tracking_enabled) !== 1) {
-      return fail(res, 403, 'Field live tracking is not enabled for your employee account');
+    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) {
+      return fail(res, 403, 'Live tracking is available only for Field or Hybrid employees');
     }
 
     const [activeSessions] = await db.query(
@@ -1025,6 +1312,20 @@ async function stopFieldTracking(req, res) {
       ]
     );
 
+    // Stopping live tracking ends the attendance session for Field employees
+    // and Hybrid employees working in field mode.
+    await db.query(
+      `UPDATE attendance_records
+       SET check_out_at = CURRENT_TIMESTAMP,
+           working_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, check_in_at, CURRENT_TIMESTAMP)),
+           session_status = 'completed'
+       WHERE employee_id = ?
+         AND attendance_date = ?
+         AND check_in_at IS NOT NULL
+         AND check_out_at IS NULL`,
+      [employeeUserId, policy.todayIstDate()]
+    );
+
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
       await db.query(
         `INSERT INTO hrms_location_pings
@@ -1047,6 +1348,25 @@ async function stopFieldTracking(req, res) {
 async function getMyWaitingAlert(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
+
+    // The employee page polls this endpoint once per minute. Re-run the
+    // stationary check here as a reliable fallback in case a browser or
+    // network timing issue completed a ping before its detector finished.
+    const [latestPings] = await db.query(
+      `SELECT latitude, longitude
+       FROM hrms_location_pings
+       WHERE employee_user_id = ?
+       ORDER BY recorded_at DESC
+       LIMIT 1`,
+      [employeeUserId]
+    );
+    if (latestPings.length) {
+      await detectFieldWaitingTime(
+        employeeUserId,
+        Number(latestPings[0].latitude),
+        Number(latestPings[0].longitude)
+      );
+    }
 
     const [rows] = await db.query(
       `SELECT id, waiting_minutes, waiting_started_at, waiting_detected_at
@@ -1143,6 +1463,34 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
+async function addTrackingComment(req, res) {
+  try {
+    const employeeUserId = Number(req.user && req.user.id);
+    const text = String((req.body && req.body.comment) || '').trim();
+    if (!text) return fail(res, 400, 'Comment is required');
+    if (text.length > 2000) return fail(res, 400, 'Comment is too long');
+    const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
+    if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) return fail(res, 403, 'Comments are available only to Field and Hybrid employees');
+    const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
+    await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
+    return ok(res, null, 'Comment saved');
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function myTrackingComments(req, res) {
+  try {
+    const [rows] = await db.query(`SELECT id, comment_text AS comment, latitude, longitude, address, created_at AS createdAt FROM hrms_employee_tracking_comments WHERE employee_user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY created_at DESC`, [req.user.id]);
+    return ok(res, { items: rows });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+async function adminTrackingComments(req, res) {
+  try {
+    const [rows] = await db.query(`SELECT c.id, c.employee_user_id AS employeeUserId, p.full_name AS employeeName, p.employee_code AS employeeCode, c.comment_text AS comment, c.latitude, c.longitude, c.address, c.created_at AS createdAt FROM hrms_employee_tracking_comments c INNER JOIN employee_users u ON u.id = c.employee_user_id INNER JOIN hrms_employee_profiles p ON p.employee_user_id = c.employee_user_id WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY c.created_at DESC`);
+    return ok(res, { items: rows });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1150,6 +1498,8 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistoryList,
+  myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
   getMyHomeLocation,
@@ -1157,12 +1507,13 @@ module.exports = {
   listHomeLocations,
   reviewHomeLocation,
   getMyFieldSession,
-  getMyFieldSessionSummary,
-  getMyTrackingPermissions,
 startFieldTracking,
 stopFieldTracking,
 getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
 reviewFieldWaitingReason,
+  addTrackingComment,
+  myTrackingComments,
+  adminTrackingComments,
 };

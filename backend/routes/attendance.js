@@ -5,8 +5,11 @@ const attendance = require('../controllers/attendanceController');
 
 router.use(authenticateToken);
 const leavePolicies = require('../controllers/leavePolicies');
+const attendancePolicies = require('../controllers/attendancePolicySettingsController');
 router.use('/leave/policies', attendance.requireAdmin);
 router.get('/leave/policies', attendance.requireAdmin, leavePolicies.list);
+router.post('/leave/policies', attendance.requireAdmin, leavePolicies.create);
+router.put('/leave/policies', attendance.requireAdmin, leavePolicies.saveAll);
 router.put('/leave/policies/:id', attendance.requireAdmin, leavePolicies.save);
 
 // Both portals keep their existing URL.  The signed-in user determines the
@@ -17,6 +20,8 @@ router.get('/dashboard', function (req, res, next) {
   return attendance.employeeDashboard(req, res, next);
 });
 router.get('/clock-logs', attendance.requireAdmin, attendance.clockLogs);
+router.get('/policies', attendance.requireAdmin, attendancePolicies.list);
+router.put('/policies', attendance.requireAdmin, attendancePolicies.save);
 router.get('/export', attendance.requireAdmin, attendance.exportCsv);
 router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions);
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
@@ -27,9 +32,25 @@ router.get('/check-in-policy', attendance.checkInPolicy);
 router.post('/check-in', attendance.checkIn);
 router.post('/check-out', attendance.checkOut);
 router.post('/heartbeat', attendance.heartbeat);
+router.post('/location-heartbeat', attendance.heartbeat);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
+router.post('/break-in', attendance.startBreak);
+router.post('/break-out', attendance.endBreak);
+router.get('/breaks/:id/review', attendance.requireAdmin, attendance.getBreakReview);
+router.patch('/breaks/:id/review', attendance.requireAdmin, attendance.reviewBreak);
+router.post('/checkout/undo', attendance.undoCheckout);
+router.post('/checkout/correction-request', attendance.requestCheckoutCorrection);
+router.post('/corrections', attendance.requestAttendanceCorrection);
+router.get('/checkout/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
+router.patch('/checkout/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
+router.patch('/checkout/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
+// Clear, shared routes for all attendance correction types.  The checkout
+// routes above remain so older portal builds continue to work.
+router.get('/correction-requests', attendance.requireAdmin, attendance.listCorrectionRequests);
+router.patch('/correction-requests/:id/approve', attendance.requireAdmin, attendance.approveCorrectionRequest);
+router.patch('/correction-requests/:id/reject', attendance.requireAdmin, attendance.rejectCorrectionRequest);
 router.get('/permissions/mine', attendance.myPermissions);
 router.post('/permissions', attendance.createPermission);
 

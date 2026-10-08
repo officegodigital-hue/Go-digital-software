@@ -49,9 +49,8 @@ class EmployeePortal extends StatelessWidget {
     initialRoute: '/employee/dashboard',
     routes: {
       '/': (_) => const EmployeeDashboardPage(),
-     
       '/attendance': (_) => const EmployeeDashboardPage(),
-    '/employee/dashboard': (_) => const EmployeeDashboardPage(),
+      '/employee/dashboard': (_) => const EmployeeDashboardPage(),
       '/employee/attendance': (_) => const EmployeeAttendancePage(),
       '/employee/clock-log': (_) => const EmployeeClockPage(),
       '/employee/leave': (_) => const EmployeeLeavePage(),

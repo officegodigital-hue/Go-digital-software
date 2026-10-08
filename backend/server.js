@@ -9,7 +9,17 @@ const cron = require('node-cron');
 const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
+const { runAutoAbsence } = require('./jobs/auto-absence');
+const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
+
+// At 12:01 AM IST, mark only the preceding eligible working day absent.
+// The job is idempotent, and startup reconciliation covers a missed run.
+cron.schedule('1 0 * * *', async () => {
+  try { console.log('Auto-absence result:', await runAutoAbsence()); }
+  catch (error) { console.error('Auto-absence job failed:', error.message); }
+}, { timezone: 'Asia/Kolkata' });
+runAutoAbsence().catch((error) => console.error('Auto-absence reconciliation failed:', error.message));
 
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
@@ -138,6 +148,7 @@ const hrmsDashboardRoutes = require('./routes/hrmsDashboard');
 const hrmsApprovalsRoutes = require('./routes/hrmsApprovals');
 const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
+const hrmsAnnouncementsRoutes = require('./routes/hrmsAnnouncements');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
 
@@ -249,6 +260,7 @@ app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
 app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
 app.use('/api/hrms/payroll', hrmsPayrollRoutes);
 app.use('/api/hrms/tracking', hrmsTrackingRoutes);
+app.use('/api/hrms/announcements', hrmsAnnouncementsRoutes);
 app.use('/api/hrms/payslips', hrmsPayslipRoutes);
 
 
@@ -264,8 +276,14 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  console.error('❌ Global error:', err.code, err.message, err.stack);
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ success: false, message: 'File too large. Maximum allowed size is 500MB.' });
+  }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({ success: false, message: 'Unexpected file field in upload.' });
+  }
+  res.status(500).json({ success: false, message: err.message || 'Internal server error' });
 });
 
 server.listen(PORT, async () => {
@@ -276,6 +294,7 @@ server.listen(PORT, async () => {
     await ensureAuthSchema(db);
     console.log('Login schema is ready');
     console.log('Attendance tables are ready');
+    await ensureAttendancePolicyTables();
     await attendancePolicy.getTimeSettings(db);
     console.log('Attendance time settings are ready');
     await ensureHrmsEmployeeTables(db);

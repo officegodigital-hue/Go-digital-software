@@ -112,8 +112,18 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     }
   }
 
-  Widget getSelectedPage(EmployeeRole loggedInRole) {
-    switch (selectedMenu) {
+ Widget getSelectedPage(EmployeeRole loggedInRole) {
+    // 🟢 Route paths-ai clean menu titles-a convert panra map
+    String menu = selectedMenu;
+    if (menu.startsWith('/')) {
+      if (menu.contains('dashboard')) menu = 'Dashboard';
+      else if (menu.contains('attendance')) menu = 'Day Planner';
+      else if (menu.contains('clock-log')) menu = 'Assigned Task';
+      else if (menu.contains('leave')) menu = 'Task Planner';
+      else if (menu.contains('tracking')) menu = 'Live Tracking Tasks';
+    }
+
+    switch (menu) {
       case 'Dashboard':
         return getDashboardByRole(loggedInRole);
       case 'Day Planner':
@@ -141,23 +151,18 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       case 'Task Status':
         return const TaskStatusScreen();
       case 'Chat':
-      // case 'Notifications':
+      case 'Notifications':
         return const NotificationsScreen();
       case 'Client Credentials':
         return const ClientCredentialsScreen();
-        case 'Settings':
+      case 'Settings':
         return const EmployeeSettingsPage();
       case 'Feedback':
         return const FeedbackPage();
       case 'Feedback History':
         return const FeedbackHistoryWidget();
       default:
-        return Center(
-          child: Text(
-            '$selectedMenu Page Coming Soon',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-          ),
-        );
+        return getDashboardByRole(loggedInRole);
     }
   }
 
@@ -178,26 +183,35 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         final loggedInRole = _getRoleFromString(rawRole);
         
         // 🟢 1. Database-la irunthu antha employee-kku save aana allowed_pages-a edukrom
-        final user = authService.user;
+       final user = authService.user;
         List<String> employeeMenuPages = [];
         
-        if (user?['allowed_pages'] != null) {
-          if (user?['allowed_pages'] is List) {
-            employeeMenuPages = (user?['allowed_pages'] as List).map((e) => e.toString()).toList();
-          } else if (user?['allowed_pages'] is String) {
-            try {
-              final decoded = jsonDecode(user?['allowed_pages']);
-              if (decoded is List) {
-                employeeMenuPages = decoded.map((e) => e.toString()).toList();
-              }
-            } catch (_) {}
+        final appAccess = user?['application_access'] as Map<String, dynamic>? ?? {};
+        
+        // Task manager-kku ulla allowed pages mattum filter panrom
+        final taskManagerAccess = appAccess['task_manager'] as Map<String, dynamic>? ?? {};
+        final pages = taskManagerAccess['allowed_pages'] ?? taskManagerAccess['allowedPages'];
+        
+        if (pages is List) {
+          for (var p in pages) {
+            String pStr = p.toString();
+            // Route paths-ai clean titles-a convert panrom
+            if (pStr.contains('dashboard') || pStr == '/admin') pStr = 'Dashboard';
+            else if (pStr.contains('day-planner') || pStr == 'Day Planner') pStr = 'Day Planner';
+            else if (pStr.contains('tasks') || pStr == 'Assigned Task') pStr = 'Assigned Task';
+            else if (pStr.contains('tracking') || pStr == 'Live Tracking Tasks') pStr = 'Live Tracking Tasks';
+            else if (pStr.contains('reports') || pStr == 'Daily Reports') pStr = 'Daily Reports';
+            else if (pStr.contains('notifications') || pStr == 'Chat') pStr = 'Chat';
+            else if (pStr.contains('credentials') || pStr == 'Client Credentials') pStr = 'Client Credentials';
+            
+            if (!employeeMenuPages.contains(pStr) && !pStr.startsWith('/employee/')) {
+              employeeMenuPages.add(pStr);
+            }
           }
         }
 
-        // 🟢 2. Oru vela allowed_pages empty-ah iruntha fallback-ah default menu-vum, 
-        // illaina neenga Admin Panel-la select panniya items mattum varum.
         if (employeeMenuPages.isEmpty) {
-          employeeMenuPages = loggedInRole.menuItems; 
+          employeeMenuPages = ['Dashboard', 'Assigned Task', 'Day Planner', 'Chat'];
         }
 
         return LayoutBuilder(

@@ -144,64 +144,77 @@ class _AssignedTasksContentState extends State<AssignedTasksContent> with Widget
   //   return indices;
   // }
 
-List<int> get _visibleTabIndices {
+  // Assigned Task visibility rule:
+  // SHOW = submit date is not completed OR at least one row is pending.
+  // HIDE = submit date is completed AND pending rows are 0.
+  //
+  // So an overdue task with pending rows remains in Assigned Tasks.
+  bool _shouldShowAssignedTask(Map<String, dynamic> task) {
+  final rawDeadline = (task['deadline'] ?? '').toString();
+  final parsedDate = _parseFlexibleDate(rawDeadline);
+
+  if (parsedDate != null) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(
+      parsedDate.year,
+      parsedDate.month,
+      parsedDate.day,
+    );
+
+    // Hide immediately if the submit date has passed (is before today)
+    if (target.isBefore(today)) {
+      return false;
+    }
+  }
+
+  // Otherwise, check if there are pending rows for future/current tasks
+  final taskId = _taskIdFor(task);
+  final rowCount = rowCounts[taskId] ?? ((task['rowCount'] as int?) ?? 1);
+
+  for (int r = 0; r < rowCount; r++) {
+    final taskKey = '${taskId}_row_$r';
+    final status = taskStatus[taskKey] ?? TaskStatus.idle;
+
+    if (status != TaskStatus.completed && status != TaskStatus.rejected) {
+      return true;
+    }
+  }
+
+  return true;
+}
+
+  List<int> get _visibleTabIndices {
     final indices = <int>[];
-    
+
     for (int i = 0; i < taskTabNames.length; i++) {
       final tabName = taskTabNames[i];
-      bool hasActiveTaskForTab = false;
-      
-      final tasksForThisTab = assignedTasks.where((t) => t['singleTask'] == tabName).toList();
-      for (var task in tasksForThisTab) {
-        if (_selectedClientFilter != null && _selectedClientFilter!.isNotEmpty) {
-          if ((task['client_name'] ?? '').toString() != _selectedClientFilter) continue;
+      bool hasVisibleTaskForTab = false;
+
+      final tasksForThisTab = assignedTasks
+          .where((t) => t['singleTask'] == tabName)
+          .toList();
+
+      for (final task in tasksForThisTab) {
+        if (_selectedClientFilter != null &&
+            _selectedClientFilter!.isNotEmpty &&
+            (task['client_name'] ?? '').toString() != _selectedClientFilter) {
+          continue;
         }
 
-        final taskId = _taskIdFor(task);
-        final rowCount = rowCounts[taskId] != null ? rowCounts[taskId]! : (task['rowCount'] ?? 1);
-
-        // 🟢 1. Check Date Validation (Hide if Overdue / Past Date)
-        final rawDeadline = task['deadline'] ?? '';
-        final parsedDate = _parseFlexibleDate(rawDeadline);
-        bool isDateValid = false;
-        
-        if (parsedDate != null) {
-          final now = DateTime.now();
-          final today = DateTime(now.year, now.month, now.day);
-          final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
-          if (target.compareTo(today) >= 0) {
-            isDateValid = true; 
-          }
-        }
-
-        if (!isDateValid) continue; // Skip overdue tasks
-
-        // 🟢 2. Check Row Status (Hide if all rows completed/rejected)
-        bool hasActiveRows = false;
-        for (int r = 0; r < rowCount; r++) {
-          final taskKey = '${taskId}_row_$r';
-          final status = taskStatus[taskKey] ?? TaskStatus.idle;
-
-          if (status != TaskStatus.completed && status != TaskStatus.rejected) {
-            hasActiveRows = true;
-            break;
-          }
-        }
-
-        if (hasActiveRows) {
-          hasActiveTaskForTab = true;
+        if (_shouldShowAssignedTask(task)) {
+          hasVisibleTaskForTab = true;
           break;
         }
       }
 
-      if (hasActiveTaskForTab) {
+      if (hasVisibleTaskForTab) {
         indices.add(i);
       }
     }
-    
+
     return indices;
   }
-
   Map<String, String>   taskComments            = {};
   Map<String, DateTime> taskStartTimes          = {};
   Map<String, DateTime> taskCurrentSessionStart = {};
@@ -359,7 +372,28 @@ List<int> get _visibleTabIndices {
     return 0;
   } 
 
-  String _calculatePerformance(String singleTask, Duration? actual) {
+  bool _isAdsPlatformExtraRow(Map<String, dynamic> task, int rowIndex) {
+    final originalCount = int.tryParse((task['rowCount'] ?? 1).toString()) ?? 1;
+    final assignedRole = (task['assignedRole'] ?? '').toString().trim().toLowerCase();
+    final taskType = (task['taskType'] ?? '').toString().trim().toLowerCase();
+
+    final isAdsPlatformTask =
+        widget.role == EmployeeRole.adsHandler ||
+        assignedRole == 'ads' ||
+        taskType == 'ads handler';
+
+    return isAdsPlatformTask && rowIndex >= originalCount;
+  }
+
+  String _calculatePerformance(String singleTask, Duration? actual, {bool isExtraRow = false, TaskStatus? status}) {
+    // 🟢 Ads Platform task-kkku extra row-il task COMPLETED aanal mattum 'Achieved' varum, illaiyenral 'N/A'
+    if (isExtraRow) {
+      if (status == TaskStatus.completed) {
+        return 'Achieved';
+      }
+      return 'N/A';
+    }
+
     if (actual == null) return 'N/A';
     final exp = expectedTimingMinutes[singleTask.trim().toLowerCase()];
     if (exp == null) return 'N/A';
@@ -815,10 +849,34 @@ List<int> get _visibleTabIndices {
     final taskListId = taskListIds[taskId];
     if (taskListId == null) return;
 
-    final status = taskStatus[taskKey] ?? TaskStatus.idle;
-    final total  = taskTotalDurations[taskKey];
-    final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
+    // final status = taskStatus[taskKey] ?? TaskStatus.idle;
+    // final total  = taskTotalDurations[taskKey];
+    // final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    // final perf   = _calculatePerformance(
+    //   task['singleTask'] ?? '',
+    //   total,
+    //   isExtraRow: isExtraRow,
+    //   status: status,
+    // );
 
+final status = taskStatus[taskKey] ?? TaskStatus.idle;
+final total  = taskTotalDurations[taskKey];
+
+final originalCount = (task['rowCount'] as int?) ?? 1;
+
+// Ads Handler:
+// row 0, 1, ... originalCount-1 = normal rows
+// row >= originalCount = extra added rows
+final isExtraRow =
+    widget.role == EmployeeRole.adsHandler &&
+    rowIndex >= originalCount;
+
+final perf = _calculatePerformance(
+  task['singleTask'] ?? '',
+  total,
+  isExtraRow: isExtraRow,
+  status: status,
+);
     final payload = {
       'taskListId': taskListId,
       'taskTimingId': null,
@@ -896,9 +954,31 @@ List<int> get _visibleTabIndices {
   }
 
   Map<String, dynamic> _buildPayload(String taskKey, Map<String, dynamic> task, int rowIndex) {
+    // final status = taskStatus[taskKey] ?? TaskStatus.idle;
+    // final total  = taskTotalDurations[taskKey];
+    // final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    // final perf   = _calculatePerformance(
+    //   task['singleTask'] ?? '',
+    //   total,
+    //   isExtraRow: isExtraRow,
+    //   status: status,
+    // );
+
     final status = taskStatus[taskKey] ?? TaskStatus.idle;
-    final total  = taskTotalDurations[taskKey];
-    final perf   = _calculatePerformance(task['singleTask'] ?? '', total);
+final total  = taskTotalDurations[taskKey];
+
+final originalCount = (task['rowCount'] as int?) ?? 1;
+
+final isExtraRow =
+    widget.role == EmployeeRole.adsHandler &&
+    rowIndex >= originalCount;
+
+final perf = _calculatePerformance(
+  task['singleTask'] ?? '',
+  total,
+  isExtraRow: isExtraRow,
+  status: status,
+);
 
     return {
       'employeeName':      _employeeName,
@@ -921,7 +1001,7 @@ List<int> get _visibleTabIndices {
       'status':            _statusString(status),
       'performance':       perf,
       'comment':           taskComments[taskKey] ?? '',
-      'isAdditional':      false,
+      'isAdditional':      isExtraRow,
       'taskAssignmentId':  task['taskAssignmentId'],
     };
   }
@@ -946,24 +1026,39 @@ List<int> get _visibleTabIndices {
   }
 
   Future<void> _handleStart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
-    
+
+    // Extra Ads Platform rows are completion-based rows.
+    // They can be started/completed, but they must not consume or accumulate
+    // the normal fixed timing / duration used by the assigned rows.
+    final now = DateTime.now();
+    final currentDateStr = '${now.day.toString().padLeft(2,'0')}/${now.month.toString().padLeft(2,'0')}/${now.year}';
     setState(() {
+      editableSubmitDates[taskKey] = currentDateStr;
       taskStatus[taskKey]              = TaskStatus.running;
-      taskStartTimes[taskKey]          = DateTime.now();
-      taskCurrentSessionStart[taskKey] = DateTime.now();
+      taskStartTimes[taskKey]          = now;
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
-      
-      taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) {
-          setState(() {
-            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-          });
-        }
-      });
+
+      if (isExtraRow) {
+        // No timer for an extra Ads Platform row. Duration remains 00:00:00.
+        taskCurrentSessionStart.remove(taskKey);
+        taskTimers[taskKey]?.cancel();
+        taskTimers.remove(taskKey);
+      } else {
+        taskCurrentSessionStart[taskKey] = now;
+        taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) {
+            setState(() {
+              taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+            });
+          }
+        });
+      }
     });
 
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
@@ -971,11 +1066,16 @@ List<int> get _visibleTabIndices {
   }
 
   Future<void> _handleHold(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.held;
       (taskHoldTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -988,24 +1088,34 @@ List<int> get _visibleTabIndices {
   }
 
   Future<void> _handleRestart(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+
     if (currentRunningTaskKey != null && currentRunningTaskKey != taskKey) {
       await _autoHoldRunningTask(taskKey);
     }
     
+    final now = DateTime.now();
     setState(() {
       taskStatus[taskKey] = TaskStatus.running;
-      (taskRestartTimes[taskKey] ??= []).add(DateTime.now());
-      taskCurrentSessionStart[taskKey] = DateTime.now();
+      (taskRestartTimes[taskKey] ??= []).add(now);
       taskDurations[taskKey]           = Duration.zero;
       currentRunningTaskKey            = taskKey;
-      
-      taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) {
-          setState(() {
-            taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
-          });
-        }
-      });
+
+      taskTimers[taskKey]?.cancel();
+      taskTimers.remove(taskKey);
+
+      if (isExtraRow) {
+        taskCurrentSessionStart.remove(taskKey);
+      } else {
+        taskCurrentSessionStart[taskKey] = now;
+        taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) {
+            setState(() {
+              taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+            });
+          }
+        });
+      }
     });
 
     await _autoSaveRow(taskKey, task, rowIndex, taskId);
@@ -1013,11 +1123,16 @@ List<int> get _visibleTabIndices {
   }
 
   Future<void> _handleComplete(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.completed;
       (taskCompletedTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -1030,11 +1145,16 @@ List<int> get _visibleTabIndices {
   }
 
   Future<void> _handleReject(String taskKey, Map<String, dynamic> task, int rowIndex, String taskId) async {
+    final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
     setState(() {
       taskStatus[taskKey] = TaskStatus.rejected;
       (taskRejectedTimes[taskKey] ??= []).add(DateTime.now());
-      taskTotalDurations[taskKey] =
-          (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      if (!isExtraRow) {
+        taskTotalDurations[taskKey] =
+            (taskTotalDurations[taskKey] ?? Duration.zero) + (taskDurations[taskKey] ?? Duration.zero);
+      } else {
+        taskTotalDurations[taskKey] = Duration.zero;
+      }
       taskTimers[taskKey]?.cancel();
       taskTimers.remove(taskKey);
       taskCurrentSessionStart.remove(taskKey);
@@ -1078,10 +1198,33 @@ List<int> get _visibleTabIndices {
     if (!validActions.contains(action)) return;
 
     final body = <String, dynamic>{};
+    // if (action == 'complete') {
+    //   final total = taskTotalDurations[taskKey];
+    //   final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
+    //   body['performance'] = _calculatePerformance(
+    //     task['singleTask'] ?? '',
+    //     total,
+    //     isExtraRow: isExtraRow,
+    //     status: TaskStatus.completed,
+    //   );
+    // }
+
     if (action == 'complete') {
-      final total = taskTotalDurations[taskKey];
-      body['performance'] = _calculatePerformance(task['singleTask'] ?? '', total);
-    }
+  final total = taskTotalDurations[taskKey];
+
+  final originalCount = (task['rowCount'] as int?) ?? 1;
+
+  final isExtraRow =
+      widget.role == EmployeeRole.adsHandler &&
+      rowIndex >= originalCount;
+
+  body['performance'] = _calculatePerformance(
+    task['singleTask'] ?? '',
+    total,
+    isExtraRow: isExtraRow,
+    status: TaskStatus.completed,
+  );
+}
 
     try {
       await http.post(
@@ -1228,36 +1371,109 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
         }).toList();
       }
 
-      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
-      if (trRes.statusCode == 200) {
-        final trBody = jsonDecode(trRes.body);
-        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
+      final trRes = await http.get(
+  Uri.parse(
+    '$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}',
+  ),
+);
 
-        for (var tl in taskLists) {
-          // 🟢 Ensure task list matches the exact task_assignment_id
-          if (targetAssignmentId != null && tl['task_assignment_id'] != null) {
-            if (tl['task_assignment_id'].toString() != targetAssignmentId.toString()) {
-              continue;
-            }
-          }
+if (trRes.statusCode == 200) {
+  final trBody = jsonDecode(trRes.body);
+  final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-          final tListId = tl['id'];
-          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+  for (final tl in taskLists) {
+    // ------------------------------------------------------------
+    // IMPORTANT:
+    // Only the exact assignment/cycle is allowed.
+    // Never mix another task_assignment_id.
+    // ------------------------------------------------------------
+    if (targetAssignmentId == null) {
+      continue;
+    }
 
-          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
-          if (itemsRes.statusCode == 200) {
-            final itemsBody = jsonDecode(itemsRes.body);
-            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+    final tlAssignmentId = tl['task_assignment_id'];
 
-            int completedRows = items.where((item) {
-              final st = (item['status'] ?? '').toString().toUpperCase();
-              return st == 'COMPLETED' || st == 'REJECTED';
-            }).length;
+    if (tlAssignmentId == null ||
+        tlAssignmentId.toString() !=
+            targetAssignmentId.toString()) {
+      continue;
+    }
 
-            dbTaskProgressCounts[deliverables] = completedRows;
-          }
-        }
+    final tListId = tl['id'];
+
+    if (tListId == null) {
+      continue;
+    }
+
+    final deliverables = (tl['deliverables'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    if (deliverables.isEmpty) {
+      continue;
+    }
+
+    try {
+      final itemsRes = await http.get(
+        Uri.parse(
+          '$_baseUrl/tracking-items/by-task-list/$tListId',
+        ),
+      );
+
+      if (itemsRes.statusCode != 200) {
+        debugPrint(
+          '⚠️ Tracking items failed for taskListId=$tListId '
+          'status=${itemsRes.statusCode}',
+        );
+        continue;
       }
+
+      final itemsBody = jsonDecode(itemsRes.body);
+
+      final items = List<dynamic>.from(
+        itemsBody['data'] ?? [],
+      );
+
+      // Count ALL completed/rejected history rows
+      // belonging to this exact task_list.
+      final completedRows = items.where((item) {
+        final status = (item['status'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+
+        return status == 'COMPLETED' ||
+            status == 'REJECTED';
+      }).length;
+
+      // ------------------------------------------------------------
+      // IMPORTANT FIX:
+      // Do NOT overwrite an existing count.
+      //
+      // If the same assignment/task has multiple task_list records,
+      // add all their completed history rows together.
+      // ------------------------------------------------------------
+      dbTaskProgressCounts[deliverables] =
+          (dbTaskProgressCounts[deliverables] ?? 0) +
+              completedRows;
+
+      debugPrint(
+        '📊 Task Summary | '
+        'assignment=$targetAssignmentId | '
+        'taskList=$tListId | '
+        'task=$deliverables | '
+        'completed=$completedRows | '
+        'totalAccumulated=${dbTaskProgressCounts[deliverables]}',
+      );
+    } catch (e) {
+      debugPrint(
+        '❌ Failed loading tracking history '
+        'for taskListId=$tListId: $e',
+      );
+    }
+  }
+}
     } catch (e) {
       debugPrint('Error fetching client summary: $e');
     }
@@ -1435,10 +1651,12 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
                                                   final tName = parsed['name'] as String;
                                                   final totalR = parsed['count'] as int;
 
-                                                  int compR = dbTaskProgressCounts[tName.trim().toLowerCase()] ?? 0;
-                                                  if (compR == 0) {
-                                                    compR = _calculateTaskProgress(clientName, tName);
-                                                  }
+                                                  // int compR = dbTaskProgressCounts[tName.trim().toLowerCase()] ?? 0;
+                                                  // if (compR == 0) {
+                                                  //   compR = _calculateTaskProgress(clientName, tName);
+                                                  // }
+                                                  final normalizedTaskName = tName.trim().toLowerCase(); 
+                                                  final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
 
                                                   final isCompleted = totalR > 0 && compR >= totalR;
                                                   final progressText = '$compR/$totalR';
@@ -1574,17 +1792,24 @@ void _showClientTaskSummaryDialog(Map<String, dynamic> task, String taskId) asyn
           if (durSecs > 0) taskTotalDurations[taskKey] = Duration(seconds: durSecs);
 
           if (_statusFromString(status) == TaskStatus.running) {
+            final isExtraRow = _isAdsPlatformExtraRow(task, rowIndex);
             taskTimers[taskKey]?.cancel();
-            taskCurrentSessionStart[taskKey] = DateTime.now();
+            taskTimers.remove(taskKey);
             taskDurations[taskKey] = Duration.zero;
             currentRunningTaskKey = taskKey;
-            taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
-              if (mounted) {
-                setState(() {
-                taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+
+            if (!isExtraRow) {
+              taskCurrentSessionStart[taskKey] = DateTime.now();
+              taskTimers[taskKey] = Timer.periodic(const Duration(seconds: 1), (_) {
+                if (mounted) {
+                  setState(() {
+                    taskDurations[taskKey] = DateTime.now().difference(taskCurrentSessionStart[taskKey]!);
+                  });
+                }
               });
-              }
-            });
+            } else {
+              taskCurrentSessionStart.remove(taskKey);
+            }
           }
 
           final startTimeStr = row['start_time'] as String?;
@@ -2334,42 +2559,16 @@ Widget _buildTaskCategoryTab({
   //   return hasActiveRows;
   // }).toList();
 
+  // Keep the task card visible while either:
+  // 1) the submit date is not completed, OR
+  // 2) at least one row is still pending.
+  //
+  // A completed row is therefore retained in the same task list instead of
+  // causing the whole task card to disappear.
   var tasksForTab = assignedTasks.where((t) {
     if (t['singleTask'] != tabName) return false;
-
-    //  1. Check Date Validation (Hide if Overdue)
-    final rawDeadline = t['deadline'] ?? '';
-    final parsedDate = _parseFlexibleDate(rawDeadline);
-    if (parsedDate != null) {
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final target = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
-      if (target.compareTo(today) < 0) {
-        return false; // Skip overdue tasks
-      }
-    }
-
-    final taskId = _taskIdFor(t);
-    final rowCount = rowCounts[taskId] != null
-        ? rowCounts[taskId]!
-        : (t['rowCount'] ?? 1);
-
-    // 🟢 2. Check Row Status (Hide if completed/rejected)
-    bool hasActiveRows = false;
-    for (int i = 0; i < rowCount; i++) {
-      final taskKey = '${taskId}_row_$i';
-      final status = taskStatus[taskKey] ?? TaskStatus.idle;
-
-      if (status != TaskStatus.completed &&
-          status != TaskStatus.rejected) {
-        hasActiveRows = true;
-        break;
-      }
-    }
-
-    return hasActiveRows;
+    return _shouldShowAssignedTask(t);
   }).toList();
-  
   if (_selectedClientFilter != null &&
       _selectedClientFilter!.isNotEmpty) {
     tasksForTab = tasksForTab
@@ -3373,8 +3572,20 @@ Widget _buildTaskCategoryTab({
     }
 
     final totalDur = taskTotalDurations[taskKey];
-    final perf = _calculatePerformance(task['singleTask'] ?? '', totalDur);
+
+    final originalCount = (task['rowCount'] as int?) ?? 1;
+    final bool isExtra = index >= originalCount;
+
+    final perf = _calculatePerformance(
+      task['singleTask'] ?? '', 
+      totalDur, 
+      isExtraRow: isExtra, 
+      status: curStatus,
+    );
     final perfColor = _getPerformanceColor(perf);
+
+    // final perf = _calculatePerformance(task['singleTask'] ?? '', totalDur);
+    // final perfColor = _getPerformanceColor(perf);
     final rawDeadline = task['deadline'] ?? '';
     final editDate = _formatDateForDisplay(editableSubmitDates[taskKey] ?? rawDeadline);
     final editDesc = editableTaskDescs[taskKey] ?? task['singleTask'] ?? 'N/A';

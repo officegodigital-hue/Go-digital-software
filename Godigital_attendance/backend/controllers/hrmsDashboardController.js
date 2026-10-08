@@ -9,6 +9,17 @@ function fail(res, status, message) {
   return res.status(status).json({ success: false, message: message });
 }
 
+function normalizeTime(value, label) {
+  const time = String(value || '').trim();
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(time)) throw new Error(label + ' must use HH:mm');
+  return time.length === 5 ? time + ':00' : time;
+}
+
+function seconds(time) {
+  const parts = String(time).split(':').map(Number);
+  return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+}
+
 function requireAdmin(req, res, next) {
   const userType = String((req.user && req.user.userType) || '').toLowerCase();
   if (userType !== 'admin') {
@@ -19,11 +30,9 @@ function requireAdmin(req, res, next) {
 
 function formatSalary(value) {
   if (value === null || value === undefined || value === '') return 'Not Set';
-  // Preserve the decimal point from MySQL values such as "20000.00".
-  // Removing it would turn twenty thousand into twenty lakhs.
-  const amount = Number(String(value).replace(/[₹\s,]/g, ''));
+  const amount = Number(value);
   if (!Number.isFinite(amount)) return 'Not Set';
-  return '₹' + amount.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return '₹' + Math.round(amount).toLocaleString('en-US');
 }
 
 function pad(value) {
@@ -55,9 +64,73 @@ function nextDate(date) {
   return ymd(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
 }
 
+async function ensureCalendarOverridesTable() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
+    calendar_date DATE NOT NULL PRIMARY KEY,
+    status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
+    scope VARCHAR(40) NOT NULL DEFAULT 'All Employees',
+    reason VARCHAR(255) NOT NULL,
+    updated_by INT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`);
+}
+
+async function calendarOverrides(req, res) {
+  try {
+    await ensureCalendarOverridesTable();
+    const [rows] = await db.query(`SELECT DATE_FORMAT(calendar_date, '%Y-%m-%d') AS date,
+      status, scope, reason, updated_at AS updatedAt
+      FROM hrms_calendar_overrides ORDER BY calendar_date ASC`);
+    return ok(res, { overrides: rows });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function saveCalendarOverride(req, res) {
+  try {
+    const body = req.body || {};
+    const date = String(body.date || '');
+    const status = String(body.status || '');
+    const scope = String(body.scope || 'All Employees').slice(0, 40);
+    const reason = String(body.reason || '').trim().slice(0, 255);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('A valid calendar date is required');
+    if (!['Working Day', 'Weekly Off', 'Holiday'].includes(status)) throw new Error('Invalid calendar status');
+    if (!reason) throw new Error('A reason is required');
+    await ensureCalendarOverridesTable();
+    await db.query(`INSERT INTO hrms_calendar_overrides
+      (calendar_date, status, scope, reason, updated_by)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE status = VALUES(status), scope = VALUES(scope),
+        reason = VALUES(reason), updated_by = VALUES(updated_by)`,
+      [date, status, scope, reason, req.user.id]);
+    return ok(res, { date: date, status: status, scope: scope, reason: reason }, 'Calendar override saved');
+  } catch (error) {
+    return fail(res, 400, error.message);
+  }
+}
+
+async function getPayrollPolicy() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
+    id TINYINT UNSIGNED NOT NULL PRIMARY KEY, weekly_off_days JSON NOT NULL,
+    deduct_approved_leave TINYINT(1) NOT NULL DEFAULT 1,
+    deduct_explicit_absence TINYINT(1) NOT NULL DEFAULT 1,
+    missing_attendance_is_absent TINYINT(1) NOT NULL DEFAULT 0
+  )`);
+  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26'); } catch (_) {}
+  await db.query(`INSERT IGNORE INTO hrms_payroll_policy (id, weekly_off_days) VALUES (1, '[0]')`);
+  const [rows] = await db.query('SELECT * FROM hrms_payroll_policy WHERE id = 1');
+  const row = rows[0] || {};
+  let days = [0];
+  try { days = JSON.parse(row.weekly_off_days || '[0]'); } catch (_) {}
+  return { weeklyOffDays: new Set(Array.isArray(days) ? days.map(Number) : [0]), deductLeave: Boolean(Number(row.deduct_approved_leave ?? 1)), deductAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)), missingIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)), salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)) };
+}
+
 async function timeSettings(req, res) {
   try {
-    return ok(res, await policy.getTimeSettings(db));
+    const [rows] = await db.query('SELECT labour_lunch_start, labour_lunch_end, employee_lunch_start, employee_lunch_end FROM hrms_tracking_settings WHERE id = 1');
+    const row = rows[0] || {};
+    return ok(res, { ...(await policy.getTimeSettings(db)), labourLunchStart: String(row.labour_lunch_start || '12:30:00'), labourLunchEnd: String(row.labour_lunch_end || '13:00:00'), employeeLunchStart: String(row.employee_lunch_start || '12:30:00'), employeeLunchEnd: String(row.employee_lunch_end || '13:00:00') });
   } catch (error) {
     console.error('GET /hrms/dashboard/time-settings', error);
     return fail(res, 500, error.message);
@@ -66,7 +139,15 @@ async function timeSettings(req, res) {
 
 async function updateTimeSettings(req, res) {
   try {
-    return ok(res, await policy.updateTimeSettings(db, req.body || {}), 'Attendance time settings updated');
+    const body = req.body || {};
+    const labourStart = normalizeTime(body.labourLunchStart, 'Labour lunch start');
+    const labourEnd = normalizeTime(body.labourLunchEnd, 'Labour lunch end');
+    const employeeStart = normalizeTime(body.employeeLunchStart, 'Employee lunch start');
+    const employeeEnd = normalizeTime(body.employeeLunchEnd, 'Employee lunch end');
+    if (seconds(labourEnd) <= seconds(labourStart) || seconds(employeeEnd) <= seconds(employeeStart)) throw new Error('Lunch end time must be after lunch start time');
+    const updated = await policy.updateTimeSettings(db, body);
+    await db.query('UPDATE hrms_tracking_settings SET labour_lunch_start = ?, labour_lunch_end = ?, employee_lunch_start = ?, employee_lunch_end = ?, updated_by = ? WHERE id = 1', [labourStart, labourEnd, employeeStart, employeeEnd, req.user.id]);
+    return ok(res, { ...updated, labourLunchStart: labourStart, labourLunchEnd: labourEnd, employeeLunchStart: employeeStart, employeeLunchEnd: employeeEnd }, 'Attendance time settings updated');
   } catch (error) {
     return fail(res, 400, error.message);
   }
@@ -79,15 +160,15 @@ async function monthView(req, res) {
       return fail(res, 400, 'year and month (1-12) are required');
     }
 
-    const weeklyOff = jsWeeklyOff(req.query.weeklyOff || 7);
+    const payrollRules = await getPayrollPolicy();
+    const weeklyOff = req.query.weeklyOff ? new Set([jsWeeklyOff(req.query.weeklyOff)]) : payrollRules.weeklyOffDays;
     const totalDays = daysInMonth(year, month);
     const start = ymd(year, month, 1);
     const end = ymd(year, month, totalDays);
     const today = policy.todayIstDate();
 
-    // employee_users is the source of truth for who is an active employee.
-    // HRMS profile data enriches the row, but a stale profile status must not
-    // hide a valid employee account from the attendance dashboard.
+    // Use the same HRMS profile source as the Employee Management page so
+    // dashboard totals cannot include stale/orphan employee login accounts.
     const [profiles] = await db.query(`
       SELECT
         profile.id,
@@ -95,12 +176,13 @@ async function monthView(req, res) {
         employee.full_name,
         COALESCE(NULLIF(profile.department, ''), employee.role, 'Not Set') AS department,
         COALESCE(profile.monthly_salary, 0) AS monthly_salary
-      FROM employee_users AS employee
-      LEFT JOIN hrms_employee_profiles AS profile
+      FROM hrms_employee_profiles AS profile
+      INNER JOIN employee_users AS employee
         ON profile.employee_user_id = employee.id
       WHERE employee.user_type = 'employee'
         AND employee.is_active = 1
-      ORDER BY employee.full_name ASC
+        AND profile.employment_status <> 'Inactive'
+      ORDER BY profile.full_name ASC
     `);
 
     const userIds = profiles
@@ -118,7 +200,7 @@ async function monthView(req, res) {
 
     const [leaves] = userIds.length
       ? await db.query(
-          `SELECT employee_id, duration_type,
+          `SELECT employee_id, duration_type, leave_type,
                   DATE_FORMAT(from_date, '%Y-%m-%d') AS from_date,
                   DATE_FORMAT(to_date, '%Y-%m-%d') AS to_date
            FROM employee_leaves
@@ -141,9 +223,10 @@ async function monthView(req, res) {
     const leaveMap = new Map();
     leaves.forEach(function (row) {
       let date = row.from_date;
+      const code = row.duration_type === 'Half Day' ? 'HL' : 'LV';
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
-        leaveMap.set(key, row.duration_type === 'Half Day' ? 'HL' : 'LV');
+        leaveMap.set(key, { code: code, leaveType: row.leave_type });
         date = nextDate(date);
       }
     });
@@ -157,21 +240,23 @@ async function monthView(req, res) {
       let present = 0;
       let late = 0;
       let halfLeave = 0;
-      let fullLeave = 0;
+      let earnedLeave = 0;
+      let approvedLeave = 0;
       let unexcused = 0;
       let workingDays = 0;
 
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
         const weekday = utcWeekday(year, month, day);
-        if (weekday === weeklyOff) {
+        if (weeklyOff.has(weekday)) {
           days.push('OFF');
           continue;
         }
         const userId = profile.employee_user_id;
         const key = userId ? userId + '|' + date : '';
         const record = key ? recordMap.get(key) : null;
-        const leaveType = key ? leaveMap.get(key) : null;
+        const leaveInfo = key ? leaveMap.get(key) : null;
+        const leaveType = leaveInfo ? leaveInfo.code : null;
 
         // Future dates stay blank, except for leave that is already approved.
         if (date > today && !leaveType) {
@@ -181,15 +266,14 @@ async function monthView(req, res) {
 
         workingDays += 1;
 
-        // An explicit absence can have no clock-in time, so it must be checked
-        // before the normal clock-in branch. Both absences and approved leave
-        // affect the dashboard salary deduction.
-        if (record && String(record.attendance_status).toLowerCase() === 'absent') {
-          days.push('A');
-          unexcused += 1;
-          absentDays += 1;
-        } else if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+        // A recorded clock-in is the final decision for that date. Leave is
+        // shown only when the employee has no attendance record.
+        if (record && record.check_in_at) {
+          if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
+            days.push('A');
+            unexcused += 1;
+            absentDays += 1;
+          } else if (Number(record.is_late)) {
             days.push('L');
             late += 1;
             lateDays += 1;
@@ -200,21 +284,28 @@ async function monthView(req, res) {
           }
         } else if (leaveType) {
           days.push(leaveType);
+          approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
-          else fullLeave += 1;
+          if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
+          if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
-          // A missing record is unrecorded during development, not absent.
-          days.push('–');
+          // A missing clock-in for today is still pending. It becomes an
+          // absence only after the calendar date has finished (tomorrow).
+          if (date < today && payrollRules.missingIsAbsent) {
+            days.push('A');
+            unexcused += 1;
+            absentDays += 1;
+          } else {
+            days.push('–');
+          }
         }
       }
 
       const salaryNumber = Number(profile.monthly_salary || 0);
-      const leaveDays = fullLeave + (halfLeave * 0.5);
-      const deductionDays = unexcused + leaveDays;
-      const leaveDeduction = workingDays
-        ? Math.round((deductionDays / workingDays) * salaryNumber)
-        : 0;
-      const updatedSalary = Math.max(0, salaryNumber - leaveDeduction);
+      const lopDays = Math.min(workingDays, unexcused);
+      const paidDays = Math.max(0, workingDays - lopDays);
+      const deduction = salaryNumber ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / payrollRules.salaryDayDivisor))) : 0;
+      const afterLeaves = Math.max(0, salaryNumber - deduction);
 
       return {
         id: profile.id,
@@ -227,23 +318,64 @@ async function monthView(req, res) {
         excused: halfLeave,
         unexcused: unexcused,
         halfLeave: halfLeave,
+        earnedLeave: earnedLeave,
+        approvedLeave: approvedLeave,
         salary: formatSalary(profile.monthly_salary),
-        deductionDays: deductionDays,
-        leaveDeduction: salaryNumber ? formatSalary(leaveDeduction) : '–',
-        updatedSalary: salaryNumber ? formatSalary(updatedSalary) : 'Not Set',
+        daysPaid: String(lopDays),
+        afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
+        updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
       };
     });
+
+    // Day-wise KPIs reflect *today* specifically (a live snapshot) rather
+    // than a month-to-date total, independent of whichever month/year is
+    // being browsed in the calendar below.
+    const [todayYear, todayMonth, todayDay] = today.split('-').map(Number);
+    const todayWeekday = utcWeekday(todayYear, todayMonth, todayDay);
+    let todayPresent = 0;
+    let todayAbsent = 0;
+    let todayLate = 0;
+
+    if (!weeklyOff.has(todayWeekday) && userIds.length) {
+      const [todayRecords] = await db.query(
+        `SELECT * FROM attendance_records WHERE attendance_date = ? AND employee_id IN (?)`,
+        [today, userIds]
+      );
+      const [todayLeaves] = await db.query(
+        `SELECT employee_id FROM employee_leaves
+         WHERE status = 'APPROVED' AND from_date <= ? AND to_date >= ? AND employee_id IN (?)`,
+        [today, today, userIds]
+      );
+      const todayRecordMap = new Map();
+      todayRecords.forEach(function (row) { todayRecordMap.set(row.employee_id, row); });
+      const todayLeaveSet = new Set(todayLeaves.map(function (row) { return row.employee_id; }));
+
+      profiles.forEach(function (profile) {
+        const userId = profile.employee_user_id;
+        const record = userId ? todayRecordMap.get(userId) : null;
+        if (record && record.check_in_at) {
+          if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
+            todayAbsent += 1;
+          } else if (Number(record.is_late)) {
+            todayLate += 1;
+          } else {
+            todayPresent += 1;
+          }
+        }
+      });
+    }
 
     return ok(res, {
       year: year,
       month: month,
       daysInMonth: totalDays,
       timezone: policy.TIME_ZONE,
+      payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {
         totalEmployees: profiles.length,
-        present: presentDays,
-        absent: absentDays,
-        late: lateDays,
+        present: todayPresent,
+        absent: todayAbsent,
+        late: todayLate,
       },
       employees: employees,
     });
@@ -258,4 +390,6 @@ module.exports = {
   monthView,
   timeSettings,
   updateTimeSettings,
+  calendarOverrides,
+  saveCalendarOverride,
 };

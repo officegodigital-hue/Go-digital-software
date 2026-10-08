@@ -128,6 +128,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       debugPrint("Polling error: $e");
     }
   }
+  
 
   void _triggerTopRightPopup(String message) {
     setState(() {
@@ -194,7 +195,27 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                              user?['is_main_admin'].toString() == '1';
 
     List<String> allowedPages = [];
-    if (user?['allowed_pages'] != null) {
+    final appAccess = user?['application_access'] as Map<String, dynamic>? ?? {};
+    
+    appAccess.forEach((appKey, appData) {
+      if (appData is Map) {
+        final accessType = appData['access_type']?.toString().toLowerCase() ?? appData['accessType']?.toString().toLowerCase() ?? 'none';
+        if (accessType != 'none') {
+          final pages = appData['allowed_pages'] ?? appData['allowedPages'];
+          if (pages is List) {
+            for (var p in pages) {
+              final pageStr = p.toString();
+              if (!allowedPages.contains(pageStr)) {
+                allowedPages.add(pageStr);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Fallback to legacy allowed_pages if present
+    if (allowedPages.isEmpty && user?['allowed_pages'] != null) {
       if (user?['allowed_pages'] is List) {
         allowedPages = (user?['allowed_pages'] as List).map((e) => e.toString()).toList();
       } else if (user?['allowed_pages'] is String) {
@@ -223,6 +244,12 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
       {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
       {'icon': Icons.access_time_rounded, 'title': 'Time Manager', 'route': '/time-manager'},
+      // admin_layout.dart-il ulla allNavItems list-kkul intha item-ai serthukollavum:
+{
+  'icon': Icons.campaign_rounded, 
+  'title': 'Broadcast Master', 
+  'route': '/emergency-broadcast'
+},
     ];
 
     final filteredNavItems = allNavItems.where((item) {

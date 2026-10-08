@@ -63,6 +63,16 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> policy() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers());
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> policy) async {
+    final response = await http.put(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/policy'), headers: await _headers(), body: jsonEncode(policy));
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> markPaid(int id) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$id'),
@@ -72,26 +82,31 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> paidLeavePolicy() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/leave-policy'),
-      headers: await _headers(),
-    );
-    return _decode(response);
+  static Future<List<Map<String, dynamic>>> deductionHistory({required int profileId, required int year, required int month}) async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$profileId/deduction-history?year=$year&month=$month'), headers: await _headers());
+    final data = _decode(response);
+    final rawItems = data['data'];
+    final List items = rawItems is List ? rawItems : const [];
+    return items.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
   }
 
-  static Future<Map<String, dynamic>> updatePaidLeavePolicy({
-    required num weeklyLimit,
-    required num monthlyLimit,
-    required num yearlyLimit,
+  static Future<Map<String, dynamic>> saveCycleOverride({
+    required int profileId,
+    required int year,
+    required int month,
+    required DateTime periodStart,
+    required DateTime periodEnd,
   }) async {
+    String ymd(DateTime value) =>
+        '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
     final response = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/leave-policy'),
+      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$profileId/cycle-override'),
       headers: await _headers(),
       body: jsonEncode({
-        'weeklyLimit': weeklyLimit,
-        'monthlyLimit': monthlyLimit,
-        'yearlyLimit': yearlyLimit,
+        'year': year,
+        'month': month,
+        'periodStart': ymd(periodStart),
+        'periodEnd': ymd(periodEnd),
       }),
     );
     return _decode(response);

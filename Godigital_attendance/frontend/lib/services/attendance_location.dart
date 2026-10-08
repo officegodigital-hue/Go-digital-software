@@ -89,7 +89,7 @@ class AttendanceLocation {
       return <String, dynamic>{};
     }
     if (policy['requiresLocation'] != true ||
-        !['Office', 'Home', 'Hybrid'].contains(policy['workMode'])) {
+        !['Office', 'Home', 'Hybrid', 'Field'].contains(policy['workMode'])) {
       throw const AttendanceLocationError('Clock In rules are unavailable. Contact your admin.');
     }
     final position = await (locate ?? currentPosition)();

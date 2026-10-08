@@ -57,22 +57,4 @@ class HrmsApprovalsApi {
     );
     return _decode(response);
   }
-
-  static Future<Map<String, dynamic>> leavePolicies() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/leave-policies'),
-      headers: await _headers(),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> updateLeavePolicies(
-      List<Map<String, dynamic>> items) async {
-    final response = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/leave-policies'),
-      headers: await _headers(),
-      body: jsonEncode({'items': items}),
-    );
-    return _decode(response);
-  }
 }

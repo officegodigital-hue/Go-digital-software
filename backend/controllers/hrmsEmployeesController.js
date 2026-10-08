@@ -69,7 +69,10 @@ function toUi(row) {
     status: row.employment_status,
     modeColor: modeColor(row.work_mode),
     email: row.email || '',
-    employeeUserId: row.employee_user_id
+    employeeUserId: row.employee_user_id,
+    salaryType: row.salary_type || 'standard',
+    salaryStartDay: row.salary_cycle_start_day !== null && row.salary_cycle_start_day !== undefined ? Number(row.salary_cycle_start_day) : null,
+    salaryEndDay: row.salary_cycle_end_day !== null && row.salary_cycle_end_day !== undefined ? Number(row.salary_cycle_end_day) : null,
   };
 }
 
@@ -165,6 +168,13 @@ async function list(req, res) {
   }
 }
 
+async function ensureSalaryCycleColumns() {
+  try { await db.query("ALTER TABLE hrms_employee_profiles ADD COLUMN salary_type ENUM('standard','flexible') NOT NULL DEFAULT 'standard'"); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_employee_profiles ADD COLUMN salary_cycle_start_day TINYINT UNSIGNED NULL'); } catch (_) {}
+  try { await db.query('ALTER TABLE hrms_employee_profiles ADD COLUMN salary_cycle_end_day TINYINT UNSIGNED NULL'); } catch (_) {}
+}
+ensureSalaryCycleColumns();
+
 async function create(req, res) {
   try {
     const body = req.body || {};
@@ -175,11 +185,14 @@ async function create(req, res) {
     const status = String(body.status || body.employment_status || 'Active').trim();
     const salary = parseSalary(body.salary || body.monthly_salary);
     const email = String(body.email || '').trim() || null;
+    const salaryType = body.salaryType === 'flexible' ? 'flexible' : 'standard';
+    const startDay = salaryType === 'flexible' && body.salaryStartDay ? Math.max(1, Math.min(28, Number(body.salaryStartDay))) : null;
+    const endDay = salaryType === 'flexible' && body.salaryEndDay ? Math.max(1, Math.min(28, Number(body.salaryEndDay))) : null;
     if (!name || !code) return fail(res, 400, 'name and employeeCode are required');
 
     const [result] = await db.query(
-      'INSERT INTO hrms_employee_profiles (employee_code, full_name, email, department, work_mode, employment_status, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [code, name, email, department, workMode, status, salary]
+      'INSERT INTO hrms_employee_profiles (employee_code, full_name, email, department, work_mode, employment_status, monthly_salary, salary_type, salary_cycle_start_day, salary_cycle_end_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [code, name, email, department, workMode, status, salary, salaryType, startDay, endDay]
     );
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [result.insertId]);
     await recordCompensation(rows[0], salary, req.user && req.user.id);
@@ -201,10 +214,13 @@ async function update(req, res) {
     const status = String(body.status || body.employment_status || '').trim();
     const salary = parseSalary(body.salary || body.monthly_salary);
     const email = String(body.email || '').trim() || null;
+    const salaryType = body.salaryType === 'flexible' ? 'flexible' : 'standard';
+    const startDay = salaryType === 'flexible' && body.salaryStartDay ? Math.max(1, Math.min(28, Number(body.salaryStartDay))) : null;
+    const endDay = salaryType === 'flexible' && body.salaryEndDay ? Math.max(1, Math.min(28, Number(body.salaryEndDay))) : null;
 
     const [result] = await db.query(
-      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, employment_status = ?, monthly_salary = ? WHERE id = ?',
-      [code, name, email, department, workMode, status, salary, id]
+      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, employment_status = ?, monthly_salary = ?, salary_type = ?, salary_cycle_start_day = ?, salary_cycle_end_day = ? WHERE id = ?',
+      [code, name, email, department, workMode, status, salary, salaryType, startDay, endDay, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);

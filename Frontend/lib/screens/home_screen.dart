@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
+import 'package:godigital_portal/services/api_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,13 +20,51 @@ class _HomeScreenState extends State<HomeScreen> {
   static const Color darkColor = Color(0xFF1A1A2E);
   static const Color backgroundColor = Color(0xFFF7F8FC);
 
+  // null = still loading, true = has access, false = locked
+  bool? _hasRepoAccess;
+
   @override
   void initState() {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onAfterLogin();
+      _checkRepoAccess();
     });
+  }
+
+  Future<void> _checkRepoAccess() async {
+    final token = context.read<AuthService>().token;
+    // Admins always have access — skip the API call.
+    final userType =
+        context.read<AuthService>().userType?.toLowerCase().trim() ?? '';
+    if (userType == 'admin') {
+      if (mounted) setState(() => _hasRepoAccess = true);
+      return;
+    }
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() => _hasRepoAccess = false);
+      return;
+    }
+    try {
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/client-repository/permissions/me'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final canView = data['can_view'] == true || data['can_view'] == 1;
+        setState(() => _hasRepoAccess = canView);
+      } else {
+        setState(() => _hasRepoAccess = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _hasRepoAccess = false);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -113,12 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // ═══════════════════════════════════════════════════════════════
 
   void _openClientRepository() {
+    if (_hasRepoAccess == false) return;
     debugPrint('📁 Opening Client Work Repository');
-
-    Navigator.pushNamed(
-      context,
-      '/client-work-repository',
-    );
+    Navigator.pushNamed(context, '/client-work-repository');
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -546,8 +585,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _MenuButton(
           icon: Icons.folder_open_outlined,
           label: 'Client Work Repository',
-          description: 'Access client projects and work files',
+          description: _hasRepoAccess == false
+              ? 'You don\'t have access — contact your admin'
+              : 'Access client projects and work files',
           onPressed: _openClientRepository,
+          locked: _hasRepoAccess == false,
+          loading: _hasRepoAccess == null,
         ),
       ],
     );
@@ -584,12 +627,16 @@ class _MenuButton extends StatefulWidget {
   final String label;
   final String description;
   final VoidCallback onPressed;
+  final bool locked;
+  final bool loading;
 
   const _MenuButton({
     required this.icon,
     required this.label,
     required this.description,
     required this.onPressed,
+    this.locked = false,
+    this.loading = false,
   });
 
   @override
@@ -601,128 +648,163 @@ class _MenuButtonState extends State<_MenuButton> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) {
-        setState(() {
-          isHovered = true;
-        });
-      },
-      onExit: (_) {
-        setState(() {
-          isHovered = false;
-        });
-      },
-      child: GestureDetector(
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 17,
-          ),
-          decoration: BoxDecoration(
-            color: isHovered
-                ? const Color(0xFFF3F6FF)
-                : Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isHovered
-                  ? const Color(0xFF2A52BE)
-                  : const Color(0xFFE1E4EA),
-              width: isHovered ? 1.5 : 1,
+    final bool isLocked = widget.locked;
+    final bool isLoading = widget.loading;
+    final bool interactive = !isLocked && !isLoading;
+
+    return Tooltip(
+      message: isLocked ? 'No access — contact your admin' : '',
+      waitDuration: const Duration(milliseconds: 300),
+      child: MouseRegion(
+        cursor: isLocked
+            ? SystemMouseCursors.forbidden
+            : isLoading
+                ? SystemMouseCursors.wait
+                : SystemMouseCursors.click,
+        onEnter: (_) {
+          if (interactive) setState(() => isHovered = true);
+        },
+        onExit: (_) => setState(() => isHovered = false),
+        child: GestureDetector(
+          onTap: interactive ? widget.onPressed : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 17,
             ),
-            boxShadow: isHovered
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.07),
-                      blurRadius: 15,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.025),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-          ),
-          child: Row(
-            children: [
-              // ICON
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                height: 48,
-                width: 48,
-                decoration: BoxDecoration(
-                  color: isHovered
-                      ? const Color(0xFFE3EAFF)
-                      : const Color(0xFFF0F4FF),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(
-                  widget.icon,
-                  size: 24,
-                  color: const Color(0xFF2A52BE),
-                ),
+            decoration: BoxDecoration(
+              color: isLocked
+                  ? const Color(0xFFF7F7F8)
+                  : isHovered
+                      ? const Color(0xFFF3F6FF)
+                      : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isLocked
+                    ? const Color(0xFFDDDDE0)
+                    : isHovered
+                        ? const Color(0xFF2A52BE)
+                        : const Color(0xFFE1E4EA),
+                width: isHovered ? 1.5 : 1,
               ),
-
-              const SizedBox(width: 15),
-
-              // TEXT
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.label,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: isHovered
-                            ? const Color(0xFF1A3A8F)
-                            : const Color(0xFF222222),
+              boxShadow: isHovered && interactive
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.07),
+                        blurRadius: 15,
+                        offset: const Offset(0, 6),
                       ),
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    Text(
-                      widget.description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        height: 1.3,
-                        color: Color(0xFF888888),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.025),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
                       ),
+                    ],
+            ),
+            child: Row(
+              children: [
+                // ICON
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  height: 48,
+                  width: 48,
+                  decoration: BoxDecoration(
+                    color: isLocked
+                        ? const Color(0xFFEEEEF0)
+                        : isHovered
+                            ? const Color(0xFFE3EAFF)
+                            : const Color(0xFFF0F4FF),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(
+                    isLocked ? Icons.lock_outline_rounded : widget.icon,
+                    size: 24,
+                    color: isLocked
+                        ? const Color(0xFFAAAAAA)
+                        : const Color(0xFF2A52BE),
+                  ),
+                ),
+
+                const SizedBox(width: 15),
+
+                // TEXT
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: isLocked
+                              ? const Color(0xFFAAAAAA)
+                              : isHovered
+                                  ? const Color(0xFF1A3A8F)
+                                  : const Color(0xFF222222),
+                        ),
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      Text(
+                        widget.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.3,
+                          color: isLocked
+                              ? const Color(0xFFBBBBBB)
+                              : const Color(0xFF888888),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                // TRAILING — lock icon / spinner / arrow
+                if (isLoading)
+                  const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFFBBBBBB),
                     ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(width: 10),
-
-              // ARROW
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                height: 30,
-                width: 30,
-                decoration: BoxDecoration(
-                  color: isHovered
-                      ? const Color(0xFF2A52BE)
-                      : const Color(0xFFF3F4F7),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 12,
-                  color: isHovered
-                      ? Colors.white
-                      : const Color(0xFF777777),
-                ),
-              ),
-            ],
+                  )
+                else
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: 30,
+                    width: 30,
+                    decoration: BoxDecoration(
+                      color: isLocked
+                          ? const Color(0xFFEEEEF0)
+                          : isHovered
+                              ? const Color(0xFF2A52BE)
+                              : const Color(0xFFF3F4F7),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isLocked
+                          ? Icons.lock_rounded
+                          : Icons.arrow_forward_ios_rounded,
+                      size: isLocked ? 14 : 12,
+                      color: isLocked
+                          ? const Color(0xFFAAAAAA)
+                          : isHovered
+                              ? Colors.white
+                              : const Color(0xFF777777),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

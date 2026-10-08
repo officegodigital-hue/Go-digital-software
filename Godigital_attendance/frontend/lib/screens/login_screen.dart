@@ -590,7 +590,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final authService = context.read<AuthService>();
     final isAdmin = _selectedTab == 1;
 
-    final success = await authService.login(
+    var loginSucceeded = await authService.login(
       email,
       password,
       isAdmin,
@@ -599,7 +599,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
-    if (success) {
+    if (!loginSucceeded &&
+        authService.errorCode == 'DEVICE_CHANGE_REASON_REQUIRED') {
+      final reason = await _askDeviceChangeReason();
+      if (reason == null || reason.isEmpty || !mounted) return;
+      loginSucceeded = await authService.login(
+        email,
+        password,
+        isAdmin,
+        _rememberDevice,
+        deviceChangeReason: reason,
+      );
+      if (!mounted || !loginSucceeded) return;
+    }
+
+    // Do not route based on an old in-memory session. The destination must be
+    // reached only after this exact employee/admin login request succeeds.
+    if (loginSucceeded) {
       final prefs = await SharedPreferences.getInstance();
 
       if (_rememberDevice) {
@@ -615,8 +631,45 @@ class _LoginScreenState extends State<LoginScreen> {
       // Start a clean signed-in navigation stack.  This prevents an older
       // login route from appearing again when employees move between the
       // workspace and HRMS screens.
-      Navigator.pushNamedAndRemoveUntil(context, '/attendance', (route) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/attendance',
+        (route) => false,
+      );
     }
+  }
+
+  Future<String?> _askDeviceChangeReason() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Request device change'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Reason',
+            hintText: 'Example: My registered phone is broken.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final reason = controller.text.trim();
+              if (reason.isNotEmpty) Navigator.pop(dialogContext, reason);
+            },
+            child: const Text('Send request'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _handleCreateAccount() {

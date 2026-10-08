@@ -3102,8 +3102,8 @@ final String sizeText = sizeInKb > 1024
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 16 : 24,
-        vertical: isMobile ? 16 : 20,
+        horizontal: isMobile ? 16 : 20,
+        vertical: isMobile ? 16 : 14,
       ),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -3111,7 +3111,7 @@ final String sizeText = sizeInKb > 1024
           end: Alignment.bottomRight,
           colors: [_primaryDark, _primary, Color(0xFF1267E8)],
         ),
-        borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
+        borderRadius: BorderRadius.circular(isMobile ? 20 : 22),
         boxShadow: [
           BoxShadow(
             color: _primary.withValues(alpha: 0.20),
@@ -3123,11 +3123,11 @@ final String sizeText = sizeInKb > 1024
       child: Row(
         children: [
           Container(
-            width: isMobile ? 46 : 54,
-            height: isMobile ? 46 : 54,
+            width: isMobile ? 46 : 50,
+            height: isMobile ? 46 : 50,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(15),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.20),
               ),
@@ -3135,10 +3135,10 @@ final String sizeText = sizeInKb > 1024
             child: const Icon(
               Icons.forum_rounded,
               color: Colors.white,
-              size: 26,
+              size: 25,
             ),
           ),
-          const SizedBox(width: 13),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3149,12 +3149,12 @@ final String sizeText = sizeInKb > 1024
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: isMobile ? 17 : 22,
+                    fontSize: isMobile ? 17 : 20,
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   isMobile
                       ? 'Real-time team communication'
@@ -3163,20 +3163,39 @@ final String sizeText = sizeInKb > 1024
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.78),
-                    fontSize: isMobile ? 10.5 : 12,
+                    fontSize: isMobile ? 10.5 : 11.5,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
+
+          // Desktop: keep the two actions inside the Hero section.
+          if (!isMobile) ...[
+            const SizedBox(width: 14),
+            _buildHubAction(
+              icon: Icons.video_call_rounded,
+              label: 'Schedule Meeting',
+              onPressed: _openMeetingSchedulerDialog,
+              filled: false,
+            ),
+            const SizedBox(width: 8),
+            _buildHubAction(
+              icon: Icons.group_add_rounded,
+              label: 'Create Group',
+              onPressed: _openCreateGroupDialog,
+              filled: true,
+            ),
+          ],
+
           if (_unreadTotal > 0) ...[
             const SizedBox(width: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(13),
                 border: Border.all(
                   color: Colors.white.withValues(alpha: 0.18),
                 ),
@@ -3187,7 +3206,7 @@ final String sizeText = sizeInKb > 1024
                   const Icon(
                     Icons.mark_unread_chat_alt_rounded,
                     color: Colors.white,
-                    size: 15,
+                    size: 14,
                   ),
                   const SizedBox(width: 5),
                   Text(
@@ -3195,7 +3214,7 @@ final String sizeText = sizeInKb > 1024
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
-                      fontSize: 12,
+                      fontSize: 11.5,
                     ),
                   ),
                 ],
@@ -3224,7 +3243,7 @@ final String sizeText = sizeInKb > 1024
         backgroundColor: filled ? _primary : Colors.white,
         foregroundColor: filled ? Colors.white : _primary,
         elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: filled
@@ -5332,14 +5351,12 @@ final String sizeText = sizeInKb > 1024
           return SizedBox(
             height: MediaQuery.of(context).size.height - 120,
             child: _buildAmbientBackground(
-              child: Padding(
-                padding: EdgeInsets.all(isMobile ? 10 : 16),
-                child: Column(
+              child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (!isMobile || _showMobileChatList) ...[
                       _buildNotificationHero(isMobile),
-                      SizedBox(height: isMobile ? 10 : 16),
+                      const SizedBox(height: 8),
                     ],
                     if (isMobile && _showMobileChatList)
                       Padding(
@@ -5366,28 +5383,6 @@ final String sizeText = sizeInKb > 1024
                           ],
                         ),
                       ),
-                    if (!isMobile)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            _buildHubAction(
-                              icon: Icons.video_call_rounded,
-                              label: 'Schedule Meeting',
-                              onPressed: _openMeetingSchedulerDialog,
-                              filled: false,
-                            ),
-                            const SizedBox(width: 9),
-                            _buildHubAction(
-                              icon: Icons.group_add_rounded,
-                              label: 'Create Group',
-                              onPressed: _openCreateGroupDialog,
-                              filled: true,
-                            ),
-                          ],
-                        ),
-                      ),
                     Expanded(
                       child: isMobile
                           ? _buildMobileWorkspace(
@@ -5403,7 +5398,7 @@ final String sizeText = sizeInKb > 1024
                     ),
                   ],
                 ),
-              ),
+              
             ),
           );
         },

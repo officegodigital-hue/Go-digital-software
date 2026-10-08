@@ -162,11 +162,26 @@ class _EmployeeHistoryPageState extends State<EmployeeHistoryPage> {
         final body = jsonDecode(r.body);
         final allRows = List<dynamic>.from(body['data'] ?? []);
 
+        // 🟢 Last 3 months (90 days) date calculation
+        final threeMonthsAgo = DateTime.now().subtract(const Duration(days: 90));
+
         final Set<String> allTabs = {};
         final Map<String, List<Map<String, dynamic>>> groupedTasks = {};
 
         for (var row in allRows) {
           final m = Map<String, dynamic>.from(row);
+          
+          // 🟢 Filter: Check if task date is within the last 3 months
+          final dateStr = m['submit_date'] ?? m['created_at'];
+          if (dateStr != null && dateStr.toString().trim().isNotEmpty) {
+            try {
+              final d = DateTime.parse(dateStr.toString());
+              if (d.isBefore(threeMonthsAgo)) {
+                continue; // 3 masathuku munbulla data-vai skip seivathu
+              }
+            } catch (_) {}
+          }
+
           final client = m['client_name']?.toString() ?? '';
           final deliverable = m['deliverables']?.toString() ?? m['single_task']?.toString() ?? '';
           final taskListId = m['task_list_id']?.toString() ?? '0';

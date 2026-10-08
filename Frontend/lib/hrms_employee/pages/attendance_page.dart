@@ -8,8 +8,15 @@ import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import '../shared/employee_ui.dart';
 
-class EmployeeAttendancePage extends StatelessWidget {
+class EmployeeAttendancePage extends StatefulWidget {
   const EmployeeAttendancePage({super.key});
+
+  @override
+  State<EmployeeAttendancePage> createState() => _EmployeeAttendancePageState();
+}
+
+class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
+  final _attendanceKey = GlobalKey<_AttendanceViewState>();
 
   @override
   Widget build(BuildContext context) {
@@ -20,14 +27,25 @@ class EmployeeAttendancePage extends StatelessWidget {
       route: '/employee/attendance',
       title: 'Attendance Calendar',
       subtitle: 'Your attendance for $monthName',
-      desktop: const _AttendanceView(mobile: false),
+      desktopHeaderAction: FilledButton.icon(
+        onPressed: () => _attendanceKey.currentState?._openCorrectionRequest(),
+        icon: const Icon(Icons.edit_calendar_outlined),
+        label: const Text('Request Correction'),
+        style: FilledButton.styleFrom(
+          backgroundColor: employeeBlue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      desktop: _AttendanceView(key: _attendanceKey, mobile: false),
       mobile: const _AttendanceView(mobile: true),
     );
   }
 }
 
 class _AttendanceView extends StatefulWidget {
-  const _AttendanceView({required this.mobile});
+  const _AttendanceView({super.key, required this.mobile});
   final bool mobile;
 
   @override
@@ -118,7 +136,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
                 daysMap[dayNum] = {
-                  'status': isAbsent ? 'A' : (isLate ? 'L' : 'P'),
+                  'status': isAbsent ? 'A' : (isLate ? 'LT' : 'P'),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -131,11 +149,16 @@ class _AttendanceViewState extends State<_AttendanceView> {
               if (rawRecord is! Map) return;
               final dayNum = _extractDay(rawDate);
               if (dayNum == null || daysMap.containsKey(dayNum)) return;
-              final statusStr = (rawRecord['status']?.toString() ?? '').toLowerCase();
+              final statusStr = (rawRecord['attendance_status']?.toString() ?? rawRecord['status']?.toString() ?? '').toLowerCase();
               final isLate = rawRecord['isLate'] == true || statusStr == 'late';
               daysMap[dayNum] = {
-                'status': statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'),
-                'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
+                'status': statusStr == 'off' ? 'OFF'
+                    : (statusStr == 'h' || statusStr == 'holiday') ? 'H'
+                    : statusStr == 'absent' ? 'A'
+                    : isLate ? 'LT'
+                    : rawRecord['clock_in_at'] != null || rawRecord['checkInAt'] != null ? 'P'
+                    : '',
+                'clock_in': rawRecord['clock_in_at'] ?? rawRecord['checkInAt'] ?? rawRecord['checkIn'],
               };
             });
           }
@@ -165,11 +188,38 @@ class _AttendanceViewState extends State<_AttendanceView> {
                   daysMap[dayNum] = {
                     'status': statusStr == 'absent'
                         ? 'A'
-                        : (isLate ? 'L' : 'P'),
+                        : (isLate ? 'LT' : 'P'),
                     'clock_in': item['checkInAt'] ?? item['clock_in_at'],
                   };
                 }
               }
+            }
+          }
+
+          // Overlay approved leaves from the dashboard response onto the calendar.
+          // approved_leaves now includes the admin-configured abbreviation directly.
+          final approvedLeaves = data['approved_leaves'] as List? ?? [];
+          for (final leave in approvedLeaves) {
+            final leaveName = leave['leave_type']?.toString() ?? '';
+            final rawAbbr = leave['abbreviation']?.toString() ?? '';
+            final abbr = rawAbbr.isNotEmpty
+                ? rawAbbr
+                : leaveName.isNotEmpty
+                    ? leaveName.replaceAll(RegExp(r'\s+'), '').substring(0, leaveName.replaceAll(RegExp(r'\s+'), '').length.clamp(0, 2)).toUpperCase()
+                    : 'L';
+            final isHalf = (leave['duration_type']?.toString() ?? '').toLowerCase().contains('half');
+            final code = isHalf ? 'HL' : abbr;
+            DateTime? from = DateTime.tryParse(leave['from_date']?.toString() ?? '');
+            DateTime? to = DateTime.tryParse(leave['to_date']?.toString() ?? '');
+            if (from == null || to == null) continue;
+            while (!from!.isAfter(to)) {
+              if (from.year == year && from.month == month) {
+                final d = from.day;
+                if (!daysMap.containsKey(d) || daysMap[d]!['clock_in'] == null) {
+                  daysMap[d] = {'status': code, 'clock_in': null};
+                }
+              }
+              from = from.add(const Duration(days: 1));
             }
           }
 
@@ -207,11 +257,129 @@ class _AttendanceViewState extends State<_AttendanceView> {
     if (_monthDays.containsKey(day)) {
       return _monthDays[day]!;
     }
-    final isSunday = DateTime(year, month, day).weekday == DateTime.sunday;
-    if (isSunday) {
-      return {'status': 'OFF', 'clock_in': null};
-    }
     return {'status': '', 'clock_in': null};
+  }
+
+  Future<void> _pickCorrectionTime(TextEditingController controller) async {
+    final parts = controller.text.trim().split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? TimeOfDay.now().hour,
+      minute: int.tryParse(parts.length > 1 ? parts[1] : '') ?? TimeOfDay.now().minute,
+    );
+    final picked = await showDialog<TimeOfDay>(
+      context: context,
+      builder: (_) => _CorrectionTimePicker(initialTime: initial),
+    );
+    if (picked != null) controller.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _openCorrectionRequest() async {
+    DateTime selected = DateTime.now().subtract(const Duration(days: 1));
+    String type = 'automatic_absence';
+    final checkIn = TextEditingController();
+    final checkOut = TextEditingController();
+    final reason = TextEditingController();
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => Theme(
+          data: Theme.of(context).copyWith(
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: const Color(0xFFF7F9FD),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeLine)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeLine)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeBlue, width: 1.5)),
+            ),
+          ),
+          child: AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+          contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 4),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+          title: const Row(children: [Icon(Icons.edit_calendar_outlined, color: employeeBlue), SizedBox(width: 10), Text('Request Correction', style: TextStyle(color: employeeNavy, fontWeight: FontWeight.w800))]),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Attendance date', style: TextStyle(fontSize: 13, color: employeeMuted)),
+                  subtitle: Text(DateFormat('dd MMM yyyy').format(selected), style: const TextStyle(fontWeight: FontWeight.w600, color: employeeNavy)),
+                  trailing: const Icon(Icons.calendar_today_outlined, color: employeeBlue),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: selected,
+                      firstDate: DateTime.now().subtract(const Duration(days: 7)),
+                      lastDate: DateTime.now().subtract(const Duration(days: 1)),
+                    );
+                    if (picked != null) update(() => selected = picked);
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: type,
+                  decoration: const InputDecoration(hintText: 'Choose correction type'),
+                  items: const [
+                    DropdownMenuItem(value: 'missed_check_in', child: Text('Missed check-in')),
+                    DropdownMenuItem(value: 'missed_check_out', child: Text('Missed check-out')),
+                    DropdownMenuItem(value: 'incorrect_time', child: Text('Incorrect time')),
+                    DropdownMenuItem(value: 'automatic_absence', child: Text('Incorrect automatic absence')),
+                  ],
+                  onChanged: (value) => update(() => type = value!),
+                ),
+                const SizedBox(height: 12),
+                if (type == 'incorrect_time') ...[
+                  Row(children: [
+                    Expanded(child: _CorrectionTimeField(label: 'Check-in', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); })),
+                    const SizedBox(width: 12),
+                    Expanded(child: _CorrectionTimeField(label: 'Check-out', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); })),
+                  ]),
+                  const SizedBox(height: 12),
+                ] else ...[
+                  if (type != 'missed_check_out') _CorrectionTimeField(label: 'Correct check-in time', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); }),
+                  if (type != 'missed_check_out') const SizedBox(height: 12),
+                  if (type == 'missed_check_out') _CorrectionTimeField(label: 'Correct check-out time', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); }),
+                  if (type == 'missed_check_out') const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: reason,
+                  maxLines: 2,
+                  decoration: const InputDecoration(hintText: 'Reason for this correction'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(style: FilledButton.styleFrom(backgroundColor: employeeBlue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9))), onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
+          ],
+        ),
+        ),
+      ),
+    );
+    if (submitted != true || _token == null) {
+      checkIn.dispose();
+      checkOut.dispose();
+      reason.dispose();
+      return;
+    }
+    final checkInValue = checkIn.text.trim();
+    final checkOutValue = checkOut.text.trim();
+    final reasonValue = reason.text.trim();
+    checkIn.dispose();
+    checkOut.dispose();
+    reason.dispose();
+    try {
+      final response = await http.post(Uri.parse('${ApiConfig.baseUrl}/attendance/corrections'), headers: {'Authorization': 'Bearer $_token', 'Content-Type': 'application/json'}, body: jsonEncode({'attendanceDate': DateFormat('yyyy-MM-dd').format(selected), 'requestType': type, 'checkInTime': checkInValue, 'checkOutTime': checkOutValue, 'reason': reasonValue}));
+      final body = jsonDecode(response.body) as Map;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(body['message']?.toString() ?? (response.statusCode < 300 ? 'Correction request submitted.' : 'Unable to submit request'))));
+    } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to submit correction request.'))); }
   }
 
   @override
@@ -234,13 +402,14 @@ class _AttendanceViewState extends State<_AttendanceView> {
         late: _lateCount,
       ),
       const SizedBox(height: 16),
-      _RecentAttendanceCard(
-        month: monthNames[month - 1],
-        session: _monthDays.isNotEmpty ? _monthDays.values.last : null,
-      ),
+      _RecentAttendanceCard(year: year, month: month, days: _monthDays),
     ]);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (widget.mobile) ...[
+        Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(onPressed: _openCorrectionRequest, icon: const Icon(Icons.edit_calendar_outlined), label: const Text('Request Correction'))),
+        const SizedBox(height: 12),
+      ],
       if (_loading) const LinearProgressIndicator(),
       if (widget.mobile) ...[
         const MobileEmployeeHeader(showGreeting: false),
@@ -323,8 +492,8 @@ class _CalendarCard extends StatelessWidget {
               children: [
                 _LegendStatus('P', 'Present', employeeBlue),
                 _LegendStatus('A', 'Absent', Color(0xFFF2212F)),
-                _LegendStatus('L', 'Late', employeeOrange),
-                _LegendStatus('L', 'Leave', employeePurple),
+                _LegendStatus('LT', 'Late', employeeOrange),
+                _LegendStatus('CL', 'Leave', employeePurple),
                 _LegendStatus('HL', 'Half Leave', employeePurple),
                 _LegendStatus('OFF', 'Weekly Off', Color(0xFF7D8FAA)),
               ]),
@@ -417,14 +586,18 @@ class _CalendarDay extends StatelessWidget {
   final String status;
   final String? clockIn;
 
-  Color get color => switch (status) {
-        'A' => const Color(0xFFF2212F),
-        'L' => employeeOrange,
-        'LV' => employeePurple,
-        'HL' => employeePurple,
-        'OFF' => const Color(0xFF7D8FAA),
-        _ => employeeBlue,
-      };
+  static const _systemCodes = {'P', 'A', 'LT', 'H', 'HL', 'OFF', 'LV', 'L'};
+
+  Color get color {
+    switch (status) {
+      case 'A':   return const Color(0xFFF2212F);
+      case 'LT':  return employeeOrange;
+      case 'OFF': return const Color(0xFF7D8FAA);
+      case 'P':   return employeeBlue;
+      // HL, H, LV, L, or any leave abbreviation (CL, EL, SL, OH…) → purple
+      default:    return employeePurple;
+    }
+  }
 
   String? get formattedTime {
     if (clockIn == null || clockIn!.isEmpty) return null;
@@ -461,17 +634,20 @@ class _CalendarDay extends StatelessWidget {
             Text('OFF',
                 style: TextStyle(
                     color: color, fontSize: 10, fontWeight: FontWeight.w600))
+          else if (status == 'H')
+            Text('Holiday', style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600))
           else if (hasStatus)
             Container(
-              width: status == 'HL' ? 31 : 24,
+              constraints: const BoxConstraints(minWidth: 24, maxWidth: 36),
               height: 24,
               alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               child: Text(
                 status == 'LV' ? 'L' : status,
                 style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: FontWeight.w800),
               ),
             ),
@@ -615,25 +791,15 @@ class _SummaryCell extends StatelessWidget {
 }
 
 class _RecentAttendanceCard extends StatelessWidget {
-  const _RecentAttendanceCard({required this.month, this.session});
-  final String month;
-  final Map<String, dynamic>? session;
+  const _RecentAttendanceCard({required this.year, required this.month, required this.days});
+  final int year;
+  final int month;
+  final Map<int, Map<String, dynamic>> days;
 
   @override
   Widget build(BuildContext context) {
-    final hasSession = session != null && session!['clock_in'] != null;
-    final status = hasSession ? (session!['status'] == 'L' ? 'Late' : 'Present') : 'None';
-    final color = hasSession ? (session!['status'] == 'L' ? employeeOrange : employeeBlue) : employeeMuted;
-
-    String timeStr = '—';
-    if (hasSession && session!['clock_in'] != null) {
-      try {
-        final safeClockIn = session!['clock_in'].toString().replaceFirst(' ', 'T');
-        timeStr = DateFormat('hh:mm a').format(DateTime.parse(safeClockIn).toLocal());
-      } catch (_) {
-        timeStr = session!['clock_in'];
-      }
-    }
+    final records = days.entries.where((entry) => const {'P', 'L', 'A'}.contains(entry.value['status'])).toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
 
     return EmployeeCard(
       padding: const EdgeInsets.all(16),
@@ -644,7 +810,23 @@ class _RecentAttendanceCard extends StatelessWidget {
                 fontSize: 20,
                 fontWeight: FontWeight.w800)),
         const SizedBox(height: 10),
-        _RecentAttendanceRow('Today', status, timeStr, color),
+        if (records.isEmpty)
+          const _RecentAttendanceRow('No attendance records', 'None', '—', employeeMuted)
+        else
+          ...records.take(5).map((entry) {
+            final code = entry.value['status']?.toString() ?? '';
+            final status = code == 'A' ? 'Absent' : code == 'L' ? 'Late' : 'Present';
+            final color = code == 'A' ? const Color(0xFFF0182A) : code == 'L' ? employeeOrange : employeeBlue;
+            final rawTime = entry.value['clock_in'];
+            String time = 'No check-in';
+            if (rawTime != null) {
+              try { time = DateFormat('hh:mm a').format(DateTime.parse(rawTime.toString().replaceFirst(' ', 'T')).toLocal()); }
+              catch (_) { time = rawTime.toString(); }
+            }
+            final now = DateTime.now();
+            final label = year == now.year && month == now.month && entry.key == now.day ? 'Today' : DateFormat('d MMM').format(DateTime(year, month, entry.key));
+            return _RecentAttendanceRow(label, status, time, color);
+          }),
       ]),
     );
   }
@@ -682,4 +864,139 @@ class _RecentAttendanceRow extends StatelessWidget {
           Text(time, style: const TextStyle(color: employeeMuted)),
         ]),
       );
+}
+
+class _CorrectionTimeField extends StatelessWidget {
+  const _CorrectionTimeField({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F9FD),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: employeeLine),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  value.isEmpty ? '$label (HH:MM)' : value,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: value.isEmpty ? const Color(0xFF596174) : employeeNavy,
+                    fontSize: 16,
+                    fontWeight: value.isEmpty ? FontWeight.w400 : FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Icon(Icons.schedule_outlined, color: employeeBlue, size: 23),
+            ]),
+          ),
+        ),
+      );
+}
+
+class _CorrectionTimePicker extends StatefulWidget {
+  const _CorrectionTimePicker({required this.initialTime});
+  final TimeOfDay initialTime;
+
+  @override
+  State<_CorrectionTimePicker> createState() => _CorrectionTimePickerState();
+}
+
+class _CorrectionTimePickerState extends State<_CorrectionTimePicker> {
+  late int _hour24;
+  late int _minute;
+
+  @override
+  void initState() {
+    super.initState();
+    _hour24 = widget.initialTime.hour;
+    _minute = widget.initialTime.minute;
+  }
+
+  void _changeHour(int change) => setState(() => _hour24 = (_hour24 + change + 24) % 24);
+  void _changeMinute(int change) => setState(() => _minute = (_minute + change + 60) % 60);
+
+  @override
+  Widget build(BuildContext context) {
+    final hour12 = _hour24 % 12 == 0 ? 12 : _hour24 % 12;
+    final amPm = _hour24 >= 12 ? 'PM' : 'AM';
+    return Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              const Expanded(child: Text('Set time', style: TextStyle(color: employeeNavy, fontSize: 23, fontWeight: FontWeight.w800))),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: employeeMuted)),
+            ]),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 22),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: const Color(0xFFF5F8FC), borderRadius: BorderRadius.circular(12)),
+              child: Text('${hour12.toString().padLeft(2, '0')} : ${_minute.toString().padLeft(2, '0')} $amPm', style: const TextStyle(color: employeeNavy, fontSize: 36, fontWeight: FontWeight.w800)),
+            ),
+            const SizedBox(height: 22),
+            Row(children: [
+              Expanded(child: _TimeStepper(label: 'Hour', value: hour12.toString().padLeft(2, '0'), onMinus: () => _changeHour(-1), onPlus: () => _changeHour(1))),
+              const SizedBox(width: 18),
+              Expanded(child: _TimeStepper(label: 'Minute', value: _minute.toString().padLeft(2, '0'), onMinus: () => _changeMinute(-1), onPlus: () => _changeMinute(1))),
+            ]),
+            const SizedBox(height: 18),
+            Row(children: [
+              Expanded(child: OutlinedButton(onPressed: () => setState(() => _hour24 = _hour24 >= 12 ? _hour24 - 12 : _hour24 + 12), child: Text(amPm == 'AM' ? 'AM' : 'PM'))),
+              const SizedBox(width: 12),
+              Expanded(child: FilledButton(style: FilledButton.styleFrom(backgroundColor: employeeBlue, foregroundColor: Colors.white), onPressed: () => Navigator.pop(context, TimeOfDay(hour: _hour24, minute: _minute)), child: const Text('Apply'))),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimeStepper extends StatelessWidget {
+  const _TimeStepper({required this.label, required this.value, required this.onMinus, required this.onPlus});
+  final String label;
+  final String value;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        Text(label, style: const TextStyle(color: employeeMuted, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        Container(
+          height: 52,
+          decoration: BoxDecoration(border: Border.all(color: employeeLine), borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            Expanded(child: IconButton(onPressed: onMinus, icon: const Icon(Icons.remove, color: employeeBlue))),
+            Container(width: 1, color: employeeLine),
+            Expanded(child: Center(child: Text(value, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w800, fontSize: 20)))),
+            Container(width: 1, color: employeeLine),
+            Expanded(child: IconButton(onPressed: onPlus, icon: const Icon(Icons.add, color: employeeBlue))),
+          ]),
+        ),
+      ]);
 }

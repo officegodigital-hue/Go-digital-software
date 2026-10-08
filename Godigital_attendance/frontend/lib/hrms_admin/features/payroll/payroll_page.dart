@@ -103,8 +103,7 @@ class _PayrollPageState extends State<PayrollPage> {
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Payroll generated. You can now mark rows as paid.')),
+        const SnackBar(content: Text('Payroll run generated for every employee with configured compensation.')),
       );
     } catch (err) {
       if (!mounted) return;
@@ -135,46 +134,59 @@ class _PayrollPageState extends State<PayrollPage> {
     }
   }
 
-  Future<void> _openSalaryMaster() async {
+  Future<void> _viewHistory(_PayrollRow row) async {
     try {
-      final policy = await HrmsPayrollApi.paidLeavePolicy();
+      final items = await HrmsPayrollApi.deductionHistory(profileId: row.profileId, year: year, month: month);
       if (!mounted) return;
-      final weekly = TextEditingController(text: '${policy['weekly_limit'] ?? 1}');
-      final monthly = TextEditingController(text: '${policy['monthly_limit'] ?? 2}');
-      final yearly = TextEditingController(text: '${policy['yearly_limit'] ?? 12}');
-      final saved = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Salary Master — Paid Leave Rules'),
-          content: SizedBox(
-            width: 430,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Set the paid leave days available to every employee.'),
-              const SizedBox(height: 18),
-              TextField(controller: weekly, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Paid leave days per week', border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              TextField(controller: monthly, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Paid leave days per month', border: OutlineInputBorder())),
-              const SizedBox(height: 12),
-              TextField(controller: yearly, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Paid leave days per year', border: OutlineInputBorder())),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save policy')),
-          ],
-        ),
+      await showDialog<void>(context: context, builder: (context) => AlertDialog(
+        title: Text('${row.name} — deduction history'),
+        content: SizedBox(width: 520, child: items.isEmpty
+          ? const Text('No late or absent salary deductions were generated for this payroll period.')
+          : SingleChildScrollView(child: DataTable(columns: const [DataColumn(label: Text('Date')), DataColumn(label: Text('Type')), DataColumn(label: Text('Late')), DataColumn(label: Text('Amount'))], rows: items.map((item) => DataRow(cells: [DataCell(Text('${item['attendance_date']}')), DataCell(Text('${item['deduction_type']}' == 'late' ? 'Late' : 'Absent')), DataCell(Text('${item['late_minutes'] ?? 0} min')), DataCell(Text('₹${item['amount']}'))])).toList()))),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ));
+    } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', '')))); }
+  }
+
+  Future<void> _overrideCycle(_PayrollRow row) async {
+    if (row.salaryType != 'Flexible') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only Flexible employees can have a custom payroll cycle.')),
       );
-      if (saved != true || !mounted) return;
-      await HrmsPayrollApi.updatePaidLeavePolicy(
-        weeklyLimit: num.tryParse(weekly.text) ?? -1,
-        monthlyLimit: num.tryParse(monthly.text) ?? -1,
-        yearlyLimit: num.tryParse(yearly.text) ?? -1,
+      return;
+    }
+    final initial = DateTimeRange(
+      start: DateTime.parse(row.periodStart),
+      end: DateTime.parse(row.periodEnd),
+    );
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDateRange: initial,
+      helpText: 'Custom payroll cycle for ${row.name}',
+    );
+    if (picked == null || !mounted) return;
+    try {
+      await HrmsPayrollApi.saveCycleOverride(
+        profileId: row.profileId,
+        year: year,
+        month: month,
+        periodStart: picked.start,
+        periodEnd: picked.end,
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paid leave policy saved.')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Custom payroll cycle saved.')),
+        );
+      }
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
     }
   }
 
@@ -183,6 +195,7 @@ class _PayrollPageState extends State<PayrollPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: _PayrollColors.page,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/payroll') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/payroll'),
@@ -215,7 +228,7 @@ class _PayrollPageState extends State<PayrollPage> {
                                 _PayrollHeader(
                                   generating: generating,
                                   onGenerate: _generate,
-                                  onSalaryMaster: _openSalaryMaster,
+                                  onPolicy: _editPolicy,
                                 ),
                                 const SizedBox(height: 17),
                                 _PayrollKpis(
@@ -258,6 +271,8 @@ class _PayrollPageState extends State<PayrollPage> {
                                     _load();
                                   },
                                   onMarkPaid: _markPaid,
+                                  onHistory: _viewHistory,
+                                  onCycleOverride: _overrideCycle,
                                 ),
                               ],
                             ),
@@ -269,6 +284,64 @@ class _PayrollPageState extends State<PayrollPage> {
       ),
     );
   }
+
+  Future<void> _editPolicy() async {
+    try {
+      final saved = await showDialog<bool>(context: context, builder: (_) => const _PayrollPolicyDialog());
+      if (saved == true) _load();
+    } catch (err) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+}
+
+class _PayrollPolicyDialog extends StatefulWidget {
+  const _PayrollPolicyDialog();
+  @override State<_PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
+}
+
+class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
+  Set<int> offDays = {0};
+  bool approvedLeave = true;
+  bool explicitAbsence = true;
+  bool missingAttendance = false;
+  bool autoGenerate = false;
+  bool loading = true;
+  bool saving = false;
+  final TextEditingController divisor = TextEditingController(text: '26');
+  @override void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final data = await HrmsPayrollApi.policy();
+    if (!mounted) return;
+    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); approvedLeave = data['deductApprovedLeave'] == true; explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; autoGenerate = data['autoGenerate'] == true; divisor.text = '${data['salaryDayDivisor'] ?? 26}'; loading = false; });
+  }
+  Future<void> _save() async {
+    setState(() => saving = true);
+    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductApprovedLeave': approvedLeave, 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance, 'salaryDayDivisor': int.tryParse(divisor.text) ?? 26, 'autoGenerate': autoGenerate}); if (mounted) Navigator.pop(context, true); }
+    finally { if (mounted) setState(() => saving = false); }
+  }
+  @override Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Payroll policy'),
+    content: loading ? const SizedBox(height: 100, child: Center(child: CircularProgressIndicator())) : SingleChildScrollView(child: SizedBox(width: 380, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Weekly off days'),
+      Wrap(children: List.generate(7, (day) { const labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; return FilterChip(label: Text(labels[day]), selected: offDays.contains(day), onSelected: (selected) => setState(() { if (selected) { offDays.add(day); } else { offDays.remove(day); } })); })),
+      const SizedBox(height: 10),
+      TextField(controller: divisor, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Salary-day divisor', helperText: 'Use 26 for the standard monthly payroll calculation')),
+      const SizedBox(height: 8),
+      const Text('Payroll generation mode'),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, children: [
+        ChoiceChip(label: const Text('Manual'), selected: !autoGenerate, onSelected: (_) => setState(() => autoGenerate = false)),
+        ChoiceChip(label: const Text('Auto'), selected: autoGenerate, onSelected: (_) => setState(() => autoGenerate = true)),
+      ]),
+      Padding(padding: const EdgeInsets.only(top: 6), child: Text(autoGenerate ? 'Auto refreshes unpaid payroll once each new day. Paid rows are never changed.' : 'Use Generate payroll whenever you want to update this month.', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+      const SizedBox(height: 8),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct approved leave'), value: approvedLeave, onChanged: (value) => setState(() => approvedLeave = value)),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct explicit absence'), value: explicitAbsence, onChanged: (value) => setState(() => explicitAbsence = value)),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Treat missing attendance as absence'), value: missingAttendance, onChanged: (value) => setState(() => missingAttendance = value)),
+    ]))),
+    actions: [TextButton(onPressed: saving ? null : () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: saving ? null : _save, child: Text(saving ? 'Saving…' : 'Save policy'))],
+  );
 }
 
 class _MonthOption {
@@ -293,22 +366,18 @@ class _MonthOption {
 }
 
 class _PayrollHeader extends StatelessWidget {
-  const _PayrollHeader({required this.generating, required this.onGenerate, required this.onSalaryMaster});
+  const _PayrollHeader({required this.generating, required this.onGenerate, required this.onPolicy});
   final bool generating;
   final VoidCallback onGenerate;
-  final VoidCallback onSalaryMaster;
+  final VoidCallback onPolicy;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         const Expanded(child: AdminPageHeader(title: 'Payroll')),
-        OutlinedButton.icon(
-          onPressed: onSalaryMaster,
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Salary Master'),
-        ),
-        const SizedBox(width: 10),
+        IconButton(tooltip: 'Payroll policy', onPressed: onPolicy, icon: const Icon(Icons.tune_rounded, color: _PayrollColors.navy)),
+        const SizedBox(width: 8),
         FilledButton.icon(
           onPressed: generating ? null : onGenerate,
           icon: generating
@@ -347,21 +416,25 @@ class _PayrollKpis extends StatelessWidget {
           Icons.account_balance_wallet_outlined, _PayrollColors.blue),
       _PayrollKpi('Employees', '$employees', 'Active / on leave staff',
           Icons.groups_outlined, const Color(0xFF158C20)),
-      _PayrollKpi('Paid', '$paid', 'Marked paid in MySQL',
+      _PayrollKpi('Paid', '$paid', 'Marked paid',
           Icons.check_circle_outline_rounded, const Color(0xFF158C20)),
       _PayrollKpi('Unpaid', '$pending', 'Draft or pending rows',
           Icons.pending_actions_outlined, const Color(0xFFFF6500)),
     ];
     return LayoutBuilder(builder: (_, constraints) {
-      final columns = constraints.maxWidth < 700
+      final mobile = constraints.maxWidth < 600;
+      final columns = mobile
+          ? 4
+          : constraints.maxWidth < 700
           ? 1
           : constraints.maxWidth < 1100
               ? 2
               : 4;
-      final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
+      final spacing = mobile ? 8.0 : 16.0;
+      final width = (constraints.maxWidth - (columns - 1) * spacing) / columns;
       return Wrap(
-        spacing: 16,
-        runSpacing: 16,
+        spacing: spacing,
+        runSpacing: mobile ? 8 : 16,
         children: cards
             .map((card) => SizedBox(width: width, child: card))
             .toList(),
@@ -378,7 +451,21 @@ class _PayrollKpi extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    if (compact) {
+      return Container(
+        height: 80,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return Container(
         height: 116,
         padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
         decoration: BoxDecoration(
@@ -443,6 +530,7 @@ class _PayrollKpi extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _PayrollPanel extends StatelessWidget {
@@ -458,6 +546,8 @@ class _PayrollPanel extends StatelessWidget {
     required this.onStatusChanged,
     required this.onReset,
     required this.onMarkPaid,
+    required this.onHistory,
+    required this.onCycleOverride,
   });
 
   final String monthKey;
@@ -468,9 +558,13 @@ class _PayrollPanel extends StatelessWidget {
   final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    return Container(
         padding: EdgeInsets.fromLTRB(
           MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
           20,
@@ -489,17 +583,17 @@ class _PayrollPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Monthly payroll',
+            if (!mobile) const Text('Monthly payroll',
                 style: TextStyle(
                     color: _PayrollColors.navy,
                     fontSize: 18,
                     fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            const Text(
-              'Net pay = (present + late days ÷ working days) × monthly salary. Sundays are weekly off. Generate to save the month, then mark paid.',
+            if (!mobile) const SizedBox(height: 6),
+            if (!mobile) const Text(
+              'Generate one monthly run for all employees with configured compensation. Net pay is monthly salary minus deductions from the Payroll policy.',
               style: TextStyle(color: Color(0xFF596176), fontSize: 13),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: mobile ? 0 : 16),
             _PayrollFilters(
               monthKey: monthKey,
               months: months,
@@ -515,7 +609,7 @@ class _PayrollPanel extends StatelessWidget {
             if (MediaQuery.sizeOf(context).width < 600)
               _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
             else
-              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid),
+              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride),
             const SizedBox(height: 16),
             Text(
               rows.isEmpty
@@ -526,6 +620,7 @@ class _PayrollPanel extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _PayrollFilters extends StatelessWidget {
@@ -554,6 +649,14 @@ class _PayrollFilters extends StatelessWidget {
         ? monthKey
         : (months.isEmpty ? monthKey : months.first.key);
     return LayoutBuilder(builder: (_, constraints) {
+      final mobile = MediaQuery.sizeOf(context).width < 600;
+      if (mobile) {
+        return Row(children: [
+          OutlinedButton.icon(onPressed: () => _showMobileFilters(context, monthValue), icon: const Icon(Icons.tune_rounded, size: 19), label: const Text('Filter'), style: OutlinedButton.styleFrom(foregroundColor: _PayrollColors.blue, side: const BorderSide(color: _PayrollColors.blue), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13))),
+          const SizedBox(width: 8),
+          IconButton.outlined(onPressed: onReset, icon: const Icon(Icons.restart_alt_rounded), color: _PayrollColors.blue, tooltip: 'Reset filters'),
+        ]);
+      }
       final width = constraints.maxWidth < 900 ? constraints.maxWidth : 280.0;
       return Wrap(
         spacing: 24,
@@ -625,6 +728,16 @@ class _PayrollFilters extends StatelessWidget {
         ],
       );
     });
+  }
+
+  void _showMobileFilters(BuildContext context, String monthValue) {
+    showModalBottomSheet<void>(context: context, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(padding: const EdgeInsets.fromLTRB(20, 18, 20, 24), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const Text('Filter payroll', style: TextStyle(color: _PayrollColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
+      DropdownButtonFormField<String>(initialValue: monthValue, onChanged: onMonthChanged, decoration: _fieldDecoration().copyWith(labelText: 'Month'), items: months.map((item) => DropdownMenuItem(value: item.key, child: Text(item.label))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration().copyWith(labelText: 'Employee'), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: status, onChanged: onStatusChanged, decoration: _fieldDecoration().copyWith(labelText: 'Status'), items: const ['All Status','Draft','Pending','Paid'].map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 16),
+      FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters')),
+    ]))));
   }
 }
 
@@ -716,7 +829,7 @@ class _MobilePayrollList extends StatelessWidget {
                       'Paid ${row.paidDays}/${row.workingDays} days • LOP ${row.lopDays}',
                       style: const TextStyle(
                           color: Color(0xFF657087), fontSize: 12)),
-                  if (row.status != 'Paid') ...[
+                  if (row.status == 'Pending') ...[
                     const SizedBox(height: 10),
                     FilledButton(
                       onPressed: () => onMarkPaid(row),
@@ -735,9 +848,11 @@ class _MobilePayrollList extends StatelessWidget {
 }
 
 class _PayrollTable extends StatelessWidget {
-  const _PayrollTable({required this.rows, required this.onMarkPaid});
+  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -760,7 +875,7 @@ class _PayrollTable extends StatelessWidget {
                               'No payroll rows match these filters.')))
                 else
                   ...rows.map((row) =>
-                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid)),
+                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride)),
               ],
             ),
           ),
@@ -790,9 +905,11 @@ class _PayrollTableHeader extends StatelessWidget {
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({required this.row, required this.onMarkPaid});
+  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
+  final ValueChanged<_PayrollRow> onHistory;
+  final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -850,20 +967,30 @@ class _PayrollTableRow extends StatelessWidget {
             _Cell(width: 120, child: _PayStatus(status: row.status)),
             _Cell(
               width: 140,
-              child: row.status == 'Paid'
-                  ? const Text('–',
-                      style: TextStyle(color: Color(0xFF596176)))
-                  : FilledButton(
-                      onPressed: () => onMarkPaid(row),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _PayrollColors.blue,
-                        visualDensity: VisualDensity.compact,
-                        minimumSize: const Size(0, 32),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                      ),
-                      child: const Text('Mark paid',
-                          style: TextStyle(fontSize: 12)),
-                    ),
+              child: PopupMenuButton<int>(
+                tooltip: 'Payroll actions',
+                onSelected: (action) {
+                  if (action == 0) onHistory(row);
+                  if (action == 1) onCycleOverride(row);
+                  if (action == 2) onMarkPaid(row);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.history_outlined), title: Text('View history'))),
+                  if (row.salaryType == 'Flexible' && row.status != 'Paid')
+                    const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.date_range_outlined), title: Text('Custom cycle'))),
+                  if (row.status == 'Pending')
+                    const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('Mark paid'))),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(border: Border.all(color: const Color(0xFFD8DEE9)), borderRadius: BorderRadius.circular(7)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.more_horiz_rounded, size: 18, color: _PayrollColors.blue),
+                    SizedBox(width: 5),
+                    Text('Actions', style: TextStyle(color: _PayrollColors.blue, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+              ),
             ),
           ],
         ),
@@ -904,6 +1031,7 @@ class _PayStatus extends StatelessWidget {
 class _PayrollRow {
   const _PayrollRow({
     required this.itemId,
+    required this.profileId,
     required this.name,
     required this.code,
     required this.department,
@@ -914,11 +1042,16 @@ class _PayrollRow {
     required this.deductions,
     required this.netPay,
     required this.status,
+    required this.salaryType,
+    required this.periodStart,
+    required this.periodEnd,
   });
 
   final int? itemId;
+  final int profileId;
   final String name, code, department, salary, deductions, netPay, status;
   final int workingDays, paidDays, lopDays;
+  final String salaryType, periodStart, periodEnd;
 
   factory _PayrollRow.fromApi(Map<String, dynamic> json) {
     int asInt(dynamic value) =>
@@ -926,6 +1059,7 @@ class _PayrollRow {
     final rawId = json['id'];
     return _PayrollRow(
       itemId: rawId == null ? null : asInt(rawId),
+      profileId: asInt(json['profileId']),
       name: (json['name'] ?? '').toString(),
       code: (json['employeeCode'] ?? '').toString(),
       department: (json['department'] ?? '').toString(),
@@ -936,6 +1070,9 @@ class _PayrollRow {
       deductions: (json['deductionsLabel'] ?? '–').toString(),
       netPay: (json['netPayLabel'] ?? '–').toString(),
       status: (json['status'] ?? 'Draft').toString(),
+      salaryType: (json['salaryType'] ?? 'Standard').toString(),
+      periodStart: (json['periodStart'] ?? '').toString(),
+      periodEnd: (json['periodEnd'] ?? '').toString(),
     );
   }
 }

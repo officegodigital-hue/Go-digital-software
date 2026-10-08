@@ -135,9 +135,11 @@ class AuthService extends ChangeNotifier {
           data['user'] as Map,
         );
 
-        _user!['userType'] =
-            _user!['userType'] ??
-                selectedUserType;
+        // 🟢 Application Access and Allowed Pages synchronization
+        _user!['userType'] = _user!['userType'] ?? selectedUserType;
+        if (!_user!.containsKey('application_access')) {
+          _user!['application_access'] = {};
+        }
 
         await AuthStorage.setString(
           'auth_token',
@@ -148,7 +150,8 @@ class AuthService extends ChangeNotifier {
           'user_data',
           jsonEncode(_user),
         );
-
+        
+       
         await AuthStorage.setBool(
           'isLoggedIn',
           true,
@@ -211,6 +214,24 @@ class AuthService extends ChangeNotifier {
     _user = null;
     _error = null;
 
+    notifyListeners();
+  }
+
+  /// Updates the signed-in session after a profile edit.  Widgets in the
+  /// attendance and task areas listen to this service, so they receive the
+  /// same identity immediately without another login.
+  Future<void> updateProfileCache(Map<String, dynamic> profile) async {
+    if (_user == null) return;
+    final name = profile['name']?.toString().trim();
+    final email = profile['email']?.toString().trim();
+    if (name != null && name.isNotEmpty) {
+      _user!['fullName'] = name;
+      _user!['name'] = name;
+    }
+    if (email != null && email.isNotEmpty) {
+      _user!['email'] = email;
+    }
+    await AuthStorage.setString('user_data', jsonEncode(_user));
     notifyListeners();
   }
 

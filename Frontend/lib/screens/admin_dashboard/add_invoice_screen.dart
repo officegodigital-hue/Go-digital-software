@@ -2493,6 +2493,9 @@ void _selectClient(Map<String, dynamic> client) {
   }
 
   Widget _buildPaymentHistoryCard({required bool isMobile}) {
+    // 🟢 Payment history-ai reverse order-il kaattuvatharku (First add pannathu 1, next add pannathu 2...)
+    final reversedPayments = _paymentHistory.reversed.toList();
+
     final table = Table(
       border: TableBorder.all(color: const Color(0xFFE2E8F0), width: .6),
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
@@ -2516,7 +2519,7 @@ void _selectClient(Map<String, dynamic> client) {
             _paymentTableHeader('Balance'),
           ],
         ),
-        if (_paymentHistory.isEmpty)
+        if (reversedPayments.isEmpty)
           TableRow(
             children: [
               for (int i = 0; i < 6; i++)
@@ -2542,15 +2545,15 @@ void _selectClient(Map<String, dynamic> client) {
             ],
           )
         else
-          for (int i = 0; i < _paymentHistory.length; i++)
+          for (int i = 0; i < reversedPayments.length; i++)
             TableRow(
               children: [
-                _paymentTableCell((i + 1).toString(), align: TextAlign.center),
-                _paymentTableCell(_paymentHistory[i]['paid_date'] ?? ''),
-                _paymentTableCell('₹${_paymentHistory[i]['total_amount']}'),
-                _paymentTableCell('₹${_paymentHistory[i]['paid_total_amount']}'),
-                _paymentTableCell('₹${_paymentHistory[i]['paid_amount']}'),
-                _paymentTableCell('₹${_paymentHistory[i]['balanced_amount']}'),
+                _paymentTableCell((i + 1).toString(), align: TextAlign.center), // 🟢 S.No 1, 2, 3... enru ascending-il varum
+                _paymentTableCell(reversedPayments[i]['paid_date'] ?? ''),
+                _paymentTableCell('₹${reversedPayments[i]['total_amount']}'),
+                _paymentTableCell('₹${reversedPayments[i]['paid_total_amount']}'),
+                _paymentTableCell('₹${reversedPayments[i]['paid_amount']}'),
+                _paymentTableCell('₹${reversedPayments[i]['balanced_amount']}'),
               ],
             ),
       ],
@@ -2614,7 +2617,7 @@ void _selectClient(Map<String, dynamic> client) {
       ),
     );
   }
-
+  
   Widget _buildDesktopSummary(
     double subtotal,
     double totalAmount,

@@ -532,66 +532,94 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
                   const SizedBox(width: 14),
                 ],
 
-                Consumer<AuthService>(
-                  builder: (context, authService, _) {
-                    final employeeName = authService.user?['fullName'] ?? 'Employee';
-                    final employeeRole = authService.user?['role'] ?? widget.role.title;
-                    final initials = authService.user?['initials'] ?? _generateInitials(employeeName);
+                // employee_topbar.dart-il ulla Consumer<AuthService> block-ai inthapadi update seiyungal:
 
-                    if (!isDesktop) {
-                      return PopupMenuButton<int>(
-                        offset: const Offset(0, 45),
-                        icon: CircleAvatar(
-                          radius: 16,
-                          backgroundColor: AppColors.primary,
-                          child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
-                        ),
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            enabled: false,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
-                                const SizedBox(height: 2),
-                                Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    }
+    Consumer<AuthService>(
+      builder: (context, authService, _) {
+        final user = authService.user;
+        final employeeName = user?['fullName'] ?? 'Employee';
+        final employeeRole = user?['role'] ?? widget.role.title;
+        final initials = user?['initials'] ?? _generateInitials(employeeName);
 
-                    return Row(
-                      children: [
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              employeeName,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
-                            ),
-                            Text(
-                              employeeRole,
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 10),
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundColor: AppColors.primary,
-                          child: Text(
-                            initials,
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+        // 🟢 Profile photo and avatar color from auth session
+        final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
+        final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
+
+        Color avatarColor = AppColors.primary;
+        if (avatarColorHex.isNotEmpty) {
+          try {
+            final s = avatarColorHex.replaceAll('#', '');
+            avatarColor = Color(int.parse('FF$s', radix: 16));
+          } catch (_) {}
+        }
+
+        ImageProvider? profileImage;
+        if (profilePhoto != null && profilePhoto.isNotEmpty) {
+          try {
+            profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
+          } catch (_) {}
+        }
+
+        if (!isDesktop) {
+          return PopupMenuButton<int>(
+            offset: const Offset(0, 45),
+            icon: CircleAvatar(
+              radius: 16,
+              backgroundColor: avatarColor,
+              backgroundImage: profileImage,
+              child: profileImage == null
+                  ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
+                  : null,
+            ),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                enabled: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
+                    const SizedBox(height: 2),
+                    Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  employeeName,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                ),
+                Text(
+                  employeeRole,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
                 ),
               ],
+            ),
+            const SizedBox(width: 10),
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: avatarColor,
+              backgroundImage: profileImage,
+              child: profileImage == null
+                  ? Text(
+                      initials,
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                    )
+                  : null,
+            ),
+          ],
+        );
+      },
+    ),
+             ],
             ),
           ),
 

@@ -6,6 +6,9 @@ const hrms = require('../controllers/hrmsTrackingController');
 router.use(authenticateToken);
 router.get('/settings', hrms.getTrackingSettings);
 router.put('/settings', hrms.requireAdmin, hrms.updateTrackingSettings);
+router.put('/office-location', hrms.requireAdmin, hrms.updateOfficeLocation);
+router.put('/home-settings', hrms.requireAdmin, hrms.updateHomeSettings);
+router.put('/hybrid-settings', hrms.requireAdmin, hrms.updateHybridSettings);
 
 // Employee self-service — called from the mobile app
 router.post('/status', hrms.setStatus);
@@ -14,6 +17,7 @@ router.post('/ping', hrms.ping);
 // Admin dashboard views
 router.get('/', hrms.requireAdmin, hrms.list);
 router.get('/live', hrms.requireAdmin, hrms.liveOverview);
+router.get('/route/me', hrms.myRouteHistory);
 router.get('/route/:employeeUserId', hrms.requireAdmin, hrms.routeHistory);
 
 router.get('/home-location', hrms.getMyHomeLocation);
@@ -46,6 +50,15 @@ router.patch(
 router.get('/field-session', hrms.getMyFieldSession);
 router.post('/field-session/start', hrms.startFieldTracking);
 router.post('/field-session/stop', hrms.stopFieldTracking);
+// Public Hybrid routes. Legacy Field routes remain above only for existing
+// installed clients; all current UI calls the Hybrid names below.
+router.get('/hybrid-session', hrms.getMyFieldSession);
+router.post('/hybrid-session/start', hrms.startFieldTracking);
+router.post('/hybrid-session/stop', hrms.stopFieldTracking);
+router.get('/hybrid-waiting-alert', hrms.getMyWaitingAlert);
+router.post('/hybrid-waiting-reasons/:id', hrms.submitWaitingReason);
+router.get('/hybrid-waiting-reasons', hrms.requireAdmin, hrms.listFieldWaitingReasons);
+router.patch('/hybrid-waiting-reasons/:id/review', hrms.requireAdmin, hrms.reviewFieldWaitingReason);
 router.get('/field-waiting-alert', hrms.getMyWaitingAlert);
 
 router.post(

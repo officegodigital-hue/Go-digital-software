@@ -81,4 +81,31 @@ class HrmsPayrollApi {
     );
     return _decode(response);
   }
+
+  static Future<Map<String, dynamic>?> getCustomCycle(int profileId, {required int year, required int month}) async {
+    final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/custom-cycle/$profileId')
+        .replace(queryParameters: {'year': '$year', 'month': '$month'});
+    final response = await http.get(uri, headers: await _headers());
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Request failed');
+    }
+    final data = map['data'];
+    return data is Map ? Map<String, dynamic>.from(data) : null;
+  }
+
+  static Future<void> setCustomCycle(int profileId, {required int year, required int month, required String periodStart, required String periodEnd}) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/custom-cycle/$profileId')
+          .replace(queryParameters: {'year': '$year', 'month': '$month'}),
+      headers: await _headers(),
+      body: jsonEncode({'periodStart': periodStart, 'periodEnd': periodEnd}),
+    );
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Request failed');
+    }
+  }
 }

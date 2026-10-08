@@ -92,13 +92,15 @@ function createService(
     );
 
     const [approvedLeaves] = await pool.execute(
-      `SELECT leave_type, duration_type,
-              DATE_FORMAT(from_date, '%Y-%m-%d') AS from_date,
-              DATE_FORMAT(to_date, '%Y-%m-%d') AS to_date
-       FROM employee_leaves
-       WHERE employee_id = ? AND status = 'APPROVED'
-         AND from_date < ? AND to_date >= ?
-       ORDER BY from_date ASC`,
+      `SELECT el.leave_type, el.duration_type,
+              COALESCE(lt.abbreviation, '') AS abbreviation,
+              DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+              DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date
+       FROM employee_leaves el
+       LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
+       WHERE el.employee_id = ? AND el.status = 'APPROVED'
+         AND el.from_date < ? AND el.to_date >= ?
+       ORDER BY el.from_date ASC`,
       [employee.id, end, start],
     );
 

@@ -38,6 +38,7 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
   List<TaskPlannerRowModel> rows = [];
   bool _loading = true;
   bool _employeesLoading = true;
+  final Set<int> _hoveredEmployeePickers = <int>{};
   String? _employeeName;
   int? _employeeId; // ← sender's DB id from auth service
 
@@ -135,6 +136,14 @@ class _TaskPlannerPageState extends State<TaskPlannerPage> {
       final data = await TaskPlannerService.getPlannerRows(_employeeName!);
       final loaded = data.map((d) => TaskPlannerRowModel.fromJson(d)).toList();
 
+      // Keep the planner UI useful even when an older DB row has an empty content type.
+      // This is only a display/default value; it does not overwrite existing non-empty data.
+      for (final row in loaded) {
+        if (row.contentTypeController.text.trim().isEmpty) {
+          row.contentTypeController.text = 'Content Type';
+        }
+      }
+
       // Seed 5 default sections if DB is empty
       if (loaded.isEmpty) {
         for (final ct in [
@@ -207,10 +216,10 @@ Future<void> _autoSaveRow(TaskPlannerRowModel row) async {
   Future<void> addSection() async {
     try {
       final id = await TaskPlannerService.createPlannerRow(
-          _employeeName ?? '', 'New Content Type');
+          _employeeName ?? '', 'Content Type');
      final newRow = TaskPlannerRowModel(
   id: id,
-  contentType: 'New Content Type',
+  contentType: 'Content Type',
 );
 
 setState(() {
@@ -354,239 +363,687 @@ row.contentController.addListener(row.saveListener!);
     super.dispose();
   }
 
-  // ── BUILD ──────────────────────────────────────────────────────────────
+  // ── PREMIUM RESPONSIVE UI ───────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    if (_loading || _employeesLoading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFF004AAD)));
-    }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(38, 30, 38, 30),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _pageHeader(),
-          const SizedBox(height: 28),
-          _plannerTable(),
-        ],
-      ),
-    );
-  }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isMobile = width < 650;
+        final isTablet = width >= 650 && width < 1050;
+        final horizontal = isMobile ? 14.0 : (isTablet ? 24.0 : 38.0);
 
-  // ── PAGE HEADER ────────────────────────────────────────────────────────
-  Widget _pageHeader() {
-    return Row(children: [
-      const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Tasks Planner', style: AppTextStyles.heading),
-          SizedBox(height: 6),
-          Text(
-              'Organize, assign, and track tasks efficiently to ensure timely completion and improved team productivity.',
-              style: AppTextStyles.subHeading),
-        ],
-      ),
-      const Spacer(),
-      OutlinedButton.icon(
-  onPressed: () async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'employeeMenu',
-      'Task Planner History',
-    );
+        if (_loading || _employeesLoading) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF1769FF)),
+          );
+        }
 
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const EmployeeLayoutPage(),
-      ),
-    );
-  },
- icon: const Icon(Icons.history_rounded, size: 16, color: Color(0xFF004AAD)),
-         label: const Text("View History"  ,  
-         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF004AAD))),
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: Color(0xFF004AAD)),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
-        ),
-         
-),
-      const SizedBox(width: 12),
-      ElevatedButton(
-        onPressed: addSection,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF004AAD),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
-        ),
-        child: const Text('+ Add Sections',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
-      ),
-    ]);
-  }
-
-  // ── PLANNER TABLE ──────────────────────────────────────────────────────
-  Widget _plannerTable() {
-    return Container(
-      decoration: BoxDecoration(
-          color: AppColors.card, border: Border.all(color: AppColors.border)),
-      child: Column(
-        children: [_tableHeader(), ...rows.map((row) => _plannerRow(row))],
-      ),
-    );
-  }
-
-  Widget _tableHeader() {
-    return Container(
-      height: 50,
-      color: AppColors.lightBlue,
-      child: const Row(children: [
-        SizedBox(
-          width: 250,
-          child: Center(
-            child: Text('Content Type',
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark)),
-          ),
-        ),
-        Expanded(
-          child: Center(
-            child: Text('Contents',
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark)),
-          ),
-        ),
-        SizedBox(
-          width: 250,
-          child: Center(
-            child: Text('Action',
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark)),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _plannerRow(TaskPlannerRowModel row) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 160),
-      decoration:
-          const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
-      child: Row(children: [
-        Container(
-          width: 250,
-          color: AppColors.lightBlue,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: TextField(
-            controller: row.contentTypeController,
-            textAlign: TextAlign.center,
-            decoration: const InputDecoration(
-              hintText: 'Enter Content Type',
-              border: InputBorder.none,
-              hintStyle: TextStyle(color: AppColors.textGrey, fontSize: 14),
+        return Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFF8FBFF), Color(0xFFF0F6FF)],
             ),
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.textDark),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                top: -90,
+                right: -70,
+                child: _softOrb(220, const Color(0xFFBBD7FF)),
+              ),
+              Positioned(
+                top: 260,
+                left: -100,
+                child: _softOrb(180, const Color(0xFFDDEBFF)),
+              ),
+              SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontal,
+                  isMobile ? 16 : 24,
+                  horizontal,
+                  isMobile ? 28 : 36,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _heroHeader(isMobile),
+                    SizedBox(height: isMobile ? 16 : 22),
+                    _plannerSurface(isMobile: isMobile, isTablet: isTablet),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _softOrb(double size, Color color) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: 0.28),
+        ),
+      ),
+    );
+  }
+
+  Widget _heroHeader(bool isMobile) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 18 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: Container(
+        padding: EdgeInsets.all(isMobile ? 18 : 24),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF073B9E),
+              Color(0xFF1264E8),
+              Color(0xFF2A8CFF),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(isMobile ? 22 : 26),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1769FF).withValues(alpha: 0.20),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: isMobile
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _heroIcon(),
+                  const SizedBox(height: 14),
+                  _heroText(),
+                  const SizedBox(height: 18),
+                  _heroActions(true),
+                ],
+              )
+            : Row(
+                children: [
+                  _heroIcon(),
+                  const SizedBox(width: 16),
+                  Expanded(child: _heroText()),
+                  const SizedBox(width: 18),
+                  _heroActions(false),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _heroIcon() {
+    return Container(
+      width: 54,
+      height: 54,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      child: const Icon(Icons.view_quilt_rounded, color: Colors.white, size: 28),
+    );
+  }
+
+  Widget _heroText() {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'TASK PLANNER',
+          style: TextStyle(
+            color: Color(0xFFBFD9FF),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 2.2,
           ),
         ),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-            alignment: Alignment.center,
-            child: TextField(
-              controller: row.contentController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Paste Your content here',
-                hintStyle: TextStyle(color: Color(0xFFE1E5EA), fontSize: 16),
-                border: InputBorder.none,
+        SizedBox(height: 5),
+        Text(
+          'Plan. Create. Share.',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 25,
+            fontWeight: FontWeight.w800,
+            height: 1.1,
+          ),
+        ),
+        SizedBox(height: 7),
+        Text(
+          'Organize your content, manage sections and assign work to your team.',
+          style: TextStyle(
+            color: Color(0xFFDCEAFF),
+            fontSize: 12.5,
+            height: 1.45,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _heroActions(bool mobile) {
+    final buttons = [
+      OutlinedButton.icon(
+        onPressed: () async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('employeeMenu', 'Task Planner History');
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const EmployeeLayoutPage()),
+          );
+        },
+        icon: const Icon(Icons.history_rounded, size: 17),
+        label: const Text('View History'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.55)),
+          backgroundColor: Colors.white.withValues(alpha: 0.08),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        ),
+      ),
+      ElevatedButton.icon(
+        onPressed: addSection,
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: const Text('Add Section'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF0751C9),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        ),
+      ),
+    ];
+
+    return mobile
+        ? Wrap(spacing: 9, runSpacing: 9, children: buttons)
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            buttons[0],
+            const SizedBox(width: 9),
+            buttons[1],
+          ]);
+  }
+
+  Widget _plannerSurface({required bool isMobile, required bool isTablet}) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.96, end: 1.0),
+      duration: const Duration(milliseconds: 550),
+      curve: Curves.easeOutCubic,
+      builder: (context, scale, child) =>
+          Transform.scale(scale: scale, alignment: Alignment.topCenter, child: child),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
+          border: Border.all(color: const Color(0xFFD7E6FF)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0D4EAF).withValues(alpha: 0.08),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(isMobile ? 10 : 14),
+          child: Column(
+            children: [
+              _plannerToolbar(isMobile),
+              const SizedBox(height: 10),
+              if (isMobile)
+                ...rows.map((row) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _mobilePlannerCard(row),
+                    ))
+              else
+                _desktopPlannerTable(isTablet),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _plannerToolbar(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 12 : 16,
+        vertical: isMobile ? 12 : 14,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F7FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDCEAFF)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE1EEFF),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(Icons.layers_rounded, color: Color(0xFF1769FF), size: 20),
+          ),
+          const SizedBox(width: 11),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Planner Sections',
+                  style: TextStyle(
+                    color: Color(0xFF102A56),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Your content workspace',
+                  style: TextStyle(color: Color(0xFF7185A3), fontSize: 10.5),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFD5E5FF)),
+            ),
+            child: Text(
+              '${rows.length} ${rows.length == 1 ? 'section' : 'sections'}',
+              style: const TextStyle(
+                color: Color(0xFF1769FF),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopPlannerTable(bool isTablet) {
+    return Column(
+      children: [
         Container(
-          width: 250,
-          decoration: const BoxDecoration(
-              border: Border(left: BorderSide(color: AppColors.border))),
-          child: Center(
+          height: 48,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFEAF3FF), Color(0xFFF6FAFF)],
+            ),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: isTablet ? 190 : 245,
+                child: _headerCell(Icons.category_rounded, 'Content Type'),
+              ),
+              Expanded(child: _headerCell(Icons.notes_rounded, 'Contents')),
+              SizedBox(
+                width: isTablet ? 205 : 245,
+                child: _headerCell(Icons.send_rounded, 'Action'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...rows.map((row) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _desktopPlannerRow(row, isTablet),
+            )),
+      ],
+    );
+  }
+
+  Widget _headerCell(IconData icon, String title) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF1769FF)),
+        const SizedBox(width: 7),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF19355F),
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopPlannerRow(TaskPlannerRowModel row, bool isTablet) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 154),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE0EBFA)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0D4EAF).withValues(alpha: 0.035),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: isTablet ? 190 : 245,
+            padding: const EdgeInsets.all(14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF6FAFF),
+              borderRadius: BorderRadius.horizontal(left: Radius.circular(16)),
+            ),
+            child: _plannerTextField(
+              controller: row.contentTypeController,
+              hint: 'Enter content type',
+              icon: Icons.label_outline_rounded,
+              maxLines: 3,
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: _plannerTextField(
+                controller: row.contentController,
+                hint: 'Paste or type your content here...',
+                icon: Icons.edit_note_rounded,
+                maxLines: 5,
+              ),
+            ),
+          ),
+          Container(
+            width: isTablet ? 205 : 245,
+            padding: const EdgeInsets.all(12),
+            decoration: const BoxDecoration(
+              border: Border(left: BorderSide(color: Color(0xFFE4ECF8))),
+            ),
+            child: Center(
+              child: row.isShared
+                  ? _assignedStatusWidget(row)
+                  : _shareActionWidget(row),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plannerTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    required int maxLines,
+  }) {
+    final isContentType = hint.toLowerCase().contains('content type');
+
+    return TextField(
+      controller: controller,
+      minLines: isContentType ? 1 : 4,
+      maxLines: maxLines,
+      textAlignVertical: TextAlignVertical.top,
+      keyboardType: isContentType
+          ? TextInputType.text
+          : TextInputType.multiline,
+      style: const TextStyle(
+        color: Color(0xFF182B49),
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+        height: 1.35,
+      ),
+      decoration: InputDecoration(
+        labelText: isContentType ? 'Content Type' : 'Contents',
+        hintText: isContentType
+            ? 'Content Type'
+            : 'Paste or type your content here...',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        labelStyle: const TextStyle(
+          color: Color(0xFF1769FF),
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+        hintStyle: const TextStyle(
+          color: Color(0xFFA2B1C5),
+          fontSize: 11.5,
+          fontWeight: FontWeight.w500,
+        ),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 10, right: 7),
+          child: Icon(icon, size: 18, color: const Color(0xFF78A7E8)),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 38),
+        filled: true,
+        fillColor: const Color(0xFFFCFDFF),
+        contentPadding: const EdgeInsets.fromLTRB(12, 18, 12, 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFDDE9F8)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFDDE9F8)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF4B91FF), width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobilePlannerCard(TaskPlannerRowModel row) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: const Color(0xFFDCE9FA)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1769FF).withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF3FF),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(Icons.layers_rounded,
+                    size: 17, color: Color(0xFF1769FF)),
+              ),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text(
+                  'Content Section',
+                  style: TextStyle(
+                    color: Color(0xFF17325C),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          _plannerTextField(
+            controller: row.contentTypeController,
+            hint: 'Enter content type',
+            icon: Icons.label_outline_rounded,
+            maxLines: 2,
+          ),
+          const SizedBox(height: 10),
+          _plannerTextField(
+            controller: row.contentController,
+            hint: 'Paste or type your content here...',
+            icon: Icons.edit_note_rounded,
+            maxLines: 5,
+          ),
+          const SizedBox(height: 11),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF6FAFF),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: const Color(0xFFE0EBFA)),
+            ),
             child: row.isShared
                 ? _assignedStatusWidget(row)
                 : _shareActionWidget(row),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
-  // ── SHARE ACTION WIDGET (Show Share button + employee avatars) ────────
+  // ── SHARE ACTION WIDGET ─────────────────────────────────────────────────
   Widget _shareActionWidget(TaskPlannerRowModel row) {
+    final isHovered = _hoveredEmployeePickers.contains(row.id);
+
+    void scrollEmployees(double offset) {
+      if (!_employeeScrollController.hasClients) return;
+      final target = (_employeeScrollController.offset + offset).clamp(
+        0.0,
+        _employeeScrollController.position.maxScrollExtent,
+      );
+      _employeeScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          GestureDetector(
-            onTap: () => setState(() => row.showAvatars = !row.showAvatars),
-            child: Container(
-              height: 34,
-              width: 85,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0057E7),
-                borderRadius: BorderRadius.circular(6),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.12),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2))
-                ],
+          SizedBox(
+            height: 42,
+            child: ElevatedButton.icon(
+              onPressed: () => setState(() => row.showAvatars = !row.showAvatars),
+              icon: Icon(
+                row.showAvatars
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.send_rounded,
+                size: 17,
               ),
-              child: Text(row.showAvatars ? 'Hide' : 'Share',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800)),
+              label: Text(row.showAvatars ? 'Hide Team' : 'Share Task'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1769FF),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
             ),
           ),
           if (row.showAvatars) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: 220,
-              height: 90,
-              child: Scrollbar(
-                controller: _employeeScrollController,
-                thumbVisibility: true,
-                child: employees.isEmpty
-                    ? const Center(
-                        child: Text('No employees',
-                            style: TextStyle(fontSize: 12)))
-                    : ListView.builder(
-                        controller: _employeeScrollController,
-                        scrollDirection: Axis.horizontal,
-                        itemCount: employees.length,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        itemBuilder: (context, index) => SizedBox(
-                          width: 60,
-                          child: _employeeAvatarButton(
-                            employee: employees[index],
-                            onTap: () =>
-                                shareToEmployee(row, employees[index]),
-                          ),
-                        ),
+            const SizedBox(height: 10),
+            MouseRegion(
+              onEnter: (_) => setState(() => _hoveredEmployeePickers.add(row.id)),
+              onExit: (_) => setState(() => _hoveredEmployeePickers.remove(row.id)),
+              child: Container(
+                height: 88,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: const Color(0xFFDDE9F8)),
+                ),
+                child: Row(
+                  children: [
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 160),
+                      opacity: isHovered ? 1 : 0.55,
+                      child: _employeeScrollArrow(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: () => scrollEmployees(-145),
                       ),
+                    ),
+                    const SizedBox(width: 3),
+                    Expanded(
+                      child: employees.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No employees available',
+                                style: TextStyle(
+                                  color: Color(0xFF7A8CA5),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: _employeeScrollController,
+                              scrollDirection: Axis.horizontal,
+                              itemCount: employees.length,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              separatorBuilder: (_, __) => const SizedBox(width: 8),
+                              itemBuilder: (context, index) {
+                                final employee = employees[index];
+                                return _employeeAvatarButton(
+                                  employee: employee,
+                                  onTap: () => shareToEmployee(row, employee),
+                                );
+                              },
+                            ),
+                    ),
+                    const SizedBox(width: 3),
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 160),
+                      opacity: isHovered ? 1 : 0.55,
+                      child: _employeeScrollArrow(
+                        icon: Icons.chevron_right_rounded,
+                        onTap: () => scrollEmployees(145),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -595,140 +1052,167 @@ row.contentController.addListener(row.saveListener!);
     );
   }
 
-  // ── EMPLOYEE AVATAR BUTTON ─────────────────────────────────────────────
+  Widget _employeeScrollArrow({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: const Color(0xFFEAF3FF),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 30,
+          height: 30,
+          child: Icon(icon, color: const Color(0xFF1769FF), size: 22),
+        ),
+      ),
+    );
+  }
+
+  // ── EMPLOYEE AVATAR BUTTON ───────────────────────────────────────────────
   Widget _employeeAvatarButton({
     required EmployeeShareModel employee,
     required VoidCallback onTap,
   }) {
     return Tooltip(
       message: '${employee.employeeName} - ${employee.name}',
-      showDuration: const Duration(seconds: 2),
-      textStyle: const TextStyle(
-          color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-      decoration:
-          BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(6)),
       child: GestureDetector(
         onTap: onTap,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                        color: employee.color.withValues(alpha: 0.5),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3))
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [
+                    employee.color.withValues(alpha: 0.75),
+                    employee.color,
                   ],
                 ),
-                child: ClipOval(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: employee.color,
-                      image: employee.image.isNotEmpty
-                          ? DecorationImage(
-                              image: AssetImage(employee.image),
-                              fit: BoxFit.cover,
-                              onError: (e, s) {},
-                            )
-                          : null,
-                    ),
-                    child: (employee.image.isEmpty || employee.image == '')
-                        ? Center(
-                            child: Text(employee.shortName,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800)),
-                          )
-                        : null,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: employee.color.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  employee.shortName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              const SizedBox(height: 5),
-              SizedBox(
-                width: 55,
-                child: Text(employee.employeeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 10, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: 58,
+              child: Text(
+                employee.employeeName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF405574),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ── ASSIGNED STATUS WIDGET (Show who it was shared to) ────────────────
+  // ── ASSIGNED STATUS WIDGET ──────────────────────────────────────────────
   Widget _assignedStatusWidget(TaskPlannerRowModel row) {
     final employee = row.sharedEmployee;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
+    final employeeColor = employee?.color ?? const Color(0xFF1769FF);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: const Color(0xFFCFE2FF)),
+      ),
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 55,
-            height: 55,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                  color: employee?.color ?? AppColors.primary, width: 3),
+              color: employeeColor,
               boxShadow: [
                 BoxShadow(
-                    color: (employee?.color ?? AppColors.primary)
-                        .withValues(alpha: 0.5),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3))
+                  color: employeeColor.withValues(alpha: 0.22),
+                  blurRadius: 9,
+                  offset: const Offset(0, 3),
+                ),
               ],
             ),
-            child: ClipOval(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: employee?.color ?? AppColors.primary,
-                  image: (employee?.image.isNotEmpty ?? false)
-                      ? DecorationImage(
-                          image: AssetImage(employee?.image ?? ''),
-                          fit: BoxFit.cover,
-                          onError: (e, s) {},
-                        )
-                      : null,
+            child: Center(
+              child: Text(
+                employee?.shortName ?? 'A',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
                 ),
-                child: ((employee?.image.isEmpty ?? true) || employee?.image == '')
-                    ? Center(
-                        child: Text(employee?.shortName ?? 'A',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800)),
-                      )
-                    : null,
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(employee?.employeeName ?? 'Unknown',
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark),
-              textAlign: TextAlign.center),
-          const SizedBox(height: 3),
-          Text(employee?.name ?? '',
-              style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textGrey),
-              textAlign: TextAlign.center),
+          const SizedBox(width: 9),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Assigned',
+                  style: TextStyle(
+                    color: Color(0xFF1769FF),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  employee?.employeeName ?? 'Unknown',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF17325C),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  employee?.name ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF7A8CA5),
+                    fontSize: 9,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

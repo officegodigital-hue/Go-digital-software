@@ -1,7 +1,8 @@
 -- GoDigital Attendance standalone database (MySQL 8+).
-CREATE DATABASE IF NOT EXISTS godigital_attendance
+-- This schema name is intentionally separate from any existing godigital_attendance database.
+CREATE DATABASE IF NOT EXISTS godigital_attendance_standalone
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE godigital_attendance;
+USE godigital_attendance_standalone;
 
 CREATE TABLE IF NOT EXISTS employee_users (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -268,7 +269,18 @@ INSERT IGNORE INTO hrms_attendance_time_settings (id, shift_start, shift_end, la
 VALUES (1, '09:30:00', '18:30:00', '10:00:00', '12:00:00');
 INSERT IGNORE INTO hrms_tracking_settings (id, office_name, office_address, office_latitude, office_longitude)
 VALUES (1, 'Main Office', 'Configure this address in Admin > Tracking', 12.8542438, 80.0699862);
-INSERT IGNORE INTO employee_users (id, first_name, last_name, full_name, email, username, password, role, user_type, is_main_admin, staff_id, initials)
-VALUES (1, 'Admin', 'User', 'Admin User', 'admin@attendance.local', 'admin', 'admin123', 'Administrator', 'admin', 1, 'ADM001', 'AU'),
-       (2, 'Employee', 'User', 'Employee User', 'employee@attendance.local', 'employee', 'employee123', 'Employee', 'employee', 0, 'EMP001', 'EU');
-INSERT IGNORE INTO role_page_access (employee_id, allowed_pages) VALUES (1, '["attendance"]'), (2, '["attendance"]');
+-- Fresh standalone login accounts, unrelated to the supplied godigital_db.sql.
+INSERT IGNORE INTO employee_users
+  (id, first_name, last_name, full_name, email, username, password, role, user_type, is_active, is_main_admin, staff_id, initials)
+VALUES
+  (1, 'Standalone', 'Admin', 'Standalone Admin', 'admin@standalone.local', 'standalone_admin', 'Admin@2026!', 'Administrator', 'admin', 1, 1, 'ADM001', 'SA'),
+  (2, 'Standalone', 'Employee', 'Standalone Employee', 'employee@standalone.local', 'standalone_employee', 'Employee@2026!', 'Employee', 'employee', 1, 0, 'EMP001', 'SE');
+
+INSERT IGNORE INTO hrms_employee_profiles
+  (id, employee_user_id, employee_code, full_name, email, department, work_mode, employment_status, field_tracking_enabled, monthly_salary)
+VALUES
+  (1, 1, 'ADM001', 'Standalone Admin', 'admin@standalone.local', 'Administration', 'Office', 'Active', 0, NULL),
+  (2, 2, 'EMP001', 'Standalone Employee', 'employee@standalone.local', 'Operations', 'Office', 'Active', 0, NULL);
+
+INSERT IGNORE INTO role_page_access (employee_id, allowed_pages)
+SELECT id, '["attendance"]' FROM employee_users;

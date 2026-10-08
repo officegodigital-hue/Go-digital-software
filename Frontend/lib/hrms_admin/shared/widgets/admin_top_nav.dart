@@ -1,8 +1,10 @@
 import 'dart:async';
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../services/hrms_notifications_api.dart';
+import '../../../services/auth_service.dart';
 
 const _blue = Color(0xFF075EF7);
 const _navy = Color(0xFF061457);
@@ -19,6 +21,7 @@ class AdminTopNav extends StatelessWidget {
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
+    ('Announcements', '/admin/announcements'),
   ];
 
   void _open(BuildContext context, String route) {
@@ -30,10 +33,8 @@ class AdminTopNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final mobile = screenWidth < 600;
-    // The full navigation pill needs considerably more room than the page
-    // content. Switch to a compact menu before Windows display scaling can
-    // squeeze the trailing actions outside the viewport.
     final compact = screenWidth < 1180;
+
     return Container(
       height: mobile ? 68 : 90,
       padding: EdgeInsets.symmetric(
@@ -88,13 +89,170 @@ class AdminTopNav extends StatelessWidget {
           AdminNotificationBell(mobile: mobile),
           SizedBox(
             width: mobile
-                ? 3
+                ? 6
                 : compact
-                ? 8
-                : 18,
+                ? 10
+                : 16,
           ),
-          AdminLogoutButton(compact: compact || mobile),
+          // 🟢 Dynamic Profile Dropdown Menu with backend data
+          const AdminProfileDropdown(),
         ],
+      ),
+    );
+  }
+}
+
+class AdminProfileDropdown extends StatelessWidget {
+  const AdminProfileDropdown({super.key});
+
+  Color _parseColor(String h) {
+    try {
+      final s = h.replaceAll('#', '');
+      return Color(int.parse('FF$s', radix: 16));
+    } catch (_) {
+      return _blue;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authService = context.watch<AuthService>();
+    final user = authService.user ?? {};
+
+    final resolvedName =
+        (user['fullName'] ??
+                user['full_name'] ??
+                user['name'] ??
+                user['admin_name'] ??
+                user['adminName'] ??
+                user['username'] ??
+                user['firstName'] ??
+                user['first_name'] ??
+                'Admin')
+            .toString();
+    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? '')
+        .toString();
+    final avatarColor =
+        (user['avatar_color'] ?? user['avatarColor'] ?? '#075EF7').toString();
+    final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
+
+    final nameParts = resolvedName.trim().split(RegExp(r'\s+'));
+    final resolvedInitials = nameParts.length > 1
+        ? '${nameParts[0][0]}.${nameParts[1][0]}'.toUpperCase()
+        : (resolvedName.isNotEmpty
+              ? resolvedName
+                    .substring(0, resolvedName.length >= 2 ? 2 : 1)
+                    .toUpperCase()
+              : 'A');
+
+    ImageProvider? photoProvider;
+    if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
+      try {
+        photoProvider = MemoryImage(
+          base64Decode(profilePhoto.toString().split(',').last),
+        );
+      } catch (_) {}
+    }
+
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 50),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                resolvedName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: _navy,
+                ),
+              ),
+              if (resolvedStaffId.isNotEmpty)
+                Text(
+                  resolvedStaffId,
+                  style: const TextStyle(color: _blue, fontSize: 12),
+                ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'profile',
+          child: Row(
+            children: [
+              Icon(Icons.person_outline_rounded, color: _blue, size: 20),
+              SizedBox(width: 10),
+              Text('Profile', style: TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'workspace',
+          child: Row(
+            children: [
+              Icon(Icons.grid_view_rounded, color: _blue, size: 20),
+              SizedBox(width: 10),
+              Text('Workspace', style: TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 20),
+              SizedBox(width: 10),
+              Text(
+                'Logout',
+                style: TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      onSelected: (value) async {
+        if (value == 'profile') {
+          Navigator.pushNamed(context, '/profile');
+        } else if (value == 'workspace') {
+          Navigator.of(
+            context,
+            rootNavigator: true,
+          ).pushNamedAndRemoveUntil('/home', (route) => false);
+        } else if (value == 'logout') {
+          await authService.logout();
+          if (context.mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: _blue.withValues(alpha: 0.3), width: 2),
+        ),
+        child: CircleAvatar(
+          radius: 18,
+          backgroundColor: _parseColor(avatarColor),
+          backgroundImage: photoProvider,
+          child: photoProvider == null
+              ? Text(
+                  resolvedInitials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              : null,
+        ),
       ),
     );
   }
@@ -170,51 +328,7 @@ class _AdminNavMenu extends StatelessWidget {
   }
 }
 
-class AdminLogoutButton extends StatelessWidget {
-  const AdminLogoutButton({super.key, this.compact = false});
-
-  final bool compact;
-
-  void _openWorkspace(BuildContext context) {
-    Navigator.of(
-      context,
-      rootNavigator: true,
-    ).pushNamedAndRemoveUntil('/home', (route) => false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (compact) {
-      return IconButton(
-        tooltip: 'Workspace',
-        onPressed: () => _openWorkspace(context),
-        style: IconButton.styleFrom(
-          minimumSize: const Size(42, 42),
-          backgroundColor: const Color(0xFFEAF0FA),
-          foregroundColor: _navy,
-          shape: const CircleBorder(),
-        ),
-        icon: const Icon(Icons.grid_view_rounded, size: 21),
-      );
-    }
-    return TextButton.icon(
-      onPressed: () => _openWorkspace(context),
-      icon: const Icon(Icons.grid_view_rounded, size: 19),
-      label: const Text('Workspace'),
-      style: TextButton.styleFrom(
-        foregroundColor: _navy,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: Color(0xFFD6E0F0)),
-        ),
-      ),
-    );
-  }
-}
-
 /// Shared floating dock for every admin page below the mobile breakpoint.
-/// Less-frequent destinations remain available from the hamburger drawer.
 class AdminMobileBottomNav extends StatelessWidget {
   const AdminMobileBottomNav({super.key, required this.activeRoute});
 
@@ -232,7 +346,7 @@ class AdminMobileBottomNav extends StatelessWidget {
       top: false,
       minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
       child: Container(
-        height: 62,
+        height: 74,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: const Color(0xFF172554),
@@ -273,12 +387,6 @@ class AdminMobileBottomNav extends StatelessWidget {
             ),
             _dockItem(
               context,
-              icon: Icons.account_balance_wallet_rounded,
-              label: 'Payroll',
-              route: '/admin/payroll',
-            ),
-            _dockItem(
-              context,
               icon: Icons.location_on_rounded,
               label: 'Tracking',
               route: '/admin/tracking',
@@ -302,16 +410,30 @@ class AdminMobileBottomNav extends StatelessWidget {
         child: InkWell(
           onTap: () => _open(context, route),
           borderRadius: BorderRadius.circular(25),
-          child: Center(
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF2563EB) : Colors.transparent,
-                shape: BoxShape.circle,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: active ? const Color(0xFF2563EB) : Colors.transparent,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 21),
               ),
-              child: Icon(icon, color: Colors.white, size: 24),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),

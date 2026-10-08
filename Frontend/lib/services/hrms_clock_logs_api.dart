@@ -31,6 +31,37 @@ abstract final class HrmsClockLogsApi {
     return map['data'] is Map ? Map<String, dynamic>.from(map['data']) : map;
   }
 
+  static Future<Map<String, dynamic>> getBreakReview(int breakId) async {
+    final token = await AuthStorage.getString('auth_token');
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/attendance/breaks/$breakId/review'),
+      headers: {if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token'},
+    );
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Could not load break review');
+    }
+    return map['data'] is Map ? Map<String, dynamic>.from(map['data']) : map;
+  }
+
+  static Future<void> reviewBreak(int breakId, {required String action, String? clarification}) async {
+    final token = await AuthStorage.getString('auth_token');
+    final response = await http.patch(
+      Uri.parse('${ApiConfig.baseUrl}/attendance/breaks/$breakId/review'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({'action': action, if (clarification != null && clarification.isNotEmpty) 'clarification': clarification}),
+    );
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Could not submit review');
+    }
+  }
+
   static String _date(DateTime value) =>
       '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 }

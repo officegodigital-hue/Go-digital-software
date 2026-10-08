@@ -8,6 +8,8 @@ import '../attendance/attendance_dashboard_section.dart';
 import '../shared/employee_ui.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_storage.dart';
+import '../../services/hrms_payslip_api.dart';
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -29,17 +31,19 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   };
   void go(String route) {
     setState(() => menuOpen = false);
-    if (routes.contains(route))
+    if (routes.contains(route)) {
       Navigator.pushNamed(context, route);
-    else
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('This page is not available yet.')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
+        bottomNavigationBar: mobile ? const EmployeeMobileBottomNav(route: '/employee/dashboard') : null,
         body: SafeArea(
             child: Stack(children: [
       Column(children: [
@@ -50,7 +54,7 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
         Expanded(
             child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
-              mobile ? 18 : 36, mobile ? 24 : 34, mobile ? 18 : 36, 40),
+              mobile ? 18 : 36, mobile ? 24 : 34, mobile ? 18 : 36, mobile ? 110 : 40),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
             child: const _Content(),
@@ -81,12 +85,57 @@ class _HeaderState extends State<_Header> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEmployee());
+    _loadStoredIdentity();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProfile();
+      _loadEmployee();
+    });
+  }
+
+  void _setIdentity(String? name, String? staffId) {
+    final resolved = (name ?? '').trim();
+    if (resolved.isEmpty) return;
+    final words = resolved.split(RegExp(r'\s+'));
+    setState(() {
+      _fullName = resolved;
+      _staffId = (staffId ?? '').trim();
+      _initials = words.take(2).where((word) => word.isNotEmpty).map((word) => word[0].toUpperCase()).join();
+      if (_initials.isEmpty) _initials = 'E';
+    });
+  }
+
+  Future<void> _loadStoredIdentity() async {
+    try {
+      final raw = await AuthStorage.getString('user_data');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw);
+      if (data is Map && mounted) {
+        _setIdentity(
+        data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
+        data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
+      );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadProfile() async {
+    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+      final body = jsonDecode(response.body);
+      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      final profile = Map<String, dynamic>.from(body['data'] as Map);
+      _setIdentity(profile['fullName']?.toString() ?? profile['full_name']?.toString(), profile['staffId']?.toString() ?? profile['staff_id']?.toString());
+    } catch (_) {}
   }
 
   Future<void> _loadEmployee() async {
     final auth = context.read<AuthService>();
-    final token = auth.token;
+    final token = auth.token ?? await AuthStorage.getString('auth_token');
     if (token == null || token.isEmpty) return;
 
     try {
@@ -109,18 +158,7 @@ class _HeaderState extends State<_Header> {
       final staffId = (data['staff_id']?.toString() ?? '').trim();
       if (!mounted || name.isEmpty) return;
 
-      final words = name.split(RegExp(r'\s+'));
-      final initials = words
-          .take(2)
-          .where((word) => word.isNotEmpty)
-          .map((word) => word[0].toUpperCase())
-          .join();
-
-      setState(() {
-        _fullName = name;
-        _staffId = staffId;
-        _initials = initials.isEmpty ? 'E' : initials;
-      });
+      _setIdentity(name, staffId);
     } catch (_) {
       // Keep the neutral placeholder if the profile endpoint is unavailable.
     }
@@ -145,7 +183,11 @@ class _HeaderState extends State<_Header> {
               width: widget.mobile ? 136 : 164,
               fit: BoxFit.contain,
               alignment: Alignment.centerLeft),
-          const Spacer(),
+          if (!widget.mobile) ...[
+            const SizedBox(width: 24),
+            const Expanded(child: Center(child: _DashboardTopNav())),
+          ] else
+            const Spacer(),
           if (!widget.mobile) ...[
             const Text('Employee Portal',
                 style: TextStyle(color: employeeMuted)),
@@ -160,6 +202,55 @@ class _HeaderState extends State<_Header> {
             staffId: _staffId,
           ),
         ]),
+      );
+}
+
+class _DashboardTopNav extends StatelessWidget {
+  const _DashboardTopNav();
+
+  static const _items = <(String, String)>[
+    ('Dashboard', '/employee/dashboard'),
+    ('Attendance', '/employee/attendance'),
+    ('Clock In / Out', '/employee/clock-log'),
+    ('Leave', '/employee/leave'),
+    ('Permission', '/employee/permission'),
+    ('Extra Hours', '/employee/extra-hours'),
+    ('Salary', '/employee/salary'),
+    ('Tracking', '/employee/tracking'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F7FB),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: const Color(0xFFE7ECF4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: _items.map((item) {
+              final active = item.$2 == '/employee/dashboard';
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Material(
+                  color: active ? employeeBlue : Colors.transparent,
+                  borderRadius: BorderRadius.circular(26),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(26),
+                    onTap: active ? null : () => Navigator.pushNamed(context, item.$2),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Text(item.$1, style: TextStyle(color: active ? Colors.white : employeeMuted, fontSize: 13, fontWeight: active ? FontWeight.w700 : FontWeight.w500)),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       );
 }
 
@@ -196,7 +287,7 @@ class _Content extends StatelessWidget {
           ('0h', Icons.timelapse_rounded, null)
         ]),
         const SizedBox(height: 12),
-        const _SalaryActions(),
+        const _DynamicSalaryAction(),
         const SizedBox(height: 12),
         const _Actions(
             'TRACKING', Color(0xFF079B9B), Icons.location_on_outlined, [
@@ -206,65 +297,33 @@ class _Content extends StatelessWidget {
       ]);
 }
 
-class _SalaryActions extends StatefulWidget {
-  const _SalaryActions();
-
-  @override
-  State<_SalaryActions> createState() => _SalaryActionsState();
+class _DynamicSalaryAction extends StatefulWidget {
+  const _DynamicSalaryAction();
+  @override State<_DynamicSalaryAction> createState() => _DynamicSalaryActionState();
 }
 
-class _SalaryActionsState extends State<_SalaryActions> {
-  Future<num?>? _netPay;
+class _DynamicSalaryActionState extends State<_DynamicSalaryAction> {
+  late final Future<Map<String, dynamic>> _summary = HrmsPayslipApi.summary();
 
-  @override
-  void initState() {
-    super.initState();
-    _netPay = _loadNetPay();
+  String _money(dynamic value) {
+    final amount = value is num ? value : num.tryParse('$value');
+    if (amount == null) return 'Not Set';
+    return '₹${amount.round().toString().replaceAllMapped(RegExp(r'(?<=\d)(?=(\d{3})+$)'), (_) => ',')}';
   }
 
-  Future<num?> _loadNetPay() async {
-    final token = context.read<AuthService>().token;
-    if (token == null || token.isEmpty) return null;
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/salary'),
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
-      final body = jsonDecode(response.body);
-      if (response.statusCode != 200 || body is! Map || body['success'] != true) {
-        return null;
-      }
-      final data = body['data'];
-      if (data is! Map || data['hasSalary'] != true) return null;
-      final value = data['netPay'];
-      return value is num ? value : num.tryParse('$value');
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _money(num value) => '₹${value.toStringAsFixed(0).replaceAllMapped(RegExp(r'(?<!^)(?=(\d{3})+$)'), (_) => ',')}';
-
   @override
-  Widget build(BuildContext context) => FutureBuilder<num?>(
-    future: _netPay,
-    builder: (_, snapshot) {
-      final label = snapshot.connectionState != ConnectionState.done
-          ? 'Loading net pay...'
-          : snapshot.data == null
-          ? 'Net Pay not available'
-          : 'Net Pay ${_money(snapshot.data!)}';
-      return _Actions(
-        'SALARY',
-        const Color(0xFF07368D),
-        Icons.currency_rupee_rounded,
-        [
-          (label, Icons.currency_rupee_rounded, '/employee/salary'),
-          ('View Payslip', Icons.description_outlined, '/employee/salary'),
-        ],
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+        future: _summary,
+        builder: (_, snapshot) {
+          final payroll = snapshot.data?['payroll'];
+          final map = payroll is Map ? payroll : const <String, dynamic>{};
+          final netPay = map['net_pay'] ?? map['updated_salary'] ?? map['monthly_salary'];
+          return _Actions('SALARY', const Color(0xFF07368D), Icons.currency_rupee_rounded, [
+            ('Net Pay ${_money(netPay)}', Icons.currency_rupee_rounded, null),
+            ('View Payslip', Icons.description_outlined, '/employee/salary'),
+          ]);
+        },
       );
-    },
-  );
 }
 
 class _Actions extends StatelessWidget {

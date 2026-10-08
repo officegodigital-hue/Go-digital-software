@@ -8,6 +8,7 @@ import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io_client;
+import 'package:url_launcher/url_launcher.dart';
 
 class EmployeeStatusScreen extends StatefulWidget {
   const EmployeeStatusScreen({super.key});
@@ -19,12 +20,8 @@ class EmployeeStatusScreen extends StatefulWidget {
 class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
-  // Shared horizontal scroll for the employee-side table (header + rows
-  // must scroll together since we added 8 fixed-width role columns).
   final ScrollController _employeeTableHScroll = ScrollController();
   static const double _roleColumnWidth = 64;
-  // Minimum width for mobile/tablet. On desktop the table expands to
-  // the full width of the table card.
   static final double _employeeTableMinWidth =
       50 /*S.NO*/ + 170 /*name*/ + (_roleColumnWidth * 8) +
       110 /*total*/ + 60 /*view*/ + 40 /*horizontal padding*/;
@@ -35,7 +32,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
   List<Map<String, dynamic>> masterEmployeeSummaryData = [];
   List<Map<String, dynamic>> rawTasksList = [];
 
-  // Sorting and Filters State
   bool isSNoAscending = true;
   bool isClientAscending = true;
   bool isEmployeeAscending = true;
@@ -65,9 +61,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     super.dispose();
   }
 
-  // 🟢 Shows Active vs Inactive client breakdown for one employee — this is
-  // the "view list" the inactive clients now appear in, separate from the
-  // full task-detail dialog opened by the ▶ button.
   void _showClientsListDialog(Map<String, dynamic> empRow) {
     final activeClients = List<String>.from(empRow["activeClientsList"] ?? []);
     final inactiveClients = List<String>.from(empRow["inactiveClientsList"] ?? []);
@@ -188,9 +181,6 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     }
   }
 
-  // Role columns exactly as stored on task_assignments, in the display
-  // order requested: A.Handler, P.Handler, Video Editor, Video Shoot
-  // (Videographer), Designer, UI/UX Designer, Developer, Website Developer.
   static const List<Map<String, String>> _roleColumns = [
     {'field': 'ads_handling', 'label': 'A.Handler'},
     {'field': 'page_handling', 'label': 'P.Handler'},
@@ -202,7 +192,7 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     {'field': 'website_designer', 'label': 'Website Dev'},
   ];
 
-Future<void> _fetchEmployeeSummaryList() async {
+  Future<void> _fetchEmployeeSummaryList() async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
@@ -240,11 +230,9 @@ Future<void> _fetchEmployeeSummaryList() async {
           final client = (t['client_name'] ?? '').toString().trim();
           if (client.isEmpty) continue;
 
-          // 🟢 Exclude inactive clients
           final isActive = clientActiveMap[client.toUpperCase()] ?? true;
           if (!isActive) continue;
 
-          // 🟢 Exclude tasks whose submit date (deadline) has passed
           final rawDeadline = t['deadline'] ?? '';
           if (rawDeadline.toString().isNotEmpty) {
             try {
@@ -273,6 +261,9 @@ Future<void> _fetchEmployeeSummaryList() async {
         for (var e in employees) {
           final name = (e['full_name'] ?? '').toString().trim().toUpperCase();
           if (name.isEmpty) continue;
+
+          final isEmployeeActive = (e['is_active'] == 1 || e['is_active'] == true);
+          if (!isEmployeeActive) continue;
 
           final clientsAssigned = empClients[name] ?? {};
           final roleClients = empRoleClients[name] ?? {};
@@ -315,13 +306,118 @@ Future<void> _fetchEmployeeSummaryList() async {
     }
   }
 
-void _navigateToEmployeeDetailView(String employeeName) async {
-    List<Map<String, dynamic>> employeeAssignments = [];
-    Map<String, int> dbTaskProgressCounts = {};
+  Future<void> _sendWhatsAppTaskMessage({
+    required String employeeName,
+    required String employeePhone,
+    required String clientName,
+    required String taskName,
+    required int completed,
+    required int total,
+  }) async {
+    String phone = employeePhone.trim();
+
+    if (phone.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WhatsApp number is not available for this employee.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (phone.startsWith('0') && phone.length == 11) {
+      phone = '91${phone.substring(1)}';
+    } else if (phone.length == 10) {
+      phone = '91$phone';
+    }
+
+    final bool isPending = completed < total;
+
+    final String message = isPending
+        ? '''
+Hi $employeeName,
+
+Regarding the *$clientName* project, I noticed that the *$taskName* task is still pending ($completed/$total completed).
+
+Could you please let me know the reason for the pending status and when you expect to complete this task?
+
+Kindly share an update.
+
+Thank you.
+'''
+        : '''
+Hi $employeeName,
+
+Regarding the *$clientName* project, the *$taskName* task is currently showing $completed/$total completed.
+
+Could you please confirm that this task has been completed and updated from your side?
+
+Thank you.
+''';
+
+    final Uri whatsappUrl = Uri.parse(
+      'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
+    );
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
+      final launched = await launchUrl(
+        whatsappUrl,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!mounted) return;
+
+      if (!launched) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open WhatsApp.'),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('WhatsApp launch error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open WhatsApp.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+    }
+  }
+
+  void _navigateToEmployeeDetailView(String employeeName) async {
+    List<Map<String, dynamic>> employeeAssignments = [];
+    Map<String, int> dbTaskProgressCounts = {};
+    String employeePhone = '';
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final authHeaders = {'Authorization': 'Bearer ${authService.token}'};
+
+    try {
+      final empRes = await http.get(Uri.parse('$_baseUrl/employees'), headers: authHeaders);
+      if (empRes.statusCode == 200) {
+        final empBody = jsonDecode(empRes.body);
+        final employees = List<Map<String, dynamic>>.from(empBody['data'] ?? []);
+
+        for (final emp in employees) {
+          final empName = (emp['full_name'] ?? '').toString().trim();
+          if (empName.toUpperCase() == employeeName.trim().toUpperCase()) {
+            employeePhone = (emp['phone_number'] ?? emp['phone'] ?? '').toString().trim();
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Employee phone fetch error: $e');
+    }
+
+    try {
       final clientsRes = await http.get(Uri.parse('$_baseUrl/clients'), headers: authHeaders);
       
       final Map<String, bool> clientActiveMap = {};
@@ -337,7 +433,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      // 🟢 1. Collect ALL active, non-expired task assignments matching this employee
       for (var row in rawTasksList) {
         bool matches = false;
         final roles = [
@@ -372,7 +467,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
         }
       }
 
-      // 🟢 2. Fetch tracking progress using exact task_assignment_id and task description mapping
       for (var assignment in employeeAssignments) {
         final clientName = assignment['client_name'] ?? '';
         final assignmentId = assignment['id'];
@@ -384,10 +478,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
           for (var tl in taskLists) {
-            if (tl['task_assignment_id'] != null && assignmentId != null) {
-              if (tl['task_assignment_id'].toString() != assignmentId.toString()) {
-                continue;
-              }
+            final tlAssignmentId = tl['task_assignment_id']?.toString();
+            if (tlAssignmentId == null || tlAssignmentId != assignmentId?.toString()) {
+              continue;
             }
 
             final tListId = tl['id'];
@@ -403,7 +496,8 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                 return st == 'COMPLETED' || st == 'REJECTED';
               }).length;
 
-              dbTaskProgressCounts['${assignmentId}_$deliverables'] = completedRows;
+              dbTaskProgressCounts['${assignmentId}_$deliverables'] = 
+                  (dbTaskProgressCounts['${assignmentId}_$deliverables'] ?? 0) + completedRows;
 
               for (var item in items) {
                 final desc = (item['task_description'] ?? '').toString().trim().toLowerCase();
@@ -413,7 +507,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                     final iSt = (i['status'] ?? '').toString().toUpperCase();
                     return iDesc == desc && (iSt == 'COMPLETED' || iSt == 'REJECTED');
                   }).length;
-                  dbTaskProgressCounts['${assignmentId}_$desc'] = completedSubCount;
+                  
+                  dbTaskProgressCounts['${assignmentId}_$desc'] = 
+                      (dbTaskProgressCounts['${assignmentId}_$desc'] ?? 0) + completedSubCount;
                 }
               }
             }
@@ -527,7 +623,49 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(clientName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                                  // 🟢 Added WhatsApp Chat Icon next to the Client Name header inside the card
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          clientName,
+                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                        ),
+                                      ),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(20),
+                                        onTap: () {
+                                          _sendWhatsAppTaskMessage(
+                                            employeeName: employeeName,
+                                            employeePhone: employeePhone,
+                                            clientName: clientName.toString(),
+                                            taskName: packageTitle,
+                                            completed: 0,
+                                            total: 1,
+                                          );
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFE8F5E9),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFF25D366).withValues(alpha: 0.35)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.chat_rounded, size: 14, color: Color(0xFF25D366)),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                'Chat',
+                                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF1B5E20)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                   const SizedBox(height: 4),
                                   Text('Package / Deliverables: $packageTitle', style: const TextStyle(fontSize: 11.5, color: Color(0xFF0052CC), fontWeight: FontWeight.w700)),
                                   const SizedBox(height: 3),
@@ -581,12 +719,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                               final tName = match != null ? match.group(1)!.trim() : tClean;
                                               final totalR = match != null ? int.parse(match.group(2)!) : 1;
 
-                                              // 🟢 Fetch exact count using assignmentId and task name
                                               int compR = dbTaskProgressCounts['${assignmentId}_${tName.toLowerCase()}'] ?? 
                                                           dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
 
-                                              // Color coding rules: 
-                                              // 0/12 -> Grey, 1 to N-1 -> Blue, 12/12 (Complete) -> Green
                                               final bool isFullyCompleted = totalR > 0 && compR >= totalR;
                                               final bool isInProgress = compR > 0 && compR < totalR;
 
@@ -641,6 +776,36 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                         fontSize: 10.5,
                                                         fontWeight: FontWeight.w700,
                                                         color: isFullyCompleted ? const Color(0xFF166534) : (isInProgress ? const Color(0xFF1E40AF) : const Color(0xFF334155)),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    InkWell(
+                                                      borderRadius: BorderRadius.circular(20),
+                                                      onTap: () {
+                                                        _sendWhatsAppTaskMessage(
+                                                          employeeName: employeeName,
+                                                          employeePhone: employeePhone,
+                                                          clientName: clientName.toString(),
+                                                          taskName: tName,
+                                                          completed: compR,
+                                                          total: totalR,
+                                                        );
+                                                      },
+                                                      child: Container(
+                                                        width: 25,
+                                                        height: 25,
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFE8F5E9),
+                                                          borderRadius: BorderRadius.circular(7),
+                                                          border: Border.all(
+                                                            color: const Color(0xFF25D366).withValues(alpha: 0.35),
+                                                          ),
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons.chat_rounded,
+                                                          size: 14,
+                                                          color: Color(0xFF25D366),
+                                                        ),
                                                       ),
                                                     ),
                                                     const SizedBox(width: 8),
@@ -716,13 +881,14 @@ void _navigateToEmployeeDetailView(String employeeName) async {
     }
     return {
       "taskListId": row['taskListId'],
-      "client": row['clientName'] ?? '',
+      "taskAssignmentId": row['taskAssignmentId'] ?? row['task_assignment_id'] ?? row['taskListId'] ?? row['id'],
+      "client": row['clientName'] ?? row['client_name'] ?? '',
       "maintenanceDate": _formatOnlyDay(row['maintenanceDate']),
       "task": row['task'] ?? '',
       "package": row['packageName'] ?? row['task'] ?? 'Standard Package',
-      "date": row['submissionDate'] ?? '',
-      "formattedDate": _formatDate(row['submissionDate'] as String?),
-      "month": _extractMonth(row['submissionDate'] as String?),
+      "date": row['submissionDate'] ?? row['deadline'] ?? '',
+      "formattedDate": _formatDate((row['submissionDate'] ?? row['deadline']) as String?),
+      "month": _extractMonth((row['submissionDate'] ?? row['deadline']) as String?),
       "status": status,
     };
   }
@@ -764,39 +930,73 @@ void _navigateToEmployeeDetailView(String employeeName) async {
     }
   }
 
-
-
-
-  void _navigateToTaskDetailViewForSpecificRow(String clientName, Map<String, dynamic> targetRow) async {
+  void _navigateToTaskDetailViewForSpecificRow(
+    String clientName,
+    Map<String, dynamic> targetRow,
+  ) async {
+    final targetAssignmentId = targetRow['taskAssignmentId']?.toString() ?? targetRow['taskListId']?.toString() ?? targetRow['id']?.toString();
+    
     List<Map<String, dynamic>> clientAssignments = [];
     Map<String, int> dbTaskProgressCounts = {};
 
     try {
-      clientAssignments = rawTasksList.where((row) {
-        final cName = (row['client_name'] ?? '').toString().trim().toLowerCase();
-        return cName == clientName.toLowerCase();
-      }).toList();
+      final tasksRes = await http.get(Uri.parse('$_baseUrl/tasks'));
+      if (tasksRes.statusCode == 200) {
+        final tasksBody = jsonDecode(tasksRes.body);
+        final allRows = List<Map<String, dynamic>>.from(tasksBody['data'] ?? []);
 
-      final trRes = await http.get(Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'));
-      if (trRes.statusCode == 200) {
-        final trBody = jsonDecode(trRes.body);
-        final taskLists = List<dynamic>.from(trBody['data'] ?? []);
+        clientAssignments = allRows.where((row) {
+          final matchesClient = (row['client_name'] ?? '').toString().trim().toLowerCase() ==
+              clientName.toString().trim().toLowerCase();
+          if (!matchesClient) return false;
+          
+          if (targetAssignmentId != null) {
+            return row['id'].toString() == targetAssignmentId.toString();
+          }
+          return true;
+        }).toList();
+      }
 
-        for (var tl in taskLists) {
-          final tListId = tl['id'];
-          final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+      if (clientAssignments.isEmpty) {
+        clientAssignments = [targetRow];
+      }
 
-          final itemsRes = await http.get(Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'));
-          if (itemsRes.statusCode == 200) {
-            final itemsBody = jsonDecode(itemsRes.body);
-            final items = List<dynamic>.from(itemsBody['data'] ?? []);
+      if (targetAssignmentId != null && targetAssignmentId.isNotEmpty) {
+        final trRes = await http.get(
+          Uri.parse('$_baseUrl/task-list/client/${Uri.encodeComponent(clientName)}'),
+        );
 
-            int completedRows = items.where((item) {
-              final st = (item['status'] ?? '').toString().toUpperCase();
-              return st == 'COMPLETED' || st == 'REJECTED';
-            }).length;
+        if (trRes.statusCode == 200) {
+          final trBody = jsonDecode(trRes.body);
+          final taskLists = List<dynamic>.from(trBody['data'] ?? []);
 
-            dbTaskProgressCounts[deliverables] = completedRows;
+          for (final tl in taskLists) {
+            final tlAssignmentId = tl['task_assignment_id']?.toString();
+            if (tlAssignmentId == null || tlAssignmentId != targetAssignmentId) {
+              continue;
+            }
+
+            final tListId = tl['id'];
+            if (tListId == null) continue;
+
+            final itemsRes = await http.get(
+              Uri.parse('$_baseUrl/tracking-items/by-task-list/$tListId'),
+            );
+
+            if (itemsRes.statusCode == 200) {
+              final itemsBody = jsonDecode(itemsRes.body);
+              final items = List<dynamic>.from(itemsBody['data'] ?? []);
+
+              final completedRows = items.where((item) {
+                final status = (item['status'] ?? '').toString().trim().toUpperCase();
+                return status == 'COMPLETED' || status == 'REJECTED';
+              }).length;
+
+              final deliverables = (tl['deliverables'] ?? '').toString().trim().toLowerCase();
+              if (deliverables.isNotEmpty) {
+                dbTaskProgressCounts[deliverables] = (dbTaskProgressCounts[deliverables] ?? 0) + completedRows;
+              }
+            }
           }
         }
       }
@@ -840,10 +1040,9 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                   child: Row(
                     children: [
                       Container(
-                        width: 42,
-                        height: 42,
+                        width: 42, height: 42,
                         decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(12)),
-                        child: const Icon(Icons.analytics_outlined, color: Color(0xFF0052CC), size: 22),
+                        child: const Icon(Icons.analytics_outlined, color: Color(0xFF004AAD), size: 22),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -852,7 +1051,7 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                           children: [
                             const Text('Task Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
                             const SizedBox(height: 3),
-                            Text('$clientName (Submit Date: ${targetRow["formattedDate"]})', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                            Text(clientName.toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
                           ],
                         ),
                       ),
@@ -935,6 +1134,14 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                             Expanded(
                                               child: Text(roleLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
                                             ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
+                                              child: Text(
+                                                '${empTaskMap.length} ${empTaskMap.length == 1 ? 'Employee' : 'Employees'}',
+                                                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -970,40 +1177,41 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                   final tName = match != null ? match.group(1)!.trim() : tClean;
                                                   final totalR = match != null ? int.parse(match.group(2)!) : 1;
 
-                                                  int compR = dbTaskProgressCounts[tName.toLowerCase()] ?? 0;
-                                                  final isCompleted = compR > 0;
-                                                  final progressText = 'Total Complete: $compR / Total Task: $totalR';
+                                                  final normalizedTaskName = tName.trim().toLowerCase();
+                                                  final int compR = dbTaskProgressCounts[normalizedTaskName] ?? 0;
+
+                                                  final isCompleted = totalR > 0 && compR >= totalR;
+                                                  final progressText = '$compR/$totalR';
 
                                                   return Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                                                     decoration: BoxDecoration(
                                                       color: isCompleted ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
                                                       borderRadius: BorderRadius.circular(9),
-                                                      border: Border.all(
-                                                        color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFFE2E8F0),
-                                                        width: isCompleted ? 1.2 : 1,
-                                                      ),
+                                                      border: Border.all(color: isCompleted ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
                                                     ),
                                                     child: Row(
                                                       mainAxisSize: MainAxisSize.min,
                                                       children: [
                                                         Icon(
-                                                          isCompleted ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                                                          isCompleted ? Icons.check_circle_outline : Icons.radio_button_unchecked,
                                                           size: 14,
                                                           color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
                                                         ),
                                                         const SizedBox(width: 6),
-                                                        Text(
-                                                          tName,
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            fontWeight: FontWeight.w700,
-                                                            color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                        Flexible(
+                                                          child: Text(
+                                                            tName,
+                                                            style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: isCompleted ? const Color(0xFF166534) : const Color(0xFF475569),
+                                                            ),
                                                           ),
                                                         ),
-                                                        const SizedBox(width: 10),
+                                                        const SizedBox(width: 6),
                                                         Container(
-                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                           decoration: BoxDecoration(
                                                             color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE2E8F0),
                                                             borderRadius: BorderRadius.circular(6),
@@ -1011,7 +1219,7 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                           child: Text(
                                                             progressText,
                                                             style: TextStyle(
-                                                              fontSize: 9.5,
+                                                              fontSize: 9,
                                                               fontWeight: FontWeight.w800,
                                                               color: isCompleted ? const Color(0xFF15803D) : const Color(0xFF64748B),
                                                             ),
@@ -1042,8 +1250,11 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                     border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      const Icon(Icons.info_outline, size: 15, color: Color(0xFF94A3B8)),
+                      const SizedBox(width: 6),
+                      const Expanded(child: Text('Progress is updated from the assigned tasks.', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                      const SizedBox(width: 10),
                       SizedBox(
                         height: 36,
                         child: ElevatedButton(
@@ -1136,7 +1347,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // HEADER HERO SECTION
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(isMobile ? 20 : 28),
@@ -1209,8 +1419,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                         ),
                       ],
                     ),
-                    
-                    // Split Client & Employee View Switcher Buttons
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
@@ -1265,7 +1473,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
               ),
               const SizedBox(height: 20),
 
-              // DATA TABLE CONTAINER
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -1318,7 +1525,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                 ),
                               ),
                             ),
-                            // Maintenance Header Filter
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1336,12 +1542,10 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                 ),
                               ),
                             ),
-                            // Packages Header
                             const Expanded(
                               flex: 2,
                               child: Text("PACKAGES", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7)),
                             ),
-                            // Submit Date Column with separate Month Filter Dropdown
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1368,7 +1572,6 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                 ),
                               ),
                             ),
-                            // Status Filter
                             Expanded(
                               flex: 2,
                               child: DropdownButtonHideUnderline(
@@ -1404,74 +1607,73 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                           );
 
                           return SingleChildScrollView(
-                        controller: _employeeTableHScroll,
-                        scrollDirection: Axis.horizontal,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFF7F9FC),
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                          ),
-                          height: 52,
-                          width: tableWidth,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Row(
-                            children: [
-                              InkWell(
-                                onTap: () => setState(() => isSNoAscending = !isSNoAscending),
-                                child: SizedBox(
-                                  width: 50,
-                                  child: Row(
-                                    children: [
-                                      const Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isSNoAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
-                                  ),
-                                ),
+                            controller: _employeeTableHScroll,
+                            scrollDirection: Axis.horizontal,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF7F9FC),
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                               ),
-                              SizedBox(
-                                width: 170,
-                                child: InkWell(
-                                  onTap: () => setState(() => isEmployeeAscending = !isEmployeeAscending),
-                                  child: Row(
-                                    children: [
-                                      const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isEmployeeAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
+                              height: 52,
+                              width: tableWidth,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Row(
+                                children: [
+                                  InkWell(
+                                    onTap: () => setState(() => isSNoAscending = !isSNoAscending),
+                                    child: SizedBox(
+                                      width: 50,
+                                      child: Row(
+                                        children: [
+                                          const Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isSNoAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              // 🟢 8 role columns between Employee Name and Total Clients
-                              for (final role in _roleColumns)
-                                SizedBox(
-                                  width: roleWidth,
-                                  child: Text(
-                                    role['label']!.toUpperCase(),
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64748B)),
+                                  SizedBox(
+                                    width: 170,
+                                    child: InkWell(
+                                      onTap: () => setState(() => isEmployeeAscending = !isEmployeeAscending),
+                                      child: Row(
+                                        children: [
+                                          const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isEmployeeAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              SizedBox(
-                                width: 110,
-                                child: InkWell(
-                                  onTap: () => setState(() => isTotalClientsAscending = !isTotalClientsAscending),
-                                  child: Row(
-                                    children: [
-                                      const Text("TOTAL CLIENTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
-                                      const SizedBox(width: 2),
-                                      Icon(isTotalClientsAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
-                                    ],
+                                  for (final role in _roleColumns)
+                                    SizedBox(
+                                      width: roleWidth,
+                                      child: Text(
+                                        role['label']!.toUpperCase(),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64748B)),
+                                      ),
+                                    ),
+                                  SizedBox(
+                                    width: 110,
+                                    child: InkWell(
+                                      onTap: () => setState(() => isTotalClientsAscending = !isTotalClientsAscending),
+                                      child: Row(
+                                        children: [
+                                          const Text("TOTAL CLIENTS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B))),
+                                          const SizedBox(width: 2),
+                                          Icon(isTotalClientsAscending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: const Color(0xFF0052CC)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(
+                                    width: 60,
+                                    child: Text("VIEW", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7), textAlign: TextAlign.center),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(
-                                width: 60,
-                                child: Text("VIEW", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.7), textAlign: TextAlign.center),
-                              ),
-                            ],
-                          ),
-                        ),
+                            ),
                           );
                         },
                       ),
@@ -1505,97 +1707,96 @@ void _navigateToEmployeeDetailView(String employeeName) async {
                                                 width: tableWidth,
                                                 height: 480,
                                                 child: ListView.separated(
-                                              itemCount: filteredEmployeeRows.length,
-                                              separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                                              itemBuilder: (context, index) {
-                                                final empRow = filteredEmployeeRows[index];
-                                                final roleCounts = Map<String, int>.from(empRow["roleCounts"] ?? {});
-                                                final inactiveCount = (empRow["inactiveClientsList"] as List).length;
+                                                  itemCount: filteredEmployeeRows.length,
+                                                  separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                                  itemBuilder: (context, index) {
+                                                    final empRow = filteredEmployeeRows[index];
+                                                    final roleCounts = Map<String, int>.from(empRow["roleCounts"] ?? {});
+                                                    final inactiveCount = (empRow["inactiveClientsList"] as List).length;
 
-                                                return Container(
-                                                  height: 64,
-                                                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                                                  color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
-                                                  child: Row(
-                                                    children: [
-                                                      SizedBox(
-                                                        width: 50,
-                                                        child: Text(
-                                                          '${index + 1}',
-                                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
-                                                        ),
-                                                      ),
-                                                      SizedBox(
-                                                        width: 170,
-                                                        child: Text(
-                                                          empRow["employeeName"],
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                                                        ),
-                                                      ),
-                                                      // 🟢 8 role count columns — blank if 0, as requested
-                                                      for (final role in _roleColumns)
-                                                        SizedBox(
-                                                          width: roleWidth,
-                                                          child: Text(
-                                                            (roleCounts[role['field']] ?? 0) > 0 ? '${roleCounts[role['field']]}' : '-',
-                                                            textAlign: TextAlign.center,
-                                                            style: TextStyle(
-                                                              fontSize: 12,
-                                                              fontWeight: FontWeight.w800,
-                                                              color: (roleCounts[role['field']] ?? 0) > 0 ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
+                                                    return Container(
+                                                      height: 64,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                                                      color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
+                                                      child: Row(
+                                                        children: [
+                                                          SizedBox(
+                                                            width: 50,
+                                                            child: Text(
+                                                              '${index + 1}',
+                                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
                                                             ),
                                                           ),
-                                                        ),
-                                                      SizedBox(
-                                                        width: 110,
-                                                        child: InkWell(
-                                                          onTap: () => _showClientsListDialog(empRow),
-                                                          child: RichText(
-                                                            overflow: TextOverflow.ellipsis,
-                                                            text: TextSpan(
-                                                              children: [
-                                                                TextSpan(
-                                                                  text: '${(empRow["activeClientsList"] as List).length} Clients',
-                                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                          SizedBox(
+                                                            width: 170,
+                                                            child: Text(
+                                                              empRow["employeeName"],
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                                            ),
+                                                          ),
+                                                          for (final role in _roleColumns)
+                                                            SizedBox(
+                                                              width: roleWidth,
+                                                              child: Text(
+                                                                (roleCounts[role['field']] ?? 0) > 0 ? '${roleCounts[role['field']]}' : '-',
+                                                                textAlign: TextAlign.center,
+                                                                style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  fontWeight: FontWeight.w800,
+                                                                  color: (roleCounts[role['field']] ?? 0) > 0 ? const Color(0xFF0052CC) : const Color(0xFFCBD5E1),
                                                                 ),
-                                                                if (inactiveCount > 0)
-                                                                  TextSpan(
-                                                                    text: '\n$inactiveCount inactive',
-                                                                    style: const TextStyle(fontSize: 9.5, color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
-                                                                  ),
-                                                              ],
+                                                              ),
+                                                            ),
+                                                          SizedBox(
+                                                            width: 110,
+                                                            child: InkWell(
+                                                              onTap: () => _showClientsListDialog(empRow),
+                                                              child: RichText(
+                                                                overflow: TextOverflow.ellipsis,
+                                                                text: TextSpan(
+                                                                  children: [
+                                                                    TextSpan(
+                                                                      text: '${(empRow["activeClientsList"] as List).length} Clients',
+                                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
+                                                                    ),
+                                                                    if (inactiveCount > 0)
+                                                                      TextSpan(
+                                                                        text: '\n$inactiveCount inactive',
+                                                                        style: const TextStyle(fontSize: 9.5, color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
+                                                                      ),
+                                                                  ],
+                                                                ),
+                                                              ),
                                                             ),
                                                           ),
-                                                        ),
-                                                      ),
-                                                      SizedBox(
-                                                        width: 60,
-                                                        child: Center(
-                                                          child: InkWell(
-                                                            onTap: () => _navigateToEmployeeDetailView(empRow["employeeName"]),
-                                                            borderRadius: BorderRadius.circular(10),
-                                                            child: Container(
-                                                              width: 36,
-                                                              height: 34,
-                                                              decoration: BoxDecoration(
-                                                                color: const Color(0xFF0052CC),
+                                                          SizedBox(
+                                                            width: 60,
+                                                            child: Center(
+                                                              child: InkWell(
+                                                                onTap: () => _navigateToEmployeeDetailView(empRow["employeeName"]),
                                                                 borderRadius: BorderRadius.circular(10),
-                                                              ),
-                                                              child: const Icon(
-                                                                Icons.play_arrow_rounded,
-                                                                color: Colors.white,
-                                                                size: 20,
+                                                                child: Container(
+                                                                  width: 36,
+                                                                  height: 34,
+                                                                  decoration: BoxDecoration(
+                                                                    color: const Color(0xFF0052CC),
+                                                                    borderRadius: BorderRadius.circular(10),
+                                                                  ),
+                                                                  child: const Icon(
+                                                                    Icons.play_arrow_rounded,
+                                                                    color: Colors.white,
+                                                                    size: 20,
+                                                                  ),
+                                                                ),
                                                               ),
                                                             ),
                                                           ),
-                                                        ),
+                                                        ],
                                                       ),
-                                                    ],
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                                    );
+                                                  },
+                                                ),
                                               ),
                                             );
                                           },

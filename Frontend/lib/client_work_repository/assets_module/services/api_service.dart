@@ -65,32 +65,68 @@ class ApiService {
 
   static Future<String?>
       getLoggedInUserName() async {
-    final prefs =
-        await SharedPreferences.getInstance();
-
-    return prefs.getString(
-      'logged_in_user_name',
-    );
+    final user = await _storedUser();
+    if (user != null) {
+      return user['fullName']?.toString() ?? user['name']?.toString();
+    }
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_name');
   }
 
   static Future<String?>
       getLoggedInUserEmail() async {
-    final prefs =
-        await SharedPreferences.getInstance();
-
-    return prefs.getString(
-      'logged_in_user_email',
-    );
+    final user = await _storedUser();
+    if (user != null) return user['email']?.toString();
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_email');
   }
 
   static Future<String?>
       getLoggedInUserRole() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final user = await _storedUser();
+    if (user != null) return user['role']?.toString();
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('logged_in_user_role');
+  }
 
-    return prefs.getString(
-      'logged_in_user_role',
+  static Future<Map<String, dynamic>?> _storedUser() async {
+    final raw = await AuthStorage.getString('user_data');
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map ? Map<String, dynamic>.from(value) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns the current authenticated employee from the database.
+  static Future<Map<String, dynamic>> getMyProfile() async {
+    final token = await _requiredToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/profile/me'),
+      headers: {'Authorization': 'Bearer $token'},
     );
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
+  }
+
+  static Future<Map<String, dynamic>> updateMyProfile({
+    required String name,
+    required String email,
+    required String mobile,
+  }) async {
+    final token = await _requiredToken();
+    final response = await http.put(
+      Uri.parse('$baseUrl/profile/me'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'name': name, 'email': email, 'mobile': mobile}),
+    );
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
   }
 
   // ============================================================
@@ -164,6 +200,15 @@ class ApiService {
     return Map<String, dynamic>.from(
       data['data'] ?? {},
     );
+  }
+
+  static Future<void> removeProfilePhoto() async {
+    final token = await _requiredToken();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/users/me/photo'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    await _jsonResponse(response);
   }
 
   // ============================================================
@@ -381,6 +426,7 @@ class ApiService {
       createCompany(
     String name, {
     String? section,
+    List<String>? sections,
     String? logoFileName,
     Uint8List? logoBytes,
   }) async {
@@ -403,11 +449,17 @@ class ApiService {
             'name'] =
         name.trim();
 
-    if (section != null &&
-        section.trim().isNotEmpty) {
-      request.fields[
-              'section'] =
-          section.trim();
+    final effectiveSections =
+        sections != null && sections.isNotEmpty
+            ? sections
+            : (section != null && section.trim().isNotEmpty
+                ? [section.trim()]
+                : null);
+
+    if (effectiveSections != null &&
+        effectiveSections.isNotEmpty) {
+      request.fields['section'] =
+          effectiveSections.join('|');
     }
 
     if (logoBytes != null &&
@@ -449,34 +501,29 @@ class ApiService {
       updateCompany({
     required String companyId,
     required String name,
+    List<String>? sections,
+    String? logoFileName,
+    Uint8List? logoBytes,
   }) async {
-    final token =
-        await _requiredToken();
+    final token = await _requiredToken();
 
-    final response =
-        await http.put(
-      Uri.parse(
-        '$baseUrl/companies/$companyId',
-      ),
-      headers: {
-        'Content-Type':
-            'application/json',
-        'Authorization':
-            'Bearer $token',
-      },
-      body: jsonEncode({
-        'name': name,
-      }),
+    final request = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$baseUrl/companies/$companyId'),
     );
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['name'] = name;
+    if (sections != null && sections.isNotEmpty) {
+      request.fields['section'] = sections.join('|');
+    }
+    if (logoBytes != null && logoBytes.isNotEmpty && logoFileName != null && logoFileName.trim().isNotEmpty) {
+      request.files.add(http.MultipartFile.fromBytes('logo', logoBytes, filename: logoFileName.trim()));
+    }
 
-    final data =
-        await _jsonResponse(
-      response,
-    );
-
-    return Map<String, dynamic>.from(
-      data['data'] ?? {},
-    );
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final data = await _jsonResponse(response);
+    return Map<String, dynamic>.from(data['data'] ?? {});
   }
 
   // ============================================================

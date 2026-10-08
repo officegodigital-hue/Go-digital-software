@@ -1,36 +1,42 @@
 import 'package:flutter/material.dart';
-import 'package:hrms_design_system/hrms_design_system.dart';
 
 const _gridLine = Color(0xFFE2E8F2);
+const _todayBg = Color(0xFFEEF4FF);
+const _chipBlue = Color(0xFF0767F2);
 
-/// One day's attendance mark, matching the enum values in hrms_models'
-/// AttendanceStatus (kept as short display codes here: P/A/L/E/U/HL/OFF).
 class AttendanceDayMark {
-  final String code; // P, A, L, E, U, LV, HL, OFF
+  final String code;
   const AttendanceDayMark(this.code);
+
+  // Fixed system codes that always have a specific meaning.
+  static const _systemCodes = {'P', 'A', 'LT', 'H', 'HL', 'OFF', 'L', 'LV'};
+
+  bool get _isLeave =>
+      !_systemCodes.contains(code) || code == 'L' || code == 'LV' || code == 'HL' || code == 'H';
 
   Color get color {
     switch (code) {
-      case 'P':
-        return HrmsColors.success;
-      case 'A':
-        return HrmsColors.danger;
-      case 'L':
-        return HrmsColors.warning;
-      case 'E':
-        return HrmsColors.info;
-      case 'U':
-        return HrmsColors.accentPurple;
-      case 'HL':
-      case 'LV':
-        return HrmsColors.accentPurple;
-      default:
-        return HrmsColors.textMuted; // OFF
+      case 'P':   return const Color(0xFF078C42);
+      case 'A':   return const Color(0xFFD62545);
+      case 'LT':  return const Color(0xFFE8770C);
+      case 'OFF': return const Color(0xFF9CA3AF);
+      default:    return _isLeave ? const Color(0xFF7C3CF2) : const Color(0xFF9CA3AF);
+    }
+  }
+
+  Color get chipBg {
+    switch (code) {
+      case 'P':   return const Color(0xFFE8F7EE);
+      case 'A':   return const Color(0xFFFFF0F2);
+      case 'LT':  return const Color(0xFFFFF4E8);
+      case 'OFF': return const Color(0xFFF1F3F8);
+      default:    return _isLeave ? const Color(0xFFF2ECFF) : Colors.transparent;
     }
   }
 }
 
 class AttendanceRowData {
+  final String employeeId;
   final String name;
   final String designation;
   final List<AttendanceDayMark> days;
@@ -46,6 +52,7 @@ class AttendanceRowData {
   final String updatedSalary;
 
   const AttendanceRowData({
+    this.employeeId = '',
     required this.name,
     required this.designation,
     required this.days,
@@ -62,17 +69,13 @@ class AttendanceRowData {
   });
 }
 
-/// Horizontally scrollable attendance grid with frozen Employee Name and
-/// Designation columns, per HRMS_PROJECT_BLUEPRINT.md, Section 3.
-///
-/// Vertical scrolling moves the frozen and scrollable halves together
-/// (they share one outer scroll); horizontal scrolling only affects the
-/// day/summary columns on the right.
-class AttendanceGrid extends StatefulWidget {
-  final List<int> days; // e.g. 1..31
-  final List<String> dayLabels; // e.g. Fri, Sat, Sun...
+class AttendanceGrid extends StatelessWidget {
+  final List<int> days;
+  final List<String> dayLabels;
   final List<AttendanceRowData> rows;
   final bool showSummary;
+  final int? todayIndex;
+  final void Function(AttendanceRowData row, int dayIndex)? onCellTap;
 
   const AttendanceGrid({
     super.key,
@@ -80,114 +83,93 @@ class AttendanceGrid extends StatefulWidget {
     required this.dayLabels,
     required this.rows,
     this.showSummary = true,
+    this.todayIndex,
+    this.onCellTap,
   });
 
-  @override
-  State<AttendanceGrid> createState() => _AttendanceGridState();
-}
+  // Layout constants
+  static const double _headH  = 54;
+  static const double _rowH   = 50;
+  static const double _frozenW = 230;
+  static const double _minDayW = 38;
+  static const double _maxDayW = 80;
 
-class _AttendanceGridState extends State<AttendanceGrid> {
-  static const double _rowHeight = 40;
-  static const double _headerHeight = 60;
-  static const double _dayColWidth = 24;
-  static const double _dayColWidthMax = 44;
-  static const _summaryWidths = [40.0, 34.0, 44.0, 38.0, 42.0, 45.0, 58.0, 45.0];
-  final _calendarController = ScrollController();
+  // Summary columns
+  static const List<double> _sW = [80, 64, 64, 96, 110, 120, 146, 120];
+  static const List<String> _sLabel = [
+    'Present', 'Late', 'Leave', 'Half Leave',
+    'Earned Leave', 'Salary / Month', 'Absent / Deduction', 'Updated Salary',
+  ];
+  static const List<Color> _sColor = [
+    Color(0xFF078C42), Color(0xFFE8770C),
+    Color(0xFF7C3CF2), Color(0xFF7C3CF2),
+    _chipBlue,
+    Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F),
+  ];
 
-  @override
-  void dispose() {
-    _calendarController.dispose();
-    super.dispose();
-  }
+  double get _sumW => showSummary ? _sW.fold(0.0, (a, b) => a + b) : 0.0;
 
-  // Any leftover width — after the frozen name/designation columns and
-  // (when shown) the summary panel take their share — is handed back to the
-  // day columns, which stretch evenly (up to a sensible cap) to fill it.
-  // That keeps the three sections visually balanced instead of leaving dead
-  // space on one side while the calendar looks cramped on the other. Only
-  // when there truly isn't enough room even at the minimum width does the
-  // calendar fall back to a visible scrollbar.
-  //
-  // The header row (employee/day/summary column titles) sits outside the
-  // vertical scroll entirely, so it stays fixed in place while only the
-  // employee rows underneath scroll. When the calendar section itself needs
-  // horizontal scrolling, its header and body share one ScrollController so
-  // they stay aligned — the header's own scroll is disabled so only the body
-  // can be dragged.
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      const frozenWidth = 212.0;
-      final summaryWidth =
-          widget.showSummary ? _summaryWidths.reduce((a, b) => a + b) : 0.0;
-      final availableForCalendar =
-          (constraints.maxWidth - frozenWidth - summaryWidth)
-              .clamp(0.0, double.infinity);
-      final baseDayColsWidth = widget.days.length * _dayColWidth;
-
-      final stretchColWidth = widget.days.isEmpty
-          ? _dayColWidth
-          : availableForCalendar / widget.days.length;
-      final canStretchToFit = stretchColWidth >= _dayColWidth;
-      final needsScroll = !canStretchToFit && baseDayColsWidth > availableForCalendar;
-      final colWidth = needsScroll
-          ? _dayColWidth
-          : (canStretchToFit
-              ? stretchColWidth.clamp(_dayColWidth, _dayColWidthMax)
-              : _dayColWidth);
-
-      Widget calendarHeader = _calendarHeaderRow(colWidth);
-      Widget calendarBody = _calendarBodyColumn(colWidth);
-      if (needsScroll) {
-        calendarHeader = SizedBox(
-          width: availableForCalendar,
-          child: SingleChildScrollView(
-            controller: _calendarController,
-            scrollDirection: Axis.horizontal,
-            physics: const NeverScrollableScrollPhysics(),
-            child: calendarHeader,
-          ),
-        );
-        calendarBody = SizedBox(
-          width: availableForCalendar,
-          child: Scrollbar(
-            controller: _calendarController,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: _calendarController,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: calendarBody,
-            ),
-          ),
-        );
-      }
+    return LayoutBuilder(builder: (ctx, box) {
+      // Compute day column width to fill available space
+      final calW = (box.maxWidth - _frozenW - _sumW).clamp(0.0, double.infinity);
+      final dayW = days.isEmpty
+          ? _minDayW
+          : (calW / days.length).clamp(_minDayW, _maxDayW);
 
       return Column(
         children: [
+          // ── FROZEN HEADER (never scrolls) ───────────────────────────────
           SizedBox(
-            height: _headerHeight,
+            height: _headH,
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _frozenHeaderRow(),
-                calendarHeader,
-                if (widget.showSummary) _summaryHeaderRow(),
+                _hCell('Employee / Designation', '', _frozenW,
+                    align: Alignment.centerLeft, hpad: 14),
+                for (var i = 0; i < days.length; i++)
+                  _hCell('${days[i]}', dayLabels[i], dayW,
+                      today: todayIndex == i),
+                if (showSummary)
+                  for (var i = 0; i < _sLabel.length; i++)
+                    _hCell(_sLabel[i], 'Monthly', _sW[i], color: _sColor[i]),
               ],
             ),
           ),
+          // ── SCROLLABLE BODY ─────────────────────────────────────────────
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.vertical,
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _frozenBodyColumn(),
-                    calendarBody,
-                    if (widget.showSummary) _summaryBodyColumn(),
-                  ],
-                ),
+              child: Column(
+                children: [
+                  for (final row in rows)
+                    SizedBox(
+                      height: _rowH,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _empCell(row, _frozenW),
+                          for (var i = 0; i < row.days.length; i++)
+                            _dayCell(dayW, row.days[i],
+                                today: todayIndex == i,
+                                onTap: onCellTap != null
+                                    ? () => onCellTap!(row, i)
+                                    : null),
+                          if (showSummary) ...[
+                            _bCell(_sW[0], _stat('${row.present}',        _sColor[0])),
+                            _bCell(_sW[1], _stat('${row.late}',           _sColor[1])),
+                            _bCell(_sW[2], _stat('${row.approvedLeave}',  _sColor[2])),
+                            _bCell(_sW[3], _stat('${row.halfLeave}',      _sColor[3])),
+                            _bCell(_sW[4], _stat('${row.earnedLeave}',    _sColor[4])),
+                            _bCell(_sW[5], _money(row.salaryPerMonth)),
+                            _bCell(_sW[6], _money(row.totalSalaryAfterLeaves)),
+                            _bCell(_sW[7], _money(row.updatedSalary)),
+                          ],
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -196,187 +178,141 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     });
   }
 
-  Widget _frozenHeaderRow() => const SizedBox(
-        width: 212,
-        child: Row(
-          children: [
-            _HeaderCell(text: 'Employee Name', width: 112),
-            _HeaderCell(text: 'Designation', width: 100),
-          ],
+  // ── Cell builders ─────────────────────────────────────────────────────────
+
+  Widget _hCell(String label, String sub, double w, {
+    Color? color, bool today = false,
+    Alignment align = Alignment.center, double hpad = 6,
+  }) {
+    final fg = today ? _chipBlue : (color ?? const Color(0xFF07186F));
+    return Container(
+      width: w,
+      alignment: align,
+      padding: EdgeInsets.symmetric(horizontal: hpad),
+      decoration: BoxDecoration(
+        color: today ? _todayBg : const Color(0xFFF6F8FE),
+        border: const Border(
+          right: BorderSide(color: _gridLine, width: .7),
+          bottom: BorderSide(color: _gridLine, width: .7),
+        ),
+      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text(label,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11, color: fg)),
+        if (sub.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(sub,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 9, color: Color(0xFF8599C4))),
+        ],
+      ]),
+    );
+  }
+
+  Widget _empCell(AttendanceRowData row, double w) => Container(
+    width: w,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    decoration: const BoxDecoration(
+      border: Border(
+        right: BorderSide(color: _gridLine, width: .7),
+        bottom: BorderSide(color: _gridLine, width: .7),
+      ),
+    ),
+    alignment: Alignment.centerLeft,
+    child: Row(children: [
+      _Avatar(name: row.name),
+      const SizedBox(width: 10),
+      Expanded(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(row.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF07186F), fontSize: 13)),
+          const SizedBox(height: 3),
+          Text(
+            row.employeeId.isNotEmpty
+                ? '${row.designation} · ${row.employeeId}'
+                : row.designation,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF53688F), fontSize: 10)),
+        ],
+      )),
+    ]),
+  );
+
+  Widget _dayCell(double w, AttendanceDayMark mark, {
+    bool today = false, VoidCallback? onTap,
+  }) =>
+      InkWell(
+        onTap: onTap,
+        child: Container(
+          width: w,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: today ? _todayBg : null,
+            border: const Border(
+              right: BorderSide(color: _gridLine, width: .7),
+              bottom: BorderSide(color: _gridLine, width: .7),
+            ),
+          ),
+          child: _MarkChip(mark: mark),
         ),
       );
 
-  Widget _frozenBodyColumn() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final row in widget.rows)
-          SizedBox(
-            height: _rowHeight,
-            width: 212,
-            child: Row(
-              children: [
-                _BodyCell(
-                  width: 112,
-                  child: Text(
-                    row.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF07186F),
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-                _BodyCell(
-                  width: 100,
-                  child: Text(
-                    row.designation,
-                    style: const TextStyle(
-                        color: Color(0xFF53688F), fontSize: 9),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// [colWidth] lets each day column stretch to fill freed-up space when the
-  /// summary panel is hidden; it defaults to the compact fixed width.
-  Widget _calendarHeaderRow(double colWidth) {
-    final dayColsWidth = widget.days.length * colWidth;
-    return SizedBox(
-      width: dayColsWidth,
-      child: Row(
-        children: [
-          for (var i = 0; i < widget.days.length; i++)
-            _HeaderCell(
-              width: colWidth,
-              text: '${widget.days[i]}\n${widget.dayLabels[i]}',
-              dense: true,
-            ),
-        ],
+  Widget _bCell(double w, Widget child) => Container(
+    width: w,
+    alignment: Alignment.center,
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    decoration: const BoxDecoration(
+      border: Border(
+        right: BorderSide(color: _gridLine, width: .7),
+        bottom: BorderSide(color: _gridLine, width: .7),
       ),
-    );
+    ),
+    child: child,
+  );
+
+  Widget _stat(String v, Color c) => Text(v,
+      style: TextStyle(color: c, fontSize: 14, fontWeight: FontWeight.w700));
+
+  Widget _money(String v) => Text(v,
+      maxLines: 1,
+      style: const TextStyle(
+          color: Color(0xFF07186F), fontSize: 11, fontWeight: FontWeight.w600));
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
+
+class _Avatar extends StatelessWidget {
+  final String name;
+  const _Avatar({required this.name});
+
+  String get _initials {
+    final parts = name.trim().split(' ').where((w) => w.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
-  Widget _calendarBodyColumn(double colWidth) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final row in widget.rows)
-          SizedBox(
-            height: _rowHeight,
-            child: Row(
-              children: [
-                for (final mark in row.days)
-                  _BodyCell(
-                    width: colWidth,
-                    child: _MarkChip(mark: mark),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  static const _summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
-  static const _summaryColors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, HrmsColors.accentPurple, HrmsColors.info, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
-  static const _summaryPanelWidth = 346.0;
-
-  Widget _summaryHeaderRow() => SizedBox(
-        width: _summaryPanelWidth,
-        child: Row(children: [
-          for (var i = 0; i < _summaryLabels.length; i++)
-            _HeaderCell(width: _summaryWidths[i], text: _summaryLabels[i], dense: true, color: _summaryColors[i]),
-        ]),
-      );
-
-  Widget _summaryBodyColumn() {
-    return Column(children: [
-      for (final row in widget.rows)
-        SizedBox(height: _rowHeight, width: _summaryPanelWidth, child: Row(children: [
-          _BodyCell(width: _summaryWidths[0], child: Center(child: _statText('${row.present}', HrmsColors.success))),
-          _BodyCell(width: _summaryWidths[1], child: Center(child: _statText('${row.late}', HrmsColors.warning))),
-          _BodyCell(width: _summaryWidths[2], child: Center(child: _statText('${row.approvedLeave}', HrmsColors.accentPurple))),
-          _BodyCell(width: _summaryWidths[3], child: Center(child: _statText('${row.halfLeave}', HrmsColors.accentPurple))),
-          _BodyCell(width: _summaryWidths[4], child: Center(child: _statText('${row.earnedLeave}', HrmsColors.info))),
-          _BodyCell(width: _summaryWidths[5], child: Center(child: Text(row.salaryPerMonth, maxLines: 1, style: _moneyStyle))),
-          _BodyCell(width: _summaryWidths[6], child: Center(child: Text(row.totalSalaryAfterLeaves, maxLines: 1, style: _moneyStyle))),
-          _BodyCell(width: _summaryWidths[7], child: Center(child: Text(row.updatedSalary, maxLines: 1, style: _moneyStyle))),
-        ])),
-    ]);
-  }
-
-  Widget _statText(String value, Color color) {
-    return Text(value,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700));
-  }
-
-  static const _moneyStyle = TextStyle(
-    color: Color(0xFF07186F),
-    fontSize: 8,
-    fontWeight: FontWeight.w600,
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 34, height: 34,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: const Color(0xFFEDF3FF),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Text(_initials,
+        style: const TextStyle(
+            color: _chipBlue, fontSize: 13, fontWeight: FontWeight.w700)),
   );
 }
 
-class _HeaderCell extends StatelessWidget {
-  final String text;
-  final double width;
-  final bool dense;
-  final Color? color;
-
-  const _HeaderCell(
-      {required this.text, required this.width, this.dense = false, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        border: Border(
-          right: BorderSide(color: _gridLine, width: .7),
-          bottom: BorderSide(color: _gridLine, width: .7),
-        ),
-      ),
-      child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: dense ? 9 : 10,
-            color: color ?? const Color(0xFF07186F),
-          ),
-      ),
-    );
-  }
-}
-
-class _BodyCell extends StatelessWidget {
-  final Widget child;
-  final double width;
-
-  const _BodyCell({required this.child, required this.width});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 3),
-      decoration: const BoxDecoration(
-        border: Border(
-          right: BorderSide(color: _gridLine, width: .7),
-          bottom: BorderSide(color: _gridLine, width: .7),
-        ),
-      ),
-      child: child,
-    );
-  }
-}
+// ── Mark chip ─────────────────────────────────────────────────────────────────
 
 class _MarkChip extends StatelessWidget {
   final AttendanceDayMark mark;
@@ -384,21 +320,22 @@ class _MarkChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (mark.code == 'OFF') {
-      return const Center(
-        child: Text('OFF',
-            style: TextStyle(color: HrmsColors.textMuted, fontSize: 8)),
-      );
+    if (mark.code.isEmpty) {
+      return const Text('–',
+          style: TextStyle(color: Color(0xFFB0BCCC), fontSize: 13));
     }
-    return Center(
-      child: Text(
-        mark.code == 'LV' ? 'L' : mark.code,
-        style: TextStyle(
-          color: mark.color,
-          fontWeight: FontWeight.w800,
-          fontSize: 10,
-        ),
+    final label = mark.code == 'LV' ? 'L' : mark.code;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+      decoration: BoxDecoration(
+        color: mark.chipBg,
+        borderRadius: BorderRadius.circular(8),
       ),
+      child: Text(label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              color: mark.color, fontWeight: FontWeight.w800, fontSize: 11)),
     );
   }
 }

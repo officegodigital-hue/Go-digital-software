@@ -36,6 +36,7 @@ class _EditAssetDialogState extends State<_EditAssetDialog> {
   late final TextEditingController _passwordController;
 
   String? _selectedFileName;
+  List<int>? _selectedFileBytes;
   bool _showPassword = false;
 
   @override
@@ -75,46 +76,31 @@ class _EditAssetDialogState extends State<_EditAssetDialog> {
     if (widget.asset.type == AppConstants.poster) {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'png',
-          'jpg',
-          'jpeg',
-          'pdf',
-        ],
+        withData: true,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg', 'heic', 'heif', 'avif'],
       );
     } else if (widget.asset.type == AppConstants.reelVideo) {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'mp4',
-          'mov',
-          'avi',
-          'mkv',
-        ],
+        withData: true,
+        allowedExtensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', 'ts', 'mpeg', 'mpg', '3gp'],
       );
     } else if (widget.asset.type == AppConstants.document) {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'pdf',
-          'doc',
-          'docx',
-          'xls',
-          'xlsx',
-          'ppt',
-          'pptx',
-        ],
+        withData: true,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'],
       );
     } else if (widget.asset.type == AppConstants.mobileApplication) {
       files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: [
-          'apk',
-        ],
+        withData: true,
+        allowedExtensions: ['apk'],
       );
     } else {
       files = await FilePicker.pickFiles(
         type: FileType.any,
+        withData: true,
       );
     }
 
@@ -125,6 +111,7 @@ class _EditAssetDialogState extends State<_EditAssetDialog> {
 
     setState(() {
       _selectedFileName = selectedFiles.first.name;
+      _selectedFileBytes = selectedFiles.first.bytes;
     });
   }
 
@@ -521,12 +508,17 @@ class _EditAssetDialogState extends State<_EditAssetDialog> {
       section: widget.asset.section,
       type: widget.asset.type,
       name: _nameController.text.trim(),
+      description: widget.asset.description,
       link: _linkController.text.trim(),
       username: _usernameController.text.trim(),
       password: _passwordController.text,
+      filePath: _selectedFileName ?? widget.asset.filePath,
+      fileName: _selectedFileName ?? widget.asset.fileName,
+      mimeType: widget.asset.mimeType,
+      fileSize: widget.asset.fileSize,
       createdAt: widget.asset.createdAt,
       updatedAt: DateTime.now(),
-      filePath: _selectedFileName ?? widget.asset.filePath,
+      pendingFileBytes: _selectedFileBytes,
     );
 
     Navigator.pop(
