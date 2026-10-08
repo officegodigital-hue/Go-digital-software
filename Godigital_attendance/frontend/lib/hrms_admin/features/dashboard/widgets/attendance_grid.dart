@@ -73,6 +73,8 @@ class AttendanceGrid extends StatefulWidget {
   final List<String> dayLabels; // e.g. Fri, Sat, Sun...
   final List<AttendanceRowData> rows;
   final bool showSummary;
+  final bool expanded;
+  final VoidCallback? onToggleExpanded;
 
   const AttendanceGrid({
     super.key,
@@ -80,6 +82,8 @@ class AttendanceGrid extends StatefulWidget {
     required this.dayLabels,
     required this.rows,
     this.showSummary = true,
+    this.expanded = false,
+    this.onToggleExpanded,
   });
 
   @override
@@ -87,12 +91,30 @@ class AttendanceGrid extends StatefulWidget {
 }
 
 class _AttendanceGridState extends State<AttendanceGrid> {
-  static const double _rowHeight = 40;
+  static const int _daysPerWindow = 7;
+  static const double _rowHeight = 52;
   static const double _headerHeight = 60;
-  static const double _dayColWidth = 24;
-  static const double _dayColWidthMax = 44;
-  static const _summaryWidths = [40.0, 34.0, 44.0, 38.0, 42.0, 45.0, 58.0, 45.0];
+  static const double _dayColWidth = 58;
+  static const double _dayColWidthMax = 96;
+  static const double _frozenWidth = 280;
+  static const _summaryWidths = [78.0, 78.0, 78.0, 78.0, 78.0, 78.0, 78.0, 78.0];
   final _calendarController = ScrollController();
+  int _windowStart = 0;
+
+  int get _windowEnd =>
+      (_windowStart + _daysPerWindow).clamp(0, widget.days.length);
+
+  List<int> get _visibleDayIndexes =>
+      List<int>.generate(_windowEnd - _windowStart, (index) => _windowStart + index);
+
+  int get _lastWindowStart =>
+      (widget.days.length - _daysPerWindow).clamp(0, widget.days.length).toInt();
+
+  @override
+  void didUpdateWidget(covariant AttendanceGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_windowStart > _lastWindowStart) _windowStart = _lastWindowStart;
+  }
 
   @override
   void dispose() {
@@ -100,34 +122,20 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     super.dispose();
   }
 
-  // Any leftover width — after the frozen name/designation columns and
-  // (when shown) the summary panel take their share — is handed back to the
-  // day columns, which stretch evenly (up to a sensible cap) to fill it.
-  // That keeps the three sections visually balanced instead of leaving dead
-  // space on one side while the calendar looks cramped on the other. Only
-  // when there truly isn't enough room even at the minimum width does the
-  // calendar fall back to a visible scrollbar.
-  //
-  // The header row (employee/day/summary column titles) sits outside the
-  // vertical scroll entirely, so it stays fixed in place while only the
-  // employee rows underneath scroll. When the calendar section itself needs
-  // horizontal scrolling, its header and body share one ScrollController so
-  // they stay aligned — the header's own scroll is disabled so only the body
-  // can be dragged.
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      const frozenWidth = 212.0;
       final summaryWidth =
           widget.showSummary ? _summaryWidths.reduce((a, b) => a + b) : 0.0;
       final availableForCalendar =
-          (constraints.maxWidth - frozenWidth - summaryWidth)
+          (constraints.maxWidth - _frozenWidth - summaryWidth)
               .clamp(0.0, double.infinity);
-      final baseDayColsWidth = widget.days.length * _dayColWidth;
+      final visibleIndexes = _visibleDayIndexes;
+      final baseDayColsWidth = visibleIndexes.length * _dayColWidth;
 
-      final stretchColWidth = widget.days.isEmpty
+      final stretchColWidth = visibleIndexes.isEmpty
           ? _dayColWidth
-          : availableForCalendar / widget.days.length;
+          : availableForCalendar / visibleIndexes.length;
       final canStretchToFit = stretchColWidth >= _dayColWidth;
       final needsScroll = !canStretchToFit && baseDayColsWidth > availableForCalendar;
       final colWidth = needsScroll
@@ -159,8 +167,21 @@ class _AttendanceGridState extends State<AttendanceGrid> {
         );
       }
 
+      final tableBody = IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _frozenBodyColumn(),
+            calendarBody,
+            if (widget.showSummary) _summaryBodyColumn(),
+          ],
+        ),
+      );
+
       return Column(
+        mainAxisSize: widget.expanded ? MainAxisSize.min : MainAxisSize.max,
         children: [
+          _dayWindowNavigator(),
           SizedBox(
             height: _headerHeight,
             child: Row(
@@ -172,32 +193,95 @@ class _AttendanceGridState extends State<AttendanceGrid> {
               ],
             ),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _frozenBodyColumn(),
-                    calendarBody,
-                    if (widget.showSummary) _summaryBodyColumn(),
-                  ],
-                ),
+          if (widget.expanded)
+            tableBody
+          else
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: tableBody,
               ),
             ),
-          ),
         ],
       );
     });
   }
 
+  Widget _dayWindowNavigator() {
+    final hasPrevious = _windowStart > 0;
+    final hasNext = _windowEnd < widget.days.length;
+    final firstDay = widget.days.isEmpty ? 0 : widget.days[_windowStart];
+    final lastDay = widget.days.isEmpty ? 0 : widget.days[_windowEnd - 1];
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFF),
+        border: Border(bottom: BorderSide(color: _gridLine)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Previous 7 days',
+            onPressed: hasPrevious
+                ? () => setState(() {
+                    _windowStart = (_windowStart - _daysPerWindow).clamp(0, widget.days.length);
+                  })
+                : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                'Days $firstDay–$lastDay of ${widget.days.length}',
+                style: const TextStyle(
+                  color: Color(0xFF07186F),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+          if (widget.onToggleExpanded != null)
+            TextButton.icon(
+              onPressed: widget.onToggleExpanded,
+              icon: Icon(
+                widget.expanded
+                    ? Icons.unfold_less_rounded
+                    : Icons.unfold_more_rounded,
+                size: 17,
+              ),
+              label: Text(widget.expanded ? 'Collapse list' : 'Expand list'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF0767F2),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          IconButton(
+            tooltip: 'Next 7 days',
+            onPressed: hasNext
+                ? () => setState(() {
+                    _windowStart = (_windowStart + _daysPerWindow)
+                        .clamp(0, _lastWindowStart)
+                        .toInt();
+                  })
+                : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _frozenHeaderRow() => const SizedBox(
-        width: 212,
+        width: _frozenWidth,
         child: Row(
           children: [
-            _HeaderCell(text: 'Employee Name', width: 112),
-            _HeaderCell(text: 'Designation', width: 100),
+            _HeaderCell(text: 'Employee Name', width: 170),
+            _HeaderCell(text: 'Designation', width: 110),
           ],
         ),
       );
@@ -209,26 +293,30 @@ class _AttendanceGridState extends State<AttendanceGrid> {
         for (final row in widget.rows)
           SizedBox(
             height: _rowHeight,
-            width: 212,
+            width: _frozenWidth,
             child: Row(
               children: [
                 _BodyCell(
-                  width: 112,
+                  width: 170,
                   child: Text(
                     row.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF07186F),
-                      fontSize: 11,
+                      fontSize: 12,
                     ),
                   ),
                 ),
                 _BodyCell(
-                  width: 100,
+                  width: 110,
                   child: Text(
                     row.designation,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        color: Color(0xFF53688F), fontSize: 9),
+                        color: Color(0xFF53688F), fontSize: 10),
                   ),
                 ),
               ],
@@ -238,18 +326,17 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     );
   }
 
-  /// [colWidth] lets each day column stretch to fill freed-up space when the
-  /// summary panel is hidden; it defaults to the compact fixed width.
   Widget _calendarHeaderRow(double colWidth) {
-    final dayColsWidth = widget.days.length * colWidth;
+    final visibleIndexes = _visibleDayIndexes;
+    final dayColsWidth = visibleIndexes.length * colWidth;
     return SizedBox(
       width: dayColsWidth,
       child: Row(
         children: [
-          for (var i = 0; i < widget.days.length; i++)
+          for (final index in visibleIndexes)
             _HeaderCell(
               width: colWidth,
-              text: '${widget.days[i]}\n${widget.dayLabels[i]}',
+              text: '${widget.days[index]}\n${widget.dayLabels[index]}',
               dense: true,
             ),
         ],
@@ -258,6 +345,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
   }
 
   Widget _calendarBodyColumn(double colWidth) {
+    final visibleIndexes = _visibleDayIndexes;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -266,10 +354,14 @@ class _AttendanceGridState extends State<AttendanceGrid> {
             height: _rowHeight,
             child: Row(
               children: [
-                for (final mark in row.days)
+                for (final index in visibleIndexes)
                   _BodyCell(
                     width: colWidth,
-                    child: _MarkChip(mark: mark),
+                    child: _MarkChip(
+                      mark: index < row.days.length
+                          ? row.days[index]
+                          : const AttendanceDayMark(''),
+                    ),
                   ),
               ],
             ),
@@ -280,7 +372,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
 
   static const _summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
   static const _summaryColors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, HrmsColors.accentPurple, HrmsColors.info, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
-  static const _summaryPanelWidth = 346.0;
+  static const _summaryPanelWidth = 624.0;
 
   Widget _summaryHeaderRow() => SizedBox(
         width: _summaryPanelWidth,
@@ -313,7 +405,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
 
   static const _moneyStyle = TextStyle(
     color: Color(0xFF07186F),
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: FontWeight.w600,
   );
 }

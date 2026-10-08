@@ -39,6 +39,19 @@ class AttendanceApp extends StatelessWidget {
         '/employee/salary': (_) => const EmployeeSalaryPage(),
         '/employee/tracking': (_) => const EmployeeTrackingPage(),
       },
+      // The admin portal is a nested MaterialApp. Register its deep links in
+      // the root app too, so a browser refresh or Flutter hot restart while
+      // on /admin/dashboard can rebuild the portal instead of falling back to
+      // the login route.
+      onGenerateRoute: (settings) {
+        if (settings.name?.startsWith('/admin/') ?? false) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => const AttendanceEntry(),
+          );
+        }
+        return null;
+      },
     ),
   );
 }
@@ -47,7 +60,7 @@ class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
   @override
   Widget build(BuildContext context) => Consumer<AuthService>(
-    builder: (_, auth, __) {
+    builder: (_, auth, _) {
       if (!auth.isInitialized) return const Scaffold(body: Center(child: CircularProgressIndicator()));
       return auth.isAuthenticated ? const AttendanceEntry() : const LoginScreen();
     },
@@ -58,7 +71,7 @@ class AttendanceEntry extends StatelessWidget {
   const AttendanceEntry({super.key});
   @override
   Widget build(BuildContext context) => Consumer<AuthService>(
-    builder: (_, auth, __) {
+    builder: (_, auth, _) {
       if (!auth.isAuthenticated) return const LoginScreen();
       return auth.userType?.toLowerCase().trim() == 'admin'
         ? hrms_admin.AdminPortalApp()
