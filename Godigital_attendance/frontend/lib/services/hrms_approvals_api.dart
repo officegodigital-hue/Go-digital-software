@@ -49,11 +49,18 @@ class HrmsApprovalsApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> review(int id, String status) async {
+  static Future<Map<String, dynamic>> review(
+    int id,
+    String status, {
+    String? salaryMode,
+  }) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/$id'),
       headers: await _headers(),
-      body: jsonEncode({'status': status.toLowerCase()}),
+      body: jsonEncode({
+        'status': status.toLowerCase(),
+        'salaryMode': salaryMode,
+      }),
     );
     return _decode(response);
   }

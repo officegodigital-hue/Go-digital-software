@@ -97,7 +97,26 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 
   Future<void> _updateStatus(_ApprovalRequest request, String nextStatus) async {
     try {
-      await HrmsApprovalsApi.review(request.requestId, nextStatus);
+      String? salaryMode;
+      if (nextStatus == 'Approved' && request.requestType == 'permission') {
+        salaryMode = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Permission salary decision'),
+            content: const Text(
+              'Choose whether this approved permission is paid or unpaid. '
+              'Unpaid permission is recorded as Half Leave and deducts half a day of salary.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              OutlinedButton(onPressed: () => Navigator.pop(context, 'unpaid'), child: const Text('Without salary')),
+              FilledButton(onPressed: () => Navigator.pop(context, 'paid'), child: const Text('With salary')),
+            ],
+          ),
+        );
+        if (salaryMode == null) return;
+      }
+      await HrmsApprovalsApi.review(request.requestId, nextStatus, salaryMode: salaryMode);
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1113,6 +1132,7 @@ class _ApprovalRequest {
     required this.name,
     required this.id,
     required this.type,
+    required this.requestType,
     required this.dates,
     required this.dayRange,
     required this.duration,
@@ -1123,7 +1143,7 @@ class _ApprovalRequest {
   });
 
   final int requestId;
-  final String name, id, type, dates, dayRange, duration, reason;
+  final String name, id, type, requestType, dates, dayRange, duration, reason;
   String status;
   final IconData icon;
   final int color;
@@ -1137,6 +1157,7 @@ class _ApprovalRequest {
       name: (json['name'] ?? '').toString(),
       id: (json['employeeCode'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
+      requestType: (json['requestType'] ?? '').toString(),
       dates: (json['dates'] ?? '').toString(),
       dayRange: (json['dayRange'] ?? '').toString(),
       duration: (json['duration'] ?? '').toString(),

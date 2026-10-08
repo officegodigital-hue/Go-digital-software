@@ -150,6 +150,34 @@ function timeSeconds(value) {
   return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
 }
 
+const PERMISSION_GRACE_SECONDS = 30 * 60;
+
+async function approvedPermissionDecision(connection, employeeId, date, at) {
+  const [rows] = await connection.query(
+    `SELECT permission_start_time, permission_end_time, salary_mode
+     FROM attendance_permission_requests
+     WHERE employee_id = ? AND request_date = ?
+       AND request_type = 'permission' AND status = 'approved'
+       AND permission_start_time IS NOT NULL AND permission_end_time IS NOT NULL
+     ORDER BY reviewed_at DESC, id DESC`,
+    [employeeId, date]
+  );
+  const clockInSeconds = timeSeconds(String(at).slice(11, 19));
+  for (const row of rows) {
+    const start = timeSeconds(row.permission_start_time);
+    const end = timeSeconds(row.permission_end_time);
+    const salaryMode = String(row.salary_mode || '').toLowerCase();
+    if (clockInSeconds < start) continue;
+    if (salaryMode === 'paid' && clockInSeconds <= end + PERMISSION_GRACE_SECONDS) {
+      return { status: 'present', isLate: false };
+    }
+    if (salaryMode === 'unpaid' && clockInSeconds <= end + PERMISSION_GRACE_SECONDS) {
+      return { status: 'half_leave', isLate: false };
+    }
+  }
+  return null;
+}
+
 async function lunchWindowFor(employeeId) {
   const [[row]] = await db.query(
     `SELECT s.labour_lunch_start, s.labour_lunch_end,
@@ -187,6 +215,7 @@ function computeStatus(record) {
     return record && record.attendance_status === 'on_leave' ? 'on_leave' : 'absent';
   }
   if (record.attendance_status === 'absent') return 'absent';
+  if (record.attendance_status === 'half_leave') return 'half_leave';
   const worked = Number(record.working_minutes || 0);
   if (record.check_out_at && policy.isEarlyExit(worked)) return 'early_exit';
   if (record.is_late) return 'late';
@@ -659,6 +688,7 @@ async function employeeDashboard(req, res) {
         punch_out: sqlDateTime(record.check_out_at),
         clock_in_at: sqlDateTime(record.check_in_at),
         clock_out_at: sqlDateTime(record.check_out_at),
+        attendance_status: record.attendance_status,
         worked_seconds: workedSeconds,
         is_late: Boolean(Number(record.is_late))
       } : null,
@@ -740,8 +770,8 @@ async function checkIn(req, res) {
       [employeeId]
     );
     const gender = profile && profile.gender ? profile.gender : 'Male';
-    const late = policy.isLateCheckIn(at, gender);
-    const absent = policy.isAbsentCheckIn(at, gender);
+    let late = policy.isLateCheckIn(at, gender);
+    let absent = policy.isAbsentCheckIn(at, gender);
     await ensureReclockRequestColumns();
     connection = await db.getConnection();
     await connection.beginTransaction();
@@ -785,7 +815,15 @@ async function checkIn(req, res) {
       }
     }
 
-    const status = absent ? 'absent' : (late ? 'late' : 'present');
+    const permissionDecision = await approvedPermissionDecision(
+      connection, employeeId, date, at
+    );
+    let status = absent ? 'absent' : (late ? 'late' : 'present');
+    if (permissionDecision) {
+      status = permissionDecision.status;
+      late = permissionDecision.isLate;
+      absent = false;
+    }
     if (approvedReclock) {
       // Preserve the original check-in time. The employee resumes the same
       // workday and the duration is calculated from that original timestamp.
@@ -1006,6 +1044,7 @@ async function myPermissions(req, res) {
         start_time: row.permission_start_time || null,
         end_time: row.permission_end_time || null,
         reason: row.reason,
+        salary_mode: row.salary_mode || null,
         status: capitalize(row.status)
       };
     }));

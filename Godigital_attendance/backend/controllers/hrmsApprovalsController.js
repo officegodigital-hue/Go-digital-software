@@ -98,6 +98,7 @@ function toUi(row) {
     duration: extra ? '—' : leaveDuration(row),
     reason: row.reason || '',
     status: String(row.status || 'pending').replace(/^./, function (c) { return c.toUpperCase(); }),
+    salaryMode: row.salary_mode || null,
     icon: meta.icon,
     color: meta.color,
     tab: extra ? 'extra' : 'leave',
@@ -204,7 +205,7 @@ async function list(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
@@ -246,6 +247,7 @@ async function review(req, res) {
   try {
     const id = Number(req.params.id);
     const status = String((req.body && req.body.status) || '').toLowerCase();
+    const salaryMode = String((req.body && req.body.salaryMode) || '').toLowerCase();
     if (status !== 'approved' && status !== 'rejected') {
       return fail(res, 400, 'status must be approved or rejected');
     }
@@ -255,15 +257,19 @@ async function review(req, res) {
       [id]
     );
     if (!pendingRequest) return fail(res, 404, 'Pending request not found');
+    if (status === 'approved' && pendingRequest.request_type === 'permission' &&
+        salaryMode !== 'paid' && salaryMode !== 'unpaid') {
+      return fail(res, 400, 'Choose paid or unpaid permission before approving');
+    }
     // Approval intentionally does not rewrite attendance. It unlocks a single
     // additional Clock In; that Clock In reopens the same session while keeping
     // the original Clock In timestamp for the full workday calculation.
     const at = policy.nowIstDateTime();
     const [result] = await db.query(
       `UPDATE attendance_permission_requests
-       SET status = ?, reviewed_by = ?, reviewed_at = ?
+       SET status = ?, salary_mode = ?, reviewed_by = ?, reviewed_at = ?
        WHERE id = ? AND status = 'pending'`,
-      [status, req.user.id, at, id]
+      [status, pendingRequest.request_type === 'permission' && status === 'approved' ? salaryMode : null, req.user.id, at, id]
     );
     await db.query(`
       CREATE TABLE IF NOT EXISTS hrms_leave_approval_links (
@@ -280,7 +286,7 @@ async function review(req, res) {
        WHERE link.approval_request_id = ?`,
       [status === 'approved' ? 'APPROVED' : 'DENIED', id]
     );    const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,

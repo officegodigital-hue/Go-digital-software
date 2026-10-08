@@ -37,6 +37,24 @@ async function ensureAttendanceTables(db) {
       await db.query(`ALTER TABLE attendance_records ADD COLUMN \`${name}\` ${definition}`);
     }
   }
+
+  const [permissionColumns] = await db.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_permission_requests'`
+  );
+  const permissionExisting = new Set(permissionColumns.map(function (column) {
+    return column.COLUMN_NAME;
+  }));
+  const permissionRequired = {
+    permission_start_time: 'TIME NULL',
+    permission_end_time: 'TIME NULL',
+    salary_mode: 'VARCHAR(16) NULL'
+  };
+  for (const [name, definition] of Object.entries(permissionRequired)) {
+    if (!permissionExisting.has(name)) {
+      await db.query(`ALTER TABLE attendance_permission_requests ADD COLUMN \`${name}\` ${definition}`);
+    }
+  }
 }
 
 module.exports = { ensureAttendanceTables: ensureAttendanceTables };

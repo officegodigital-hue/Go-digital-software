@@ -300,6 +300,7 @@ async function computeRows(year, month, today) {
     let present = 0;
     let late = 0;
     let leaveDays = 0;
+    let unpaidHalfDays = 0;
     let absent = 0;
     const lateEntries = [];
     const absentEntries = [];
@@ -315,11 +316,14 @@ async function computeRows(year, month, today) {
       // 1. Safely read the status to ignore case (e.g., 'Absent' vs 'absent')
       const attStatus = record && record.attendance_status ? String(record.attendance_status).toLowerCase().trim() : '';
 
-      if (attStatus === 'absent') {
+      if (attStatus === 'half_leave') {
+        unpaidHalfDays += 0.5;
+        absentEntries.push({ date: date, days: 0.5 });
+      } else if (attStatus === 'absent') {
         // An explicit absence is visible in the summary even when the policy
         // treats it as paid time.
         absent += 1;
-        absentEntries.push(date);
+        absentEntries.push({ date: date, days: 1 });
       } else if (record && record.check_in_at) {
         // Punched in
         if (Number(record.is_late) || attStatus === 'late') late += 1;
@@ -334,7 +338,7 @@ async function computeRows(year, month, today) {
         // Do not silently turn a missing record into an absence unless the
         // administrator has chosen that policy.
         absent += 1;
-        absentEntries.push(date);
+        absentEntries.push({ date: date, days: 1 });
       }
     }
 
@@ -353,9 +357,9 @@ async function computeRows(year, month, today) {
     const lateDeductions = lateEntries.reduce((sum, item) => sum + (hourlyRate * item.minutes / 60), 0);
     const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? leaveDays : 0;
     const unpaidAbsenceDays = configuredPolicy.deductExplicitAbsence ? absent : 0;
-    const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays);
+    const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays + unpaidHalfDays);
     const paidDays = Math.max(0, workingDays - lopDays);
-    const absentDeductions = salaryNumber ? (unpaidLeaveDays + unpaidAbsenceDays) * dailyRate : 0;
+    const absentDeductions = salaryNumber ? (unpaidLeaveDays + unpaidAbsenceDays + unpaidHalfDays) * dailyRate : 0;
     const deductions = salaryNumber ? Math.min(salaryNumber, Math.round((lateDeductions + absentDeductions) * 100) / 100) : 0;
 
     // Dynamic Net Pay
@@ -425,7 +429,7 @@ async function computeRows(year, month, today) {
       absentDeductions: Math.round(absentDeductions * 100) / 100,
       deductionEntries: [
         ...lateEntries.map(item => ({ date: item.date, type: 'late', lateMinutes: item.minutes, amount: Math.round(hourlyRate * item.minutes / 60 * 100) / 100 })),
-        ...absentEntries.map(date => ({ date: date, type: 'absent', lateMinutes: 0, amount: Math.round(dailyRate * 100) / 100 })),
+        ...absentEntries.map(item => ({ date: item.date, type: 'absent', lateMinutes: 0, amount: Math.round(dailyRate * item.days * 100) / 100 })),
       ],
       deductionsLabel: salaryNumber ? formatSalary(deductions) : '–',
       netPay: netPay,

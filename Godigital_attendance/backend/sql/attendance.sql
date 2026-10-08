@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS attendance_permission_requests (
   request_date DATE NOT NULL,
   permission_start_time TIME NULL,
   permission_end_time TIME NULL,
+  salary_mode VARCHAR(16) NULL,
   reason VARCHAR(500) NULL,
   status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
   reviewed_by INT NULL,

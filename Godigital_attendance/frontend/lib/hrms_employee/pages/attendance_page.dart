@@ -118,8 +118,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
                 final isHoliday = statusStr == 'holiday';
+                final isHalfLeave = statusStr == 'half_leave';
                 daysMap[dayNum] = {
-                  'status': isHoliday ? 'H' : (isAbsent ? 'A' : (isLate ? 'L' : 'P')),
+                  'status': isHoliday ? 'H' : (isHalfLeave ? 'HL' : (isAbsent ? 'A' : (isLate ? 'L' : 'P'))),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -168,7 +169,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
                   daysMap[dayNum] = {
                     'status': statusStr == 'holiday'
                         ? 'H'
-                        : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P')),
+                        : (statusStr == 'half leave' || statusStr == 'half_leave'
+                            ? 'HL'
+                            : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'))),
                     'clock_in': item['checkInAt'] ?? item['clock_in_at'],
                   };
                 }

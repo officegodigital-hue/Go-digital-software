@@ -399,6 +399,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                 else
                   ..._history.map((r) {
                     final status = r['status']?.toString() ?? 'Pending';
+                    final salaryMode = r['salary_mode']?.toString().toLowerCase();
                     final normalizedStatus = status.toUpperCase();
                     final color = normalizedStatus == 'APPROVED'
                         ? employeeGreen
@@ -406,7 +407,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                     return _row(
                       _formatHistoryDate(r['date']?.toString() ?? ''),
                       r['reason']?.toString() ?? '',
-                      _formatStoredTime(r['start_time']?.toString(), r['end_time']?.toString()),
+                      '${_formatStoredTime(r['start_time']?.toString(), r['end_time']?.toString())}${salaryMode == 'paid' ? ' · With salary' : salaryMode == 'unpaid' ? ' · Without salary' : ''}',
                       status,
                       color,
                     );
