@@ -196,32 +196,47 @@ class _AttendanceViewState extends State<_AttendanceView> {
             }
           }
 
-          // Overlay approved leaves from the dashboard response onto the calendar.
-          // approved_leaves now includes the admin-configured abbreviation directly.
-          final approvedLeaves = data['approved_leaves'] as List? ?? [];
-          for (final leave in approvedLeaves) {
-            final leaveName = leave['leave_type']?.toString() ?? '';
-            final rawAbbr = leave['abbreviation']?.toString() ?? '';
-            final abbr = rawAbbr.isNotEmpty
-                ? rawAbbr
-                : leaveName.isNotEmpty
-                    ? leaveName.replaceAll(RegExp(r'\s+'), '').substring(0, leaveName.replaceAll(RegExp(r'\s+'), '').length.clamp(0, 2)).toUpperCase()
-                    : 'L';
-            final isHalf = (leave['duration_type']?.toString() ?? '').toLowerCase().contains('half');
-            final code = isHalf ? 'HL' : abbr;
-            DateTime? from = DateTime.tryParse(leave['from_date']?.toString() ?? '');
-            DateTime? to = DateTime.tryParse(leave['to_date']?.toString() ?? '');
-            if (from == null || to == null) continue;
-            while (!from!.isAfter(to)) {
-              if (from.year == year && from.month == month) {
-                final d = from.day;
-                if (!daysMap.containsKey(d) || daysMap[d]!['clock_in'] == null) {
-                  daysMap[d] = {'status': code, 'clock_in': null};
+          // Overlay approved leaves onto the calendar — days where employee
+          // was on approved leave and has no clock-in record show the leave abbreviation.
+          try {
+            final leaveUrl = Uri.parse('${ApiConfig.baseUrl}/attendance/leave/dashboard');
+            final leaveRes = await http.get(leaveUrl, headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            }).timeout(const Duration(seconds: 10));
+            if (leaveRes.statusCode == 200) {
+              final leaveBody = jsonDecode(leaveRes.body);
+              if (leaveBody['success'] == true) {
+                // Build a name→abbreviation map from leave type balances.
+                final abbrMap = <String, String>{};
+                for (final b in (leaveBody['data']?['balances'] as List? ?? [])) {
+                  final name = b['type']?.toString() ?? '';
+                  final abbr = b['abbreviation']?.toString() ?? '';
+                  if (name.isNotEmpty) abbrMap[name] = abbr.isNotEmpty ? abbr : name.substring(0, name.length.clamp(0, 2)).toUpperCase();
+                }
+                for (final leave in (leaveBody['data']?['requests'] as List? ?? [])) {
+                  if ((leave['status']?.toString() ?? '').toUpperCase() != 'APPROVED') continue;
+                  final leaveName = leave['leave_type']?.toString() ?? '';
+                  final abbr = abbrMap[leaveName] ?? 'L';
+                  final isHalf = (leave['duration_type']?.toString() ?? '').toLowerCase().contains('half');
+                  final code = isHalf ? 'HL' : abbr;
+                  DateTime? from = DateTime.tryParse(leave['from_date']?.toString() ?? '');
+                  DateTime? to = DateTime.tryParse(leave['to_date']?.toString() ?? '');
+                  if (from == null || to == null) continue;
+                  while (!from!.isAfter(to)) {
+                    if (from.year == year && from.month == month) {
+                      final d = from.day;
+                      // Only mark as leave if there's no clock-in record for this day
+                      if (!daysMap.containsKey(d) || daysMap[d]!['clock_in'] == null) {
+                        daysMap[d] = {'status': code, 'clock_in': null};
+                      }
+                    }
+                    from = from.add(const Duration(days: 1));
+                  }
                 }
               }
-              from = from.add(const Duration(days: 1));
             }
-          }
+          } catch (_) {}
 
           if (mounted) {
             setState(() {

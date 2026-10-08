@@ -159,46 +159,64 @@ class EmployeeMobileBottomNav extends StatelessWidget {
       );
 }
 
-class EmployeeSidebar extends StatelessWidget {
+class EmployeeSidebar extends StatefulWidget {
   const EmployeeSidebar({super.key, required this.route});
   final String route;
 
   static const items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem(
-      '/employee/attendance',
-      'Attendance',
-      Icons.calendar_month_outlined,
-    ),
+    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
     _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
-    _NavItem(
-      '/employee/leave',
-      'Leave',
-      Icons.description_outlined,
-      badge: '2',
-    ),
-    _NavItem(
-      '/employee/permission',
-      'Permission',
-      Icons.verified_user_outlined,
-    ),
+    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
+    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
   ];
 
   @override
-  Widget build(BuildContext context) {
-    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
-    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? 'Employee')
-        .toString()
-        .trim();
-    final employeeCode = (user['employeeCode'] ?? user['employee_code'] ?? '')
-        .toString()
-        .trim();
-    final initials = name.isEmpty ? 'E' : name.substring(0, 1).toUpperCase();
+  State<EmployeeSidebar> createState() => _EmployeeSidebarState();
+}
 
-    return Container(
+class _EmployeeSidebarState extends State<EmployeeSidebar> {
+  int _pendingLeaveCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPendingLeave();
+  }
+
+  Future<void> _fetchPendingLeave() async {
+    try {
+      final token = context.read<AuthService>().token ?? '';
+      final res = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/leave/dashboard'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        if (body['success'] == true) {
+          final requests = (body['data']?['requests'] as List? ?? []);
+          final pending = requests.where((r) => r['status'] == 'pending').length;
+          setState(() => _pendingLeaveCount = pending);
+        }
+      }
+    } catch (_) {}
+  }
+
+  List<_NavItem> get _items {
+    return EmployeeSidebar.items.map((item) {
+      if (item.route == '/employee/leave' && _pendingLeaveCount > 0) {
+        return _NavItem(item.route, item.label, item.icon, badge: '$_pendingLeaveCount');
+      }
+      return item;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
     width: 264,
     decoration: const BoxDecoration(
       color: Colors.white,
@@ -223,23 +241,23 @@ class EmployeeSidebar extends StatelessWidget {
               color: const Color(0xFFEEF4FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
+            child: const Row(
               children: [
                 CircleAvatar(
                   radius: 20,
                   backgroundColor: employeeBlue,
-                  child: Text(initials, style: const TextStyle(color: Colors.white)),
+                  child: Text('AK', style: TextStyle(color: Colors.white)),
                 ),
                 SizedBox(width: 10),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
+                      'Arul Kumar',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     Text(
-                      employeeCode.isEmpty ? 'Employee' : employeeCode,
+                      'EMP1001',
                       style: TextStyle(color: employeeBlue, fontSize: 12),
                     ),
                   ],
@@ -250,13 +268,13 @@ class EmployeeSidebar extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         const _SectionLabel('MAIN'),
-        ...items.take(6).map((item) => _SidebarTile(item: item, route: route)),
+        ..._items.take(6).map((item) => _SidebarTile(item: item, route: widget.route)),
         const SizedBox(height: 8),
         const _SectionLabel('FINANCE'),
-        _SidebarTile(item: items[6], route: route),
+        _SidebarTile(item: _items[6], route: widget.route),
         const SizedBox(height: 8),
         const _SectionLabel('TOOLS'),
-        _SidebarTile(item: items[7], route: route),
+        _SidebarTile(item: _items[7], route: widget.route),
         const Spacer(),
         InkWell(
           onTap: () async {
@@ -276,7 +294,6 @@ class EmployeeSidebar extends StatelessWidget {
       ],
     ),
   );
-  }
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -386,9 +403,6 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     super.initState();
     _updateClock();
     _loadStoredIdentity();
-    // The header must never refresh the whole employee app continuously.
-    // Time changes only by the minute, and attendance state refreshes after
-    // explicit employee actions or when the page is opened again.
     _clockTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _updateClock(),
@@ -688,81 +702,7 @@ class EmployeeNotificationButton extends StatelessWidget {
         tooltip: 'Notifications',
         onPressed: () {
           onOpened?.call();
-          showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: true,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            builder: (_) => SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 4, 22, 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Notifications',
-                      style: TextStyle(
-                        color: employeeNavy,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    if (notifications.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 14),
-                        child: Text(
-                          'No new notifications',
-                          style: TextStyle(color: employeeMuted),
-                        ),
-                      )
-                    else
-                      ...notifications.map(
-                        (n) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            children: [
-                              const CircleAvatar(
-                                backgroundColor: Color(0xFFEAF2FF),
-                                child: Icon(
-                                  Icons.notifications_active_outlined,
-                                  color: employeeBlue,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 13),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      n['title'] ?? '',
-                                      style: const TextStyle(
-                                        color: employeeNavy,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    Text(
-                                      n['subtitle'] ?? '',
-                                      style: const TextStyle(
-                                        color: employeeMuted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
+          Navigator.pushNamed(context, '/employee/announcements');
         },
         style: IconButton.styleFrom(
           backgroundColor: const Color(0xFFF3F6FB),
@@ -802,69 +742,144 @@ class EmployeeProfileMenu extends StatelessWidget {
   final String fullName;
   final String staffId;
 
+  Color _parseColor(String h) {
+    try {
+      final s = h.replaceAll('#', '');
+      return Color(int.parse('FF$s', radix: 16));
+    } catch (_) {
+      return employeeBlue;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => PopupMenuButton<String>(
-    tooltip: 'Profile menu',
-    offset: const Offset(0, 52),
-    elevation: 8,
-    color: Colors.white,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    onSelected: (value) async {
-      if (value == 'workspace') {
-        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
-      }
-    },
-    itemBuilder: (_) => [
-      PopupMenuItem<String>(
-        enabled: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              fullName,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: employeeNavy,
+  Widget build(BuildContext context) {
+    final authService = context.watch<AuthService>();
+    final user = authService.user ?? {};
+    
+    // Backend-l irunthu varra data-ai eduthukollalam
+    final resolvedName = (user['full_name'] ?? user['fullName'] ?? fullName).toString();
+    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? staffId).toString();
+    final avatarColor = (user['avatar_color'] ?? user['avatarColor'] ?? '#0767F2').toString();
+    final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
+    
+    final nameParts = resolvedName.trim().split(RegExp(r'\s+'));
+    final resolvedInitials = nameParts.length > 1
+        ? '${nameParts[0][0]}${nameParts[1][0]}'.toUpperCase()
+        : (resolvedName.isNotEmpty ? resolvedName.substring(0, resolvedName.length >= 2 ? 2 : 1).toUpperCase() : initials);
+
+    ImageProvider? photoProvider;
+    if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
+      try {
+        photoProvider = MemoryImage(base64Decode(profilePhoto.toString().split(',').last));
+      } catch (_) {}
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Profile menu',
+      offset: const Offset(0, 52),
+      elevation: 8,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) async {
+        if (value == 'profile') {
+          Navigator.pushNamed(context, '/profile');
+        } else if (value == 'workspace') {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+        } else if (value == 'logout') {
+          await authService.logout();
+          if (context.mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+          }
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                resolvedName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: employeeNavy,
+                ),
               ),
-            ),
-            Text(
-              staffId,
-              style: const TextStyle(color: employeeBlue, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-      const PopupMenuDivider(),
-      const PopupMenuItem<String>(
-        value: 'workspace',
-        child: Row(
-          children: [
-            Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
-            SizedBox(width: 10),
-            Text(
-              'Workspace',
-              style: TextStyle(
-                color: employeeBlue,
-                fontWeight: FontWeight.w600,
+              Text(
+                resolvedStaffId,
+                style: const TextStyle(color: employeeBlue, fontSize: 12),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-    child: CircleAvatar(
-      radius: radius,
-      backgroundColor: const Color(0xFFE8F0FF),
-      child: Text(
-        initials,
-        style: TextStyle(
-          color: employeeBlue,
-          fontSize: radius * .72,
-          fontWeight: FontWeight.w800,
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(
+            children: [
+              Icon(Icons.person_outline_rounded, size: 18, color: employeeBlue),
+              SizedBox(width: 10),
+              Text(
+                'Profile',
+                style: TextStyle(
+                  color: employeeBlue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
+        const PopupMenuItem<String>(
+          value: 'workspace',
+          child: Row(
+            children: [
+              Icon(Icons.grid_view_rounded, size: 18, color: employeeBlue),
+              SizedBox(width: 10),
+              Text(
+                'Workspace',
+                style: TextStyle(
+                  color: employeeBlue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout_rounded, size: 18, color: Color(0xFFDC2626)),
+              SizedBox(width: 10),
+              Text(
+                'Logout',
+                style: TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: _parseColor(avatarColor),
+        backgroundImage: photoProvider,
+        child: photoProvider == null
+            ? Text(
+                resolvedInitials,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: radius * .72,
+                  fontWeight: FontWeight.w800,
+                ),
+              )
+            : null,
       ),
-    ),
-  );
+    );
+  }
 }
 
 class EmployeeCard extends StatelessWidget {
@@ -1221,16 +1236,28 @@ class EmployeePageTitle extends StatelessWidget {
   );
 }
 
-class MobileEmployeeHeader extends StatelessWidget {
+class MobileEmployeeHeader extends StatefulWidget {
   const MobileEmployeeHeader({super.key, this.showGreeting = true});
   final bool showGreeting;
 
   @override
+  State<MobileEmployeeHeader> createState() => _MobileEmployeeHeaderState();
+}
+
+class _MobileEmployeeHeaderState extends State<MobileEmployeeHeader> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AuthService>().refreshUserData();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
-    final name = (user['fullName'] ?? user['name'] ?? user['full_name'] ?? '')
-        .toString()
-        .trim();
+    final identity = (user['fullName'] ?? user['full_name'] ?? user['name'] ?? user['employee_name'] ?? user['employeeName'] ?? user['admin_name'] ?? user['adminName'] ?? user['username'] ?? user['firstName'] ?? user['first_name'] ?? '').toString().trim();
+    final name = identity.isNotEmpty ? identity : (user['email']?.toString().split('@').first ?? '').trim();
     final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
 
     return Column(
@@ -1245,7 +1272,7 @@ class MobileEmployeeHeader extends StatelessWidget {
           const EmployeeProfileMenu(radius: 25),
         ],
       ),
-      if (showGreeting) ...[
+      if (widget.showGreeting) ...[
         const SizedBox(height: 22),
         Text(
           greeting,

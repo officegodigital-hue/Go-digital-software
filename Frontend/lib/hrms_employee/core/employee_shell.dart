@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:hrms_design_system/hrms_design_system.dart';
 import 'package:hrms_responsive/hrms_responsive.dart';
 import '../../services/attendance_api.dart';
+import '../../services/attendance_location.dart';
 import '../../services/hrms_tracking_api.dart';
 import 'employee_nav.dart';
 
@@ -49,7 +50,9 @@ class _EmployeeShellState extends State<EmployeeShell> {
   Future<void> _startLocationGuard() async {
     try {
       final settings = await HrmsTrackingApi.trackingSettings();
-      final minutes = int.tryParse('${settings['field_ping_interval_minutes']}');
+      final minutes = int.tryParse(
+        '${settings['field_ping_interval_minutes']}',
+      );
       if (minutes == null || minutes < 1) return;
       await _sendLocationHeartbeat();
       if (!mounted || _autoCheckoutMessage != null) return;
@@ -96,32 +99,19 @@ class _EmployeeShellState extends State<EmployeeShell> {
         setState(() => _verificationMessage = null);
       }
     } catch (_) {
-      // Heartbeat failures are silent — a background check should not
-      // block or alarm the employee. The backend enforces location on
-      // the next actual clock-in.
+      if (mounted) {
+        setState(() {
+          _verificationMessage =
+              'Location verification is required while you are checked in. Enable precise location permission to continue.';
+        });
+      }
     } finally {
       _sendingLocation = false;
     }
   }
 
   Future<Position> _currentPosition() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      throw Exception('Location services are turned off.');
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission was not granted.');
-    }
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 10),
-      ),
-    ).timeout(const Duration(seconds: 12));
+    return AttendanceLocation.currentPosition();
   }
 
   @override
@@ -129,9 +119,12 @@ class _EmployeeShellState extends State<EmployeeShell> {
     return Stack(
       children: [
         ResponsiveBuilder(
-          mobile: (context) => _MobileShell(current: widget.current, body: widget.body),
-          tablet: (context) => _TopNavShell(current: widget.current, body: widget.body),
-          desktop: (context) => _TopNavShell(current: widget.current, body: widget.body),
+          mobile: (context) =>
+              _MobileShell(current: widget.current, body: widget.body),
+          tablet: (context) =>
+              _TopNavShell(current: widget.current, body: widget.body),
+          desktop: (context) =>
+              _TopNavShell(current: widget.current, body: widget.body),
         ),
         if (_verificationMessage != null)
           _LocationVerificationOverlay(message: _verificationMessage!),
@@ -164,11 +157,20 @@ class _LocationVerificationOverlay extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.location_off, color: HrmsColors.danger, size: 40),
+                    const Icon(
+                      Icons.location_off,
+                      color: HrmsColors.danger,
+                      size: 40,
+                    ),
                     const SizedBox(height: 12),
-                    const Text('Location verification required',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const Text(
+                      'Location verification required',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Text(message, textAlign: TextAlign.center),
                   ],
@@ -202,10 +204,19 @@ class _AutoCheckoutOverlay extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.logout, color: HrmsColors.danger, size: 40),
+                    const Icon(
+                      Icons.logout,
+                      color: HrmsColors.danger,
+                      size: 40,
+                    ),
                     const SizedBox(height: 12),
-                    const Text('Automatically clocked out',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const Text(
+                      'Automatically clocked out',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Text(message, textAlign: TextAlign.center),
                     const SizedBox(height: 16),
@@ -236,8 +247,11 @@ class _Logo extends StatelessWidget {
             color: HrmsColors.primary,
             borderRadius: BorderRadius.circular(8),
           ),
-          child:
-              const Icon(Icons.diamond_outlined, color: Colors.white, size: 18),
+          child: const Icon(
+            Icons.diamond_outlined,
+            color: Colors.white,
+            size: 18,
+          ),
         ),
         const SizedBox(width: 10),
         const Text(
@@ -283,8 +297,10 @@ class _NavPill extends StatelessWidget {
                   }
                 },
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   child: Text(
                     item.label,
                     style: TextStyle(
@@ -327,21 +343,29 @@ class _StatusChips extends StatelessWidget {
   Widget _chip(String text, Color bg, Color fg, {bool dot = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration:
-          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (dot) ...[
             Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
+            ),
             const SizedBox(width: 6),
           ],
-          Text(text,
-              style: TextStyle(
-                  color: fg, fontWeight: FontWeight.w600, fontSize: 12)),
+          Text(
+            text,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
@@ -360,9 +384,13 @@ class _BellIcon extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: const BoxDecoration(
-              color: HrmsColors.pageBackground, shape: BoxShape.circle),
-          child: const Icon(Icons.notifications_none,
-              color: HrmsColors.textSecondary),
+            color: HrmsColors.pageBackground,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.notifications_none,
+            color: HrmsColors.textSecondary,
+          ),
         ),
         Positioned(
           top: 6,
@@ -371,7 +399,9 @@ class _BellIcon extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: const BoxDecoration(
-                color: HrmsColors.danger, shape: BoxShape.circle),
+              color: HrmsColors.danger,
+              shape: BoxShape.circle,
+            ),
           ),
         ),
       ],
@@ -416,8 +446,11 @@ class _TopNavShell extends StatelessWidget {
                 const CircleAvatar(
                   radius: 18,
                   backgroundColor: HrmsColors.infoBg,
-                  child:
-                      Icon(Icons.person, color: HrmsColors.primary, size: 20),
+                  child: Icon(
+                    Icons.person,
+                    color: HrmsColors.primary,
+                    size: 20,
+                  ),
                 ),
               ],
             ),
