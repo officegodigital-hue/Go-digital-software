@@ -63,6 +63,7 @@ class _MobileClockLogs extends StatelessWidget {
         actions: [
           const AdminNotificationBell(mobile: true),
           const SizedBox(width: 4),
+          const AdminProfileDropdown(),
           const SizedBox(width: 8),
         ],
       ),

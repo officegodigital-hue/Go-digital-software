@@ -675,10 +675,11 @@ class _TrackingViewState extends State<_TrackingView> {
     );
 
     final metrics = _TripMetrics(
-      distance: distance,
-      duration: duration,
-      avgSpeed: avgSpeed,
-    );
+  distance: distance,
+  duration: duration,
+  avgSpeed: avgSpeed,
+  updated: 'Updated just now',
+);
 
     final timeline = _ActivityTimeline(activities: activities);
 
@@ -1124,7 +1125,7 @@ class _ModeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Material(
-      color: active ? employeeGreen : Colors.white,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(11),
       child: InkWell(
         onTap: onTap,
@@ -1132,7 +1133,8 @@ class _ModeTab extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            border: Border.all(color: active ? employeeGreen : employeeLine),
+            gradient: active ? const LinearGradient(colors: [Color(0xFF13C58A), Color(0xFF00AE7B)]) : null,
+            border: Border.all(color: active ? Colors.transparent : employeeLine),
             borderRadius: BorderRadius.circular(11),
           ),
           child: Row(
@@ -1416,48 +1418,30 @@ class _TripMetrics extends StatelessWidget {
     required this.distance,
     required this.duration,
     required this.avgSpeed,
+    required this.updated,
   });
 
   final String distance;
   final String duration;
   final String avgSpeed;
+  final String updated;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
     child: Row(
       children: [
-        Expanded(
-          child: _TripMetric(
-            Icons.route_outlined,
-            'Distance Travelled',
-            distance,
-            employeeGreen,
-          ),
-        ),
-        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
-        Expanded(
-          child: _TripMetric(
-            Icons.schedule_rounded,
-            'Duration',
-            duration,
-            employeeBlue,
-          ),
-        ),
-        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
-        Expanded(
-          child: _TripMetric(
-            Icons.speed_rounded,
-            'Avg Speed',
-            avgSpeed,
-            employeeGreen,
-          ),
-        ),
+        Expanded(child: _TripMetric(Icons.route_outlined, 'Distance', distance, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.timer_outlined, 'Duration', duration, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.speed_outlined, 'Avg speed', avgSpeed, employeeGreen)),
+        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
+        Expanded(child: _TripMetric(Icons.update_rounded, 'Updated', updated.replaceFirst('Updated ', ''), employeeGreen)),
       ],
     ),
   );
 }
-
 class _TripMetric extends StatelessWidget {
   const _TripMetric(this.icon, this.label, this.value, this.color);
   final IconData icon;

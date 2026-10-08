@@ -1384,8 +1384,7 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
     // REEL / VIDEO + DOCUMENT LINK VALIDATION
     // -------------------------------------------------------------------------
 
-    if ((_selectedType == AppConstants.reelVideo ||
-            _selectedType == AppConstants.document) &&
+    if (_selectedType == AppConstants.reelVideo &&
         _linkController.text.trim().isEmpty) {
       _showMessage(
         'Please enter the link.',
@@ -1760,3 +1759,4 @@ class _AddAssetDialogState extends State<_AddAssetDialog> {
     }
   }
 }
+

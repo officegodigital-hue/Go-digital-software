@@ -3473,12 +3473,21 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
     final latitude = double.tryParse(_latitude.text.trim());
     final longitude = double.tryParse(_longitude.text.trim());
     final radius = int.tryParse(_radius.text.trim());
-    if (name.isEmpty || address.isEmpty || latitude == null || longitude == null ||
-        !latitude.isFinite || !longitude.isFinite ||
-        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
-        radius == null || radius < 1) {
-      setState(() => _error =
-          'Enter an office name and address, select a map pin, and enter a valid radius.');
+    if (name.isEmpty ||
+        address.isEmpty ||
+        latitude == null ||
+        longitude == null ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180 ||
+        radius == null ||
+        radius < 1) {
+      setState(
+        () => _error = 'Enter an office name and address, select its map pin, and enter a valid radius.',
+      );
       return;
     }
     setState(() { _saving = true; _error = null; });
@@ -3700,6 +3709,28 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
                     style: const TextStyle(color: _navy, fontSize: 14),
                     decoration: _dec(''),
                   ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _radius,
+                    enabled: !_saving,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Allowed Clock In radius (metres)',
+                      border: OutlineInputBorder(),
+                      helperText: 'This distance also applies to approved home locations.',
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -4300,9 +4331,8 @@ class _FieldWaitingReasonsDialogState
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 

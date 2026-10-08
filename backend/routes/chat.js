@@ -822,41 +822,128 @@ router.patch('/groups/:id', async (req, res) => {
 });
 
 // 8. POST /api/chat/meetings
+// 8. POST /api/chat/meetings
 router.post('/meetings', async (req, res) => {
-  const { title, meetingTime, meetingLink, hostName, selectedPersons, selectedGroups } = req.body;
+  const {
+    title,
+    meetingTime,
+    meetingLink,
+    hostName,
+    selectedPersons,
+    selectedGroups
+  } = req.body;
 
   try {
-    const attendees = Array.isArray(selectedPersons) ? selectedPersons : [];
-    const groups = Array.isArray(selectedGroups) ? selectedGroups : [];
+    const attendees = Array.isArray(selectedPersons)
+      ? selectedPersons
+      : [];
 
-    await db.query(
+    const groups = Array.isArray(selectedGroups)
+      ? selectedGroups
+      : [];
+
+    // ============================================================
+    // VALIDATION
+    // ============================================================
+
+    if (!title || !meetingTime || !meetingLink) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title, meetingTime, and meetingLink are required.'
+      });
+    }
+
+    const finalHostName =
+      hostName && hostName.toString().trim()
+        ? hostName.toString().trim()
+        : 'Admin';
+
+    console.log('==============================================');
+    console.log('📅 NEW MEETING REQUEST');
+    console.log('Title:', title);
+    console.log('Meeting Time:', meetingTime);
+    console.log('Meeting Link:', meetingLink);
+    console.log('Host:', finalHostName);
+    console.log('Attendees:', attendees);
+    console.log('Groups:', groups);
+    console.log('==============================================');
+
+    // ============================================================
+    // SAVE MEETING
+    // IMPORTANT:
+    // `groups` is wrapped in backticks because GROUPS can
+    // conflict with MySQL SQL syntax/reserved keywords.
+    // ============================================================
+
+    const [meetingResult] = await db.query(
       `
         INSERT INTO scheduled_meetings
-        (title, meeting_time, meeting_link, host_name, attendees, groups, status)
+        (
+          title,
+          meeting_time,
+          meeting_link,
+          host_name,
+          attendees,
+          \`groups\`,
+          status
+        )
         VALUES (?, ?, ?, ?, ?, ?, 'Active')
       `,
-      [title, meetingTime, meetingLink, hostName || 'Admin', JSON.stringify(attendees), JSON.stringify(groups)]
+      [
+        title.toString().trim(),
+        meetingTime.toString().trim(),
+        meetingLink.toString().trim(),
+        finalHostName,
+        JSON.stringify(attendees),
+        JSON.stringify(groups)
+      ]
     );
+
+    const meetingId = meetingResult.insertId;
+
+    console.log(
+      `✅ Meeting saved successfully. Meeting ID: ${meetingId}`
+    );
+
+    // ============================================================
+    // SOCKET.IO
+    // ============================================================
 
     const io = req.app.get('io');
 
+    // ============================================================
+    // SEND NOTIFICATION TO SELECTED EMPLOYEES
+    // ============================================================
+
     for (const attendee of attendees) {
-      const meetingMessage = `📅 Meeting Scheduled: ${title}\n` +
+      const meetingMessage =
+        `📅 Meeting Scheduled: ${title}\n` +
         `🕒 Time: ${meetingTime}\n` +
         `🔗 Link: ${meetingLink}`;
 
       const [notificationResult] = await db.query(
         `
-          INSERT INTO notifications (sender_name, recipient_name, message, is_group, is_seen)
+          INSERT INTO notifications
+          (
+            sender_name,
+            recipient_name,
+            message,
+            is_group,
+            is_seen
+          )
           VALUES (?, ?, ?, 0, 0)
         `,
-        [hostName || 'Admin', attendee, meetingMessage]
+        [
+          finalHostName,
+          attendee,
+          meetingMessage
+        ]
       );
 
       if (io) {
         io.emit('new_notification', {
           recipient: attendee,
-          sender: hostName || 'Admin',
+          sender: finalHostName,
           message: meetingMessage,
           isGroup: false,
           messageId: notificationResult.insertId,
@@ -865,23 +952,39 @@ router.post('/meetings', async (req, res) => {
       }
     }
 
+    // ============================================================
+    // SEND NOTIFICATION TO SELECTED GROUPS
+    // ============================================================
+
     for (const groupName of groups) {
-      const meetingMessage = `📅 Group Meeting Scheduled: ${title}\n` +
+      const meetingMessage =
+        `📅 Group Meeting Scheduled: ${title}\n` +
         `🕒 Time: ${meetingTime}\n` +
         `🔗 Link: ${meetingLink}`;
 
       const [notificationResult] = await db.query(
         `
-          INSERT INTO notifications (sender_name, recipient_name, message, is_group, is_seen)
+          INSERT INTO notifications
+          (
+            sender_name,
+            recipient_name,
+            message,
+            is_group,
+            is_seen
+          )
           VALUES (?, ?, ?, 1, 0)
         `,
-        [hostName || 'Admin', groupName, meetingMessage]
+        [
+          finalHostName,
+          groupName,
+          meetingMessage
+        ]
       );
 
       if (io) {
         io.emit('new_notification', {
           recipient: groupName,
-          sender: hostName || 'Admin',
+          sender: finalHostName,
           message: meetingMessage,
           isGroup: true,
           messageId: notificationResult.insertId,
@@ -890,27 +993,49 @@ router.post('/meetings', async (req, res) => {
       }
     }
 
+    // ============================================================
+    // SUCCESS
+    // ============================================================
+
     return res.status(201).json({
       success: true,
-      message: 'Meeting scheduled & broadcasted!'
+      meetingId: meetingId,
+      message: 'Meeting scheduled & broadcasted successfully!'
     });
 
   } catch (err) {
-    console.error('POST /chat/meetings ERROR:', err.message);
+    // ============================================================
+    // EXACT DATABASE ERROR
+    // ============================================================
+
+    console.error(
+      '❌ POST /chat/meetings CRITICAL ERROR:',
+      err
+    );
+
     return res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
+      code: err.code || null
     });
   }
 });
 
+
+// ================================================================
 // 9. PATCH /api/chat/meetings/:id/status
+// ================================================================
+
 router.patch('/meetings/:id/status', async (req, res) => {
   const { status, actionBy } = req.body;
 
   try {
     const [meetingRows] = await db.query(
-      `SELECT * FROM scheduled_meetings WHERE id = ?`,
+      `
+        SELECT *
+        FROM scheduled_meetings
+        WHERE id = ?
+      `,
       [req.params.id]
     );
 
@@ -924,13 +1049,20 @@ router.patch('/meetings/:id/status', async (req, res) => {
     const meeting = meetingRows[0];
 
     await db.query(
-      `UPDATE scheduled_meetings SET status = ? WHERE id = ?`,
+      `
+        UPDATE scheduled_meetings
+        SET status = ?
+        WHERE id = ?
+      `,
       [status, req.params.id]
     );
 
     let attendees = [];
+
     try {
-      attendees = JSON.parse(meeting.attendees || '[]');
+      attendees = JSON.parse(
+        meeting.attendees || '[]'
+      );
     } catch (_) {
       attendees = [];
     }
@@ -938,14 +1070,27 @@ router.patch('/meetings/:id/status', async (req, res) => {
     const io = req.app.get('io');
 
     for (const attendee of attendees) {
-      const notificationMessage = `🔔 Meeting "${meeting.title}" has been marked as ${status} by ${actionBy || meeting.host_name}.`;
+      const notificationMessage =
+        `🔔 Meeting "${meeting.title}" has been marked as ${status} by ${
+          actionBy || meeting.host_name
+        }.`;
 
       const [result] = await db.query(
         `
-          INSERT INTO notifications (sender_name, recipient_name, message, is_group)
+          INSERT INTO notifications
+          (
+            sender_name,
+            recipient_name,
+            message,
+            is_group
+          )
           VALUES (?, ?, ?, 0)
         `,
-        [actionBy || meeting.host_name, attendee, notificationMessage]
+        [
+          actionBy || meeting.host_name,
+          attendee,
+          notificationMessage
+        ]
       );
 
       if (io) {
@@ -965,7 +1110,11 @@ router.patch('/meetings/:id/status', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('PATCH /chat/meetings/:id/status ERROR:', err.message);
+    console.error(
+      'PATCH /chat/meetings/:id/status ERROR:',
+      err
+    );
+
     return res.status(500).json({
       success: false,
       message: err.message
@@ -973,11 +1122,19 @@ router.patch('/meetings/:id/status', async (req, res) => {
   }
 });
 
+
+// ================================================================
 // 10. PATCH /api/chat/meetings/:id/complete
+// ================================================================
+
 router.patch('/meetings/:id/complete', async (req, res) => {
   try {
     await db.query(
-      `UPDATE scheduled_meetings SET status = 'Completed' WHERE id = ?`,
+      `
+        UPDATE scheduled_meetings
+        SET status = 'Completed'
+        WHERE id = ?
+      `,
       [req.params.id]
     );
 
@@ -987,7 +1144,11 @@ router.patch('/meetings/:id/complete', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('PATCH /chat/meetings/:id/complete ERROR:', err.message);
+    console.error(
+      'PATCH /chat/meetings/:id/complete ERROR:',
+      err
+    );
+
     return res.status(500).json({
       success: false,
       message: err.message

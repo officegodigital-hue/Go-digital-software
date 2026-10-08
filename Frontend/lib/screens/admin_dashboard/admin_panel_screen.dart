@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
+import 'access_master_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -36,7 +37,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _loadingRoles = false;
   bool _isFormView = false;
   bool _isSubmitting = false;
-  bool _obscurePassword = true; // Added for password visibility toggle[cite: 5]
+  bool _obscurePassword = true;
 
   String? _error;
   String? _modalError;
@@ -56,7 +57,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
   
-  // 🟢 New Optional Controllers for Phone, Aadhaar, PAN, Bank & Addresses
   final TextEditingController _phoneCtrl = TextEditingController();
   final TextEditingController _aadharCtrl = TextEditingController();
   final TextEditingController _panCtrl = TextEditingController();
@@ -187,6 +187,110 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return [];
   }
 
+  Map<String, dynamic> _currentRoleApplicationAccess = {};
+  List<Map<String, dynamic>> _currentRoleAccessRows = [];
+
+  // 🟢 Friendly Page Title Converter Method
+  String _getFriendlyPageTitle(String key) {
+    final Map<String, String> mapping = {
+      '/admin/dashboard': 'Dashboard',
+      '/admin/employees': 'Employees',
+      '/admin/clock-logs': 'Clock Logs',
+      '/admin/approvals': 'Approvals',
+      '/admin/payroll': 'Payroll',
+      '/admin/tracking': 'Tracking',
+      '/employee/dashboard': 'Dashboard',
+      '/employee/attendance': 'Attendance',
+      '/employee/clock-log': 'Clock In / Out',
+      '/employee/leave': 'Leave',
+      '/employee/permission': 'Permission',
+      '/employee/extra-hours': 'Extra Hours',
+      '/employee/salary': 'Salary',
+      '/employee/tracking': 'Tracking',
+      '/admin': 'Dashboard',
+      '/client-history': 'Client Onboarding',
+      '/client-credentials': 'Client Credentials',
+      '/packages': 'Packages',
+      '/quotations': 'Quotations',
+      '/invoice': 'Invoice',
+      '/tasks': 'Tasks Assign',
+      '/daily-planner': 'Daily Planner',
+      '/employee-status': 'Employee Status',
+      '/manager-review': 'Manager Review',
+      '/notifications': 'Chat',
+      '/performance': 'Performance',
+      '/admin-panel': 'Employee Management',
+      '/time-manager': 'Time Manager',
+      '/emergency-broadcast': 'Broadcast Master',
+      'dashboard': 'Dashboard',
+      'attendance': 'Attendance',
+      'clock_log': 'Clock Log',
+      'leave': 'Leave',
+      'permission': 'Permission',
+      'extra_hours': 'Extra Hours',
+      'salary': 'Salary',
+      'tracking': 'Tracking',
+      'employees': 'Employees',
+      'task_assignment': 'Task Assignment',
+      'employee_status': 'Employee Status',
+      'manager_review': 'Manager Review',
+      'invoice': 'Invoice',
+      'quotations': 'Quotations',
+      'clients': 'Clients',
+      'documents': 'Documents',
+      'categories': 'Categories',
+      'Dashboard': 'Dashboard',
+      'Day Planner': 'Day Planner',
+      'Assigned Task': 'Assigned Task',
+      'Client Credentials': 'Client Credentials',
+      'Live Tracking Tasks': 'Live Tracking Tasks',
+      'Daily Reports': 'Daily Reports',
+      'Task Planner': 'Task Planner',
+      'Video Task Planner': 'Video Task Planner',
+      'Task Review': 'Task Review',
+      'Task Status': 'Task Status',
+      'Notifications': 'Notifications',
+      'Chat': 'Chat',
+      'Feedback': 'Feedback',
+    };
+    return mapping[key] ?? key;
+  }
+
+  Future<void> _fetchRoleAccessForForm(int roleId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/employees/role-access/$roleId'),
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        List<dynamic> rows = [];
+        if (decoded is List) {
+          rows = decoded;
+        } else if (decoded is Map) {
+          rows = decoded['data'] ?? decoded['access'] ?? [];
+        }
+        
+        final mapAccess = <String, dynamic>{};
+        for (final row in rows) {
+          if (row is Map) {
+            final app = (row['application'] ?? '').toString();
+            mapAccess[app] = {
+              'accessType': row['access_type'] ?? row['accessType'] ?? 'none',
+              'allowedPages': row['allowed_pages'] ?? row['allowedPages'] ?? [],
+            };
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _currentRoleApplicationAccess = mapAccess;
+            _currentRoleAccessRows = rows.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
   void _showSnack(String msg, {bool success = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -217,7 +321,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
  void _openForm({Map<String, dynamic>? employee}) async {
   await _fetchUserRolesMaster();
   
-  // 🟢 Fetch next staff ID if it's a creation form (not edit mode)
   String generatedStaffId = '';
   if (employee == null) {
     try {
@@ -242,14 +345,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _middleNameCtrl.text = employee?['middle_name']?.toString() ?? '';
     _lastNameCtrl.text = employee?['last_name']?.toString() ?? '';
     
-    // 🟢 If editing, use existing staff ID; if creating, use auto-incremented one from backend
     _staffIdCtrl.text = employee?['staff_id']?.toString() ?? generatedStaffId;
 
     _emailCtrl.text = employee?['email']?.toString() ?? '';
     _usernameCtrl.text = employee?['username']?.toString() ?? '';
     _passwordCtrl.text = employee?['password']?.toString() ?? '';
 
-    // Bind other optional fields
     _phoneCtrl.text = employee?['phone_number']?.toString() ?? '';
     _aadharCtrl.text = employee?['aadhar_number']?.toString() ?? '';
     _panCtrl.text = employee?['pan_card_number']?.toString() ?? '';
@@ -277,6 +378,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _modalError = null;
     _isFormView = true;
   });
+
+  if (_selectedRole.isNotEmpty) {
+    final matchedRole = allUserRolesMaster.firstWhere(
+      (r) => r['role_name'].toString().toLowerCase() == _selectedRole.toLowerCase(),
+      orElse: () => {},
+    );
+    final rId = _toInt(matchedRole['id']);
+    if (rId != null) {
+      await _fetchRoleAccessForForm(rId);
+    }
+  }
 }
 
   void _closeForm() {
@@ -790,7 +902,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ? availablePages.map((page) => page['route']!).toList()
         : _selectedPermissions;
 
-    // 🟢 Payload including optional Phone, Aadhaar, PAN, Bank Details & Addresses
     final data = {
       'firstName': _firstNameCtrl.text.trim(),
       'middleName': _middleNameCtrl.text.trim(),
@@ -801,7 +912,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'role': _selectedRole.trim(),
       'userType': _selectedUserType,
       'isMainAdmin': _isMainAdmin ? 1 : 0,
-      'allowedPages': finalPermissions,
+      'allowedPages': (_selectedUserType == 'admin' && _isMainAdmin) 
+          ? availablePages.map((page) => page['route']!).toList() 
+          : [],
+      'applicationAccess': _currentRoleApplicationAccess,
       if (_passwordCtrl.text.trim().isNotEmpty) 'password': _passwordCtrl.text,
       'phoneNumber': _phoneCtrl.text.trim(),
       'aadharNumber': _aadharCtrl.text.trim(),
@@ -981,17 +1095,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AdminLayout(
-      pageTitle: 'Admin Panel',
-      currentRoute: '/admin-panel',
-      onSearch: (query) {
-        setState(() => _searchQuery = query);
-      },
-      child: _isFormView ? _buildFormView() : _buildTableView(),
-    );
-  }
+ @override
+Widget build(BuildContext context) {
+  return AdminLayout(
+    pageTitle: 'Admin Panel',
+    currentRoute: '/admin-panel',
+    onSearch: (query) {
+      setState(() => _searchQuery = query);
+    },
+    child: _isFormView ? _buildFormView() : _buildTableView(),
+  );
+}
 
   Widget _buildTableView() {
     return LayoutBuilder(
@@ -1208,6 +1322,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
           ),
           const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccessMasterScreen())),
+            icon: const Icon(Icons.lock_person_rounded, size: 18),
+            label: const Text('Access Master'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _primary,
+              side: BorderSide(color: _primary.withValues(alpha: 0.25)),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(width: 10),
           ElevatedButton.icon(
             onPressed: () => _openForm(),
             icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
@@ -1244,6 +1370,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   label: const Text('Role Master'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFE67E22),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccessMasterScreen())),
+                  icon: const Icon(Icons.lock_person_rounded, size: 17),
+                  label: const Text('Access Master'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _primary,
+                    side: BorderSide(color: _primary.withValues(alpha: 0.25)),
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1997,7 +2137,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     const SizedBox(height: 28),
 
-                    // 🟢 Additional Identification Section (Phone, Aadhaar, PAN)
                     _sectionLabel('Additional Identification & Contact', Icons.badge_outlined),
                     const SizedBox(height: 18),
                     _responsiveFields(
@@ -2010,7 +2149,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     const SizedBox(height: 28),
 
-                    // 🟢 Bank Details for Pay Slip Section
                     _sectionLabel('Bank Details (For Pay Slip)', Icons.account_balance_outlined),
                     const SizedBox(height: 18),
                     _responsiveFields(
@@ -2030,7 +2168,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     const SizedBox(height: 28),
 
-                    // 🟢 Address Details Section
                     _sectionLabel('Address Details', Icons.location_on_outlined),
                     const SizedBox(height: 18),
                     _responsiveFields(
@@ -2054,9 +2191,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           value: activeRoles.contains(_selectedRole) ? _selectedRole : null,
                           hint: activeRoles.isEmpty ? 'No roles available' : 'Select role',
                           items: activeRoles,
-                          onChanged: (value) {
+                          onChanged: (value) async {
                             if (value == null) return;
                             setState(() => _selectedRole = value);
+                            
+                            final matchedRole = allUserRolesMaster.firstWhere(
+                              (r) => r['role_name'].toString().toLowerCase() == value.toLowerCase(),
+                              orElse: () => {},
+                            );
+                            final rId = _toInt(matchedRole['id']);
+                            if (rId != null) {
+                              await _fetchRoleAccessForForm(rId);
+                            }
                           },
                         ),
                         _modernTextField(
@@ -2086,20 +2232,89 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       const SizedBox(height: 20),
                       _buildMainAdminToggle(),
                     ],
-                    const SizedBox(height: 30),
+                  const SizedBox(height: 30),
                     _sectionLabel(
-                      _selectedUserType == 'admin' ? 'Admin Access Permissions' : 'Employee Access Permissions',
+                      'Role-Based Access Control (From Access Master)',
                       Icons.security_rounded,
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      _isMainAdmin && _selectedUserType == 'admin'
-                          ? 'Main admin has complete access to all platform modules.'
-                          : 'Select the modules this user can access.',
-                      style: const TextStyle(color: _muted, fontSize: 12),
+                    const Text(
+                      'The permissions and allowed modules below are automatically inherited from the selected Role in Access Master.',
+                      style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
                     ),
-                    const SizedBox(height: 16),
-                    _buildPermissionGrid(isMobile),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _border),
+                      ),
+                      child: _currentRoleAccessRows.isEmpty
+                          ? const Text('No access configured for this role in Access Master yet.', style: TextStyle(color: _muted, fontSize: 12))
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: _currentRoleAccessRows.map((row) {
+                                final app = (row['application'] ?? '').toString();
+                                final accessType = (row['access_type'] ?? row['accessType'] ?? 'none').toString();
+                                final pages = _parseAllowedPages(row['allowed_pages'] ?? row['allowedPages']);
+                                
+                                String appTitle = app == 'task_manager' ? 'Task Manager' : app == 'client_repository' ? 'Client Repository' : 'Attendance';
+                                
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.apps_rounded, size: 16, color: _primary),
+                                          const SizedBox(width: 8),
+                                          Text(appTitle, style: const TextStyle(fontWeight: FontWeight.w800, color: _ink, fontSize: 13)),
+                                          const Spacer(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: accessType == 'none' ? const Color(0xFFF1F5F9) : _primaryLight,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              accessType.toUpperCase(),
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                                color: accessType == 'none' ? _muted : _primary,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (pages.isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: pages.map((p) {
+                                            final displayTitle = _getFriendlyPageTitle(p); // 🟢 Route-ku pathila friendly title
+                                            return Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(color: _border),
+                                              ),
+                                              child: Text(displayTitle, style: const TextStyle(fontSize: 11, color: _ink, fontWeight: FontWeight.w600)),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                    ),
                     const SizedBox(height: 28),
                     Container(height: 1, color: _border),
                     const SizedBox(height: 18),
@@ -2606,6 +2821,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     required List<DropdownMenuItem<String>> items,
     required ValueChanged<String?> onChanged,
   }) {
+    title:
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2647,3 +2863,4 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     letterSpacing: 0.7,
   );
 }
+
