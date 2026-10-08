@@ -136,7 +136,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
                 daysMap[dayNum] = {
-                  'status': isAbsent ? 'A' : (isLate ? 'L' : 'P'),
+                  'status': isAbsent ? 'A' : (isLate ? 'LT' : 'P'),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -155,7 +155,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 'status': statusStr == 'off' ? 'OFF'
                     : (statusStr == 'h' || statusStr == 'holiday') ? 'H'
                     : statusStr == 'absent' ? 'A'
-                    : isLate ? 'L'
+                    : isLate ? 'LT'
                     : rawRecord['clock_in_at'] != null || rawRecord['checkInAt'] != null ? 'P'
                     : '',
                 'clock_in': rawRecord['clock_in_at'] ?? rawRecord['checkInAt'] ?? rawRecord['checkIn'],
@@ -188,11 +188,38 @@ class _AttendanceViewState extends State<_AttendanceView> {
                   daysMap[dayNum] = {
                     'status': statusStr == 'absent'
                         ? 'A'
-                        : (isLate ? 'L' : 'P'),
+                        : (isLate ? 'LT' : 'P'),
                     'clock_in': item['checkInAt'] ?? item['clock_in_at'],
                   };
                 }
               }
+            }
+          }
+
+          // Overlay approved leaves from the dashboard response onto the calendar.
+          // approved_leaves now includes the admin-configured abbreviation directly.
+          final approvedLeaves = data['approved_leaves'] as List? ?? [];
+          for (final leave in approvedLeaves) {
+            final leaveName = leave['leave_type']?.toString() ?? '';
+            final rawAbbr = leave['abbreviation']?.toString() ?? '';
+            final abbr = rawAbbr.isNotEmpty
+                ? rawAbbr
+                : leaveName.isNotEmpty
+                    ? leaveName.replaceAll(RegExp(r'\s+'), '').substring(0, leaveName.replaceAll(RegExp(r'\s+'), '').length.clamp(0, 2)).toUpperCase()
+                    : 'L';
+            final isHalf = (leave['duration_type']?.toString() ?? '').toLowerCase().contains('half');
+            final code = isHalf ? 'HL' : abbr;
+            DateTime? from = DateTime.tryParse(leave['from_date']?.toString() ?? '');
+            DateTime? to = DateTime.tryParse(leave['to_date']?.toString() ?? '');
+            if (from == null || to == null) continue;
+            while (!from!.isAfter(to)) {
+              if (from.year == year && from.month == month) {
+                final d = from.day;
+                if (!daysMap.containsKey(d) || daysMap[d]!['clock_in'] == null) {
+                  daysMap[d] = {'status': code, 'clock_in': null};
+                }
+              }
+              from = from.add(const Duration(days: 1));
             }
           }
 
@@ -465,8 +492,8 @@ class _CalendarCard extends StatelessWidget {
               children: [
                 _LegendStatus('P', 'Present', employeeBlue),
                 _LegendStatus('A', 'Absent', Color(0xFFF2212F)),
-                _LegendStatus('L', 'Late', employeeOrange),
-                _LegendStatus('L', 'Leave', employeePurple),
+                _LegendStatus('LT', 'Late', employeeOrange),
+                _LegendStatus('CL', 'Leave', employeePurple),
                 _LegendStatus('HL', 'Half Leave', employeePurple),
                 _LegendStatus('OFF', 'Weekly Off', Color(0xFF7D8FAA)),
               ]),
@@ -559,15 +586,18 @@ class _CalendarDay extends StatelessWidget {
   final String status;
   final String? clockIn;
 
-  Color get color => switch (status) {
-        'A' => const Color(0xFFF2212F),
-        'L' => employeeOrange,
-        'LV' => employeePurple,
-        'HL' => employeePurple,
-        'H' => employeePurple,
-        'OFF' => const Color(0xFF7D8FAA),
-        _ => employeeBlue,
-      };
+  static const _systemCodes = {'P', 'A', 'LT', 'H', 'HL', 'OFF', 'LV', 'L'};
+
+  Color get color {
+    switch (status) {
+      case 'A':   return const Color(0xFFF2212F);
+      case 'LT':  return employeeOrange;
+      case 'OFF': return const Color(0xFF7D8FAA);
+      case 'P':   return employeeBlue;
+      // HL, H, LV, L, or any leave abbreviation (CL, EL, SL, OH…) → purple
+      default:    return employeePurple;
+    }
+  }
 
   String? get formattedTime {
     if (clockIn == null || clockIn!.isEmpty) return null;
@@ -608,15 +638,16 @@ class _CalendarDay extends StatelessWidget {
             Text('Holiday', style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600))
           else if (hasStatus)
             Container(
-              width: status == 'HL' ? 31 : 24,
+              constraints: const BoxConstraints(minWidth: 24, maxWidth: 36),
               height: 24,
               alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               child: Text(
                 status == 'LV' ? 'L' : status,
                 style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: FontWeight.w800),
               ),
             ),

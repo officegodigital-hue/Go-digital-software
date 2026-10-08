@@ -311,12 +311,24 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     setState(() => _punching = true);
     String message;
     try {
-      final payload = clockOut
-          ? <String, dynamic>{}
-          : await AttendanceLocation.checkInPayload(
-              client: _client,
-              token: token,
-            );
+      Map<String, dynamic> payload;
+      if (clockOut) {
+        try {
+          final pos = await AttendanceLocation.currentPosition();
+          payload = {
+            'latitude': pos.latitude,
+            'longitude': pos.longitude,
+            'accuracy': pos.accuracy,
+          };
+        } catch (_) {
+          payload = <String, dynamic>{};
+        }
+      } else {
+        payload = await AttendanceLocation.checkInPayload(
+          client: _client,
+          token: token,
+        );
+      }
       if (!mounted || token != _token) return;
       await _call(
         clockOut ? 'clock-out' : 'clock-in',
@@ -611,7 +623,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             children: [
               const TextSpan(text: 'Hello, '),
               TextSpan(
-                text: employee['name']?.toString() ?? '',
+                text: (employee['name'] ?? employee['full_name'] ?? employee['fullName'] ?? employee['employee_name'] ?? employee['username'] ?? '').toString(),
                 style: const TextStyle(color: employeeBlue),
               ),
             ],

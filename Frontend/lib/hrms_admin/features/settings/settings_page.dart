@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
+import '../employees/leave_policy_dialog.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -35,7 +36,7 @@ class SettingsPage extends StatelessWidget {
                           border: Border.all(color: const Color(0xFFE3E7EF)),
                           borderRadius: BorderRadius.circular(13),
                         ),
-                        child: const Column(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('Administration settings',
@@ -48,6 +49,17 @@ class SettingsPage extends StatelessWidget {
                               'Company policies, notifications and account preferences will be managed here.',
                               style: TextStyle(
                                   color: Color(0xFF596176), fontSize: 14),
+                            ),
+                            SizedBox(height: 18),
+                            Divider(),
+                            SizedBox(height: 14),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.event_available_outlined, color: Color(0xFF155EEF)),
+                              title: Text('Leave Card Settings', style: TextStyle(fontWeight: FontWeight.w700)),
+                              subtitle: Text('Choose names, allowances, visibility and employee card layout.'),
+                              trailing: Icon(Icons.chevron_right_rounded),
+                              onTap: () => showDialog(context: context, builder: (_) => const LeavePolicyDialog()),
                             ),
                           ],
                         ),

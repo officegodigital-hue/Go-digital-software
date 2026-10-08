@@ -208,13 +208,15 @@ async function monthView(req, res) {
 
     const [leaves] = userIds.length
       ? await db.query(
-          `SELECT employee_id, duration_type, leave_type,
-                  DATE_FORMAT(from_date, '%Y-%m-%d') AS from_date,
-                  DATE_FORMAT(to_date, '%Y-%m-%d') AS to_date
-           FROM employee_leaves
-           WHERE status = 'APPROVED'
-             AND from_date <= ? AND to_date >= ?
-             AND employee_id IN (?)`,
+          `SELECT el.employee_id, el.duration_type, el.leave_type,
+                  COALESCE(lt.abbreviation, '') AS abbreviation,
+                  DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+                  DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date
+           FROM employee_leaves el
+           LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
+           WHERE el.status = 'APPROVED'
+             AND el.from_date <= ? AND el.to_date >= ?
+             AND el.employee_id IN (?)`,
           [end, start, userIds]
         )
       : [[]];
@@ -231,10 +233,12 @@ async function monthView(req, res) {
     const leaveMap = new Map();
     leaves.forEach(function (row) {
       let date = row.from_date;
-      const code = row.duration_type === 'Half Day' ? 'HL' : 'LV';
+      // Use admin-configured abbreviation; fall back to first 2 chars of leave name.
+      const abbr = (row.abbreviation || row.leave_type.replace(/\s+/g, '').slice(0, 2)).toUpperCase() || 'L';
+      const code = row.duration_type === 'Half Day' ? 'HL' : abbr;
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
-        leaveMap.set(key, { code: code, leaveType: row.leave_type });
+        leaveMap.set(key, { code, leaveType: row.leave_type, abbreviation: abbr });
         date = nextDate(date);
       }
     });
@@ -294,7 +298,7 @@ async function monthView(req, res) {
         // shown only when the employee has no attendance record.
         } else if (record && record.check_in_at) {
           if (Number(record.is_late)) {
-            days.push('L');
+            days.push('LT');
             late += 1;
             lateDays += 1;
           } else {
@@ -306,7 +310,7 @@ async function monthView(req, res) {
           days.push(leaveType);
           approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
-          if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
+          if (leaveInfo.leaveType === 'Earned Leave' || leaveInfo.abbreviation === 'EL') earnedLeave += 1;
           if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing record is unrecorded during development, not absent.
@@ -326,6 +330,7 @@ async function monthView(req, res) {
         employeeUserId: profile.employee_user_id,
         name: profile.full_name,
         designation: profile.department,
+        department: profile.department,
         days: days,
         present: present,
         late: late,

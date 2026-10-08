@@ -113,6 +113,7 @@ const allowedPages = accessRows.length > 0
         email: user.email,
         role: user.role,
         userType: user.user_type,
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRY }
@@ -134,6 +135,7 @@ const allowedPages = accessRows.length > 0
         username: user.username,
         role: user.role,
         userType: user.user_type,
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
         staffId: user.staff_id,
         initials: user.initials,
         isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true, // 🟢 itha add pannunga
@@ -246,3 +248,4 @@ module.exports = router;
 module.exports.authenticateToken = authenticateToken;
 // Shared so every auth layer verifies against the exact key login signs with.
 module.exports.JWT_SECRET = JWT_SECRET;
+

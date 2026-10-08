@@ -159,33 +159,61 @@ class EmployeeMobileBottomNav extends StatelessWidget {
       );
 }
 
-class EmployeeSidebar extends StatelessWidget {
+class EmployeeSidebar extends StatefulWidget {
   const EmployeeSidebar({super.key, required this.route});
   final String route;
 
   static const items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem(
-      '/employee/attendance',
-      'Attendance',
-      Icons.calendar_month_outlined,
-    ),
+    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
     _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
-    _NavItem(
-      '/employee/leave',
-      'Leave',
-      Icons.description_outlined,
-      badge: '2',
-    ),
-    _NavItem(
-      '/employee/permission',
-      'Permission',
-      Icons.verified_user_outlined,
-    ),
+    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
+    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
   ];
+
+  @override
+  State<EmployeeSidebar> createState() => _EmployeeSidebarState();
+}
+
+class _EmployeeSidebarState extends State<EmployeeSidebar> {
+  int _pendingLeaveCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPendingLeave();
+  }
+
+  Future<void> _fetchPendingLeave() async {
+    try {
+      final token = context.read<AuthService>().token ?? '';
+      final res = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/leave/dashboard'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        if (body['success'] == true) {
+          final requests = (body['data']?['requests'] as List? ?? []);
+          final pending = requests.where((r) => r['status'] == 'pending').length;
+          setState(() => _pendingLeaveCount = pending);
+        }
+      }
+    } catch (_) {}
+  }
+
+  List<_NavItem> get _items {
+    return EmployeeSidebar.items.map((item) {
+      if (item.route == '/employee/leave' && _pendingLeaveCount > 0) {
+        return _NavItem(item.route, item.label, item.icon, badge: '$_pendingLeaveCount');
+      }
+      return item;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -240,13 +268,13 @@ class EmployeeSidebar extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         const _SectionLabel('MAIN'),
-        ...items.take(6).map((item) => _SidebarTile(item: item, route: route)),
+        ..._items.take(6).map((item) => _SidebarTile(item: item, route: widget.route)),
         const SizedBox(height: 8),
         const _SectionLabel('FINANCE'),
-        _SidebarTile(item: items[6], route: route),
+        _SidebarTile(item: _items[6], route: widget.route),
         const SizedBox(height: 8),
         const _SectionLabel('TOOLS'),
-        _SidebarTile(item: items[7], route: route),
+        _SidebarTile(item: _items[7], route: widget.route),
         const Spacer(),
         InkWell(
           onTap: () async {
@@ -674,81 +702,7 @@ class EmployeeNotificationButton extends StatelessWidget {
         tooltip: 'Notifications',
         onPressed: () {
           onOpened?.call();
-          showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: true,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            builder: (_) => SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 4, 22, 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Notifications',
-                      style: TextStyle(
-                        color: employeeNavy,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    if (notifications.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 14),
-                        child: Text(
-                          'No new notifications',
-                          style: TextStyle(color: employeeMuted),
-                        ),
-                      )
-                    else
-                      ...notifications.map(
-                        (n) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            children: [
-                              const CircleAvatar(
-                                backgroundColor: Color(0xFFEAF2FF),
-                                child: Icon(
-                                  Icons.notifications_active_outlined,
-                                  color: employeeBlue,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 13),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      n['title'] ?? '',
-                                      style: const TextStyle(
-                                        color: employeeNavy,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    Text(
-                                      n['subtitle'] ?? '',
-                                      style: const TextStyle(
-                                        color: employeeMuted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
+          Navigator.pushNamed(context, '/employee/announcements');
         },
         style: IconButton.styleFrom(
           backgroundColor: const Color(0xFFF3F6FB),
@@ -1282,12 +1236,31 @@ class EmployeePageTitle extends StatelessWidget {
   );
 }
 
-class MobileEmployeeHeader extends StatelessWidget {
+class MobileEmployeeHeader extends StatefulWidget {
   const MobileEmployeeHeader({super.key, this.showGreeting = true});
   final bool showGreeting;
 
   @override
-  Widget build(BuildContext context) => Column(
+  State<MobileEmployeeHeader> createState() => _MobileEmployeeHeaderState();
+}
+
+class _MobileEmployeeHeaderState extends State<MobileEmployeeHeader> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AuthService>().refreshUserData();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
+    final identity = (user['fullName'] ?? user['full_name'] ?? user['name'] ?? user['employee_name'] ?? user['employeeName'] ?? user['admin_name'] ?? user['adminName'] ?? user['username'] ?? user['firstName'] ?? user['first_name'] ?? '').toString().trim();
+    final name = identity.isNotEmpty ? identity : (user['email']?.toString().split('@').first ?? '').trim();
+    final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
+
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(
@@ -1299,13 +1272,14 @@ class MobileEmployeeHeader extends StatelessWidget {
           const EmployeeProfileMenu(radius: 25),
         ],
       ),
-      if (showGreeting) ...[
+      if (widget.showGreeting) ...[
         const SizedBox(height: 22),
-        const Text(
-          'Hello, Arul 👋',
+        Text(
+          greeting,
           style: TextStyle(color: Color(0xFF495572), fontSize: 19),
         ),
       ],
     ],
-  );
+    );
+  }
 }

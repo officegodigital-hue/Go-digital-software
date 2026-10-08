@@ -87,6 +87,13 @@ function isoDate(value) {
   return match ? match[1] : '';
 }
 
+function nextDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function parseMonth(req) {
   const today = policy.todayIstDate();
   const [ty, tm] = today.split('-').map(Number);
@@ -220,16 +227,21 @@ async function computeRows(year, month, today) {
       )
     : [[]];
 
-  const leavePlaceholders = LEAVE_TYPES.map(function () { return '?'; }).join(', ');
+  // Fetch approved leaves from the leave system. Each row carries is_lop (per
+  // leave type) and duration_type so half-day leaves deduct 0.5, not 1.0.
   const [leaves] = userIds.length
     ? await db.query(
-        `SELECT employee_id, DATE_FORMAT(request_date, '%Y-%m-%d') AS request_date
-         FROM attendance_permission_requests
-         WHERE status = 'approved'
-           AND request_type IN (` + leavePlaceholders + `)
-           AND request_date BETWEEN ? AND ?
-           AND employee_id IN (?)`,
-        LEAVE_TYPES.concat([broadStart, stdEnd, userIds])
+        `SELECT el.employee_id,
+                DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+                DATE_FORMAT(el.to_date,   '%Y-%m-%d') AS to_date,
+                el.duration_type,
+                COALESCE(lt.is_lop, 1) AS is_lop
+         FROM employee_leaves el
+         LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
+         WHERE el.status = 'APPROVED'
+           AND el.from_date <= ? AND el.to_date >= ?
+           AND el.employee_id IN (?)`,
+        [stdEnd, broadStart, userIds]
       )
     : [[]];
 
@@ -246,9 +258,21 @@ async function computeRows(year, month, today) {
   records.forEach(function (row) {
     recordMap.set(row.employee_id + '|' + isoDate(row.attendance_date), row);
   });
-  const leaveSet = new Set();
+  // leaveMap: 'empId|YYYY-MM-DD' → { isLop: bool, isHalf: bool }
+  // Expand each leave record across all its calendar dates so the per-day loop
+  // can look up any date cheaply.  Half-day leaves span exactly one date.
+  const leaveMap = new Map();
   leaves.forEach(function (row) {
-    leaveSet.add(row.employee_id + '|' + isoDate(row.request_date));
+    const isLop = Boolean(Number(row.is_lop));
+    const isHalf = row.duration_type === 'Half Day';
+    let date = isoDate(row.from_date);
+    const end = isoDate(row.to_date);
+    while (date && date <= end) {
+      const key = row.employee_id + '|' + date;
+      // First entry wins (multiple overlapping leaves are rejected at apply time)
+      if (!leaveMap.has(key)) leaveMap.set(key, { isLop, isHalf });
+      date = nextDate(date);
+    }
   });
 
   // Load custom cycles for this pay period (overrides per-employee salary cycle)
@@ -264,7 +288,8 @@ async function computeRows(year, month, today) {
     let workingDays = 0;
     let present = 0;
     let late = 0;
-    let leaveDays = 0;
+    let leaveDays = 0;   // total approved leave days (all types)
+    let lopLeaveDays = 0; // only LOP leave days — used for salary deduction
     let absent = 0;
 
     // Determine the date range for this employee's pay period
@@ -300,9 +325,12 @@ async function computeRows(year, month, today) {
         // Punched in
         if (Number(record.is_late) || attStatus === 'late') late += 1;
         else present += 1;
-      } else if (key && leaveSet.has(key)) {
-        // Approved leave
-        leaveDays += 1;
+      } else if (key && leaveMap.has(key)) {
+        // Approved leave — half-day counts as 0.5, full day as 1.0
+        const leaveInfo = leaveMap.get(key);
+        const dayCount = leaveInfo.isHalf ? 0.5 : 1;
+        leaveDays += dayCount;
+        if (leaveInfo.isLop) lopLeaveDays += dayCount;
       } else if (configuredPolicy.missingAttendanceIsAbsent) {
         // Do not silently turn a missing record into an absence unless the
         // administrator has chosen that policy.
@@ -316,7 +344,10 @@ async function computeRows(year, month, today) {
     // A payroll day is a fixed policy divisor (normally 26), not the number
     // of days elapsed when the payroll is generated. This makes a three-day
     // absence from a Rs. 50,000 salary deduct Rs. 5,770 consistently.
-    const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? leaveDays : 0;
+    // Only LOP leave types cause salary deduction. Non-LOP (EL, OH) are paid
+    // leave — they show in leaveDays for attendance but not in lopLeaveDays.
+    // The global deductApprovedLeave toggle lets admin disable ALL leave deductions.
+    const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? lopLeaveDays : 0;
     const unpaidAbsenceDays = configuredPolicy.deductExplicitAbsence ? absent : 0;
     const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays);
     const paidDays = Math.max(0, workingDays - lopDays);
@@ -354,7 +385,7 @@ async function computeRows(year, month, today) {
         id: saved ? saved.id : null, profileId: profile.id, employeeUserId: profile.employee_user_id,
         name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
         department: profile.department, monthlySalary: null, salary: 'Not Set',
-        workingDays: workingDays, presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
+        workingDays: workingDays, presentDays: present, lateDays: late, leaveDays: leaveDays, lopLeaveDays: lopLeaveDays, absentDays: absent,
         paidDays: paidDays, lopDays: lopDays, deductions: 0, deductionsLabel: '–', netPay: 0, netPayLabel: '–',
         status: 'Salary required', paidAt: '',
         salaryType, periodStart: range.start, periodEnd: range.end, periodLabel,
@@ -366,7 +397,7 @@ async function computeRows(year, month, today) {
         id: saved.id, profileId: profile.id, employeeUserId: profile.employee_user_id,
         name: String(profile.full_name || '').trim(), employeeCode: profile.employee_code,
         department: profile.department, monthlySalary: Number(saved.monthly_salary || 0), salary: formatSalary(saved.monthly_salary),
-        workingDays: Number(saved.working_days || 0), presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
+        workingDays: Number(saved.working_days || 0), presentDays: present, lateDays: late, leaveDays: leaveDays, lopLeaveDays: lopLeaveDays, absentDays: absent,
         paidDays: Number(saved.paid_days || 0), lopDays: Number(saved.lop_days || 0), deductions: Number(saved.deductions || 0),
         deductionsLabel: formatSalary(saved.deductions), netPay: Number(saved.net_pay || 0), netPayLabel: formatSalary(saved.net_pay),
         status: 'Paid', paidAt: saved.paid_at ? isoDate(saved.paid_at) : '',
@@ -388,7 +419,8 @@ async function computeRows(year, month, today) {
       workingDays: workingDays,
       presentDays: present,
       lateDays: late,
-      leaveDays: leaveDays,
+      leaveDays: leaveDays,       // all approved leave days (LOP + Non-LOP)
+      lopLeaveDays: lopLeaveDays,  // only LOP leave days (used in deduction)
       absentDays: absent,
       paidDays: paidDays,
       lopDays: lopDays,

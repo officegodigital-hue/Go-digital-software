@@ -69,10 +69,12 @@ class _State extends State<EmployeeProfilePage>
       );
       if (mounted) setState(() { _data = d; _loading = false; });
     } catch (e) {
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
+      }
     }
   }
 

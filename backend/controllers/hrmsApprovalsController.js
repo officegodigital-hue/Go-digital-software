@@ -20,6 +20,7 @@ function requireAdmin(req, res, next) {
 
 const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
 const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit'];
+const leaveSystem = require('../lib/leaveSystem');
 
 function displayType(requestType) {
   const value = String(requestType || '').toLowerCase();
@@ -82,15 +83,21 @@ function leaveDuration(row) {
 }
 
 function toUi(row) {
-  const type = displayType(row.request_type);
-  const start = formatDay(row.request_date);
-  const extra = EXTRA_TYPES.indexOf(String(row.request_type).toLowerCase()) !== -1;
+  // Prefer the actual leave type name from employee_leaves when available
+  const actualType = row.el_leave_type || null;
+  const type = actualType || displayType(row.request_type);
+  const abbreviation = row.lt_abbreviation || null;
+  const start = formatDay(row.request_date || row.el_from_date);
+  const requestType = String(row.request_type).toLowerCase();
+  const extra = EXTRA_TYPES.indexOf(requestType) !== -1;
+  const leave = LEAVE_TYPES.indexOf(requestType) !== -1;
   const meta = iconMeta(type);
   return {
     id: row.id,
     name: String(row.full_name || 'Unknown employee').trim(),
     employeeCode: row.staff_id || ('EMP' + row.employee_id),
     type: type,
+    abbreviation: abbreviation,
     requestType: row.request_type,
     dates: start.pretty || '—',
     dayRange: start.weekday && start.weekday !== '—' ? '(' + start.weekday + ')' : '',
@@ -99,7 +106,7 @@ function toUi(row) {
     status: String(row.status || 'pending').replace(/^./, function (c) { return c.toUpperCase(); }),
     icon: meta.icon,
     color: meta.color,
-    tab: extra ? 'extra' : 'leave',
+    tab: extra ? 'extra' : leave ? 'leave' : 'permission',
   };
 }
 
@@ -188,9 +195,13 @@ async function list(req, res) {
     if (tab === 'extra') {
       where.push('p.request_type IN (' + extraPlaceholders + ')');
       params.push.apply(params, EXTRA_TYPES);
+    } else if (tab === 'permission') {
+      const leavePlaceholders = LEAVE_TYPES.map(function () { return '?'; }).join(', ');
+      where.push('p.request_type NOT IN (' + extraPlaceholders + ') AND p.request_type NOT IN (' + leavePlaceholders + ')');
+      params.push.apply(params, EXTRA_TYPES.concat(LEAVE_TYPES));
     } else {
-      where.push('p.request_type NOT IN (' + extraPlaceholders + ')');
-      params.push.apply(params, EXTRA_TYPES);
+      where.push('p.request_type IN (' + LEAVE_TYPES.map(function () { return '?'; }).join(', ') + ')');
+      params.push.apply(params, LEAVE_TYPES);
     }
 
     if (status && status !== 'All Status') {
@@ -205,15 +216,19 @@ async function list(req, res) {
     const [rows] = await db.query(
       `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
-              DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
-              DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
-              leave_request.duration_type,
+              DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+              DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date,
+              el.duration_type,
+              el.leave_type AS el_leave_type,
+              DATE_FORMAT(el.from_date, '%Y-%m-%d') AS el_from_date,
+              lt.abbreviation AS lt_abbreviation,
               s.${staff.quote(staff.STAFF.name)} AS full_name,
               s.${staff.quote(staff.STAFF.staffCode)} AS staff_id
        FROM attendance_permission_requests p
        LEFT JOIN ${staff.staffFrom()} s ON s.${staff.quote(staff.STAFF.id)} = p.employee_id
        LEFT JOIN hrms_leave_approval_links link ON link.approval_request_id = p.id
-       LEFT JOIN employee_leaves leave_request ON leave_request.id = link.leave_id
+       LEFT JOIN employee_leaves el ON el.id = link.leave_id
+       LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
        WHERE ${where.join(' AND ')}
        ORDER BY p.created_at DESC
        LIMIT 200`,
@@ -272,18 +287,29 @@ async function review(req, res) {
        SET l.status = ?
        WHERE link.approval_request_id = ?`,
       [status === 'approved' ? 'APPROVED' : 'DENIED', id]
-    );    const [rows] = await db.query(
+    );
+    if (status === 'approved') {
+      const [leaveRows] = await db.query(`SELECT l.* FROM employee_leaves l
+        INNER JOIN hrms_leave_approval_links link ON link.leave_id = l.id
+        WHERE link.approval_request_id = ?`, [id]);
+      for (const leave of leaveRows) await leaveSystem.reconcileApprovedAbsences(db, leave);
+    }
+    const [rows] = await db.query(
       `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
-              DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
-              DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
-              leave_request.duration_type,
+              DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+              DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date,
+              el.duration_type,
+              el.leave_type AS el_leave_type,
+              DATE_FORMAT(el.from_date, '%Y-%m-%d') AS el_from_date,
+              lt.abbreviation AS lt_abbreviation,
               s.${staff.quote(staff.STAFF.name)} AS full_name,
               s.${staff.quote(staff.STAFF.staffCode)} AS staff_id
        FROM attendance_permission_requests p
        LEFT JOIN ${staff.staffFrom()} s ON s.${staff.quote(staff.STAFF.id)} = p.employee_id
        LEFT JOIN hrms_leave_approval_links link ON link.approval_request_id = p.id
-       LEFT JOIN employee_leaves leave_request ON leave_request.id = link.leave_id
+       LEFT JOIN employee_leaves el ON el.id = link.leave_id
+       LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
        WHERE p.id = ?`,
       [id]
     );

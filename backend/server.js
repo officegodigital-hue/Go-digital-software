@@ -148,6 +148,7 @@ const hrmsDashboardRoutes = require('./routes/hrmsDashboard');
 const hrmsApprovalsRoutes = require('./routes/hrmsApprovals');
 const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
+const hrmsAnnouncementsRoutes = require('./routes/hrmsAnnouncements');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
 
@@ -259,6 +260,7 @@ app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
 app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
 app.use('/api/hrms/payroll', hrmsPayrollRoutes);
 app.use('/api/hrms/tracking', hrmsTrackingRoutes);
+app.use('/api/hrms/announcements', hrmsAnnouncementsRoutes);
 app.use('/api/hrms/payslips', hrmsPayslipRoutes);
 
 

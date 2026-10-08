@@ -190,8 +190,21 @@ class _ClockViewState extends State<_ClockView> {
     final endpoint = _isCheckedIn ? '/attendance/clock-out' : '/attendance/clock-in';
     final client = http.Client();
     try {
-      final payload = _isCheckedIn ? <String, dynamic>{}
-          : await AttendanceLocation.checkInPayload(client: client, token: token);
+      Map<String, dynamic> payload;
+      if (_isCheckedIn) {
+        try {
+          final pos = await AttendanceLocation.currentPosition();
+          payload = {
+            'latitude': pos.latitude,
+            'longitude': pos.longitude,
+            'accuracy': pos.accuracy,
+          };
+        } catch (_) {
+          payload = <String, dynamic>{};
+        }
+      } else {
+        payload = await AttendanceLocation.checkInPayload(client: client, token: token);
+      }
       if (!mounted || token != _getToken()) return;
       final response = await client.post(
         Uri.parse('${ApiConfig.baseUrl}$endpoint'),

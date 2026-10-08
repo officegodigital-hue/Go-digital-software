@@ -60,11 +60,10 @@ class _MobileClockLogs extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         title: Image.asset('assets/images/godigital_logo.png', height: 38),
-        actions: const [
-          AdminNotificationBell(mobile: true),
-          SizedBox(width: 4),
-          AdminLogoutButton(compact: true),
-          SizedBox(width: 8),
+        actions: [
+          const AdminNotificationBell(mobile: true),
+          const SizedBox(width: 4),
+          const SizedBox(width: 8),
         ],
       ),
       body: loading
@@ -961,11 +960,12 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent)
+    if (!silent) {
       setState(() {
         _loading = true;
         _error = null;
       });
+    }
     try {
       final data = await HrmsClockLogsApi.list(
         date: _date,
@@ -1487,8 +1487,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final breaks = (item['breaks'] as List? ?? const []);
     var overdue = 0;
     for (final entry in breaks) {
-      if (entry is Map)
+      if (entry is Map) {
         overdue += (entry['overdueMinutes'] as num?)?.toInt() ?? 0;
+      }
     }
     if (overdue == 0) return const Text('-');
     final overdueBreaks = breaks
@@ -1722,18 +1723,20 @@ class _BreakReviewDialogState extends State<_BreakReviewDialog> {
             : _clarificationController.text.trim(),
       );
       widget.onReviewed();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _done = true;
           _doneMessage = action == 'reviewed'
               ? 'Break marked as reviewed.'
               : 'Clarification requested from employee.';
         });
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = e.toString().replaceFirst('Exception: ', '');
         });
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

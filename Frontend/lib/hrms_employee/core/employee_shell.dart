@@ -96,12 +96,9 @@ class _EmployeeShellState extends State<EmployeeShell> {
         setState(() => _verificationMessage = null);
       }
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          _verificationMessage =
-              'Location verification is required while you are checked in. Enable precise location permission to continue.';
-        });
-      }
+      // Heartbeat failures are silent — a background check should not
+      // block or alarm the employee. The backend enforces location on
+      // the next actual clock-in.
     } finally {
       _sendingLocation = false;
     }
@@ -120,8 +117,11 @@ class _EmployeeShellState extends State<EmployeeShell> {
       throw Exception('Location permission was not granted.');
     }
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 10),
+      ),
+    ).timeout(const Duration(seconds: 12));
   }
 
   @override
