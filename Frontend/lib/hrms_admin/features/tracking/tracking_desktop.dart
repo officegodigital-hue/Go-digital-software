@@ -747,10 +747,7 @@ class _DesktopFixedLocationDetailState
   void _panToDay(_AttendanceDay day) {
     if (day.checkInLat == null || day.checkInLng == null) return;
     _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(day.checkInLat!, day.checkInLng!),
-        15,
-      ),
+      CameraUpdate.newLatLngZoom(LatLng(day.checkInLat!, day.checkInLng!), 15),
     );
   }
 
@@ -840,7 +837,9 @@ class _DesktopFixedLocationDetailState
                   'Check-out',
                   widget.employee.checkOutAt == null
                       ? '—'
-                      : DateFormat('h:mm a').format(widget.employee.checkOutAt!),
+                      : DateFormat(
+                          'h:mm a',
+                        ).format(widget.employee.checkOutAt!),
                   '',
                 ),
                 _detailDivider(),
@@ -863,7 +862,9 @@ class _DesktopFixedLocationDetailState
                 employees: [widget.employee],
                 onViewRoute: (_) => widget.onViewActivity(),
                 onMapCreated: (ctrl) => _mapController = ctrl,
-                highlightedEmployee: widget.mode == 'Home' ? widget.employee : null,
+                highlightedEmployee: widget.mode == 'Home'
+                    ? widget.employee
+                    : null,
                 showEmptyOverlay: false,
               ),
             ),
@@ -965,82 +966,22 @@ class _DailyRecordRow extends StatelessWidget {
       return InkWell(
         onTap: onTap,
         child: SizedBox(
-        height: 85,
-        child: Row(
-          children: [
-            Container(
-              width: 62,
-              margin: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F7FB),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                parsed == null
-                    ? '--'
-                    : DateFormat('dd\nMMM\nyyyy').format(parsed),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: HrmsColors.navy,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            Icon(
-              Icons.circle,
-              size: 9,
-              color: verified ? _desktopGreen : _desktopRed,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    day.checkInAt == null
-                        ? 'Not checked in'
-                        : DateFormat('h:mm a').format(day.checkInAt!),
-                    style: const TextStyle(
-                      color: Color(0xFF17213E),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Text(
-                    'At registered home',
-                    style: TextStyle(color: _desktopMuted, fontSize: 10),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: _desktopMuted,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-      ),
-      );
-    }
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+          height: 85,
+          child: Row(
             children: [
-              Expanded(
+              Container(
+                width: 62,
+                margin: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
                 child: Text(
                   parsed == null
-                      ? day.date
-                      : DateFormat('dd MMM yyyy').format(parsed),
+                      ? '--'
+                      : DateFormat('dd\nMMM\nyyyy').format(parsed),
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: HrmsColors.navy,
                     fontSize: 11,
@@ -1048,45 +989,108 @@ class _DailyRecordRow extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                day.checkInAt == null
-                    ? '—'
-                    : DateFormat('h:mm a').format(day.checkInAt!),
-                style: const TextStyle(color: Color(0xFF17213E), fontSize: 11),
-              ),
-              const SizedBox(width: 10),
-              _smallVerified(verified),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
               Icon(
-                Icons.location_on_rounded,
-                size: 13,
+                Icons.circle,
+                size: 9,
                 color: verified ? _desktopGreen : _desktopRed,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  verified ? 'Inside office' : 'No verified location',
-                  style: const TextStyle(color: _desktopMuted, fontSize: 10),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      day.checkInAt == null
+                          ? 'Not checked in'
+                          : DateFormat('h:mm a').format(day.checkInAt!),
+                      style: const TextStyle(
+                        color: Color(0xFF17213E),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Text(
+                      'At registered home',
+                      style: TextStyle(color: _desktopMuted, fontSize: 10),
+                    ),
+                  ],
                 ),
               ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: _desktopMuted,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
             ],
           ),
-          if (employee.accuracyMeters != null ||
-              employee.officeDistanceMeters != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Accuracy: ${employee.accuracyMeters?.round() ?? 0} m  |  Distance: ${employee.officeDistanceMeters?.round() ?? 0} m',
-                style: const TextStyle(color: _desktopMuted, fontSize: 9),
-              ),
+        ),
+      );
+    }
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    parsed == null
+                        ? day.date
+                        : DateFormat('dd MMM yyyy').format(parsed),
+                    style: const TextStyle(
+                      color: HrmsColors.navy,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  day.checkInAt == null
+                      ? '—'
+                      : DateFormat('h:mm a').format(day.checkInAt!),
+                  style: const TextStyle(
+                    color: Color(0xFF17213E),
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _smallVerified(verified),
+              ],
             ),
-        ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Icons.location_on_rounded,
+                  size: 13,
+                  color: verified ? _desktopGreen : _desktopRed,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    verified ? 'Inside office' : 'No verified location',
+                    style: const TextStyle(color: _desktopMuted, fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
+            if (employee.accuracyMeters != null ||
+                employee.officeDistanceMeters != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Accuracy: ${employee.accuracyMeters?.round() ?? 0} m  |  Distance: ${employee.officeDistanceMeters?.round() ?? 0} m',
+                  style: const TextStyle(color: _desktopMuted, fontSize: 9),
+                ),
+              ),
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -1105,6 +1109,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
   String? error;
   Map<String, dynamic>? data;
   GoogleMapController? controller;
+  int _request = 0;
 
   @override
   void initState() {
@@ -1112,7 +1117,29 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
     load();
   }
 
+  @override
+  void didUpdateWidget(covariant _DesktopHybridDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId ||
+        oldWidget.date != widget.date ||
+        oldWidget.employee.lastUpdated != widget.employee.lastUpdated) {
+      load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _request++;
+    controller?.dispose();
+    super.dispose();
+  }
+
   Future<void> load() async {
+    final request = ++_request;
+    setState(() {
+      loading = true;
+      error = null;
+    });
     final id = widget.employee.employeeUserId;
     if (id == null) {
       setState(() => loading = false);
@@ -1123,17 +1150,19 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
         employeeUserId: id,
         date: DateFormat('yyyy-MM-dd').format(widget.date),
       );
-      if (mounted)
+      if (mounted && request == _request) {
         setState(() {
           data = result;
           loading = false;
         });
+      }
     } catch (exception) {
-      if (mounted)
+      if (mounted && request == _request) {
         setState(() {
           error = exception.toString().replaceFirst('Exception: ', '');
           loading = false;
         });
+      }
     }
   }
 
@@ -1248,12 +1277,21 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
                 child: _hybridMetric(
                   Icons.polyline_rounded,
                   'GPS points',
-                  '${points.length}',
+                  '${data?['totalPointCount'] ?? points.length}',
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
+          if ((data?['unverifiedPointCount'] as num? ?? 0) > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                '${data!['unverifiedPointCount']} recorded points have poor or unknown accuracy. '
+                'They remain in activity history but are excluded from the route and distance.',
+                style: const TextStyle(color: Color(0xFF986000), fontSize: 12),
+              ),
+            ),
           Expanded(
             child: loading
                 ? const Center(child: CircularProgressIndicator())
@@ -1275,7 +1313,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
                                   color: Color(0xFFF4F7FC),
                                   child: Center(
                                     child: Text(
-                                      'No GPS route for this date',
+                                      'No accurate GPS route for this date.\nCheck recorded activity for unverified points.',
                                       style: TextStyle(color: _desktopMuted),
                                     ),
                                   ),
@@ -1355,7 +1393,7 @@ class _HybridActivityTimeline extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          "Today's activity",
+          'Recorded activity',
           style: TextStyle(
             color: Color(0xFF111A35),
             fontSize: 13,
@@ -1374,7 +1412,7 @@ class _HybridActivityTimeline extends StatelessWidget {
                   ),
                 )
               : ListView.builder(
-                  itemCount: activities.length.clamp(0, 5),
+                  itemCount: activities.length,
                   itemBuilder: (_, index) {
                     final item = activities[index];
                     final time = DateTime.tryParse(
@@ -1405,7 +1443,7 @@ class _HybridActivityTimeline extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                if (index < activities.length.clamp(0, 5) - 1)
+                                if (index < activities.length - 1)
                                   Expanded(
                                     child: Container(
                                       width: 1,
@@ -1435,11 +1473,9 @@ class _HybridActivityTimeline extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    index == 0
-                                        ? 'Check-in'
-                                        : index == activities.length - 1
-                                        ? 'Current location'
-                                        : 'Location update',
+                                    item['locationQuality'] == 'usable'
+                                        ? 'Location update'
+                                        : 'Unverified location',
                                     style: const TextStyle(
                                       color: Color(0xFF17213E),
                                       fontSize: 10,
@@ -1448,7 +1484,7 @@ class _HybridActivityTimeline extends StatelessWidget {
                                   ),
                                   Text(
                                     '${item['placeName'] ?? 'Location unavailable'}',
-                                    maxLines: 2,
+                                    maxLines: 5,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       color: _desktopMuted,
@@ -1698,7 +1734,6 @@ Widget _statusChip(_TrackedEmployee employee, String mode) {
     child: Text(label, style: TextStyle(color: color, fontSize: 10)),
   );
 }
-
 
 Widget _detailMetric(
   IconData icon,
