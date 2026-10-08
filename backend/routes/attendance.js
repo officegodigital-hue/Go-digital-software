@@ -8,6 +8,8 @@ const leavePolicies = require('../controllers/leavePolicies');
 const attendancePolicies = require('../controllers/attendancePolicySettingsController');
 router.use('/leave/policies', attendance.requireAdmin);
 router.get('/leave/policies', attendance.requireAdmin, leavePolicies.list);
+router.post('/leave/policies', attendance.requireAdmin, leavePolicies.create);
+router.put('/leave/policies', attendance.requireAdmin, leavePolicies.saveAll);
 router.put('/leave/policies/:id', attendance.requireAdmin, leavePolicies.save);
 
 // Both portals keep their existing URL.  The signed-in user determines the

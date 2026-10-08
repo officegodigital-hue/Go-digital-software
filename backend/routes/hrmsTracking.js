@@ -6,6 +6,9 @@ const hrms = require('../controllers/hrmsTrackingController');
 router.use(authenticateToken);
 router.get('/settings', hrms.getTrackingSettings);
 router.put('/settings', hrms.requireAdmin, hrms.updateTrackingSettings);
+router.put('/office-location', hrms.requireAdmin, hrms.updateOfficeLocation);
+router.put('/home-settings', hrms.requireAdmin, hrms.updateHomeSettings);
+router.put('/hybrid-settings', hrms.requireAdmin, hrms.updateHybridSettings);
 
 // Employee self-service — called from the mobile app
 router.post('/status', hrms.setStatus);

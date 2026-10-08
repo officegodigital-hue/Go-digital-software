@@ -53,6 +53,10 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _showSummary = true;
   late String _month;
   late int _year;
+  int _weekIndex = 0;
+  String _search = '';
+  String _dept = '';
+  final _searchCtrl = TextEditingController();
   int _weeklyOffDay = DateTime.sunday;
   List<Map<String, dynamic>> _calendarOverrides = [];
   List<_EmployeeAttendance> _employees = [];
@@ -84,6 +88,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final today = DateTime.now();
     _year = today.year;
     _month = _monthCodes[today.month - 1];
+    _weekIndex = (today.day - 1) ~/ 7;
     _boot();
   }
 
@@ -146,17 +151,14 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _dayMarkColor(String code) {
     switch (code) {
-      case 'P':
-        return _hex(_green);
-      case 'A':
-        return _hex(_red);
-      case 'L':
-        return _hex(_orange);
-      case 'HL':
-      case 'LV':
-        return _hex(_purple);
-      default:
-        return _hex(_muted); // OFF, –, blank
+      case 'P':   return _hex(_green);
+      case 'A':   return _hex(_red);
+      case 'LT':  return _hex(_orange);
+      case 'OFF': return _hex(_muted);
+      case '–':
+      case '':    return _hex(_muted);
+      // Any other code (HL, H, or a leave abbreviation like CL/EL/SL) = leave colour
+      default:    return _hex(_purple);
     }
   }
 
@@ -272,9 +274,32 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  int get _daysInMonth =>
+      DateTime(_year, _monthCodes.indexOf(_month) + 2, 0).day;
+  int get _weeksInMonth => (_daysInMonth / 7).ceil();
+  List<int> get _weekDays {
+    final start = _weekIndex * 7 + 1;
+    final end = (start + 6).clamp(1, _daysInMonth);
+    return List.generate(end - start + 1, (i) => start + i);
+  }
+
+  List<_EmployeeAttendance> get _filteredEmployees => _employees.where((e) {
+        if (_dept.isNotEmpty && e.department != _dept) return false;
+        if (_search.isNotEmpty &&
+            !e.name.toLowerCase().contains(_search.toLowerCase())) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+  List<String> get _departments => [
+        ...{for (final e in _employees) if (e.department.isNotEmpty) e.department},
+      ]..sort();
+
   @override
   void dispose() {
     _tableScrollController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -313,17 +338,17 @@ class _DashboardPageState extends State<DashboardPage> {
             child: Padding(
               padding: EdgeInsets.fromLTRB(
                 width < 1100 ? 20 : 32,
-                22,
+                14,
                 width < 1100 ? 20 : 32,
-                20,
+                14,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _pageHeading(),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 10),
                   SizedBox(
-                    height: 116,
+                    height: 90,
                     child: _KpiRow(
                       monthly: _monthly,
                       total: _kpiTotal,
@@ -332,11 +357,11 @@ class _DashboardPageState extends State<DashboardPage> {
                       late: _kpiLate,
                     ),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 10),
                   Expanded(child: _attendancePanel()),
                   if (_monthly) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(height: 50, child: _monthSelector()),
+                    const SizedBox(height: 6),
+                    SizedBox(height: 38, child: _monthSelector()),
                   ],
                 ],
               ),
@@ -373,183 +398,551 @@ class _DashboardPageState extends State<DashboardPage> {
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: const Color(0xFFBFD2F2)),
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: BorderRadius.circular(13),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x09193B75),
+          blurRadius: 24,
+          offset: Offset(0, 4),
+        ),
+      ],
     ),
     clipBehavior: Clip.antiAlias,
     child: Column(
       children: [
-        SizedBox(
-          height: 76,
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.calendar_month_outlined,
-                    color: _blue,
-                    size: 25,
+        _panelToolbar(),
+        const Divider(height: 1, color: _line),
+        if (_monthly) ...[
+          _panelLegend(),
+          const Divider(height: 1, color: _line),
+        ],
+        Expanded(child: _panelBody()),
+        const Divider(height: 1, color: _line),
+        if (_monthly) _panelFooter(),
+      ],
+    ),
+  );
+
+  Widget _panelToolbar() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+    child: Row(
+      children: [
+        const Icon(Icons.calendar_month_outlined, color: _blue, size: 22),
+        const SizedBox(width: 10),
+        Text(
+          _monthly
+              ? '${_monthName(_month)} $_year Attendance'
+              : '$_year Yearly Attendance',
+          style: const TextStyle(
+            color: _navy,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (_monthly) ...[
+          const SizedBox(width: 16),
+          // Position 1: Search + dept filter
+          SizedBox(
+            width: 180,
+            height: 36,
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search employee…',
+                hintStyle: const TextStyle(color: _muted, fontSize: 12),
+                prefixIcon: const Icon(Icons.search, size: 16, color: _muted),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: _line),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: _line),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: _blue),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              style: const TextStyle(fontSize: 12),
+              onChanged: (val) => setState(() => _search = val),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 36,
+            child: DropdownButtonHideUnderline(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: _line),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButton<String>(
+                  value: _dept.isEmpty ? null : _dept,
+                  hint: const Text(
+                    'All departments',
+                    style: TextStyle(color: _muted, fontSize: 11),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    _monthly
-                        ? '${_monthName(_month)} $_year Attendance'
-                        : '$_year Yearly Attendance',
-                    style: const TextStyle(
-                      color: _navy,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  style: const TextStyle(color: _navy, fontSize: 11),
+                  icon: const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: _navy,
+                    size: 16,
                   ),
-                  const SizedBox(width: 24),
-                  const _AttendanceLegend(),
-                  const SizedBox(width: 24),
-                  if (_monthly) ...[
-                    Tooltip(
-                      message: _showSummary
-                          ? 'Hide payroll summary columns'
-                          : 'Show payroll summary columns',
-                      child: OutlinedButton(
-                        onPressed: () =>
-                            setState(() => _showSummary = !_showSummary),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _showSummary ? _blue : _muted,
-                          backgroundColor: _showSummary
-                              ? const Color(0xFFEAF2FF)
-                              : Colors.white,
-                          side: BorderSide(
-                            color: _showSummary
-                                ? _blue
-                                : const Color(0xFFBFD2F2),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                        ),
-                        child: Icon(
-                          _showSummary
-                              ? Icons.view_column
-                              : Icons.view_column_outlined,
-                          size: 20,
-                        ),
-                      ),
+                  borderRadius: BorderRadius.circular(10),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('All departments',
+                          style: TextStyle(color: _muted)),
                     ),
-                    const SizedBox(width: 8),
+                    for (final d in _departments)
+                      DropdownMenuItem<String>(value: d, child: Text(d)),
                   ],
-                  OutlinedButton.icon(
-                    onPressed: _exportAttendanceCsv,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _navy,
-                      side: const BorderSide(color: Color(0xFFBFD2F2)),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    icon: const Icon(Icons.file_download_outlined, size: 20),
-                    label: const Text(
-                      'Export',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _openManageTime,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _navy,
-                      side: const BorderSide(color: Color(0xFFBFD2F2)),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    icon: const Icon(Icons.schedule_rounded, size: 20),
-                    label: const Text(
-                      'Manage Time',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _openManageCalendar,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _blue,
-                      side: const BorderSide(color: _blue),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    icon: const Icon(Icons.edit_calendar_outlined, size: 20),
-                    label: const Text(
-                      'Manage Calendar',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
+                  onChanged: (val) => setState(() => _dept = val ?? ''),
+                ),
               ),
             ),
           ),
+          if (_showSummary) ...[
+            const SizedBox(width: 16),
+            // Position 2: Week navigation (hidden in full-month mode)
+            _weekNavRow(),
+          ],
+        ],
+        const Spacer(),
+        if (_monthly) ...[
+          _panelBtn(
+            _showSummary ? Icons.view_column : Icons.view_column_outlined,
+            _showSummary ? 'Hide Summary' : 'Summary',
+            () => setState(() => _showSummary = !_showSummary),
+            active: _showSummary,
+          ),
+          const SizedBox(width: 8),
+        ],
+        _panelBtn(
+          Icons.file_download_outlined,
+          'Export',
+          _exportAttendanceCsv,
         ),
-        const Divider(height: 1, color: _line),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(_error!, textAlign: TextAlign.center),
-                      ),
-                      FilledButton(
-                        onPressed: _loadDashboard,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : _monthly
-              ? _AttendanceTable(
-                  horizontalController: _tableScrollController,
-                  year: _year,
-                  month: _monthCodes.indexOf(_month) + 1,
-                  weeklyOffDay: _weeklyOffDay,
-                  overrides: _calendarOverrides,
-                  employees: _employees,
-                  showSummary: _showSummary,
-                )
-              : _YearlyAttendanceSummary(employees: _employees),
+        const SizedBox(width: 8),
+        _panelBtn(Icons.schedule_rounded, 'Manage Time', _openManageTime),
+        const SizedBox(width: 8),
+        _panelBtn(
+          Icons.edit_calendar_outlined,
+          'Manage Calendar',
+          _openManageCalendar,
+          accent: true,
         ),
       ],
     ),
+  );
+
+  Widget _panelBtn(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool active = false,
+    bool accent = false,
+  }) => OutlinedButton.icon(
+    onPressed: onTap,
+    style: OutlinedButton.styleFrom(
+      foregroundColor: accent
+          ? _blue
+          : active
+          ? _blue
+          : _navy,
+      backgroundColor: active ? const Color(0xFFEAF2FF) : Colors.white,
+      side: BorderSide(
+        color: accent || active ? _blue : const Color(0xFFBFD2F2),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    ),
+    icon: Icon(icon, size: 18),
+    label: Text(
+      label,
+      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+    ),
+  );
+
+  Widget _weekNavRow() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _weekNavBtn(Icons.chevron_left_rounded, _weekIndex > 0,
+          () => setState(() => _weekIndex--)),
+      const SizedBox(width: 6),
+      Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: _line),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<int>(
+            value: _weekIndex.clamp(0, _weeksInMonth - 1),
+            style: const TextStyle(
+              color: _navy,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            icon: const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: _navy,
+              size: 18,
+            ),
+            borderRadius: BorderRadius.circular(10),
+            items: List.generate(_weeksInMonth, (i) {
+              final s = i * 7 + 1;
+              final e = (s + 6).clamp(1, _daysInMonth);
+              return DropdownMenuItem<int>(
+                value: i,
+                child: Text('Week ${i + 1} · $s–$e ${_month}'),
+              );
+            }),
+            onChanged: (val) {
+              if (val != null) setState(() => _weekIndex = val);
+            },
+          ),
+        ),
+      ),
+      const SizedBox(width: 6),
+      _weekNavBtn(
+        Icons.chevron_right_rounded,
+        _weekIndex < _weeksInMonth - 1,
+        () => setState(() => _weekIndex++),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton(
+        onPressed: () {
+          final today = DateTime.now();
+          if (_year == today.year &&
+              _monthCodes.indexOf(_month) + 1 == today.month) {
+            setState(() => _weekIndex = (today.day - 1) ~/ 7);
+          }
+        },
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _blue,
+          side: const BorderSide(color: Color(0xFFBFD2F2)),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: const Size(0, 40),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        ),
+        child: const Text(
+          'This week',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    ],
+  );
+
+  Widget _weekNavBtn(IconData icon, bool enabled, VoidCallback onTap) =>
+      SizedBox(
+        width: 40,
+        height: 40,
+        child: OutlinedButton(
+          onPressed: enabled ? onTap : null,
+          style: OutlinedButton.styleFrom(
+            padding: EdgeInsets.zero,
+            side: BorderSide(
+              color: enabled ? _line : _line.withValues(alpha: .5),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: enabled ? _navy : _muted,
+          ),
+        ),
+      );
+
+  Widget _panelLegend() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+    child: Wrap(
+      spacing: 16,
+      runSpacing: 6,
+      children: const [
+        _LegendChip(code: 'P', label: 'Present'),
+        _LegendChip(code: 'A', label: 'Absent'),
+        _LegendChip(code: 'LT', label: 'Late'),
+        _LegendChip(code: 'L', label: 'Leave'),
+        _LegendChip(code: 'HL', label: 'Half Leave'),
+        _LegendChip(code: 'EL', label: 'Earned Leave'),
+        _LegendChip(code: 'H', label: 'Holiday'),
+        _LegendChip(code: 'OFF', label: 'Weekly Off'),
+      ],
+    ),
+  );
+
+  Widget _panelBody() => _loading
+      ? const Center(child: CircularProgressIndicator())
+      : _error != null
+      ? Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+              FilledButton(onPressed: _loadDashboard, child: const Text('Retry')),
+            ],
+          ),
+        )
+      : _monthly
+      ? _showSummary
+          // ── Week view with summary columns ──────────────────────────────
+          ? _AttendanceTable(
+              horizontalController: _tableScrollController,
+              year: _year,
+              month: _monthCodes.indexOf(_month) + 1,
+              weekDays: _weekDays,
+              weeklyOffDay: _weeklyOffDay,
+              overrides: _calendarOverrides,
+              employees: _filteredEmployees,
+              showSummary: true,
+              onCellTap: _openEditDialog,
+            )
+          // ── Full month view (no summary) ─────────────────────────────────
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              controller: _tableScrollController,
+              child: SizedBox(
+                // 230 frozen + 44px per day (fits ~23 days at 1280px, scrolls rest)
+                width: 230 + _daysInMonth * 44.0,
+                child: _AttendanceTable(
+                  horizontalController: _tableScrollController,
+                  year: _year,
+                  month: _monthCodes.indexOf(_month) + 1,
+                  weekDays: List.generate(_daysInMonth, (i) => i + 1),
+                  weeklyOffDay: _weeklyOffDay,
+                  overrides: _calendarOverrides,
+                  employees: _filteredEmployees,
+                  showSummary: false,
+                  onCellTap: _openEditDialog,
+                ),
+              ),
+            )
+      : _YearlyAttendanceSummary(employees: _filteredEmployees);
+
+  Widget _panelFooter() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+    child: Row(
+      children: [
+        Text(
+          'Showing ${_filteredEmployees.length} of ${_employees.length} employees',
+          style: const TextStyle(color: _muted, fontSize: 11),
+        ),
+        const Spacer(),
+        Text(
+          'Total: ${_employees.length} employees',
+          style: const TextStyle(
+            color: _blue,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  void _openEditDialog(
+    _EmployeeAttendance employee,
+    int dayIndex,
+    int day,
+    String dateKey,
+  ) {
+    String selectedStatus = '';
+    final timeCtrl1 = TextEditingController();
+    final timeCtrl2 = TextEditingController();
+    final remarksCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(22, 20, 16, 0),
+          title: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      employee.name,
+                      style: const TextStyle(
+                        color: _navy,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      dateKey,
+                      style: const TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close_rounded, color: _muted),
+              ),
+            ],
+          ),
+          contentPadding: const EdgeInsets.all(22),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Attendance Status',
+                  style: TextStyle(
+                    color: _navy,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final entry in [
+                      ('P', 'Present'),
+                      ('A', 'Absent'),
+                      ('LT', 'Late'),
+                      ('L', 'Leave'),
+                      ('HL', 'Half Leave'),
+                      ('EL', 'Earned Leave'),
+                      ('H', 'Holiday'),
+                      ('OFF', 'Weekly Off'),
+                    ])
+                      _StatusOption(
+                        code: entry.$1,
+                        label: entry.$2,
+                        selected: selectedStatus == entry.$1,
+                        onTap: () => setS(() => selectedStatus = entry.$1),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _timeField('Clock In', timeCtrl1),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _timeField('Clock Out', timeCtrl2),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _remarksField(remarksCtrl),
+              ],
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: _line),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: selectedStatus.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      // API call placeholder — wire to your attendance update endpoint
+                    },
+              style: FilledButton.styleFrom(
+                backgroundColor: _blue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('Save changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timeField(String label, TextEditingController ctrl) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label,
+          style: const TextStyle(
+              color: _navy, fontSize: 12, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 6),
+      TextField(
+        controller: ctrl,
+        decoration: InputDecoration(
+          hintText: '09:30',
+          hintStyle: const TextStyle(color: _muted),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: const BorderSide(color: _line),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: const BorderSide(color: _line),
+          ),
+        ),
+        style: const TextStyle(fontSize: 13),
+      ),
+    ],
+  );
+
+  Widget _remarksField(TextEditingController ctrl) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Remarks',
+          style: TextStyle(
+              color: _navy, fontSize: 12, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 6),
+      TextField(
+        controller: ctrl,
+        maxLines: 2,
+        decoration: InputDecoration(
+          hintText: 'Optional note…',
+          hintStyle: const TextStyle(color: _muted),
+          contentPadding: const EdgeInsets.all(12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: const BorderSide(color: _line),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: const BorderSide(color: _line),
+          ),
+        ),
+        style: const TextStyle(fontSize: 13),
+      ),
+    ],
   );
 
   Widget _monthSelector() {
@@ -567,7 +960,15 @@ class _DashboardPageState extends State<DashboardPage> {
             Expanded(
               child: InkWell(
                 onTap: () {
-                  setState(() => _month = month);
+                  final today = DateTime.now();
+                  final newMonthNum = _monthCodes.indexOf(month) + 1;
+                  setState(() {
+                    _month = month;
+                    _weekIndex = (_year == today.year &&
+                            newMonthNum == today.month)
+                        ? (today.day - 1) ~/ 7
+                        : 0;
+                  });
                   _loadDashboard();
                 },
                 child: Container(
@@ -677,47 +1078,76 @@ class _AttendanceTable extends StatelessWidget {
     required this.horizontalController,
     required this.year,
     required this.month,
+    required this.weekDays,
     required this.weeklyOffDay,
     required this.overrides,
     required this.employees,
     required this.showSummary,
+    this.onCellTap,
   });
 
   final ScrollController horizontalController;
   final int year;
   final int month;
+  final List<int> weekDays;
   final int weeklyOffDay;
   final List<Map<String, dynamic>> overrides;
   final List<_EmployeeAttendance> employees;
   final bool showSummary;
+  final void Function(_EmployeeAttendance, int dayIndex, int day, String dateKey)?
+      onCellTap;
 
   @override
   Widget build(BuildContext context) {
-    final days = List.generate(
-      DateTime(year, month + 1, 0).day,
-      (index) => index + 1,
-    );
     const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final today = DateTime.now();
+    final todayKey =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
+    int? todayIndex;
+    for (var i = 0; i < weekDays.length; i++) {
+      final dk =
+          '$year-${month.toString().padLeft(2, '0')}-${weekDays[i].toString().padLeft(2, '0')}';
+      if (dk == todayKey) {
+        todayIndex = i;
+        break;
+      }
+    }
+
     if (employees.isEmpty) {
       return const Center(child: Text('No employees to show.'));
     }
     return AttendanceGrid(
       showSummary: showSummary,
-      days: days,
+      days: weekDays,
       dayLabels: [
-        for (final day in days)
+        for (final day in weekDays)
           weekdayNames[DateTime(year, month, day).weekday - 1],
       ],
+      todayIndex: todayIndex,
+      onCellTap: onCellTap == null
+          ? null
+          : (row, dayIndex) {
+              final emp = employees.firstWhere(
+                (e) => e.name == row.name,
+                orElse: () => employees.first,
+              );
+              final day = weekDays[dayIndex];
+              final dk =
+                  '$year-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+              onCellTap!(emp, dayIndex, day, dk);
+            },
       rows: [
         for (final employee in employees)
           AttendanceRowData(
+            employeeId: employee.employeeId,
             name: employee.name,
             designation: employee.designation,
             days: [
-              for (var i = 0; i < days.length; i++)
+              for (var i = 0; i < weekDays.length; i++)
                 AttendanceDayMark(
                   _markForDay(
-                    i,
+                    weekDays[i] - 1,
                     employee,
                     year,
                     month,
@@ -800,8 +1230,10 @@ class _YearlyAttendanceSummary extends StatelessWidget {
 
 class _EmployeeAttendance {
   const _EmployeeAttendance({
+    required this.employeeId,
     required this.name,
     required this.designation,
+    required this.department,
     required this.present,
     required this.late,
     required this.halfLeave,
@@ -816,8 +1248,10 @@ class _EmployeeAttendance {
     required this.days,
   });
 
+  final String employeeId;
   final String name;
   final String designation;
+  final String department;
   final int present;
   final int late;
   final int halfLeave;
@@ -835,8 +1269,10 @@ class _EmployeeAttendance {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     return _EmployeeAttendance(
+      employeeId: (json['employeeId'] ?? json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
       designation: (json['designation'] ?? '').toString(),
+      department: (json['department'] ?? '').toString(),
       present: asInt(json['present']),
       late: asInt(json['late']),
       halfLeave: asInt(json['halfLeave']),
@@ -851,6 +1287,101 @@ class _EmployeeAttendance {
       days: (json['days'] as List? ?? [])
           .map((item) => item.toString())
           .toList(),
+    );
+  }
+}
+
+class _LegendChip extends StatelessWidget {
+  final String code;
+  final String label;
+  const _LegendChip({required this.code, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = AttendanceDayMark(code);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(
+            color: mark.chipBg,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            code,
+            style: TextStyle(
+              color: mark.color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
+      ],
+    );
+  }
+}
+
+class _StatusOption extends StatelessWidget {
+  final String code;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _StatusOption({
+    required this.code,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = AttendanceDayMark(code);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? mark.chipBg : Colors.white,
+          border: Border.all(
+            color: selected ? mark.color : const Color(0xFFDDE6F5),
+            width: selected ? 1.5 : 1,
+          ),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: mark.chipBg,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                code,
+                style: TextStyle(
+                  color: mark.color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: selected ? mark.color : _muted,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2048,49 +2579,6 @@ class _KpiCard extends StatelessWidget {
   );
 }
 
-class _AttendanceLegend extends StatelessWidget {
-  const _AttendanceLegend();
-
-  static const items = <(String, String, Color)>[
-    ('P', 'Present', _green),
-    ('A', 'Absent', Color(0xFFB0000B)),
-    ('L', 'Late', _orange),
-    ('H', 'Holiday', _purple),
-    ('L', 'Leave', _purple),
-    ('HL', 'Half Leave', _purple),
-    ('OFF', 'Weekly Off (Sunday)', Color(0xFF8C9AB8)),
-  ];
-
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      for (final item in items) ...[
-        Container(
-          width: item.$1.length > 2 ? 25 : 20,
-          height: 20,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: item.$3.withValues(alpha: item.$1 == 'OFF' ? .18 : 1),
-            shape: item.$1 == 'OFF' ? BoxShape.rectangle : BoxShape.circle,
-            borderRadius: item.$1 == 'OFF' ? BorderRadius.circular(10) : null,
-          ),
-          child: Text(
-            item.$1,
-            style: TextStyle(
-              color: item.$1 == 'OFF' ? _navy : Colors.white,
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(width: 7),
-        Text(item.$2, style: const TextStyle(color: _navy, fontSize: 10)),
-        const SizedBox(width: 20),
-      ],
-    ],
-  );
-}
 
 class _YearlyHeaderRow extends StatelessWidget {
   const _YearlyHeaderRow();

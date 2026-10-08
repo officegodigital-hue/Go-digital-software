@@ -28,6 +28,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   // 0 = leave, 1 = corrections
   int _activeTab = 0;
   bool leaveRequests = true;
+  String requestCategory = 'leave';
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
@@ -37,6 +38,10 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   List<String> employeeNames = const ['All Employees'];
   int leaveCount = 0;
   int extraCount = 0;
+  int permissionCount = 0;
+  int _pendingLeaveCount = 0;
+  int _pendingExtraCount = 0;
+  int _pendingPermissionCount = 0;
   int kpiPending = 0;
   int kpiApproved = 0;
   int kpiRejected = 0;
@@ -114,27 +119,36 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
       error = null;
     });
     try {
-      final leave = await HrmsApprovalsApi.list(
-        leaveTab: true,
-        employee: employee,
-        status: status,
-      );
-      final extra = await HrmsApprovalsApi.list(
-        leaveTab: false,
-        employee: employee,
-        status: status,
-      );
+      final results = await Future.wait([
+        HrmsApprovalsApi.list(leaveTab: true, employee: employee, status: status),
+        HrmsApprovalsApi.list(leaveTab: false, employee: employee, status: status),
+        HrmsApprovalsApi.list(tab: 'permission', employee: employee, status: status),
+        HrmsApprovalsApi.list(leaveTab: true, employee: 'All Employees', status: 'pending'),
+        HrmsApprovalsApi.list(leaveTab: false, employee: 'All Employees', status: 'pending'),
+        HrmsApprovalsApi.list(tab: 'permission', employee: 'All Employees', status: 'pending'),
+      ]);
+      final leave = results[0];
+      final extra = results[1];
+      final permissions = results[2];
+      final leavePending = results[3];
+      final extraPending = results[4];
+      final permissionPending = results[5];
       final leaveItems = _parse(leave['items']);
       final extraItems = _parse(extra['items']);
+      final permissionItems = _parse(permissions['items']);
       final kpis = Map<String, dynamic>.from(leave['kpis'] as Map? ?? {});
       final names = <String>{'All Employees'};
       names.addAll((leave['employees'] as List? ?? []).map((e) => e.toString()));
       names.addAll((extra['employees'] as List? ?? []).map((e) => e.toString()));
       if (!mounted) return;
       setState(() {
-        requests = leaveRequests ? leaveItems : extraItems;
+        requests = requestCategory == 'leave' ? leaveItems : requestCategory == 'extra' ? extraItems : permissionItems;
         leaveCount = (leave['items'] as List? ?? []).length;
         extraCount = (extra['items'] as List? ?? []).length;
+        permissionCount = (permissions['items'] as List? ?? []).length;
+        _pendingLeaveCount = (leavePending['items'] as List? ?? []).length;
+        _pendingExtraCount = (extraPending['items'] as List? ?? []).length;
+        _pendingPermissionCount = (permissionPending['items'] as List? ?? []).length;
         employeeNames = names.toList();
         if (!employeeNames.contains(employee)) employee = 'All Employees';
         kpiPending = _asInt(kpis['pending']);
@@ -216,25 +230,27 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const _ApprovalsHeader(),
+                                _ApprovalsHeader(
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
+                                      const SizedBox(width: 10),
+                                      _MainTabBtn(
+                                        label: 'Attendance Corrections',
+                                        active: _activeTab == 1,
+                                        badge: _correctionsPendingCount,
+                                        onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 17),
                                 _ApprovalKpis(
                                   pending: kpiPending,
                                   approved: kpiApproved,
                                   rejected: kpiRejected,
                                 ),
-                                const SizedBox(height: 16),
-                                // Top-level tab: Leave vs Attendance Corrections
-                                Row(children: [
-                                  _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
-                                  const SizedBox(width: 10),
-                                  _MainTabBtn(
-                                    label: 'Attendance Corrections',
-                                    active: _activeTab == 1,
-                                    badge: _correctionsPendingCount,
-                                    onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
-                                  ),
-                                ]),
                                 const SizedBox(height: 14),
                                 if (_activeTab == 1) ...[
                                   _CorrectionRequestsPanel(
@@ -250,14 +266,15 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     child: LinearProgressIndicator(minHeight: 2),
                                   ),
                                 _RequestsPanel(
-                                  leaveRequests: leaveRequests,
                                   employee: employee,
                                   status: status,
                                   dateRange: dateRange,
                                   period: period,
                                   employees: employeeNames,
-                                  leaveCount: leaveCount,
-                                  extraCount: extraCount,
+                                  leaveCount: _pendingLeaveCount,
+                                  extraCount: _pendingExtraCount,
+                                  permissionCount: _pendingPermissionCount,
+                                  requestCategory: requestCategory,
                                   requests: requests.where((request) {
                                     final query = searchQuery.trim().toLowerCase();
                                     return (query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query)) && _matchesPeriod(request, period);
@@ -265,7 +282,8 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   searchQuery: searchQuery,
                                   onSearch: (value) => setState(() => searchQuery = value),
                                   onTabChanged: (value) {
-                                    leaveRequests = value;
+                                    requestCategory = value;
+                                    leaveRequests = value == 'leave';
                                     _load();
                                   },
                                   onEmployeeChanged: (value) {
@@ -307,11 +325,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 }
 
 class _ApprovalsHeader extends StatelessWidget {
-  const _ApprovalsHeader();
+  const _ApprovalsHeader({required this.trailing});
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) =>
-      const AdminPageHeader(title: 'Approvals');
+      AdminPageHeader(title: 'Approvals', breadcrumb: 'Approvals', trailing: trailing);
 }
 
 class _ApprovalKpis extends StatelessWidget {
@@ -443,7 +462,7 @@ class _ApprovalKpi extends StatelessWidget {
 
 class _RequestsPanel extends StatelessWidget {
   const _RequestsPanel({
-    required this.leaveRequests,
+    required this.requestCategory,
     required this.employee,
     required this.status,
     required this.dateRange,
@@ -451,6 +470,7 @@ class _RequestsPanel extends StatelessWidget {
     required this.employees,
     required this.leaveCount,
     required this.extraCount,
+    required this.permissionCount,
     required this.requests,
     required this.searchQuery,
     required this.onSearch,
@@ -464,14 +484,14 @@ class _RequestsPanel extends StatelessWidget {
     required this.onReject,
   });
 
-  final bool leaveRequests;
   final String employee, status, dateRange, period;
   final List<String> employees;
-  final int leaveCount, extraCount;
+  final int leaveCount, extraCount, permissionCount;
+  final String requestCategory;
   final List<_ApprovalRequest> requests;
   final String searchQuery;
   final ValueChanged<String> onSearch;
-  final ValueChanged<bool> onTabChanged;
+  final ValueChanged<String> onTabChanged;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
   final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
@@ -497,9 +517,10 @@ class _RequestsPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _ApprovalTabs(
-                leaveRequests: leaveRequests,
+                requestCategory: requestCategory,
                 leaveCount: leaveCount,
                 extraCount: extraCount,
+                permissionCount: permissionCount,
                 onChanged: onTabChanged),
             const SizedBox(height: 12),
             _ApprovalFilters(
@@ -668,25 +689,28 @@ class _MobileApprovalList extends StatelessWidget {
 
 class _ApprovalTabs extends StatelessWidget {
   const _ApprovalTabs({
-    required this.leaveRequests,
+    required this.requestCategory,
     required this.leaveCount,
     required this.extraCount,
+    required this.permissionCount,
     required this.onChanged,
   });
-  final bool leaveRequests;
-  final int leaveCount, extraCount;
-  final ValueChanged<bool> onChanged;
+  final String requestCategory;
+  final int leaveCount, extraCount, permissionCount;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
         return SizedBox(
-          width: constraints.maxWidth < 600 ? constraints.maxWidth : 220,
-          child: _TabButton(
-              label: 'Leave Requests',
-              count: leaveCount,
-              active: true,
-              onTap: () => onChanged(true)),
+          width: constraints.maxWidth < 600 ? constraints.maxWidth : 620,
+          child: Row(children: [
+            Expanded(child: _TabButton(label: 'Leave', count: leaveCount, active: requestCategory == 'leave', onTap: () => onChanged('leave'))),
+            const SizedBox(width: 8),
+            Expanded(child: _TabButton(label: 'Permission', count: permissionCount, active: requestCategory == 'permission', onTap: () => onChanged('permission'))),
+            const SizedBox(width: 8),
+            Expanded(child: _TabButton(label: 'Extra Hours', count: extraCount, active: requestCategory == 'extra', onTap: () => onChanged('extra'))),
+          ]),
         );
       });
 }
@@ -1040,9 +1064,28 @@ class _ApprovalRow extends StatelessWidget {
                     child: Icon(request.icon,
                         color: Color(request.color), size: 19)),
                 const SizedBox(width: 11),
-                Text(request.type,
-                    style: const TextStyle(
-                        color: Color(0xFF272B35), fontSize: 13)),
+                Flexible(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(request.type,
+                        style: const TextStyle(
+                            color: Color(0xFF272B35), fontSize: 13)),
+                    if (request.abbreviation != null)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Color(request.color).withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(request.abbreviation!,
+                          style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w700,
+                            color: Color(request.color), letterSpacing: 0.5)),
+                      ),
+                  ],
+                )),
               ]),
             ),
             _ApprovalCell(
@@ -1194,6 +1237,7 @@ class _ApprovalRequest {
     required this.name,
     required this.id,
     required this.type,
+    required this.abbreviation,
     required this.dates,
     required this.dayRange,
     required this.duration,
@@ -1205,6 +1249,7 @@ class _ApprovalRequest {
 
   final int requestId;
   final String name, id, type, dates, dayRange, duration, reason;
+  final String? abbreviation;
   String status;
   final IconData icon;
   final int color;
@@ -1213,11 +1258,13 @@ class _ApprovalRequest {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     final iconKey = (json['icon'] ?? '').toString();
+    final abbr = json['abbreviation']?.toString();
     return _ApprovalRequest(
       requestId: asInt(json['id']),
       name: (json['name'] ?? '').toString(),
       id: (json['employeeCode'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
+      abbreviation: (abbr != null && abbr.isNotEmpty) ? abbr : null,
       dates: (json['dates'] ?? '').toString(),
       dayRange: (json['dayRange'] ?? '').toString(),
       duration: (json['duration'] ?? '').toString(),

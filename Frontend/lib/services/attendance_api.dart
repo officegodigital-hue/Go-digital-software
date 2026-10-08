@@ -71,12 +71,48 @@ class AttendanceApi {
     return _get('/attendance/me?month=$value');
   }
 
-  static Future<void> checkIn({String method = 'mobile'}) {
-    return _post('/attendance/check-in', {'method': method});
+  static Future<void> checkIn({
+    String method = 'mobile',
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    DateTime? capturedAt,
+  }) {
+    return _post('/attendance/check-in', {
+      'method': method,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (accuracy != null) 'accuracy': accuracy,
+      if (capturedAt != null) 'capturedAt': capturedAt.toIso8601String(),
+    });
   }
 
-  static Future<void> checkOut() {
-    return _post('/attendance/check-out');
+  static Future<void> checkOut({
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+  }) {
+    return _post('/attendance/check-out', {
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (accuracy != null) 'accuracy': accuracy,
+    });
+  }
+
+  static Future<Map<String, dynamic>> startBreak() {
+    return _post('/attendance/break-in');
+  }
+
+  static Future<Map<String, dynamic>> endBreak({
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+  }) {
+    return _post('/attendance/break-out', {
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (accuracy != null) 'accuracy': accuracy,
+    });
   }
 
   static Future<Map<String, dynamic>> locationHeartbeat({

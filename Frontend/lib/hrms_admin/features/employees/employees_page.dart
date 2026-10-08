@@ -263,8 +263,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
     try {
       final csv = await HrmsEmployeesApi.exportCsv();
       final rows = _parseCsv(csv);
-      if (rows.length <= 1)
+      if (rows.length <= 1) {
         throw Exception('No employees available to export.');
+      }
       final logo = pw.MemoryImage(
         (await rootBundle.load(
           'assets/images/godigital_logo.png',
@@ -585,8 +586,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
                               },
                               onChanged: (v) {
                                 final n = int.tryParse(v);
-                                if (n != null && n >= 1 && n <= 28)
+                                if (n != null && n >= 1 && n <= 28) {
                                   setDialogState(() => cycleStartDay = n);
+                                }
                               },
                             ),
                           ),
@@ -607,8 +609,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
                               },
                               onChanged: (v) {
                                 final n = int.tryParse(v);
-                                if (n != null && n >= 1 && n <= 28)
+                                if (n != null && n >= 1 && n <= 28) {
                                   setDialogState(() => cycleEndDay = n);
+                                }
                               },
                             ),
                           ),
@@ -835,54 +838,83 @@ class _PageHeader extends StatelessWidget {
 
   final VoidCallback onAdd, onExport, onLeavePolicy;
 
+  static const _btnShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(9)),
+  );
+
+  Widget _leavePolicyBtn() => OutlinedButton.icon(
+    onPressed: onLeavePolicy,
+    icon: const Icon(Icons.event_available_outlined, size: 20),
+    label: const Text('Leave Policy'),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: HrmsColors.navy,
+      backgroundColor: const Color(0xFFF0F4FF),
+      side: const BorderSide(color: Color(0xFFBDCEFF)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      shape: _btnShape,
+    ),
+  );
+
+  Widget _addEmployeeBtn() => FilledButton.icon(
+    onPressed: onAdd,
+    icon: const Icon(Icons.add, size: 20),
+    label: const Text('Add Employee'),
+    style: FilledButton.styleFrom(
+      backgroundColor: HrmsColors.blue,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      shape: _btnShape,
+    ),
+  );
+
+  Widget _exportBtn() => OutlinedButton.icon(
+    onPressed: onExport,
+    icon: const Icon(Icons.download_outlined, size: 20),
+    label: const Text('Export'),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: HrmsColors.blue,
+      backgroundColor: const Color(0xFFF0F6FF),
+      side: const BorderSide(color: Color(0xFF9FBCFF)),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      shape: _btnShape,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => AdminPageHeader(
     title: 'Employee Management',
     breadcrumb: 'Employees',
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        OutlinedButton.icon(
-          onPressed: onLeavePolicy,
-          icon: const Icon(Icons.event_available_outlined),
-          label: const Text('Leave Policy'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.navy,
-            side: const BorderSide(color: HrmsColors.line),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        FilledButton.icon(
-          onPressed: onAdd,
-          icon: const Icon(Icons.add, size: 25),
-          label: const Text('Add Employee'),
-          style: FilledButton.styleFrom(
-            backgroundColor: HrmsColors.blue,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-        const SizedBox(width: 14),
-        OutlinedButton.icon(
-          onPressed: onExport,
-          icon: const Icon(Icons.download_outlined),
-          label: const Text('Export'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.blue,
-            side: const BorderSide(color: Color(0xFF9FBCFF)),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-      ],
+    trailing: LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 480) {
+          // Mobile: two primary buttons on top, Export alone below
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _leavePolicyBtn()),
+                  const SizedBox(width: 10),
+                  Expanded(child: _addEmployeeBtn()),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _exportBtn(),
+            ],
+          );
+        }
+        // Desktop: all three inline
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _leavePolicyBtn(),
+            const SizedBox(width: 12),
+            _addEmployeeBtn(),
+            const SizedBox(width: 12),
+            _exportBtn(),
+          ],
+        );
+      },
     ),
   );
 }

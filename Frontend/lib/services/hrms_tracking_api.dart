@@ -94,9 +94,28 @@ class HrmsTrackingApi {
   static Future<void> updateHomeRadius(int radiusMeters) async {
     final response = await http
         .put(
-          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-settings'),
           headers: await _headers(),
           body: jsonEncode({'homeRadiusMeters': radiusMeters}),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decode(response);
+  }
+
+  static Future<void> updateHomeSettings({
+    int? homeRadiusMeters,
+    int? homeOutsideRadiusGraceMinutes,
+    bool? homeTrackingEnabled,
+  }) async {
+    final body = <String, dynamic>{};
+    if (homeRadiusMeters != null) body['homeRadiusMeters'] = homeRadiusMeters;
+    if (homeOutsideRadiusGraceMinutes != null) body['homeOutsideRadiusGraceMinutes'] = homeOutsideRadiusGraceMinutes;
+    if (homeTrackingEnabled != null) body['homeTrackingEnabled'] = homeTrackingEnabled;
+    final response = await http
+        .put(
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-settings'),
+          headers: await _headers(),
+          body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 15));
     _decode(response);
@@ -111,7 +130,7 @@ class HrmsTrackingApi {
   }) async {
     final response = await http
         .put(
-          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/office-location'),
           headers: await _headers(),
           body: jsonEncode({
             'officeName': officeName,
@@ -360,11 +379,29 @@ class HrmsTrackingApi {
         'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
         'officeOutsideRadiusGraceMinutes': officeOutsideRadiusGraceMinutes,
         'homeOutsideRadiusGraceMinutes': homeOutsideRadiusGraceMinutes,
-        if (homeTrackingEnabled != null)
-          'homeTrackingEnabled': homeTrackingEnabled,
+        'homeTrackingEnabled': ?homeTrackingEnabled,
       }),
     );
 
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> updateHybridSettings({
+    required int fieldWaitingMinutes,
+    required int stationaryRadiusMeters,
+    required int fieldPingIntervalMinutes,
+    required int officeOutsideRadiusGraceMinutes,
+  }) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-settings'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'fieldWaitingMinutes': fieldWaitingMinutes,
+        'stationaryRadiusMeters': stationaryRadiusMeters,
+        'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
+        'officeOutsideRadiusGraceMinutes': officeOutsideRadiusGraceMinutes,
+      }),
+    ).timeout(const Duration(seconds: 15));
     return _decode(response);
   }
 

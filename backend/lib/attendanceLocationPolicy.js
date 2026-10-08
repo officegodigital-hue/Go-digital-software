@@ -51,6 +51,21 @@ function validateFix(body, radiusMeters, now = Date.now()) {
   return { ...fix, accuracy };
 }
 
+// For home location registration we only need valid coordinates and a fresh
+// timestamp — accuracy is irrelevant since we are capturing a point, not
+// enforcing proximity.
+function validateRegistrationFix(body, now = Date.now()) {
+  const fix = coordinates(body && body.latitude, body && body.longitude);
+  const accuracy = number(body && body.accuracy);
+  const capturedAt = body && body.capturedAt;
+  const capturedTime = typeof capturedAt === 'string' &&
+    /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(capturedAt) ? Date.parse(capturedAt) : NaN;
+  if (!Number.isFinite(capturedTime) || now - capturedTime > 120000 || capturedTime - now > 30000) {
+    throw new LocationPolicyError(400, 'A fresh GPS location is required. Please try again.');
+  }
+  return { ...fix, accuracy: Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : 0 };
+}
+
 async function profileFor(db, employeeId, lock = false) {
   if (!Number.isSafeInteger(Number(employeeId)) || Number(employeeId) < 1) {
     throw new LocationPolicyError(401, 'Unauthorized');
@@ -86,23 +101,46 @@ async function settingsFor(db, lock = false) {
 
 async function getCheckInPolicy(db, employeeId, lock = false) {
   const profile = await profileFor(db, employeeId, lock);
-  const workMode = profile.work_mode;
+  let workMode = profile.work_mode;
   const settings = await settingsFor(db, lock);
-  let center;
-  // Hybrid employees clock in at the Office in exactly the same way as
-  // Office employees. Live tracking is only needed after they leave for work.
+
+  // Check for an approved WFH permission for today.
+  // This allows Office/Hybrid employees to clock in from home on approved days.
+  let wfhApprovedToday = false;
   if (workMode === 'Office' || workMode === 'Hybrid') {
+    const today = new Date().toISOString().slice(0, 10);
+    const [wfhRows] = await db.query(
+      `SELECT id FROM attendance_permission_requests
+       WHERE employee_id = ? AND request_type = 'wfh'
+         AND request_date = ? AND status = 'approved'
+       LIMIT 1`,
+      [employeeId, today]
+    );
+    if (wfhRows.length > 0) {
+      wfhApprovedToday = true;
+      workMode = 'Home'; // treat as Home employee for today's clock-in only
+    }
+  }
+
+  let center;
+  if (workMode === 'Office' || workMode === 'Hybrid') {
+    // Hybrid employees clock in at the Office in exactly the same way as
+    // Office employees. Live tracking is only needed after they leave for work.
     try {
       center = coordinates(settings.office_latitude, settings.office_longitude);
     } catch (_) {
       throw new LocationPolicyError(503, 'Admin must configure a valid office location.');
     }
   } else {
+    // Home (or Office/Hybrid with approved WFH for today)
     const [homes] = await db.query(
       `SELECT latitude, longitude, approval_status FROM hrms_employee_home_locations
        WHERE employee_user_id = ?${lock ? ' FOR UPDATE' : ''}`, [employeeId]);
     if (homes.length !== 1) {
-      throw new LocationPolicyError(403, 'Register your Home location in Tracking and wait for admin approval.');
+      throw new LocationPolicyError(403,
+        wfhApprovedToday
+          ? 'Your WFH is approved for today but no Home location is registered. Register your Home location in Tracking.'
+          : 'Register your Home location in Tracking and wait for admin approval.');
     }
     if (homes[0].approval_status !== 'approved') {
       throw new LocationPolicyError(403,
@@ -119,7 +157,7 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
   const radiusMeters = workMode === 'Home'
     ? settings.homeRadiusMeters
     : settings.officeRadiusMeters;
-  return { workMode, requiresLocation: true, radiusMeters, center };
+  return { workMode, wfhApprovedToday, requiresLocation: true, radiusMeters, center };
 }
 
 function validateCheckIn(locationPolicy, body, now) {
@@ -135,6 +173,6 @@ function validateCheckIn(locationPolicy, body, now) {
 }
 
 module.exports = {
-  LocationPolicyError, coordinates, distanceMeters, validateFix,
+  LocationPolicyError, coordinates, distanceMeters, validateFix, validateRegistrationFix,
   profileFor, settingsFor, getCheckInPolicy, validateCheckIn
 };

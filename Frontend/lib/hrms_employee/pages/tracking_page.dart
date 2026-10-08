@@ -931,17 +931,19 @@ class _RouteHistoryViewState extends State<_RouteHistoryView> {
       final route = await HrmsTrackingApi.myRoute(
         date: _date.toIso8601String().substring(0, 10),
       );
-      if (mounted)
+      if (mounted) {
         setState(() {
           _route = route;
           _loading = false;
         });
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _error = error.toString().replaceFirst('Exception: ', '');
         });
+      }
     }
   }
 

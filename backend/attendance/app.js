@@ -5,6 +5,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { createService } = require('./service');
 const attendanceController = require('../controllers/attendanceController');
+const leaveSystem = require('../lib/leaveSystem');
+const policy = require('../lib/attendancePolicy');
 
 function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => new Date(), basePath = '/api/attendance' }) {
   const app = express();
@@ -30,21 +32,7 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     )
   `);
 
-  const ensureLeavePolicyTables = () => pool.execute(`
-    CREATE TABLE IF NOT EXISTS hrms_leave_policies (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      leave_type VARCHAR(80) NOT NULL,
-      annual_allowance DECIMAL(8,2) NOT NULL DEFAULT 0,
-      carry_forward TINYINT(1) NOT NULL DEFAULT 0,
-      effective_year INT NOT NULL,
-      active TINYINT(1) NOT NULL DEFAULT 1,
-      PRIMARY KEY (id), UNIQUE KEY uniq_leave_policy_year (leave_type, effective_year)
-    )
-  `).then(() => pool.execute(`
-    INSERT IGNORE INTO hrms_leave_policies (leave_type, annual_allowance, effective_year)
-    VALUES ('Casual Leave', 12, YEAR(CURDATE())), ('Sick Leave', 8, YEAR(CURDATE())),
-           ('Earned Leave', 18, YEAR(CURDATE())), ('Optional Holiday', 3, YEAR(CURDATE()))
-  `));
+  const ensureLeavePolicyTables = () => leaveSystem.ensureLeaveTables(pool);
 
   // JWT Auth Middleware
   const authMiddleware = async (req, res, next) => {
@@ -166,22 +154,30 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           [empId]
         );
 
-        const consumed = { 'Casual Leave': 0, 'Sick Leave': 0, 'Earned Leave': 0, 'Optional Holiday': 0 };
+        const consumed = {};
+        const pending = {};
         for (const row of leaves) {
-          if (row.status === 'APPROVED' || row.status === 'PENDING') {
-            const count = parseFloat(row.days_count) || 1.0;
-            if (consumed[row.leave_type] !== undefined) {
-              consumed[row.leave_type] += count;
-            }
+          const count = parseFloat(row.days_count) || 1.0;
+          if (row.status === 'APPROVED') {
+            consumed[row.leave_type] = Number(consumed[row.leave_type] || 0) + count;
+          } else if (row.status === 'PENDING') {
+            pending[row.leave_type] = Number(pending[row.leave_type] || 0) + count;
           }
         }
 
-        const [policyRows] = await pool.execute(`SELECT leave_type, annual_allowance FROM hrms_leave_policies WHERE effective_year = YEAR(CURDATE()) AND active = 1`);
-        const quotas = Object.fromEntries(policyRows.map((row) => [row.leave_type, Number(row.annual_allowance || 0)]));
-        const balances = Object.keys(quotas).map((type) => ({
-          type,
-          used: consumed[type],
-          total: quotas[type],
+        const types = await leaveSystem.listTypes(pool, { activeOnly: true });
+        const balances = types.map((row) => ({
+          id: row.id,
+          type: row.name,
+          abbreviation: row.abbreviation || null,
+          is_lop: Boolean(row.is_lop),
+          used: Number(consumed[row.name] || 0),
+          total: Number(row.annual_allowance || 0),
+          show_balance_card: Boolean(row.show_balance_card),
+          usage_only: Boolean(row.usage_only),
+          display_mode: row.display_mode || (row.usage_only ? 'USAGE_ONLY' : 'BALANCE_USAGE'),
+          pending: Number(pending[row.name] || 0),
+          card_order: row.card_order,
         }));
 
         res.json({
@@ -192,43 +188,56 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           },
         });
       } catch (error) {
+        console.error('LEAVE DASHBOARD ERROR:', error.code, error.message);
         next(error);
       }
     });
 
-    app.get(`${prefix}/leave/policies`, authMiddleware, async (req, res, next) => {
-      try { await ensureLeavePolicyTables(); const [rows] = await pool.execute('SELECT * FROM hrms_leave_policies WHERE effective_year = YEAR(CURDATE()) ORDER BY id'); res.json({ success: true, data: rows }); } catch (error) { next(error); }
+    app.get(`${prefix}/leave/types`, authMiddleware, async (req, res, next) => {
+      try {
+        const types = await leaveSystem.listTypes(pool, { activeOnly: true });
+        res.json({ success: true, data: types.map((row) => ({
+          id: row.id, name: row.name, abbreviation: row.abbreviation || null,
+          annual_allowance: Number(row.annual_allowance || 0),
+          show_balance_card: Boolean(row.show_balance_card), usage_only: Boolean(row.usage_only),
+          display_mode: row.display_mode || (row.usage_only ? 'USAGE_ONLY' : 'BALANCE_USAGE'),
+          card_order: row.card_order,
+        })) });
+      } catch (error) { next(error); }
     });
-    app.put(`${prefix}/leave/policies/:id`, authMiddleware, async (req, res, next) => {
-      try { await ensureLeavePolicyTables(); const { annual_allowance, carry_forward, active } = req.body; await pool.execute('UPDATE hrms_leave_policies SET annual_allowance = ?, carry_forward = ?, active = ? WHERE id = ?', [Number(annual_allowance), carry_forward ? 1 : 0, active === false ? 0 : 1, Number(req.params.id)]); res.json({ success: true }); } catch (error) { next(error); }
-    });
-    app.post(`${prefix}/leave/policies`, authMiddleware, async (req, res, next) => {
-      try { await ensureLeavePolicyTables(); const { leave_type, annual_allowance, carry_forward = false, effective_year = new Date().getFullYear() } = req.body; const [result] = await pool.execute('INSERT INTO hrms_leave_policies (leave_type, annual_allowance, carry_forward, effective_year) VALUES (?, ?, ?, ?)', [leave_type, Number(annual_allowance), carry_forward ? 1 : 0, Number(effective_year)]); res.json({ success: true, id: result.insertId }); } catch (error) { next(error); }
-    });
+
 
     app.post(`${prefix}/leave/apply`, authMiddleware, async (req, res, next) => {
       try {
         await ensureLeavePolicyTables();
         const empId = req.employee.id;
         const { leave_type, duration_type, from_date, to_date, reason } = req.body;
-        if (!leave_type || !from_date || !to_date) {
+        if (!leave_type || !from_date || !to_date || !String(reason || '').trim()) {
           return res.status(400).json({ success: false, message: 'All fields are required.' });
         }
-        const d1 = new Date(from_date);
-        const d2 = new Date(to_date);
-        let days = (d2 - d1) / (1000 * 60 * 60 * 24) + 1;
-        if (days < 0) days = 1;
-        if (duration_type === 'Half Day') days = 0.5;
-        const [[policy]] = await pool.execute('SELECT annual_allowance FROM hrms_leave_policies WHERE leave_type = ? AND effective_year = YEAR(CURDATE()) AND active = 1', [leave_type]);
-        if (!policy) return res.status(400).json({ success: false, message: 'This leave type is not configured by Admin.' });
-        const [[usage]] = await pool.execute(`SELECT COALESCE(SUM(days_count), 0) AS used FROM employee_leaves WHERE employee_id = ? AND leave_type = ? AND YEAR(from_date) = YEAR(CURDATE()) AND status IN ('PENDING','APPROVED')`, [empId, leave_type]);
-        if (Number(usage.used) + days > Number(policy.annual_allowance)) return res.status(400).json({ success: false, message: 'Insufficient leave balance.' });
+        const start = leaveSystem.iso(from_date); const end = leaveSystem.iso(to_date);
+        const today = policy.todayIstDate();
+        if (!start || !end || end < start) return res.status(400).json({ success: false, message: 'Choose a valid date range.' });
+        if (start < today) return res.status(400).json({ success: false, message: 'Past dates require an attendance correction.' });
+        if (duration_type === 'Half Day' && start !== end) return res.status(400).json({ success: false, message: 'Half-day leave must use one date.' });
+        const [types] = await pool.execute('SELECT id, name, annual_allowance FROM hrms_leave_types WHERE name = ? AND is_active = 1 LIMIT 1', [leave_type]);
+        const leaveType = types[0];
+        if (!leaveType) return res.status(400).json({ success: false, message: 'This leave type is not configured by Admin.' });
+        const daysList = await leaveSystem.workingDates(pool, start, end);
+        if (!daysList.length) return res.status(400).json({ success: false, message: 'Choose at least one working day.' });
+        const days = duration_type === 'Half Day' ? 0.5 : daysList.length;
+        const [[overlap]] = await pool.execute(`SELECT id FROM employee_leaves WHERE employee_id = ?
+          AND status IN ('PENDING','APPROVED') AND from_date <= ? AND to_date >= ? LIMIT 1`, [empId, end, start]);
+        if (overlap) return res.status(409).json({ success: false, message: 'This request overlaps an existing leave request.' });
+        const [[usage]] = await pool.execute(`SELECT COALESCE(SUM(days_count), 0) AS used FROM employee_leaves
+          WHERE employee_id = ? AND leave_type_id = ? AND YEAR(from_date) = YEAR(?) AND status IN ('PENDING','APPROVED')`, [empId, leaveType.id, start]);
+        if (Number(usage.used) + days > Number(leaveType.annual_allowance)) return res.status(400).json({ success: false, message: 'Insufficient leave balance.' });
 
         const [result] = await pool.execute(
           `INSERT INTO employee_leaves
-            (employee_id, leave_type, duration_type, from_date, to_date, days_count, reason, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-          [empId, leave_type, duration_type || 'Full Day', from_date, to_date, days, reason || '']
+            (employee_id, leave_type, leave_type_id, duration_type, from_date, to_date, days_count, reason, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+          [empId, leaveType.name, leaveType.id, duration_type || 'Full Day', start, end, days, String(reason).trim()]
         );
         await ensureLeaveApprovalLinks();
         const adminReason = `${leave_type} · ${duration_type || 'Full Day'} · ${from_date} to ${to_date}\n${reason || ''}`.trim();
@@ -634,7 +643,9 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     if (status >= 500) console.error('Attendance error:', error);
     res.status(status).json({
       success: false,
-      message: status >= 500 ? 'Attendance service unavailable' : error.message,
+      message: status >= 500 && process.env.NODE_ENV === 'production'
+        ? 'Attendance service unavailable'
+        : error.message,
     });
   });
 

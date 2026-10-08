@@ -21,6 +21,7 @@ class AdminTopNav extends StatelessWidget {
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
+    ('Announcements', '/admin/announcements'),
   ];
 
   void _open(BuildContext context, String route) {
@@ -117,21 +118,39 @@ class AdminProfileDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final user = authService.user ?? {};
-    
-    final resolvedName = (user['full_name'] ?? user['firstName'] ?? 'Admin').toString();
-    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? '').toString();
-    final avatarColor = (user['avatar_color'] ?? user['avatarColor'] ?? '#075EF7').toString();
+
+    final resolvedName =
+        (user['fullName'] ??
+                user['full_name'] ??
+                user['name'] ??
+                user['admin_name'] ??
+                user['adminName'] ??
+                user['username'] ??
+                user['firstName'] ??
+                user['first_name'] ??
+                'Admin')
+            .toString();
+    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? '')
+        .toString();
+    final avatarColor =
+        (user['avatar_color'] ?? user['avatarColor'] ?? '#075EF7').toString();
     final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
 
     final nameParts = resolvedName.trim().split(RegExp(r'\s+'));
     final resolvedInitials = nameParts.length > 1
         ? '${nameParts[0][0]}.${nameParts[1][0]}'.toUpperCase()
-        : (resolvedName.isNotEmpty ? resolvedName.substring(0, resolvedName.length >= 2 ? 2 : 1).toUpperCase() : 'A');
+        : (resolvedName.isNotEmpty
+              ? resolvedName
+                    .substring(0, resolvedName.length >= 2 ? 2 : 1)
+                    .toUpperCase()
+              : 'A');
 
     ImageProvider? photoProvider;
     if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
       try {
-        photoProvider = MemoryImage(base64Decode(profilePhoto.toString().split(',').last));
+        photoProvider = MemoryImage(
+          base64Decode(profilePhoto.toString().split(',').last),
+        );
       } catch (_) {}
     }
 
@@ -187,7 +206,13 @@ class AdminProfileDropdown extends StatelessWidget {
             children: [
               Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 20),
               SizedBox(width: 10),
-              Text('Logout', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700)),
+              Text(
+                'Logout',
+                style: TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
@@ -196,7 +221,10 @@ class AdminProfileDropdown extends StatelessWidget {
         if (value == 'profile') {
           Navigator.pushNamed(context, '/profile');
         } else if (value == 'workspace') {
-          Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil('/home', (route) => false);
+          Navigator.of(
+            context,
+            rootNavigator: true,
+          ).pushNamedAndRemoveUntil('/home', (route) => false);
         } else if (value == 'logout') {
           await authService.logout();
           if (context.mounted) {
@@ -318,7 +346,7 @@ class AdminMobileBottomNav extends StatelessWidget {
       top: false,
       minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
       child: Container(
-        height: 62,
+        height: 74,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: const Color(0xFF172554),
@@ -359,12 +387,6 @@ class AdminMobileBottomNav extends StatelessWidget {
             ),
             _dockItem(
               context,
-              icon: Icons.account_balance_wallet_rounded,
-              label: 'Payroll',
-              route: '/admin/payroll',
-            ),
-            _dockItem(
-              context,
               icon: Icons.location_on_rounded,
               label: 'Tracking',
               route: '/admin/tracking',
@@ -388,16 +410,30 @@ class AdminMobileBottomNav extends StatelessWidget {
         child: InkWell(
           onTap: () => _open(context, route),
           borderRadius: BorderRadius.circular(25),
-          child: Center(
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF2563EB) : Colors.transparent,
-                shape: BoxShape.circle,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: active ? const Color(0xFF2563EB) : Colors.transparent,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 21),
               ),
-              child: Icon(icon, color: Colors.white, size: 24),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),

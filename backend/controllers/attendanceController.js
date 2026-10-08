@@ -202,10 +202,11 @@ function computeStatus(record) {
   if (!record || !record.check_in_at) {
     return record && record.attendance_status === 'on_leave' ? 'on_leave' : 'absent';
   }
-  if (record.attendance_status === 'absent') return 'absent';
+  // Employee physically checked in — 'absent' stored at clock-in means they
+  // arrived after the absent threshold; treat as 'late' since they did attend.
   const worked = Number(record.working_minutes || 0);
   if (record.check_out_at && policy.isEarlyExit(worked)) return 'early_exit';
-  if (record.is_late) return 'late';
+  if (record.is_late || record.attendance_status === 'absent') return 'late';
   return 'present';
 }
 
@@ -276,18 +277,18 @@ async function dashboard(req, res) {
 
       const record = recordByEmployee.get(person.id);
       const checkedIn = Boolean(record && record.check_in_at);
-      const markedAbsent = Boolean(record && record.attendance_status === 'absent');
+      // 'absent' stored on check_in_at records means post-threshold arrival — still attended.
+      const trulyAbsent = Boolean(record && record.attendance_status === 'absent' && !record.check_in_at) || (!record && !onLeave.has(person.id));
+      const isLate = checkedIn && (Number(record.is_late) || record.attendance_status === 'absent');
       if (record && record.check_in_method === 'wifi') wifi += 1;
-      if (checkedIn && Number(record.is_late) && !markedAbsent) lateLogins += 1;
-      if (markedAbsent) {
+      if (checkedIn && isLate) lateLogins += 1;
+      if (trulyAbsent) {
         absent += 1;
-      } else if (checkedIn && !Number(record.is_late)) {
+      } else if (checkedIn && !isLate) {
         presentToday += 1;
         bucket.present += 1;
-      } else if (checkedIn && Number(record.is_late)) {
+      } else if (checkedIn && isLate) {
         bucket.present += 1;
-      } else if (!onLeave.has(person.id)) {
-        absent += 1;
       }
     });
 
@@ -818,7 +819,9 @@ async function checkIn(req, res) {
       throw new locationPolicy.LocationPolicyError(409, 'Already checked in today');
     }
 
-    const status = absent ? 'absent' : (late ? 'late' : 'present');
+    // If employee checks in after the absent threshold they are still attending —
+    // record 'late' (not 'absent') since they physically showed up.
+    const status = (absent || late) ? 'late' : 'present';
     if (existing) {
       await connection.query(
         "UPDATE attendance_records SET check_in_at = ?, check_in_method = ?, is_late = ?, attendance_status = ?, session_status = 'active', work_mode_snapshot = ? WHERE id = ?",
@@ -839,6 +842,19 @@ async function checkIn(req, res) {
         [employeeId, rules.workMode.toLowerCase()]
       );
     }
+
+    // Store check-in location as a tracking ping so it appears on the live map
+    const ciLat = Number(req.body && req.body.latitude);
+    const ciLng = Number(req.body && req.body.longitude);
+    const ciAcc = req.body && req.body.accuracy != null ? Number(req.body.accuracy) : null;
+    if (Number.isFinite(ciLat) && Number.isFinite(ciLng)) {
+      await connection.query(
+        `INSERT INTO hrms_location_pings (employee_user_id, latitude, longitude, accuracy_meters)
+         VALUES (?, ?, ?, ?)`,
+        [employeeId, ciLat, ciLng, ciAcc]
+      );
+    }
+
     const record = await getRecord(employeeId, date, connection);
     await connection.commit();
     return ok(res, serializeRecord(record), 'Checked in');
@@ -1043,8 +1059,15 @@ async function heartbeat(req, res) {
     );
     const latitude = Number(req.body && req.body.latitude);
     const longitude = Number(req.body && req.body.longitude);
+    const accuracy = req.body && req.body.accuracy != null ? Number(req.body.accuracy) : null;
     let radiusState = 'not_evaluated';
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      // Store every heartbeat location as a tracking ping for live map visibility
+      await db.query(
+        `INSERT INTO hrms_location_pings (employee_user_id, latitude, longitude, accuracy_meters)
+         VALUES (?, ?, ?, ?)`,
+        [employeeId, latitude, longitude, accuracy]
+      ).catch(function (e) { console.error('Heartbeat ping insert failed', e.message); });
       const [[profile]] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeId]);
       const mode = profile && profile.work_mode;
       const [hybridRows] = mode === 'Hybrid' ? await db.query('SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id=? AND is_active=1 LIMIT 1', [employeeId]) : [[]];
@@ -1136,8 +1159,8 @@ async function ensurePermissionTimeColumns() {
 async function createPermission(req, res) {
   try {
     const type = String((req.body && (req.body.type || req.body.request_type)) || '').toLowerCase().replace(/\s+/g, '_');
-    const allowed = { leave: 1, late_entry: 1, early_exit: 1, risk_leave: 1, permission: 1 };
-    if (!allowed[type]) return fail(res, 400, 'type must be leave, late_entry, early_exit, risk_leave, or permission');
+    const allowed = { leave: 1, late_entry: 1, early_exit: 1, risk_leave: 1, permission: 1, wfh: 1 };
+    if (!allowed[type]) return fail(res, 400, 'type must be leave, late_entry, early_exit, risk_leave, permission, or wfh');
     const date = parseDateParam(req.body && (req.body.date || req.body.request_date));
     if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
     const reason = String((req.body && req.body.reason) || '').trim();
