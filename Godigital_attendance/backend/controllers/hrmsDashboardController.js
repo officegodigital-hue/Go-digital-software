@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const calendar = require('../lib/calendarWorkingDays');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -65,14 +66,7 @@ function nextDate(date) {
 }
 
 async function ensureCalendarOverridesTable() {
-  await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
-    calendar_date DATE NOT NULL PRIMARY KEY,
-    status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
-    scope VARCHAR(40) NOT NULL DEFAULT 'All Employees',
-    reason VARCHAR(255) NOT NULL,
-    updated_by INT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  )`);
+  await calendar.ensureCalendarTables();
 }
 
 async function calendarOverrides(req, res) {
@@ -104,6 +98,17 @@ async function saveCalendarOverride(req, res) {
       ON DUPLICATE KEY UPDATE status = VALUES(status), scope = VALUES(scope),
         reason = VALUES(reason), updated_by = VALUES(updated_by)`,
       [date, status, scope, reason, req.user.id]);
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_calendar_notifications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      employee_user_id BIGINT UNSIGNED NOT NULL,
+      calendar_date DATE NOT NULL, status VARCHAR(20) NOT NULL, reason VARCHAR(255) NOT NULL,
+      is_dismissed TINYINT(1) NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY employee_unread (employee_user_id, is_dismissed, created_at)
+    )`);
+    if (scope === 'All Employees') {
+      await db.query(`INSERT INTO hrms_employee_calendar_notifications (employee_user_id, calendar_date, status, reason)
+        SELECT employee_user_id, ?, ?, ? FROM hrms_employee_profiles WHERE employment_status <> 'Inactive'`, [date, status, reason]);
+    }
     return ok(res, { date: date, status: status, scope: scope, reason: reason }, 'Calendar override saved');
   } catch (error) {
     return fail(res, 400, error.message);
@@ -165,6 +170,8 @@ async function monthView(req, res) {
     const totalDays = daysInMonth(year, month);
     const start = ymd(year, month, 1);
     const end = ymd(year, month, totalDays);
+    const calendarOverrides = await calendar.overridesForPeriod(start, end);
+    const totalWorkingDays = calendar.countWorkingDays(start, end, weeklyOff, calendarOverrides);
     const today = policy.todayIstDate();
 
     // Use the same HRMS profile source as the Employee Management page so
@@ -248,7 +255,7 @@ async function monthView(req, res) {
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
         const weekday = utcWeekday(year, month, day);
-        if (weeklyOff.has(weekday)) {
+        if (!calendar.isWorkingDay(date, weeklyOff, calendarOverrides)) {
           days.push('OFF');
           continue;
         }
@@ -373,6 +380,7 @@ async function monthView(req, res) {
       year: year,
       month: month,
       daysInMonth: totalDays,
+      totalWorkingDays: totalWorkingDays,
       timezone: policy.TIME_ZONE,
       payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {

@@ -45,6 +45,17 @@ async function ensurePasswordAuditTable() {
   )`);
 }
 
+async function ensureEmployeeProfileDetails() {
+  await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_profile_details (
+    employee_user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    middle_name VARCHAR(80) NULL, phone VARCHAR(30) NULL, pan_number VARCHAR(30) NULL,
+    aadhaar_number VARCHAR(30) NULL, account_holder_name VARCHAR(160) NULL,
+    bank_account_number VARCHAR(64) NULL, ifsc_code VARCHAR(30) NULL,
+    bank_name_branch VARCHAR(180) NULL, permanent_address VARCHAR(500) NULL,
+    temporary_address VARCHAR(500) NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`);
+}
+
 function deviceHash(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
 }
@@ -286,6 +297,56 @@ router.get('/me', authenticateToken, (req, res) => {
       userType: req.user.userType,
     },
   });
+});
+
+router.get('/profile', authenticateToken, async (req, res) => {
+  try {
+    await ensureEmployeeProfileDetails();
+    const [[row]] = await db.query(`SELECT u.first_name, u.last_name, u.full_name, u.email, u.staff_id, u.role,
+      p.department, p.work_mode, p.employee_code, d.*
+      FROM employee_users u LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = u.id
+      LEFT JOIN hrms_employee_profile_details d ON d.employee_user_id = u.id WHERE u.id = ?`, [req.user.id]);
+    return res.json({ success: true, data: row || {} });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Unable to load profile.' }); }
+});
+
+router.put('/profile', authenticateToken, async (req, res) => {
+  try {
+    await ensureEmployeeProfileDetails();
+    const body = req.body || {};
+    const first = String(body.firstName || '').trim().slice(0, 80);
+    const last = String(body.lastName || '').trim().slice(0, 80);
+    if (!first || !last) return res.status(400).json({ success: false, message: 'First and last name are required.' });
+    const value = (name, length) => String(body[name] || '').trim().slice(0, length) || null;
+    const fullName = `${first} ${last}`.trim();
+    await db.query('UPDATE employee_users SET first_name = ?, last_name = ?, full_name = ? WHERE id = ?', [first, last, fullName, req.user.id]);
+    await db.query('UPDATE hrms_employee_profiles SET full_name = ? WHERE employee_user_id = ?', [fullName, req.user.id]);
+    await db.query(`INSERT INTO hrms_employee_profile_details
+      (employee_user_id, middle_name, phone, pan_number, aadhaar_number, account_holder_name, bank_account_number, ifsc_code, bank_name_branch, permanent_address, temporary_address)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE middle_name=VALUES(middle_name), phone=VALUES(phone), pan_number=VALUES(pan_number), aadhaar_number=VALUES(aadhaar_number), account_holder_name=VALUES(account_holder_name), bank_account_number=VALUES(bank_account_number), ifsc_code=VALUES(ifsc_code), bank_name_branch=VALUES(bank_name_branch), permanent_address=VALUES(permanent_address), temporary_address=VALUES(temporary_address)`,
+      [req.user.id, value('middleName',80), value('phone',30), value('panNumber',30), value('aadhaarNumber',30), value('accountHolderName',160), value('bankAccountNumber',64), value('ifscCode',30), value('bankNameBranch',180), value('permanentAddress',500), value('temporaryAddress',500)]);
+    return res.json({ success: true, message: 'Profile saved successfully.', data: { fullName } });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Unable to save profile.' }); }
+});
+
+router.get('/calendar-notifications', authenticateToken, async (req, res) => {
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_calendar_notifications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, employee_user_id BIGINT UNSIGNED NOT NULL,
+      calendar_date DATE NOT NULL, status VARCHAR(20) NOT NULL, reason VARCHAR(255) NOT NULL,
+      is_dismissed TINYINT(1) NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY employee_unread (employee_user_id, is_dismissed, created_at)
+    )`);
+    const [rows] = await db.query(`SELECT id, DATE_FORMAT(calendar_date, '%d %b %Y') AS date, status, reason
+      FROM hrms_employee_calendar_notifications WHERE employee_user_id = ? AND is_dismissed = 0 ORDER BY created_at DESC LIMIT 1`, [req.user.id]);
+    return res.json({ success: true, data: rows[0] || null });
+  } catch (_) { return res.status(500).json({ success: false, message: 'Unable to load calendar notification.' }); }
+});
+
+router.patch('/calendar-notifications/:id/dismiss', authenticateToken, async (req, res) => {
+  await db.query('UPDATE hrms_employee_calendar_notifications SET is_dismissed = 1 WHERE id = ? AND employee_user_id = ?', [Number(req.params.id), req.user.id]);
+  return res.json({ success: true });
 });
 
 // POST /api/auth/refresh — Refresh JWT token
