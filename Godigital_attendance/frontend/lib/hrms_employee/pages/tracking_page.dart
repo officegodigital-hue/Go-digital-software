@@ -272,11 +272,25 @@ class _TrackingViewState extends State<_TrackingView> {
     try {
       final position = await _getCurrentPosition();
 
-      await HrmsTrackingApi.ping(
+      final pingResult = await HrmsTrackingApi.ping(
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
       );
+
+      if (pingResult['locationIgnored'] == true) {
+        if (showMessage && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Location ignored because GPS accuracy is too low. '
+                'Move outdoors or enable precise location.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
 
       if (!mounted) return;
 

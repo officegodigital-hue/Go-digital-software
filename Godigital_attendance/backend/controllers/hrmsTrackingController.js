@@ -200,6 +200,10 @@ async function list(req, res) {
 }
 
 const ACTIVE_WINDOW_MINUTES = 15;
+// A browser can fall back to Wi-Fi/IP positioning and report a location tens
+// of kilometres away with an equally large accuracy radius. Such a point must
+// not be treated as employee travel or reset stationary-time detection.
+const MAX_USABLE_GPS_ACCURACY_METERS = 1000;
 
 async function ensureRoadRouteCacheTable() {
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_road_route_cache (
@@ -475,7 +479,8 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
 
 async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   const [sessions] = await db.query(
-    `SELECT id, started_at
+    `SELECT id,
+            DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at
      FROM hrms_field_tracking_sessions
      WHERE employee_user_id = ? AND is_active = 1
      ORDER BY started_at DESC, id DESC
@@ -514,7 +519,9 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   if (existingAlerts.length) return;
 
   const [pings] = await db.query(
-    `SELECT latitude, longitude, recorded_at
+    `SELECT latitude,
+            longitude,
+            DATE_FORMAT(recorded_at, '%Y-%m-%d %H:%i:%s') AS recorded_at
      FROM hrms_location_pings
      WHERE employee_user_id = ?
        AND recorded_at >= ?
@@ -541,16 +548,16 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     firstStillPing = ping;
   }
 
-  const startedAt = new Date(firstStillPing.recorded_at);
-
-  const elapsedMinutes = Math.floor(
-    (Date.now() - startedAt.getTime()) / 60000
+  const [[elapsedRow]] = await db.query(
+    `SELECT GREATEST(0, TIMESTAMPDIFF(MINUTE, ?, CURRENT_TIMESTAMP))
+       AS elapsed_minutes`,
+    [firstStillPing.recorded_at]
   );
+  const elapsedMinutes = Number(elapsedRow && elapsedRow.elapsed_minutes) || 0;
 
   if (elapsedMinutes < waitingMinutes) return;
 
-const eventKey =
-  '${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}';
+const eventKey = '${session.id}:${firstStillPing.recorded_at}';
 
 await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (
@@ -585,6 +592,20 @@ async function ping(req, res) {
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return fail(res, 400, 'latitude and longitude are required numbers');
+    }
+    if (
+      Number.isFinite(accuracy) &&
+      accuracy > MAX_USABLE_GPS_ACCURACY_METERS
+    ) {
+      return ok(
+        res,
+        {
+          locationRecorded: false,
+          locationIgnored: true,
+          accuracyMeters: accuracy,
+        },
+        'Location ignored because GPS accuracy is too low. Move outdoors or enable precise location.'
+      );
     }
     const [result] = await db.query(
       `INSERT INTO hrms_location_pings (employee_user_id, latitude, longitude, accuracy_meters)
@@ -1228,7 +1249,10 @@ async function getFieldSessionSummary(req, res) {
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
 
     const [sessions] = await db.query(
-      `SELECT id, started_at
+      `SELECT id,
+              DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
+              GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP))
+                AS duration_seconds
        FROM hrms_field_tracking_sessions
        WHERE employee_user_id = ? AND is_active = 1
        ORDER BY started_at DESC, id DESC LIMIT 1`,
@@ -1263,10 +1287,7 @@ async function getFieldSessionSummary(req, res) {
       );
     }
 
-    const durationSeconds = Math.max(
-      0,
-      Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000) || 0
-    );
+    const durationSeconds = Number(session.duration_seconds) || 0;
     const distanceKm = Math.round((meters / 1000) * 100) / 100;
     const averageSpeedKmph = durationSeconds > 0
       ? Math.round(((meters / 1000) / (durationSeconds / 3600)) * 10) / 10
@@ -1318,6 +1339,16 @@ async function startFieldTracking(req, res) {
 
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return fail(res, 400, 'Valid latitude and longitude are required');
+    }
+    if (
+      Number.isFinite(accuracy) &&
+      accuracy > MAX_USABLE_GPS_ACCURACY_METERS
+    ) {
+      return fail(
+        res,
+        422,
+        'GPS accuracy is too low. Move outdoors or enable precise location before starting live tracking.'
+      );
     }
 
     const [profiles] = await db.query(
@@ -1465,7 +1496,11 @@ async function stopFieldTracking(req, res) {
       [employeeUserId, policy.todayIstDate()]
     );
 
-    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    if (
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      (!Number.isFinite(accuracy) || accuracy <= MAX_USABLE_GPS_ACCURACY_METERS)
+    ) {
       await db.query(
         `INSERT INTO hrms_location_pings
           (employee_user_id, latitude, longitude, accuracy_meters)
