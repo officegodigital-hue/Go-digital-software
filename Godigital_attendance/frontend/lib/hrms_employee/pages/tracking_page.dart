@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../services/hrms_tracking_api.dart';
+import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
 
@@ -49,6 +50,7 @@ class _TrackingViewState extends State<_TrackingView> {
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
+  bool _waitingDialogOpen = false;
   bool _fieldTrackingEnabled = false;
   bool _homeLocationEnabled = true;
   String? _homeError;
@@ -492,6 +494,10 @@ class _TrackingViewState extends State<_TrackingView> {
       onToggle: toggleTracking,
     );
 
+    // Only Field and Hybrid employees receive field-tracking permission. The
+    // backend performs the same authorization before saving a comment.
+    final comments = const TrackingCommentsSection();
+
     if (widget.mobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,6 +533,7 @@ class _TrackingViewState extends State<_TrackingView> {
           map,
           const SizedBox(height: 14),
           metrics,
+          if (_fieldTrackingEnabled) ...[const SizedBox(height: 18), comments],
           const SizedBox(height: 22),
           const Text(
             'Today’s Activity',
@@ -595,6 +602,10 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                   const SizedBox(height: 12),
                   timeline,
+                  if (_fieldTrackingEnabled) ...[
+                    const SizedBox(height: 18),
+                    comments,
+                  ],
                   const SizedBox(height: 18),
                   if (_fieldTrackingEnabled) live,
                 ],
@@ -607,13 +618,15 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   Future<void> _checkWaitingAlert() async {
-    if (_homeDialogOpen) return;
+    if (_homeDialogOpen || _waitingDialogOpen) return;
     try {
       final alert = await HrmsTrackingApi.waitingAlert();
 
       debugPrint('Waiting alert response: $alert');
 
-      if (!mounted || _homeDialogOpen || alert == null) return;
+      if (!mounted || _homeDialogOpen || _waitingDialogOpen || alert == null) {
+        return;
+      }
 
       final reasonId = int.tryParse('${alert['id']}');
 
@@ -622,10 +635,15 @@ class _TrackingViewState extends State<_TrackingView> {
         return;
       }
 
-      await _showWaitingReasonDialog(
-        reasonId: reasonId,
-        waitingMinutes: alert['waiting_minutes'] ?? 0,
-      );
+      _waitingDialogOpen = true;
+      try {
+        await _showWaitingReasonDialog(
+          reasonId: reasonId,
+          waitingMinutes: alert['waiting_minutes'] ?? 0,
+        );
+      } finally {
+        _waitingDialogOpen = false;
+      }
     } catch (error) {
       debugPrint('Waiting alert check failed: $error');
     }
@@ -636,67 +654,101 @@ class _TrackingViewState extends State<_TrackingView> {
     required dynamic waitingMinutes,
   }) async {
     final controller = TextEditingController();
+    var isSubmitting = false;
+    String? submitError;
 
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Field waiting reason'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'You have been at this location for $waitingMinutes minutes. '
-                'Please enter the reason for waiting.',
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('Field waiting reason'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'You have been at this location for $waitingMinutes minutes. '
+                    'Please enter the reason for waiting.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason for waiting',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (submitError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      submitError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Reason for waiting',
-                  border: OutlineInputBorder(),
+              actions: [
+                ElevatedButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final reason = controller.text.trim();
+
+                          if (reason.isEmpty) {
+                            setDialogState(
+                              () => submitError = 'Please enter a reason.',
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSubmitting = true;
+                            submitError = null;
+                          });
+
+                          try {
+                            await HrmsTrackingApi.submitWaitingReason(
+                              reasonId: reasonId,
+                              reason: reason,
+                            );
+
+                            if (dialogContext.mounted) {
+                              Navigator.of(
+                                dialogContext,
+                                rootNavigator: true,
+                              ).pop();
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Waiting reason submitted'),
+                                ),
+                              );
+                            }
+                          } catch (error) {
+                            debugPrint('Waiting reason submit failed: $error');
+                            if (dialogContext.mounted) {
+                              setDialogState(() {
+                                isSubmitting = false;
+                                submitError =
+                                    'Could not submit the reason. '
+                                    'Please try again.';
+                              });
+                            }
+                          }
+                        },
+                  child: Text(isSubmitting ? 'Submitting…' : 'Submit'),
                 ),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () async {
-                final reason = controller.text.trim();
-
-                if (reason.isEmpty) return;
-
-                try {
-                  await HrmsTrackingApi.submitWaitingReason(
-                    reasonId: reasonId,
-                    reason: reason,
-                  );
-
-                  if (mounted) {
-                    Navigator.of(context, rootNavigator: true).pop();
-                  }
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Waiting reason submitted')),
-                    );
-                  }
-                } catch (error) {
-                  debugPrint('Waiting reason submit failed: $error');
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.toString())));
-                  }
-                }
-              },
-              child: const Text('Submit'),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
+    controller.dispose();
   }
 }
 
