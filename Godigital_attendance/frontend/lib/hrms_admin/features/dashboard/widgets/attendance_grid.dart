@@ -101,11 +101,14 @@ class _AttendanceGridState extends State<AttendanceGrid> {
   final _calendarController = ScrollController();
   int _windowStart = 0;
 
-  int get _windowEnd =>
-      (_windowStart + _daysPerWindow).clamp(0, widget.days.length);
+  int get _windowEnd => widget.showSummary
+      ? (_windowStart + _daysPerWindow).clamp(0, widget.days.length)
+      : widget.days.length;
 
-  List<int> get _visibleDayIndexes =>
-      List<int>.generate(_windowEnd - _windowStart, (index) => _windowStart + index);
+  List<int> get _visibleDayIndexes => List<int>.generate(
+        _windowEnd - (widget.showSummary ? _windowStart : 0),
+        (index) => (widget.showSummary ? _windowStart : 0) + index,
+      );
 
   int get _lastWindowStart =>
       (widget.days.length - _daysPerWindow).clamp(0, widget.days.length).toInt();
@@ -208,6 +211,20 @@ class _AttendanceGridState extends State<AttendanceGrid> {
   }
 
   Widget _dayWindowNavigator() {
+    if (!widget.showSummary) {
+      return Container(
+        height: 44,
+        alignment: Alignment.center,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFF),
+          border: Border(bottom: BorderSide(color: _gridLine)),
+        ),
+        child: Text(
+          'All ${widget.days.length} days',
+          style: const TextStyle(color: Color(0xFF07186F), fontSize: 13, fontWeight: FontWeight.w800),
+        ),
+      );
+    }
     final hasPrevious = _windowStart > 0;
     final hasNext = _windowEnd < widget.days.length;
     final firstDay = widget.days.isEmpty ? 0 : widget.days[_windowStart];
@@ -221,18 +238,21 @@ class _AttendanceGridState extends State<AttendanceGrid> {
       ),
       child: Row(
         children: [
-          IconButton(
-            tooltip: 'Previous 7 days',
-            onPressed: hasPrevious
-                ? () => setState(() {
-                    _windowStart = (_windowStart - _daysPerWindow).clamp(0, widget.days.length);
-                  })
-                : null,
-            icon: const Icon(Icons.chevron_left_rounded),
-          ),
-          Expanded(
-            child: Center(
-              child: Text(
+          const Spacer(),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Previous 7 days',
+                onPressed: hasPrevious
+                    ? () => setState(() {
+                        _windowStart = (_windowStart - _daysPerWindow)
+                            .clamp(0, widget.days.length);
+                      })
+                    : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Text(
                 'Days $firstDay–$lastDay of ${widget.days.length}',
                 style: const TextStyle(
                   color: Color(0xFF07186F),
@@ -240,8 +260,20 @@ class _AttendanceGridState extends State<AttendanceGrid> {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-            ),
+              IconButton(
+                tooltip: 'Next 7 days',
+                onPressed: hasNext
+                    ? () => setState(() {
+                        _windowStart = (_windowStart + _daysPerWindow)
+                            .clamp(0, _lastWindowStart)
+                            .toInt();
+                      })
+                    : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
           ),
+          const Spacer(),
           if (widget.onToggleExpanded != null)
             TextButton.icon(
               onPressed: widget.onToggleExpanded,
@@ -260,17 +292,6 @@ class _AttendanceGridState extends State<AttendanceGrid> {
                 ),
               ),
             ),
-          IconButton(
-            tooltip: 'Next 7 days',
-            onPressed: hasNext
-                ? () => setState(() {
-                    _windowStart = (_windowStart + _daysPerWindow)
-                        .clamp(0, _lastWindowStart)
-                        .toInt();
-                  })
-                : null,
-            icon: const Icon(Icons.chevron_right_rounded),
-          ),
         ],
       ),
     );

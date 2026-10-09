@@ -649,6 +649,16 @@ class _KpiRow extends StatelessWidget {
     children: [
       Expanded(
         child: _KpiCard(
+          label: 'Total Employees',
+          value: '$total',
+          subtitle: 'Active employees',
+          color: _blue,
+          icon: Icons.groups_outlined,
+        ),
+      ),
+      const SizedBox(width: 20),
+      Expanded(
+        child: _KpiCard(
           label: 'Monthly Working Days',
           value: '$workingDays',
           subtitle: 'Selected month',

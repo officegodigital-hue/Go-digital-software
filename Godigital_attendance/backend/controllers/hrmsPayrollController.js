@@ -457,6 +457,7 @@ function toKpis(items) {
     paid: paid,
     pending: pending,
     draft: draft,
+    totalWorkingDays: items.length === 0 ? 0 : Math.max(...items.map(function (item) { return Number(item.workingDays || 0); })),
   };
 }
 

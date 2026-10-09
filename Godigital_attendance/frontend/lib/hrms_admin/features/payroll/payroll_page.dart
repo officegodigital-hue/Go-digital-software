@@ -30,6 +30,7 @@ class _PayrollPageState extends State<PayrollPage> {
   int kpiEmployees = 0;
   int kpiPaid = 0;
   int kpiPending = 0;
+  int kpiWorkingDays = 0;
   bool loading = true;
   bool generating = false;
   String? error;
@@ -80,6 +81,7 @@ class _PayrollPageState extends State<PayrollPage> {
         kpiEmployees = _asInt(kpis['employees'], 0);
         kpiPaid = _asInt(kpis['paid'], 0);
         kpiPending = _asInt(kpis['pending'], 0) + _asInt(kpis['draft'], 0);
+        kpiWorkingDays = _asInt(kpis['totalWorkingDays'], 0);
         loading = false;
       });
     } catch (err) {
@@ -306,6 +308,7 @@ class _PayrollPageState extends State<PayrollPage> {
                               employees: kpiEmployees,
                               paid: kpiPaid,
                               pending: kpiPending,
+                              workingDays: kpiWorkingDays,
                             ),
                             const SizedBox(height: 16),
                             if (loading)
@@ -616,13 +619,21 @@ class _PayrollKpis extends StatelessWidget {
     required this.employees,
     required this.paid,
     required this.pending,
+    required this.workingDays,
   });
   final String total;
-  final int employees, paid, pending;
+  final int employees, paid, pending, workingDays;
 
   @override
   Widget build(BuildContext context) {
     final cards = [
+      _PayrollKpi(
+        'Working days',
+        '$workingDays',
+        'For this payroll month',
+        Icons.calendar_month_outlined,
+        const Color(0xFF075EF7),
+      ),
       _PayrollKpi(
         'This month net',
         total,
@@ -661,7 +672,7 @@ class _PayrollKpis extends StatelessWidget {
             ? 1
             : constraints.maxWidth < 1100
             ? 2
-            : 4;
+            : 5;
         final spacing = mobile ? 8.0 : 16.0;
         final width =
             (constraints.maxWidth - (columns - 1) * spacing) / columns;

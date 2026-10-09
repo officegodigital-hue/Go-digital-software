@@ -250,6 +250,7 @@ async function monthView(req, res) {
       let earnedLeave = 0;
       let approvedLeave = 0;
       let unexcused = 0;
+      let accruedPaidDays = 0;
       let workingDays = 0;
 
       for (let day = 1; day <= totalDays; day += 1) {
@@ -280,6 +281,7 @@ async function monthView(req, res) {
             days.push('HL');
             halfLeave += 1;
             unexcused += 0.5;
+            accruedPaidDays += 0.5;
           } else if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
             days.push('A');
             unexcused += 1;
@@ -288,16 +290,22 @@ async function monthView(req, res) {
             days.push('L');
             late += 1;
             lateDays += 1;
+            accruedPaidDays += 1;
           } else {
             days.push('P');
             present += 1;
             presentDays += 1;
+            accruedPaidDays += 1;
           }
         } else if (leaveType) {
           days.push(leaveType);
           approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
-          if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
+          if (leaveInfo.leaveType === 'Earned Leave') {
+            earnedLeave += 1;
+            // Earned Leave is the approved paid-leave type.
+            accruedPaidDays += leaveType === 'HL' ? 0.5 : 1;
+          }
           if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing clock-in for today is still pending. It becomes an
@@ -314,9 +322,11 @@ async function monthView(req, res) {
 
       const salaryNumber = Number(profile.monthly_salary || 0);
       const lopDays = Math.min(workingDays, unexcused);
-      const paidDays = Math.max(0, workingDays - lopDays);
-      const deduction = salaryNumber ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / payrollRules.salaryDayDivisor))) : 0;
-      const afterLeaves = Math.max(0, salaryNumber - deduction);
+      const dailyRate = workingDays > 0 ? salaryNumber / workingDays : 0;
+      // The dashboard is an earned-to-date view: pay starts at zero and
+      // grows only for check-ins and approved paid leave.  Absence never
+      // removes money already accrued.
+      const accruedSalary = Math.round(Math.min(workingDays, accruedPaidDays) * dailyRate * 100) / 100;
 
       return {
         id: profile.id,
@@ -332,9 +342,9 @@ async function monthView(req, res) {
         earnedLeave: earnedLeave,
         approvedLeave: approvedLeave,
         salary: formatSalary(profile.monthly_salary),
-        daysPaid: String(lopDays),
-        afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
-        updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
+        daysPaid: String(accruedPaidDays),
+        afterLeaves: salaryNumber ? formatSalary(0) : '–',
+        updatedSalary: salaryNumber ? formatSalary(accruedSalary) : '–',
       };
     });
 

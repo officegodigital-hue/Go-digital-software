@@ -337,7 +337,9 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         }
         const [policyRows] = await pool.execute('SELECT leave_type, yearly_limit FROM hrms_leave_type_policies');
         const quotas = Object.fromEntries(policyRows.map((row) => [row.leave_type, Number(row.yearly_limit)]));
-        const balances = Object.keys(quotas).map((type) => ({
+        // A zero limit means this leave type is disabled for employees.  Do
+        // not expose it in the employee balance cards or leave form.
+        const balances = Object.keys(quotas).filter((type) => quotas[type] > 0).map((type) => ({
           type,
           used: consumed[type],
           total: quotas[type],
@@ -362,6 +364,20 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         const { leave_type, duration_type, from_date, to_date, reason } = req.body;
         if (!leave_type || !from_date || !to_date) {
           return res.status(400).json({ success: false, message: 'All fields are required.' });
+        }
+        await pool.execute(`CREATE TABLE IF NOT EXISTS hrms_leave_type_policies (
+          leave_type VARCHAR(64) NOT NULL PRIMARY KEY,
+          yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 0
+        )`);
+        const [leavePolicyRows] = await pool.execute(
+          'SELECT yearly_limit FROM hrms_leave_type_policies WHERE leave_type = ?',
+          [leave_type]
+        );
+        if (!leavePolicyRows.length || Number(leavePolicyRows[0].yearly_limit) <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'This leave type is not available under the current leave policy.',
+          });
         }
         const d1 = new Date(from_date);
         const d2 = new Date(to_date);
