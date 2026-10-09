@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../../services/api_config.dart';
 import '../../../services/hrms_notifications_api.dart';
 import '../../../services/auth_service.dart';
 import '../../../screens/login_screen.dart';
@@ -618,12 +620,16 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
         final name = settings['soundName']?.toString() ?? 'notification.mp3';
         final volume =
             ((settings['soundVolume'] as num?)?.toDouble() ?? 70) / 100;
-        await _soundPlayer.play(
-          AssetSource('sounds/$name'),
-          volume: volume.clamp(0.0, 1.0).toDouble(),
-        );
+        await _playSound(name, volume, settings['customSoundUrl']?.toString());
       }
     } catch (_) {}
+  }
+
+  Future<void> _playSound(String name, double volume, String? customUrl) {
+    final source = name == 'custom' && customUrl != null && customUrl.isNotEmpty
+        ? UrlSource(ApiConfig.mediaUrl(customUrl))
+        : AssetSource('sounds/$name');
+    return _soundPlayer.play(source, volume: volume.clamp(0.0, 1.0).toDouble());
   }
 
   Future<void> _open() async {
@@ -651,10 +657,7 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
             context: context,
             builder: (_) => _NotificationSettingsDialog(
               settings: _settings,
-              onPreview: (name, volume) => _soundPlayer.play(
-                AssetSource('sounds/$name'),
-                volume: volume.clamp(0.0, 1.0).toDouble(),
-              ),
+              onPreview: _playSound,
             ),
           );
           if (changed == true) _load();
@@ -804,7 +807,12 @@ class _NotificationSettingsDialog extends StatefulWidget {
     required this.onPreview,
   });
   final Map<String, dynamic> settings;
-  final Future<void> Function(String soundName, double volume) onPreview;
+  final Future<void> Function(
+    String soundName,
+    double volume,
+    String? customUrl,
+  )
+  onPreview;
 
   @override
   State<_NotificationSettingsDialog> createState() =>
@@ -817,8 +825,11 @@ class _NotificationSettingsDialogState
   late bool _commentsEnabled;
   late bool _waitingEnabled;
   late String _soundName;
+  String? _customSoundUrl;
+  String? _customSoundLabel;
   late double _volume;
   bool _saving = false;
+  bool _uploading = false;
 
   static const _sounds = <String>[
     'notification.mp3',
@@ -836,12 +847,81 @@ class _NotificationSettingsDialogState
         widget.settings['waitingReasonNotificationsEnabled'] != false;
     _soundName = _sounds.contains(widget.settings['soundName'])
         ? widget.settings['soundName'] as String
-        : _sounds.first;
+        : (widget.settings['soundName'] == 'custom' &&
+                  widget.settings['customSoundUrl'] != null
+              ? 'custom'
+              : _sounds.first);
+    _customSoundUrl = widget.settings['customSoundUrl']?.toString();
+    _customSoundLabel = _customSoundUrl == null
+        ? null
+        : 'Custom uploaded sound';
     final requestedVolume =
         (widget.settings['soundVolume'] as num?)?.toDouble() ?? 70;
     _volume = requestedVolume < 0
         ? 0
         : (requestedVolume > 100 ? 100 : requestedVolume);
+  }
+
+  List<String> get _soundOptions => <String>[
+    ..._sounds,
+    if (_customSoundUrl != null) 'custom',
+  ];
+
+  Future<void> _uploadSound() async {
+    final selection = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp3', 'wav', 'm4a', 'aac', 'ogg'],
+      withData: true,
+    );
+    final file = selection != null && selection.files.isNotEmpty
+        ? selection.files.first
+        : null;
+    if (file == null) return;
+    if (file.bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read the selected file.')),
+        );
+      }
+      return;
+    }
+    if (file.bytes!.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Choose an audio file smaller than 5 MB.'),
+          ),
+        );
+      }
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final settings = await HrmsNotificationsApi.uploadCustomSound(
+        file.bytes!,
+        file.name,
+      );
+      if (!mounted) return;
+      setState(() {
+        _customSoundUrl = settings['customSoundUrl']?.toString();
+        _customSoundLabel = file.name;
+        _soundName = 'custom';
+      });
+      await widget.onPreview('custom', _volume / 100, _customSoundUrl);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Custom sound uploaded and selected.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   Future<void> _save() async {
@@ -881,14 +961,17 @@ class _NotificationSettingsDialogState
             onChanged: (value) => setState(() => _soundEnabled = value),
           ),
           DropdownButtonFormField<String>(
+            key: ValueKey(_soundName),
             initialValue: _soundName,
             decoration: const InputDecoration(labelText: 'Notification sound'),
-            items: _sounds
+            items: _soundOptions
                 .map(
                   (sound) => DropdownMenuItem(
                     value: sound,
                     child: Text(
-                      sound.replaceAll('.mp3', '').replaceAll('_', ' '),
+                      sound == 'custom'
+                          ? (_customSoundLabel ?? 'Custom uploaded sound')
+                          : sound.replaceAll('.mp3', '').replaceAll('_', ' '),
                     ),
                   ),
                 )
@@ -896,6 +979,25 @@ class _NotificationSettingsDialogState
             onChanged: _soundEnabled
                 ? (value) => setState(() => _soundName = value!)
                 : null,
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _uploading ? null : _uploadSound,
+              icon: const Icon(Icons.upload_file_rounded, size: 18),
+              label: Text(_uploading ? 'Uploading...' : 'Upload custom sound'),
+            ),
+          ),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'MP3, WAV, M4A, AAC, or OGG · maximum 5 MB',
+                style: TextStyle(fontSize: 12, color: Color(0xFF63718F)),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -919,7 +1021,11 @@ class _NotificationSettingsDialogState
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               onPressed: _soundEnabled
-                  ? () => widget.onPreview(_soundName, _volume / 100)
+                  ? () => widget.onPreview(
+                      _soundName,
+                      _volume / 100,
+                      _customSoundUrl,
+                    )
                   : null,
               icon: const Icon(Icons.volume_up_outlined, size: 18),
               label: const Text('Preview sound'),

@@ -63,6 +63,7 @@ async function ensureAdminNotificationTables() {
       id TINYINT NOT NULL PRIMARY KEY,
       sound_enabled TINYINT(1) NOT NULL DEFAULT 1,
       sound_name VARCHAR(80) NOT NULL DEFAULT 'notification.mp3',
+      custom_sound_url VARCHAR(500) NULL,
       sound_volume TINYINT UNSIGNED NOT NULL DEFAULT 70,
       comment_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
       waiting_reason_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -71,6 +72,13 @@ async function ensureAdminNotificationTables() {
     )
   `);
   await db.query('INSERT IGNORE INTO hrms_admin_notification_settings (id) VALUES (1)');
+  const [settingsColumns] = await db.query(`
+    SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'hrms_admin_notification_settings'
+  `);
+  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'custom_sound_url')) {
+    await db.query('ALTER TABLE hrms_admin_notification_settings ADD COLUMN custom_sound_url VARCHAR(500) NULL AFTER sound_name');
+  }
 }
 
 async function getSettings() {
@@ -80,6 +88,7 @@ async function getSettings() {
   return {
     soundEnabled: Boolean(row.sound_enabled),
     soundName: row.sound_name || 'notification.mp3',
+    customSoundUrl: row.custom_sound_url || null,
     soundVolume: Number(row.sound_volume || 70),
     commentNotificationsEnabled: Boolean(row.comment_notifications_enabled),
     waitingReasonNotificationsEnabled: Boolean(row.waiting_reason_notifications_enabled),
@@ -89,7 +98,9 @@ async function getSettings() {
 async function updateSettings(input, adminUserId) {
   await ensureAdminNotificationTables();
   const soundNames = ['notification.mp3', 'notifications.mp3', 'notificationss.mp3', 'notification_ai voice.mp3'];
-  const soundName = soundNames.includes(String(input.soundName || ''))
+  const existing = await getSettings();
+  const soundName = soundNames.includes(String(input.soundName || '')) ||
+      (String(input.soundName || '') === 'custom' && existing.customSoundUrl)
     ? String(input.soundName) : 'notification.mp3';
   const volume = Math.min(100, Math.max(0, Number(input.soundVolume)));
   await db.query(`
@@ -108,6 +119,16 @@ async function updateSettings(input, adminUserId) {
   return getSettings();
 }
 
+async function saveCustomSound(relativeUrl, adminUserId) {
+  await ensureAdminNotificationTables();
+  await db.query(`
+    UPDATE hrms_admin_notification_settings
+    SET sound_name = 'custom', custom_sound_url = ?, updated_by = ?
+    WHERE id = 1
+  `, [relativeUrl, adminUserId || null]);
+  return getSettings();
+}
+
 async function createAdminNotification({ type, sourceId, employeeUserId, title, message }) {
   await ensureAdminNotificationTables();
   const settings = await getSettings();
@@ -123,4 +144,4 @@ async function createAdminNotification({ type, sourceId, employeeUserId, title, 
   return true;
 }
 
-module.exports = { TYPES, ensureAdminNotificationTables, getSettings, updateSettings, createAdminNotification };
+module.exports = { TYPES, ensureAdminNotificationTables, getSettings, updateSettings, saveCustomSound, createAdminNotification };

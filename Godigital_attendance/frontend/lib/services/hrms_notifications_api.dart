@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -62,6 +63,26 @@ class HrmsNotificationsApi {
       headers: await _headers(),
       body: jsonEncode(settings),
     );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> uploadCustomSound(
+    Uint8List bytes,
+    String filename,
+  ) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse(
+        '${ApiConfig.baseUrl}/hrms/approvals/notifications/settings/sound',
+      ),
+    );
+    final headers = await _headers();
+    headers.remove('Content-Type');
+    request.headers.addAll(headers);
+    request.files.add(
+      http.MultipartFile.fromBytes('sound', bytes, filename: filename),
+    );
+    final response = await http.Response.fromStream(await request.send());
     return _decode(response);
   }
 }

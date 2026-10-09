@@ -2,6 +2,9 @@ const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const staff = require('../lib/staffDirectory');
 const adminNotifications = require('../lib/adminNotifications');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -181,6 +184,29 @@ async function saveNotificationSettings(req, res) {
   }
 }
 
+async function uploadNotificationSound(req, res) {
+  try {
+    if (!req.file) return fail(res, 400, 'Choose an audio file to upload');
+    const allowedExtensions = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg']);
+    const extension = path.extname(req.file.originalname || '').toLowerCase();
+    if (!allowedExtensions.has(extension) || !String(req.file.mimetype || '').startsWith('audio/')) {
+      return fail(res, 400, 'Upload an MP3, WAV, M4A, AAC, or OGG audio file');
+    }
+    const directory = path.join(__dirname, '..', 'uploads', 'notification-sounds');
+    await fs.promises.mkdir(directory, { recursive: true });
+    const filename = `notification-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`;
+    await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
+    const settings = await adminNotifications.saveCustomSound(
+      `/uploads/notification-sounds/${filename}`,
+      req.user && req.user.id
+    );
+    return ok(res, settings, 'Custom notification sound uploaded');
+  } catch (error) {
+    console.error('POST /hrms/approvals/notifications/settings/sound', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 async function markAllNotificationsRead(req, res) {
   try {
     await ensureAdminNotifications();
@@ -333,5 +359,6 @@ module.exports = {
   markAllNotificationsRead,
   notificationSettings,
   saveNotificationSettings,
+  uploadNotificationSound,
   LEAVE_TYPES,
 };
