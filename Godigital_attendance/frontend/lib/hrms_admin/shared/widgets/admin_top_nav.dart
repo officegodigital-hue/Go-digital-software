@@ -642,10 +642,20 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
           Navigator.pop(dialogContext);
           Navigator.pushReplacementNamed(context, '/admin/approvals');
         },
+        onViewTracking: () {
+          Navigator.pop(dialogContext);
+          Navigator.pushReplacementNamed(context, '/admin/tracking');
+        },
         onSettings: () async {
           final changed = await showDialog<bool>(
             context: context,
-            builder: (_) => _NotificationSettingsDialog(settings: _settings),
+            builder: (_) => _NotificationSettingsDialog(
+              settings: _settings,
+              onPreview: (name, volume) => _soundPlayer.play(
+                AssetSource('sounds/$name'),
+                volume: volume.clamp(0.0, 1.0).toDouble(),
+              ),
+            ),
           );
           if (changed == true) _load();
         },
@@ -682,6 +692,7 @@ class _NotificationsDialog extends StatelessWidget {
     required this.unreadCount,
     required this.onMarkAllRead,
     required this.onViewApprovals,
+    required this.onViewTracking,
     required this.onSettings,
   });
 
@@ -689,6 +700,7 @@ class _NotificationsDialog extends StatelessWidget {
   final int unreadCount;
   final Future<void> Function() onMarkAllRead;
   final VoidCallback onViewApprovals;
+  final VoidCallback onViewTracking;
   final Future<void> Function() onSettings;
 
   @override
@@ -697,7 +709,13 @@ class _NotificationsDialog extends StatelessWidget {
       children: [
         const Icon(Icons.notifications_rounded, color: _blue),
         const SizedBox(width: 9),
-        const Expanded(child: Text('Notifications')),
+        Expanded(
+          child: Text(
+            unreadCount == 0
+                ? 'Notifications'
+                : 'Notifications ($unreadCount new)',
+          ),
+        ),
         IconButton(
           onPressed: onSettings,
           icon: const Icon(Icons.tune_rounded),
@@ -747,7 +765,7 @@ class _NotificationsDialog extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      item['message']?.toString() ?? '',
+                      '${item['message']?.toString() ?? ''}\n${_notificationTime(item['createdAt'])}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -758,6 +776,11 @@ class _NotificationsDialog extends StatelessWidget {
     ),
     actions: [
       OutlinedButton.icon(
+        onPressed: onViewTracking,
+        icon: const Icon(Icons.location_on_outlined, size: 18),
+        label: const Text('View Tracking'),
+      ),
+      OutlinedButton.icon(
         onPressed: onViewApprovals,
         icon: const Icon(Icons.open_in_new_rounded, size: 18),
         label: const Text('View Approvals'),
@@ -766,9 +789,22 @@ class _NotificationsDialog extends StatelessWidget {
   );
 }
 
+String _notificationTime(Object? value) {
+  final parsed = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+  if (parsed == null) return 'Just now';
+  final hour = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
+  final minute = parsed.minute.toString().padLeft(2, '0');
+  final period = parsed.hour >= 12 ? 'PM' : 'AM';
+  return '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')} · $hour:$minute $period';
+}
+
 class _NotificationSettingsDialog extends StatefulWidget {
-  const _NotificationSettingsDialog({required this.settings});
+  const _NotificationSettingsDialog({
+    required this.settings,
+    required this.onPreview,
+  });
   final Map<String, dynamic> settings;
+  final Future<void> Function(String soundName, double volume) onPreview;
 
   @override
   State<_NotificationSettingsDialog> createState() =>
@@ -845,7 +881,7 @@ class _NotificationSettingsDialogState
             onChanged: (value) => setState(() => _soundEnabled = value),
           ),
           DropdownButtonFormField<String>(
-            value: _soundName,
+            initialValue: _soundName,
             decoration: const InputDecoration(labelText: 'Notification sound'),
             items: _sounds
                 .map(
@@ -878,6 +914,16 @@ class _NotificationSettingsDialogState
                 ),
               ),
             ],
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _soundEnabled
+                  ? () => widget.onPreview(_soundName, _volume / 100)
+                  : null,
+              icon: const Icon(Icons.volume_up_outlined, size: 18),
+              label: const Text('Preview sound'),
+            ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
