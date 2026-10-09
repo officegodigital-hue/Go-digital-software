@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
@@ -517,6 +518,15 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> toggleTracking() async {
     try {
+      // Clock In is the first step of Hybrid work. Check it before requesting
+      // GPS or attempting to create a tracking session.
+      if (!trackingActive) {
+        final attendance = await AttendanceApi.dashboard(DateTime.now());
+        if (attendance['status'] != 'checked_in') {
+          await _requireClockIn();
+          return;
+        }
+      }
       final position = await _getCurrentPosition();
 
       if (!trackingActive) {
@@ -587,11 +597,41 @@ class _TrackingViewState extends State<_TrackingView> {
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('Exception: ', '')),
+      final message = error.toString().replaceFirst('Exception: ', '');
+      if (message.contains('Clock in before starting Hybrid live tracking.')) {
+        await _requireClockIn();
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _requireClockIn() async {
+    if (!mounted) return;
+    final goToClockIn = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clock In required'),
+        content: const Text(
+          'Clock In first, then you can start Hybrid live tracking.',
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Go to Clock In'),
+          ),
+        ],
+      ),
+    );
+    if (goToClockIn == true && mounted) {
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil('/employee/dashboard', (route) => false);
     }
   }
 
