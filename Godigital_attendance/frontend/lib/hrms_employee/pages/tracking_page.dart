@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../services/hrms_tracking_api.dart';
+import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
 import 'home_location_dialog.dart';
 
@@ -492,6 +493,10 @@ class _TrackingViewState extends State<_TrackingView> {
       onToggle: toggleTracking,
     );
 
+    // Only Field and Hybrid employees receive field-tracking permission. The
+    // backend performs the same authorization before saving a comment.
+    final comments = const TrackingCommentsSection();
+
     if (widget.mobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,6 +532,7 @@ class _TrackingViewState extends State<_TrackingView> {
           map,
           const SizedBox(height: 14),
           metrics,
+          if (_fieldTrackingEnabled) ...[const SizedBox(height: 18), comments],
           const SizedBox(height: 22),
           const Text(
             'Today’s Activity',
@@ -595,6 +601,10 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                   const SizedBox(height: 12),
                   timeline,
+                  if (_fieldTrackingEnabled) ...[
+                    const SizedBox(height: 18),
+                    comments,
+                  ],
                   const SizedBox(height: 18),
                   if (_fieldTrackingEnabled) live,
                 ],
