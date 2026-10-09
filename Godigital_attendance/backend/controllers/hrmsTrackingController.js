@@ -478,7 +478,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     `SELECT id, started_at
      FROM hrms_field_tracking_sessions
      WHERE employee_user_id = ? AND is_active = 1
-     ORDER BY started_at DESC
+     ORDER BY started_at DESC, id DESC
      LIMIT 1`,
     [employeeUserId]
   );
@@ -1180,7 +1180,7 @@ async function getMyFieldSession(req, res) {
       `SELECT *
        FROM hrms_field_tracking_sessions
        WHERE employee_user_id = ? AND is_active = 1
-       ORDER BY started_at DESC
+       ORDER BY started_at DESC, id DESC
        LIMIT 1`,
       [employeeUserId]
     );
@@ -1231,7 +1231,7 @@ async function getFieldSessionSummary(req, res) {
       `SELECT id, started_at
        FROM hrms_field_tracking_sessions
        WHERE employee_user_id = ? AND is_active = 1
-       ORDER BY started_at DESC LIMIT 1`,
+       ORDER BY started_at DESC, id DESC LIMIT 1`,
       [employeeUserId]
     );
 
@@ -1284,6 +1284,26 @@ async function getFieldSessionSummary(req, res) {
   }
 }
 
+async function withFieldTrackingLock(employeeUserId, action) {
+  const lockName = 'hrms-field-session:' + String(employeeUserId);
+  const [[lock]] = await db.query(
+    'SELECT GET_LOCK(?, 5) AS acquired',
+    [lockName]
+  );
+
+  if (Number(lock && lock.acquired) !== 1) {
+    throw new Error('Tracking is already being updated. Please try again.');
+  }
+
+  try {
+    return await action();
+  } finally {
+    await db.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(function (error) {
+      console.error('Unable to release field tracking lock:', error.message);
+    });
+  }
+}
+
 async function startFieldTracking(req, res) {
   try {
     const employeeUserId = req.user && req.user.id;
@@ -1311,49 +1331,67 @@ async function startFieldTracking(req, res) {
       return fail(res, 403, 'Live tracking is available only for Field or Hybrid employees');
     }
 
-    const [activeSessions] = await db.query(
-      `SELECT id
-       FROM hrms_field_tracking_sessions
-       WHERE employee_user_id = ? AND is_active = 1
-       LIMIT 1`,
-      [employeeUserId]
-    );
+    const sessionResult = await withFieldTrackingLock(
+      employeeUserId,
+      async function () {
+        const [activeSessions] = await db.query(
+          `SELECT id
+           FROM hrms_field_tracking_sessions
+           WHERE employee_user_id = ? AND is_active = 1
+           ORDER BY started_at DESC, id DESC`,
+          [employeeUserId]
+        );
 
-    if (activeSessions.length) {
-      return ok(
-        res,
-        { sessionId: activeSessions[0].id, isActive: true },
-        'Live tracking is already active'
-      );
-    }
+        if (activeSessions.length) {
+          const primarySession = activeSessions[0];
 
-    const [session] = await db.query(
-      `INSERT INTO hrms_field_tracking_sessions
-        (employee_user_id, start_latitude, start_longitude)
-       VALUES (?, ?, ?)`,
-      [employeeUserId, latitude, longitude]
-    );
+          // Older duplicate rows can only be caused by an earlier racing
+          // request. Keep the newest session and close the rest.
+          if (activeSessions.length > 1) {
+            await db.query(
+              `UPDATE hrms_field_tracking_sessions
+               SET is_active = 0, stopped_at = CURRENT_TIMESTAMP
+               WHERE employee_user_id = ? AND is_active = 1 AND id <> ?`,
+              [employeeUserId, primarySession.id]
+            );
+          }
 
-    await db.query(
-      `INSERT INTO hrms_location_pings
-        (employee_user_id, latitude, longitude, accuracy_meters)
-       VALUES (?, ?, ?, ?)`,
-      [employeeUserId, latitude, longitude, accuracy]
-    );
+          return { sessionId: primarySession.id, alreadyActive: true };
+        }
 
-    await db.query(
-      `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-       VALUES (?, 'field')
-       ON DUPLICATE KEY UPDATE
-         status = 'field',
-         updated_at = CURRENT_TIMESTAMP`,
-      [employeeUserId]
+        const [session] = await db.query(
+          `INSERT INTO hrms_field_tracking_sessions
+            (employee_user_id, start_latitude, start_longitude)
+           VALUES (?, ?, ?)`,
+          [employeeUserId, latitude, longitude]
+        );
+
+        await db.query(
+          `INSERT INTO hrms_location_pings
+            (employee_user_id, latitude, longitude, accuracy_meters)
+           VALUES (?, ?, ?, ?)`,
+          [employeeUserId, latitude, longitude, accuracy]
+        );
+
+        await db.query(
+          `INSERT INTO hrms_employee_location_status (employee_user_id, status)
+           VALUES (?, 'field')
+           ON DUPLICATE KEY UPDATE
+             status = 'field',
+             updated_at = CURRENT_TIMESTAMP`,
+          [employeeUserId]
+        );
+
+        return { sessionId: session.insertId, alreadyActive: false };
+      }
     );
 
     return ok(
       res,
-      { sessionId: session.insertId, isActive: true },
-      'Field live tracking started'
+      { sessionId: sessionResult.sessionId, isActive: true },
+      sessionResult.alreadyActive
+        ? 'Live tracking is already active'
+        : 'Field live tracking started'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/start', error);
@@ -1375,34 +1413,43 @@ async function stopFieldTracking(req, res) {
       return fail(res, 401, 'Unauthorized');
     }
 
-    const [activeSessions] = await db.query(
-      `SELECT id
-       FROM hrms_field_tracking_sessions
-       WHERE employee_user_id = ? AND is_active = 1
-       ORDER BY started_at DESC
-       LIMIT 1`,
-      [employeeUserId]
+    const stopResult = await withFieldTrackingLock(
+      employeeUserId,
+      async function () {
+        const [activeSessions] = await db.query(
+          `SELECT id
+           FROM hrms_field_tracking_sessions
+           WHERE employee_user_id = ? AND is_active = 1
+           ORDER BY started_at DESC, id DESC`,
+          [employeeUserId]
+        );
+
+        if (!activeSessions.length) return { sessionId: null };
+
+        const sessionId = activeSessions[0].id;
+        await db.query(
+          `UPDATE hrms_field_tracking_sessions
+           SET is_active = 0,
+               stopped_at = CURRENT_TIMESTAMP,
+               stop_latitude = ?,
+               stop_longitude = ?
+           WHERE employee_user_id = ? AND is_active = 1`,
+          [
+            Number.isFinite(latitude) ? latitude : null,
+            Number.isFinite(longitude) ? longitude : null,
+            employeeUserId,
+          ]
+        );
+
+        return { sessionId: sessionId };
+      }
     );
 
-    if (!activeSessions.length) {
+    if (!stopResult.sessionId) {
       return ok(res, { isActive: false }, 'No active field tracking session');
     }
 
-    const sessionId = activeSessions[0].id;
-
-    await db.query(
-      `UPDATE hrms_field_tracking_sessions
-       SET is_active = 0,
-           stopped_at = CURRENT_TIMESTAMP,
-           stop_latitude = ?,
-           stop_longitude = ?
-       WHERE id = ?`,
-      [
-        Number.isFinite(latitude) ? latitude : null,
-        Number.isFinite(longitude) ? longitude : null,
-        sessionId,
-      ]
-    );
+    const sessionId = stopResult.sessionId;
 
     // Stopping live tracking ends the attendance session for Field employees
     // and Hybrid employees working in field mode.
@@ -1426,6 +1473,15 @@ async function stopFieldTracking(req, res) {
         [employeeUserId, latitude, longitude, accuracy]
       );
     }
+
+    await db.query(
+      `INSERT INTO hrms_employee_location_status (employee_user_id, status)
+       VALUES (?, 'office')
+       ON DUPLICATE KEY UPDATE
+         status = 'office',
+         updated_at = CURRENT_TIMESTAMP`,
+      [employeeUserId]
+    );
 
     return ok(
       res,

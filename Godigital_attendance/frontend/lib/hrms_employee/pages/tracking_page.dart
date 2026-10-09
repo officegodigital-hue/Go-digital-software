@@ -51,6 +51,7 @@ class _TrackingViewState extends State<_TrackingView> {
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
   bool _waitingDialogOpen = false;
+  bool _trackingActionInProgress = false;
   bool _fieldTrackingEnabled = false;
   bool _homeLocationEnabled = true;
   String? _homeError;
@@ -310,6 +311,9 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   Future<void> toggleTracking() async {
+    if (_trackingActionInProgress) return;
+
+    setState(() => _trackingActionInProgress = true);
     try {
       final position = await _getCurrentPosition();
 
@@ -379,6 +383,10 @@ class _TrackingViewState extends State<_TrackingView> {
           content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _trackingActionInProgress = false);
+      }
     }
   }
 
@@ -491,6 +499,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
     final live = _LiveTrackingControl(
       active: trackingActive,
+      busy: _trackingActionInProgress,
       onToggle: toggleTracking,
     );
 
@@ -1276,8 +1285,13 @@ class _TimelineRow extends StatelessWidget {
 }
 
 class _LiveTrackingControl extends StatelessWidget {
-  const _LiveTrackingControl({required this.active, required this.onToggle});
+  const _LiveTrackingControl({
+    required this.active,
+    required this.busy,
+    required this.onToggle,
+  });
   final bool active;
+  final bool busy;
   final VoidCallback onToggle;
 
   @override
@@ -1303,11 +1317,15 @@ class _LiveTrackingControl extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         FilledButton.icon(
-          onPressed: onToggle,
+          onPressed: busy ? null : onToggle,
           icon: Icon(
             active ? Icons.stop_circle_outlined : Icons.play_circle_outline,
           ),
-          label: Text(active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          label: Text(
+            busy
+                ? (active ? 'Stopping…' : 'Starting…')
+                : (active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: active ? const Color(0xFFD84343) : employeeGreen,
             foregroundColor: Colors.white,
