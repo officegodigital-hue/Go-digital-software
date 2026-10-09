@@ -57,6 +57,8 @@ class _TrackingViewState extends State<_TrackingView> {
   String duration = '—';
   String avgSpeed = '—';
 
+  int _fieldPingIntervalMinutes = 15;
+
   List<dynamic> activities = [
     {
       'activity_time': '--:--',
@@ -88,7 +90,8 @@ class _TrackingViewState extends State<_TrackingView> {
       final permissions = await HrmsTrackingApi.trackingPermissions();
       if (!mounted) return;
       setState(() {
-        _fieldTrackingEnabled = permissions['fieldTrackingEnabled'] == true ||
+        _fieldTrackingEnabled =
+            permissions['fieldTrackingEnabled'] == true ||
             permissions['field_tracking_enabled'] == true ||
             permissions['fieldTrackingEnabled'].toString() == '1';
         _homeLocationEnabled = permissions['homeLocationEnabled'] != false;
@@ -117,12 +120,28 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
       setState(() {
         _officeSettings = settings;
+        _fieldPingIntervalMinutes = _readPositiveMinutes(
+          settings['field_ping_interval_minutes'] ??
+              settings['fieldPingIntervalMinutes'],
+          fallback: 15,
+        );
         _officeLoading = false;
       });
+
+      // A session may load before the settings request. Restart the timer so
+      // it always uses the latest interval configured by the admin.
+      if (trackingActive) _startLocationTimer();
     } catch (_) {
       if (!mounted) return;
       setState(() => _officeLoading = false);
     }
+  }
+
+  int _readPositiveMinutes(dynamic value, {required int fallback}) {
+    final minutes = value is num
+        ? value.toInt()
+        : int.tryParse(value?.toString() ?? '');
+    return minutes != null && minutes > 0 ? minutes : fallback;
   }
 
   Future<Position> _getCurrentPosition() async {
@@ -236,9 +255,12 @@ class _TrackingViewState extends State<_TrackingView> {
   void _startLocationTimer() {
     _locationTimer?.cancel();
 
-    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
-      _sendLocationPing(showMessage: false);
-    });
+    _locationTimer = Timer.periodic(
+      Duration(minutes: _fieldPingIntervalMinutes),
+      (_) {
+        _sendLocationPing(showMessage: false);
+      },
+    );
   }
 
   Future<void> _sendLocationPing({required bool showMessage}) async {
