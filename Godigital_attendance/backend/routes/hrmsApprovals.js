@@ -8,6 +8,8 @@ router.use(hrms.requireAdmin);
 
 router.get('/notifications', hrms.notifications);
 router.patch('/notifications/read-all', hrms.markAllNotificationsRead);
+router.get('/notifications/settings', hrms.notificationSettings);
+router.put('/notifications/settings', hrms.saveNotificationSettings);
 router.get('/', hrms.list);
 router.patch('/:id', hrms.review);
 

@@ -8,6 +8,7 @@ const { ensureAttendanceTables } = require('./lib/ensureAttendanceTables');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 const { ensureHrmsEmployeeTables } = require('./lib/ensureHrmsEmployeeTables');
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
+const { ensureAdminNotificationTables } = require('./lib/adminNotifications');
 const attendancePolicy = require('./lib/attendancePolicy');
 const payroll = require('./controllers/hrmsPayrollController');
 const { runFieldWaitingChecks } = require('./controllers/hrmsTrackingController');
@@ -51,6 +52,7 @@ async function start() {
   await attendancePolicy.getTimeSettings(db);
   await ensureHrmsEmployeeTables(db);
   await ensureHrmsTrackingTables(db);
+  await ensureAdminNotificationTables();
   // Auto mode safely regenerates only the current month's unpaid payroll once
   // per local calendar day. Paid payroll rows remain immutable.
   await payroll.runAutomaticPayroll();

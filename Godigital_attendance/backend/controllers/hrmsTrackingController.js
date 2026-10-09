@@ -2,6 +2,7 @@ const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
 const crypto = require('crypto');
+const { TYPES, createAdminNotification } = require('../lib/adminNotifications');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -1629,6 +1630,19 @@ async function submitWaitingReason(req, res) {
       return fail(res, 404, 'Waiting alert not found');
     }
 
+    const [profiles] = await db.query(
+      'SELECT full_name FROM hrms_employee_profiles WHERE employee_user_id = ?',
+      [employeeUserId]
+    );
+    const employeeName = String((profiles[0] && profiles[0].full_name) || 'An employee').trim();
+    createAdminNotification({
+      type: TYPES.FIELD_WAITING_REASON,
+      sourceId: reasonId,
+      employeeUserId,
+      title: 'Field waiting reason submitted',
+      message: `${employeeName} submitted a reason for waiting: ${reason.slice(0, 300)}`,
+    }).catch((error) => console.error('Could not create waiting-reason notification:', error.message));
+
     return ok(res, null, 'Waiting reason submitted');
   } catch (error) {
     return fail(res, 500, error.message);
@@ -1692,7 +1706,16 @@ async function addTrackingComment(req, res) {
     const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
     if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) return fail(res, 403, 'Comments are available only to Field and Hybrid employees');
     const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
-    await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
+    const [result] = await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
+    const [nameRows] = await db.query('SELECT full_name FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
+    const employeeName = String((nameRows[0] && nameRows[0].full_name) || 'An employee').trim();
+    createAdminNotification({
+      type: TYPES.TRACKING_COMMENT,
+      sourceId: result.insertId,
+      employeeUserId,
+      title: 'New employee tracking comment',
+      message: `${employeeName}: ${text.slice(0, 360)}`,
+    }).catch((error) => console.error('Could not create tracking-comment notification:', error.message));
     return ok(res, null, 'Comment saved');
   } catch (error) { return fail(res, 500, error.message); }
 }
