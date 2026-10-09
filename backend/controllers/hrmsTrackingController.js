@@ -245,8 +245,8 @@ async function setStatus(req, res) {
     const employeeUserId = req.user && req.user.id;
     const status = String(req.body.status || '').toLowerCase();
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    if (!['office', 'home', 'field'].includes(status)) {
-      return fail(res, 400, "status must be 'office', 'home', or 'field'");
+    if (!['office', 'home', 'hybrid'].includes(status)) {
+      return fail(res, 400, "status must be 'office', 'home', or 'hybrid'");
     }
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
@@ -539,7 +539,7 @@ async function liveOverview(req, res) {
 
     const now = Date.now();
     let activeNow = 0;
-    const counts = { office: 0, home: 0, field: 0 };
+    const counts = { office: 0, home: 0, hybrid: 0 };
 
     const items = profiles.map(function (profile) {
       const uid = profile.employee_user_id ? Number(profile.employee_user_id) : null;
@@ -571,7 +571,7 @@ async function liveOverview(req, res) {
       counts: {
         office: counts.office || 0,
         home: counts.home || 0,
-        field: counts.field || 0,
+        hybrid: counts.hybrid || 0,
         activeNow: activeNow,
       },
       items: items,
@@ -614,6 +614,17 @@ async function routeHistory(req, res) {
     return fail(res, 500, error.message);
   }
 }
+
+// Return the authenticated employee's own route without granting access to
+// another employee's location history.
+async function myRouteHistory(req, res) {
+  if (!req.user || !req.user.id) {
+    return fail(res, 401, 'Unauthorized');
+  }
+  req.params.employeeUserId = req.user.id;
+  return routeHistory(req, res);
+}
+
 async function getTrackingSettings(req, res) {
   try {
     const [rows] = await db.query(
@@ -895,6 +906,16 @@ async function getMyFieldSession(req, res) {
       return fail(res, 401, 'Unauthorized');
     }
 
+    const [profiles] = await db.query(
+      `SELECT work_mode FROM hrms_employee_profiles
+       WHERE employee_user_id = ?`,
+      [employeeUserId]
+    );
+    const workMode = profiles[0] && profiles[0].work_mode;
+    if (workMode !== 'Hybrid') {
+      return fail(res, 403, 'Live tracking is only available for Hybrid employees');
+    }
+
     const [rows] = await db.query(
       `SELECT *
        FROM hrms_field_tracking_sessions
@@ -904,7 +925,11 @@ async function getMyFieldSession(req, res) {
       [employeeUserId]
     );
 
-    return ok(res, rows[0] || { isActive: false });
+    return ok(res, {
+      ...(rows[0] || { isActive: false }),
+      workMode,
+      isHybrid: workMode === 'Hybrid',
+    });
   } catch (error) {
     console.error('GET /hrms/tracking/field-session', error);
     return fail(res, 500, error.message);
@@ -934,8 +959,24 @@ async function startFieldTracking(req, res) {
       [employeeUserId]
     );
 
-    if (!profiles.length || profiles[0].work_mode !== 'Field') {
-      return fail(res, 403, 'Field live tracking is only available for Field employees');
+    if (!profiles.length || profiles[0].work_mode !== 'Hybrid') {
+      return fail(res, 403, 'Live tracking is only available for Hybrid employees');
+    }
+
+    // Hybrid attendance begins with Clock In. Tracking is available only for
+    // an active attendance session, so an employee cannot create location
+    // records before starting work.
+    const [attendanceRows] = await db.query(
+      `SELECT id FROM attendance_records
+       WHERE employee_id = ?
+         AND attendance_date = ?
+         AND check_in_at IS NOT NULL
+         AND check_out_at IS NULL
+       LIMIT 1`,
+      [employeeUserId, policy.todayIstDate()]
+    );
+    if (!attendanceRows.length) {
+      return fail(res, 409, 'Clock in before starting Hybrid live tracking.');
     }
 
     const [activeSessions] = await db.query(
@@ -970,9 +1011,9 @@ async function startFieldTracking(req, res) {
 
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-       VALUES (?, 'field')
+        VALUES (?, 'hybrid')
        ON DUPLICATE KEY UPDATE
-         status = 'field',
+          status = 'hybrid',
          updated_at = CURRENT_TIMESTAMP`,
       [employeeUserId]
     );
@@ -980,7 +1021,7 @@ async function startFieldTracking(req, res) {
     return ok(
       res,
       { sessionId: session.insertId, isActive: true },
-      'Field live tracking started'
+      'Hybrid live tracking started'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/start', error);
@@ -1012,7 +1053,7 @@ async function stopFieldTracking(req, res) {
     );
 
     if (!activeSessions.length) {
-      return ok(res, { isActive: false }, 'No active field tracking session');
+      return ok(res, { isActive: false }, 'No active Hybrid tracking session');
     }
 
     const sessionId = activeSessions[0].id;
@@ -1043,7 +1084,7 @@ async function stopFieldTracking(req, res) {
     return ok(
       res,
       { sessionId: sessionId, isActive: false },
-      'Field live tracking stopped'
+      'Hybrid live tracking stopped'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/stop', error);
@@ -1156,6 +1197,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
   getMyHomeLocation,

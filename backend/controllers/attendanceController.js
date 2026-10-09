@@ -786,11 +786,18 @@ async function employeeDashboard(req, res) {
 
 async function checkInPolicy(req, res) {
   try {
+    // Work-mode decisions must not be read from a stale browser cache.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     const rules = await locationPolicy.getCheckInPolicy(db, req.user && req.user.id);
     return ok(res, {
       workMode: rules.workMode,
       requiresLocation: rules.requiresLocation,
-      radiusMeters: rules.radiusMeters
+      radiusMeters: rules.radiusMeters,
+      trackingRequired: rules.trackingRequired === true,
+      trackingActive: rules.trackingActive === true,
+      canClockIn: rules.canClockIn !== false,
     });
   } catch (error) {
     if (error instanceof locationPolicy.LocationPolicyError) return fail(res, error.status, error.message);

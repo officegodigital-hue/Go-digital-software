@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../services/hrms_tracking_api.dart';
+import '../../../services/attendance_location.dart';
 import '../../../services/office_address_search.dart';
 import '../../shared/widgets/admin_top_nav.dart';
 import 'widgets/home_locations_dialog.dart';
@@ -3624,6 +3624,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   bool _saving = false;
   bool _gpsLoading = false;
   String? _error;
+  double? _bestGpsAccuracy;
 
   static const _blue = Color(0xFF075EF7);
   static const _navy = Color(0xFF061457);
@@ -3689,24 +3690,13 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
     setState(() {
       _gpsLoading = true;
       _error = null;
+      _bestGpsAccuracy = null;
     });
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) throw Exception('Location services are disabled.');
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied)
-          throw Exception('Location permission denied.');
-      }
-      if (permission == LocationPermission.deniedForever)
-        throw Exception(
-          'Location permission permanently denied. Enable it in Settings.',
-        );
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
+      final pos = await AttendanceLocation.registrationPosition(
+        onAccuracy: (accuracy) {
+          if (mounted) setState(() => _bestGpsAccuracy = accuracy);
+        },
       );
       if (!mounted) return;
       final point = LatLng(pos.latitude, pos.longitude);
@@ -3969,7 +3959,11 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
               child: CircularProgressIndicator(strokeWidth: 2, color: _blue),
             )
           : const Icon(Icons.my_location_rounded, size: 18),
-      label: Text(_gpsLoading ? 'Getting GPS...' : 'Capture Current GPS'),
+      label: Text(_gpsLoading && _bestGpsAccuracy != null
+          ? 'Best GPS: ${_bestGpsAccuracy!.toStringAsFixed(0)}m'
+          : _gpsLoading
+              ? 'Getting precise GPS...'
+              : 'Capture Current GPS'),
       style: OutlinedButton.styleFrom(
         foregroundColor: _blue,
         side: const BorderSide(color: _blue),

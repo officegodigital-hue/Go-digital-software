@@ -135,7 +135,9 @@ class HrmsTrackingApi {
   }) async {
     final response = await http
         .put(
-          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/office-location'),
+          // Office data is owned by the tracking settings record.  The
+          // dedicated office-location endpoint is not registered by the API.
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
           headers: await _headers(),
           body: jsonEncode({
             'officeName': officeName,

@@ -90,7 +90,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
   }) async {
     // Use the configured backend for both validation and the attendance write.
     // Retrying a denied punch against an older server could bypass the rule.
-    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint');
+    final cacheBuster = endpoint == 'check-in-policy'
+        ? '?_=${DateTime.now().microsecondsSinceEpoch}'
+        : '';
+    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint$cacheBuster');
     final headers = {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -170,6 +173,33 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    if (!clockOut) {
+      try {
+        final policy = await _call('check-in-policy', token);
+        if (policy['workMode'] == 'Hybrid') {
+          if (!mounted || token != _token) return;
+          final clockedIn = await Navigator.pushNamed<bool>(
+            context,
+            '/employee/tracking',
+            arguments: const {'clockInAfterTracking': true},
+          );
+          if (!mounted || token != _token) return;
+          await _load();
+          if (clockedIn == true && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are now checked in.')),
+            );
+          }
+          return;
+        }
+      } catch (error) {
+        if (!mounted || token != _token) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_message(error))),
+        );
+        return;
+      }
+    }
     setState(() => _punching = true);
     String message;
     try {
