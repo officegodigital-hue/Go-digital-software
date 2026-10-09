@@ -1,6 +1,10 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const staff = require('../lib/staffDirectory');
+const adminNotifications = require('../lib/adminNotifications');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -108,26 +112,16 @@ function toUi(row) {
 }
 
 async function ensureAdminNotifications() {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS hrms_admin_notifications (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      approval_request_id BIGINT UNSIGNED NOT NULL,
-      title VARCHAR(160) NOT NULL,
-      message VARCHAR(500) NOT NULL,
-      is_read TINYINT(1) NOT NULL DEFAULT 0,
-      read_at DATETIME NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uniq_approval_notification (approval_request_id)
-    )
-  `);
+  await adminNotifications.ensureAdminNotificationTables();
 }
 
 async function syncPendingNotifications() {
   await ensureAdminNotifications();
   await db.query(`
-    INSERT IGNORE INTO hrms_admin_notifications (approval_request_id, title, message)
+    INSERT IGNORE INTO hrms_admin_notifications
+      (approval_request_id, notification_type, source_id, employee_user_id, title, message)
     SELECT p.id,
+           'approval_request', p.id, p.employee_id,
            CONCAT('New ', REPLACE(p.request_type, '_', ' '), ' request'),
            CONCAT(COALESCE(u.full_name, CONCAT('Employee #', p.employee_id)), ' submitted a request for approval.')
     FROM attendance_permission_requests p
@@ -140,7 +134,8 @@ async function notifications(req, res) {
   try {
     await syncPendingNotifications();
     const [rows] = await db.query(`
-      SELECT id, approval_request_id, title, message, is_read, created_at
+      SELECT id, approval_request_id, notification_type, source_id, employee_user_id,
+             title, message, is_read, created_at
       FROM hrms_admin_notifications
       ORDER BY created_at DESC
       LIMIT 12
@@ -154,15 +149,60 @@ async function notifications(req, res) {
         return {
           id: row.id,
           approvalRequestId: row.approval_request_id,
+          type: row.notification_type,
+          sourceId: row.source_id,
+          employeeUserId: row.employee_user_id,
           title: row.title,
           message: row.message,
           isRead: Boolean(row.is_read),
           createdAt: row.created_at,
         };
       }),
+      settings: await adminNotifications.getSettings(),
     });
   } catch (error) {
     console.error('GET /hrms/approvals/notifications', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function notificationSettings(req, res) {
+  try {
+    return ok(res, await adminNotifications.getSettings());
+  } catch (error) {
+    console.error('GET /hrms/approvals/notifications/settings', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function saveNotificationSettings(req, res) {
+  try {
+    return ok(res, await adminNotifications.updateSettings(req.body || {}, req.user && req.user.id), 'Notification settings saved');
+  } catch (error) {
+    console.error('PUT /hrms/approvals/notifications/settings', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function uploadNotificationSound(req, res) {
+  try {
+    if (!req.file) return fail(res, 400, 'Choose an audio file to upload');
+    const allowedExtensions = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg']);
+    const extension = path.extname(req.file.originalname || '').toLowerCase();
+    if (!allowedExtensions.has(extension) || !String(req.file.mimetype || '').startsWith('audio/')) {
+      return fail(res, 400, 'Upload an MP3, WAV, M4A, AAC, or OGG audio file');
+    }
+    const directory = path.join(__dirname, '..', 'uploads', 'notification-sounds');
+    await fs.promises.mkdir(directory, { recursive: true });
+    const filename = `notification-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`;
+    await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
+    const settings = await adminNotifications.saveCustomSound(
+      `/uploads/notification-sounds/${filename}`,
+      req.user && req.user.id
+    );
+    return ok(res, settings, 'Custom notification sound uploaded');
+  } catch (error) {
+    console.error('POST /hrms/approvals/notifications/settings/sound', error);
     return fail(res, 500, error.message);
   }
 }
@@ -317,5 +357,8 @@ module.exports = {
   review,
   notifications,
   markAllNotificationsRead,
+  notificationSettings,
+  saveNotificationSettings,
+  uploadNotificationSound,
   LEAVE_TYPES,
 };

@@ -197,7 +197,7 @@ class HrmsTrackingApi {
     _decode(response);
   }
 
-  static Future<void> ping({
+  static Future<Map<String, dynamic>> ping({
     required double latitude,
     required double longitude,
     double? accuracy,
@@ -212,7 +212,7 @@ class HrmsTrackingApi {
       }),
     );
 
-    _decode(response);
+    return _decode(response);
   }
 
   static Future<Map<String, dynamic>> fieldSession() async {
