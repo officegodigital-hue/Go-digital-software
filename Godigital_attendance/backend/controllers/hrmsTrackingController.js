@@ -488,7 +488,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     [employeeUserId]
   );
 
-  if (!sessions.length) return;
+  if (!sessions.length) return false;
 
   const session = sessions[0];
 
@@ -498,7 +498,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
      WHERE id = 1`
   );
 
-  if (!settingsRows.length) return;
+  if (!settingsRows.length) return false;
 
   const waitingMinutes = Number(settingsRows[0].field_waiting_minutes || 60);
 
@@ -516,7 +516,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     [session.id]
   );
 
-  if (existingAlerts.length) return;
+  if (existingAlerts.length) return false;
 
   const [pings] = await db.query(
     `SELECT latitude,
@@ -529,7 +529,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     [employeeUserId, session.started_at]
   );
 
-  if (pings.length < 2) return;
+  if (pings.length < 2) return false;
 
   let firstStillPing = pings[pings.length - 1];
 
@@ -555,11 +555,11 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   );
   const elapsedMinutes = Number(elapsedRow && elapsedRow.elapsed_minutes) || 0;
 
-  if (elapsedMinutes < waitingMinutes) return;
+  if (elapsedMinutes < waitingMinutes) return false;
 
-const eventKey = '${session.id}:${firstStillPing.recorded_at}';
+  const eventKey = `${session.id}:${firstStillPing.recorded_at}`;
 
-await db.query(
+const [insertResult] = await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (
      field_session_id,
      employee_user_id,
@@ -581,6 +581,43 @@ await db.query(
     eventKey,
   ]
 );
+
+return insertResult.affectedRows > 0;
+}
+
+// A server-side fallback for active field sessions. Browser timers can be
+// throttled and an individual ping request must never be the only way a
+// waiting alert is created.
+async function runFieldWaitingChecks() {
+  const [activeEmployees] = await db.query(
+    `SELECT DISTINCT s.employee_user_id, latest.latitude, latest.longitude
+     FROM hrms_field_tracking_sessions s
+     INNER JOIN (
+       SELECT p.employee_user_id, p.latitude, p.longitude, p.recorded_at
+       FROM hrms_location_pings p
+       INNER JOIN (
+         SELECT employee_user_id, MAX(recorded_at) AS recorded_at
+         FROM hrms_location_pings
+         GROUP BY employee_user_id
+       ) newest
+         ON newest.employee_user_id = p.employee_user_id
+        AND newest.recorded_at = p.recorded_at
+     ) latest ON latest.employee_user_id = s.employee_user_id
+     WHERE s.is_active = 1
+       AND latest.recorded_at >= CURRENT_TIMESTAMP - INTERVAL ${ACTIVE_WINDOW_MINUTES} MINUTE`
+  );
+
+  let createdCount = 0;
+  for (const employee of activeEmployees) {
+    const created = await detectFieldWaitingTime(
+      employee.employee_user_id,
+      Number(employee.latitude),
+      Number(employee.longitude)
+    );
+    if (created) createdCount += 1;
+  }
+
+  return { checked: activeEmployees.length, created: createdCount };
 }
 
 async function ping(req, res) {
@@ -1697,7 +1734,8 @@ stopFieldTracking,
 getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
-reviewFieldWaitingReason,
+  reviewFieldWaitingReason,
+  runFieldWaitingChecks,
   addTrackingComment,
   myTrackingComments,
   adminTrackingComments,

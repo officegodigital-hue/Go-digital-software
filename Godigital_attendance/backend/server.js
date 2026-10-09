@@ -10,6 +10,7 @@ const { ensureHrmsEmployeeTables } = require('./lib/ensureHrmsEmployeeTables');
 const { ensureHrmsTrackingTables } = require('./lib/ensureHrmsTrackingTables');
 const attendancePolicy = require('./lib/attendancePolicy');
 const payroll = require('./controllers/hrmsPayrollController');
+const { runFieldWaitingChecks } = require('./controllers/hrmsTrackingController');
 const { createApp: createEmployeeAttendanceApp } = require('./attendance/app');
 
 const app = express();
@@ -57,6 +58,11 @@ async function start() {
     payroll.runAutomaticPayroll().catch((error) =>
       console.error('Automatic payroll update failed:', error.message));
   }, 15 * 60 * 1000).unref();
+  const checkFieldWaiting = () =>
+    runFieldWaitingChecks().catch((error) =>
+      console.error('Field waiting check failed:', error.message));
+  checkFieldWaiting();
+  setInterval(checkFieldWaiting, 60 * 1000).unref();
   app.listen(port, () => console.log(`Attendance API running at http://localhost:${port}`));
 }
 
