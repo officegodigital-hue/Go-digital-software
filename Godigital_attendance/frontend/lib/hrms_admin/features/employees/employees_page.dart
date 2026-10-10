@@ -2424,6 +2424,12 @@ class _EmployeeDetailPage extends StatefulWidget {
 class _EmployeeDetailPageState extends State<_EmployeeDetailPage> {
   late Future<Map<String, dynamic>> _detail;
 
+  String _money(dynamic value) {
+    final amount = value is num ? value : num.tryParse('$value');
+    if (amount == null) return '₹0';
+    return '₹${amount.round().toString().replaceAllMapped(RegExp(r'(?<=\d)(?=(\d{3})+$)'), (_) => ',')}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2487,7 +2493,18 @@ class _EmployeeDetailPageState extends State<_EmployeeDetailPage> {
                 _EmployeeDetailSection(title: 'Payroll history', children: [
                   _EmployeeDetailLine('Monthly salary', widget.employee.salary),
                   _EmployeeDetailLine('LOP days', '${payroll?['lopDays'] ?? 0}'),
-                  _EmployeeDetailLine('Current accrued net pay', '₹${payroll?['netPay'] ?? 0}'),
+                  _EmployeeDetailLine('Late deduction', _money(payroll?['lateDeduction'])),
+                  _EmployeeDetailLine('Absent / LOP value', _money(payroll?['absentDeduction'])),
+                  _EmployeeDetailLine('Total deduction value', _money(payroll?['totalDeduction'])),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Text(
+                      'Absent / LOP value is shown for clarity. Net Pay grows only from paid days, so it is not subtracted a second time.',
+                      style: TextStyle(color: Color(0xFF657087), fontSize: 12),
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  _EmployeeDetailLine('Current accrued net pay', _money(payroll?['netPay'])),
                 ]),
               ]),
             ),

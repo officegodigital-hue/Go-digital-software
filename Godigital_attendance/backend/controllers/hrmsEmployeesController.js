@@ -221,7 +221,8 @@ async function detail(req, res) {
       [employeeId]
     );
     const [[payroll]] = await db.query(
-      `SELECT working_days, paid_days, lop_days, net_pay, status
+      `SELECT working_days, paid_days, lop_days, deductions, late_deductions,
+              absent_deductions, net_pay, status
        FROM hrms_payroll_items WHERE profile_id = ?
        ORDER BY pay_year DESC, pay_month DESC LIMIT 1`,
       [id]
@@ -234,7 +235,11 @@ async function detail(req, res) {
       leave: { total: Number(leave.total || 0), approved: Number(leave.approved || 0), pending: Number(leave.pending || 0) },
       payroll: payroll ? {
         workingDays: Number(payroll.working_days || 0), paidDays: Number(payroll.paid_days || 0),
-        lopDays: Number(payroll.lop_days || 0), netPay: Number(payroll.net_pay || 0), status: payroll.status,
+        lopDays: Number(payroll.lop_days || 0),
+        lateDeduction: Number(payroll.late_deductions || payroll.deductions || 0),
+        absentDeduction: Number(payroll.absent_deductions || 0),
+        totalDeduction: Number(payroll.late_deductions || payroll.deductions || 0) + Number(payroll.absent_deductions || 0),
+        netPay: Number(payroll.net_pay || 0), status: payroll.status,
       } : null,
     });
   } catch (error) {
