@@ -51,6 +51,29 @@ function weekdayIndex(date) {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
+function nextCalendarDate(date) {
+  const [year, month, day] = String(date).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+async function routePingsForDate(employeeUserId, date) {
+  const nextDate = nextCalendarDate(date);
+  // A half-open day range is both index-friendly and prevents a database
+  // time-zone conversion from returning another day's route.
+  const [pings] = await db.query(
+    `SELECT latitude, longitude, address, recorded_at
+     FROM hrms_location_pings
+     WHERE employee_user_id = ?
+       AND recorded_at >= ?
+       AND recorded_at < ?
+     ORDER BY recorded_at ASC`,
+    [employeeUserId, date + ' 00:00:00', nextDate + ' 00:00:00']
+  );
+  return pings;
+}
+
 async function list(req, res) {
   try {
     const today = policy.todayIstDate();
@@ -834,13 +857,7 @@ async function routeHistory(req, res) {
     if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
 
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, address, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
-       ORDER BY recorded_at ASC`,
-      [employeeUserId, date]
-    );
+    const pings = await routePingsForDate(employeeUserId, date);
 
     const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
     return ok(res, {
@@ -851,6 +868,57 @@ async function routeHistory(req, res) {
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function employeeTrackingDetails(req, res) {
+  try {
+    const employeeUserId = Number(req.params.employeeUserId);
+    const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
+    if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
+
+    const nextDate = nextCalendarDate(date);
+    const dayStart = date + ' 00:00:00';
+    const dayEnd = nextDate + ' 00:00:00';
+    const results = await Promise.all([
+      routePingsForDate(employeeUserId, date),
+      db.query(
+        `SELECT id, latitude, longitude, waiting_minutes, reason,
+                waiting_started_at, waiting_detected_at, reason_submitted_at,
+                review_status
+         FROM hrms_field_waiting_reasons
+         WHERE employee_user_id = ?
+           AND waiting_detected_at >= ? AND waiting_detected_at < ?
+         ORDER BY waiting_detected_at ASC`,
+        [employeeUserId, dayStart, dayEnd]
+      ),
+      db.query(
+        `SELECT id, comment_text AS comment, latitude, longitude, address,
+                created_at AS createdAt
+         FROM hrms_employee_tracking_comments
+         WHERE employee_user_id = ?
+           AND created_at >= ? AND created_at < ?
+         ORDER BY created_at ASC`,
+        [employeeUserId, dayStart, dayEnd]
+      ),
+    ]);
+    const pings = results[0];
+    const waitingReasons = results[1][0];
+    const comments = results[2][0];
+    const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
+    return ok(res, {
+      employeeUserId,
+      date,
+      points: route.points,
+      activityPoints: rawRoutePoints(pings),
+      roadSnapped: route.roadSnapped,
+      waitingReasons,
+      comments,
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/employee/:employeeUserId/details', error);
     return fail(res, 500, error.message);
   }
 }
@@ -902,13 +970,7 @@ async function myRouteHistory(req, res) {
   try {
     const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, address, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
-       ORDER BY recorded_at ASC`,
-      [req.user.id, date]
-    );
+    const pings = await routePingsForDate(req.user.id, date);
     const route = await snapRouteToRoads(req.user.id, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: req.user.id,
@@ -1743,6 +1805,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  employeeTrackingDetails,
   myRouteHistoryList,
   myRouteHistory,
   getTrackingSettings,
