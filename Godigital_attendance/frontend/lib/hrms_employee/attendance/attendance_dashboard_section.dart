@@ -508,6 +508,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final workTime = overview['work_time'] as Map? ?? const {};
     final actualMinutes = (workTime['actual_minutes'] as num?)?.toInt() ?? 0;
     final targetMinutes = (workTime['target_minutes'] as num?)?.toInt() ?? 0;
+    final workingDays = (workTime['working_days'] as num?)?.toInt() ?? 0;
     final overtimeMinutes =
         (workTime['overtime_minutes'] as num?)?.toInt() ?? 0;
     final progress = targetMinutes == 0
@@ -694,6 +695,8 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             style: const TextStyle(color: employeeMuted, fontSize: 12),
           ),
           const SizedBox(height: 13),
+          _count('Working Days', workingDays, employeeBlue),
+          const Divider(color: employeeLine),
           _count('Present', overview['present_days'], const Color(0xFF11A55B)),
           const Divider(color: employeeLine),
           _count('Absent', overview['absent_days'], const Color(0xFFE34646)),
