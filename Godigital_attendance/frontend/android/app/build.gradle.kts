@@ -15,7 +15,9 @@ plugins {
 
 android {
     namespace = "com.godigital.attendance"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_plugin_android_lifecycle requires Android API 36.
+    // This does not change targetSdk or the app's minimum Android version.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
