@@ -322,7 +322,9 @@ async function monthView(req, res) {
         } else {
           // A missing clock-in for today is still pending. It becomes an
           // absence only after the calendar date has finished (tomorrow).
-          if (date < today && payrollRules.missingIsAbsent) {
+          // A completed working day without attendance is always absent.
+          // Today remains pending until the day has finished.
+          if (date < today) {
             days.push('A');
             unexcused += 1;
             absent += 1;
@@ -336,6 +338,7 @@ async function monthView(req, res) {
       const salaryNumber = Number(profile.monthly_salary || 0);
       const lopDays = Math.min(workingDays, unexcused);
       const dailyRate = workingDays > 0 ? salaryNumber / workingDays : 0;
+      const absentDeduction = Math.round(absent * dailyRate * 100) / 100;
       // The dashboard is an earned-to-date view: pay starts at zero and
       // grows only for check-ins and approved paid leave.  Absence never
       // removes money already accrued.
@@ -355,9 +358,10 @@ async function monthView(req, res) {
         earnedLeave: earnedLeave,
         approvedLeave: approvedLeave,
         absent: absent,
+        absentDeduction: salaryNumber ? formatSalary(absentDeduction) : '–',
         salary: formatSalary(profile.monthly_salary),
         daysPaid: String(accruedPaidDays),
-        afterLeaves: salaryNumber ? formatSalary(0) : '–',
+        afterLeaves: salaryNumber ? formatSalary(absentDeduction) : '–',
         updatedSalary: salaryNumber ? formatSalary(accruedSalary) : '–',
       };
     });

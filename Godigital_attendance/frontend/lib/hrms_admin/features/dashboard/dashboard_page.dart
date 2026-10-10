@@ -234,7 +234,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <th style="color:${_hex(_purple)}">Half Leave</th>
           <th style="color:${_hex(_blue)}">Earned Leave</th>
           <th>Salary Per Month</th>
-          <th style="color:${_hex(_red)}">Absent</th>
+          <th style="color:${_hex(_red)}">Absent Deduction</th>
           <th>Updated Salary</th>
         </tr>
     ''');
@@ -256,7 +256,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <td style="color:${_hex(_purple)}; font-weight:700;">${employee.halfLeave}</td>
           <td style="color:${_hex(_blue)}; font-weight:700;">${employee.earnedLeave}</td>
           <td>${employee.salary}</td>
-          <td style="color:${_hex(_red)}; font-weight:700;">${employee.absent}</td>
+          <td style="color:${_hex(_red)}; font-weight:700;">${employee.absent} ${employee.absentDeduction}</td>
           <td>${employee.updatedSalary}</td>
         </tr>
       ''');
@@ -766,6 +766,7 @@ class _AttendanceTable extends StatelessWidget {
             ],
             present: employee.present,
             absent: employee.absent,
+            absentDeduction: employee.absentDeduction,
             late: employee.late,
             excused: employee.excused,
             unexcused: employee.unexcused,
@@ -843,6 +844,7 @@ class _EmployeeAttendance {
     required this.designation,
     required this.present,
     required this.absent,
+    required this.absentDeduction,
     required this.late,
     required this.halfLeave,
     required this.earnedLeave,
@@ -860,6 +862,7 @@ class _EmployeeAttendance {
   final String designation;
   final int present;
   final int absent;
+  final String absentDeduction;
   final int late;
   final int halfLeave;
   final int earnedLeave;
@@ -880,6 +883,7 @@ class _EmployeeAttendance {
       designation: (json['designation'] ?? '').toString(),
       present: asInt(json['present']),
       absent: asInt(json['absent']),
+      absentDeduction: (json['absentDeduction'] ?? '–').toString(),
       late: asInt(json['late']),
       halfLeave: asInt(json['halfLeave']),
       earnedLeave: asInt(json['earnedLeave']),

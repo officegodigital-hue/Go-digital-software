@@ -340,9 +340,10 @@ async function computeRows(year, month, today) {
         // Approved leave
         leaveDays += 1;
         earnedDays += 1;
-      } else if (configuredPolicy.missingAttendanceIsAbsent) {
-        // Do not silently turn a missing record into an absence unless the
-        // administrator has chosen that policy.
+      } else {
+        // A completed working day with no attendance is always absent. Its
+        // value is not subtracted from accrued pay: it simply never becomes
+        // a paid day in the first place.
         absent += 1;
         absentEntries.push({ date: date, days: 1 });
       }
@@ -364,7 +365,12 @@ async function computeRows(year, month, today) {
     const workingDays = periodWorkingDays;
     const paidDays = Math.min(workingDays, earnedDays);
     const lopDays = Math.max(0, elapsedWorkingDays - paidDays);
-    const absentDeductions = 0;
+    // This is the unpaid value of mandatory absence days. Net pay is still
+    // earned from zero through paid days, so this value is informational and
+    // is never subtracted from money the employee has already earned.
+    const absentDeductions = Math.round(
+      absentEntries.reduce((sum, item) => sum + (dailyRate * item.days), 0) * 100,
+    ) / 100;
     const deductions = salaryNumber ? Math.round(lateDeductions * 100) / 100 : 0;
     // Salary is accrued from paid days; an absence never removes pay already earned.
     const netPay = Math.max(0, Math.round((paidDays * dailyRate - deductions) * 100) / 100);
