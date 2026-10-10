@@ -53,13 +53,33 @@ class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
       final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/auth/calendar-notifications'), headers: {'Authorization': 'Bearer $token'});
       final body = jsonDecode(response.body);
       final data = body is Map && body['data'] is Map ? Map<String, dynamic>.from(body['data']) : null;
-      if (!mounted || data == null) return;
+      final notices = (data?['notifications'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      if (!mounted || notices.isEmpty) return;
       await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Row(children: [Icon(Icons.calendar_month_rounded, color: employeeBlue), SizedBox(width: 10), Text('Calendar updated')]),
-        content: Text('${data['date']} is now marked as ${data['status']}.\n\n${data['reason']}'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Your work calendar has been updated:'),
+              const SizedBox(height: 12),
+              ...notices.map((notice) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text('• ${notice['date']} — ${notice['status']}\n  ${notice['reason']}'),
+              )),
+            ],
+          ),
+        ),
         actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Got it'))],
       ));
-      await http.patch(Uri.parse('${ApiConfig.baseUrl}/auth/calendar-notifications/${data['id']}/dismiss'), headers: {'Authorization': 'Bearer $token'});
+      for (final notice in notices) {
+        await http.patch(Uri.parse('${ApiConfig.baseUrl}/auth/calendar-notifications/${notice['id']}/dismiss'), headers: {'Authorization': 'Bearer $token'});
+      }
     } catch (_) {}
   }
 

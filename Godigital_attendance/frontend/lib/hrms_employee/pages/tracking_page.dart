@@ -81,7 +81,6 @@ class _TrackingViewState extends State<_TrackingView> {
       _loadFieldSession();
       _loadTripSummary();
       _loadTrackingPermissions();
-      _checkWaitingAlert();
       _loadHomeLocation();
       _loadOfficeSettings();
     });
@@ -248,6 +247,7 @@ class _TrackingViewState extends State<_TrackingView> {
       if (active) {
         _startLocationTimer();
         await _sendLocationPing(showMessage: false);
+        await _checkWaitingAlert();
       }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
@@ -542,6 +542,7 @@ class _TrackingViewState extends State<_TrackingView> {
     // Only Field and Hybrid employees receive field-tracking permission. The
     // backend performs the same authorization before saving a comment.
     final comments = const TrackingCommentsSection();
+    final commentHistory = const TrackingCommentsHistoryButton();
 
     if (widget.mobile) {
       return Column(
@@ -571,7 +572,14 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                 ),
               ),
-              Text(updated, style: const TextStyle(color: employeeMuted)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(updated, style: const TextStyle(color: employeeMuted)),
+                  const SizedBox(height: 6),
+                  commentHistory,
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -616,7 +624,14 @@ class _TrackingViewState extends State<_TrackingView> {
                 ),
               ),
             ),
-            Text(updated, style: const TextStyle(color: employeeMuted)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(updated, style: const TextStyle(color: employeeMuted)),
+                const SizedBox(height: 6),
+                commentHistory,
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -634,6 +649,10 @@ class _TrackingViewState extends State<_TrackingView> {
               flex: 4,
               child: Column(
                 children: [
+                  if (_fieldTrackingEnabled) ...[
+                    comments,
+                    const SizedBox(height: 18),
+                  ],
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -647,10 +666,6 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                   const SizedBox(height: 12),
                   timeline,
-                  if (_fieldTrackingEnabled) ...[
-                    const SizedBox(height: 18),
-                    comments,
-                  ],
                   const SizedBox(height: 18),
                   if (_fieldTrackingEnabled) live,
                 ],
@@ -663,7 +678,10 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   Future<void> _checkWaitingAlert() async {
-    if (_homeDialogOpen || _waitingDialogOpen) return;
+    // A waiting reason belongs only to a running field-tracking session.
+    // Never surface an old, pending alert simply because the Tracking page
+    // was opened after a session has stopped.
+    if (!trackingActive || mode != _WorkMode.field || _homeDialogOpen || _waitingDialogOpen) return;
     try {
       final alert = await HrmsTrackingApi.waitingAlert();
 

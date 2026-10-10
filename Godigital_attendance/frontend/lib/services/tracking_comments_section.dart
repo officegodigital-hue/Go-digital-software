@@ -13,24 +13,7 @@ class TrackingCommentsSection extends StatefulWidget {
 
 class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
   final controller = TextEditingController();
-  List<Map<String, dynamic>> comments = [];
-  bool loading = true, saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final token = await AuthStorage.getString('auth_token');
-    if (token != null && token.isNotEmpty) {
-      try {
-        comments = await TrackingCommentsApi.myComments(token);
-      } catch (_) {}
-    }
-    if (mounted) setState(() => loading = false);
-  }
+  bool saving = false;
 
   Future<void> _save() async {
     final text = controller.text.trim();
@@ -63,7 +46,6 @@ class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
         longitude: position.longitude,
       );
       controller.clear();
-      await _load();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -136,36 +118,72 @@ class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
                 child: Text(saving ? 'Saving…' : 'Submit Comment'),
               ),
             ),
-            const Divider(),
-            const Text(
-              'My last 30 days',
-              style: TextStyle(
-                color: Color(0xFF061457),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (loading)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator(),
-              ),
-            if (!loading && comments.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('No comments yet.'),
-              ),
-            ...comments.map(
-              (item) => ListTile(
-                dense: true,
-                title: Text('${item['comment'] ?? ''}'),
-                subtitle: Text(
-                  '${item['createdAt'] ?? ''}\n${item['address'] ?? ((item['latitude'] != null && item['longitude'] != null) ? 'GPS: ${item['latitude']}, ${item['longitude']}' : 'Location not recorded')}',
-                ),
-              ),
-            ),
           ],
         ),
       ),
     );
   }
+}
+
+class TrackingCommentsHistoryButton extends StatelessWidget {
+  const TrackingCommentsHistoryButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: () => showDialog<void>(
+      context: context,
+      builder: (_) => const _TrackingCommentsHistoryDialog(),
+    ),
+    icon: const Icon(Icons.history_rounded, size: 18),
+    label: const Text('Comment Section History'),
+  );
+}
+
+class _TrackingCommentsHistoryDialog extends StatefulWidget {
+  const _TrackingCommentsHistoryDialog();
+  @override
+  State<_TrackingCommentsHistoryDialog> createState() => _TrackingCommentsHistoryDialogState();
+}
+
+class _TrackingCommentsHistoryDialogState extends State<_TrackingCommentsHistoryDialog> {
+  late Future<List<Map<String, dynamic>>> _history;
+  @override
+  void initState() {
+    super.initState();
+    _history = _loadHistory();
+  }
+  Future<List<Map<String, dynamic>>> _loadHistory() async {
+    final token = await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return const [];
+    return TrackingCommentsApi.myComments(token);
+  }
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Comment Section History'),
+    content: SizedBox(
+      width: 480,
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _history,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+          final comments = snapshot.data ?? const [];
+          if (comments.isEmpty) return const Center(child: Text('No comments yet.'));
+          return ListView.separated(
+            shrinkWrap: true,
+            itemCount: comments.length,
+            separatorBuilder: (_, __) => const Divider(),
+            itemBuilder: (_, index) {
+              final item = comments[index];
+              return ListTile(
+                dense: true,
+                title: Text('${item['comment'] ?? ''}'),
+                subtitle: Text('${item['createdAt'] ?? ''}\n${item['address'] ?? ((item['latitude'] != null && item['longitude'] != null) ? 'GPS: ${item['latitude']}, ${item['longitude']}' : 'Location not recorded')}'),
+              );
+            },
+          );
+        },
+      ),
+    ),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+  );
 }

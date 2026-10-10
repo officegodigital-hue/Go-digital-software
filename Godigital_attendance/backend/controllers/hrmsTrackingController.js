@@ -51,6 +51,49 @@ function weekdayIndex(date) {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
+function nextCalendarDate(date) {
+  const [year, month, day] = String(date).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+async function routePingsForDate(employeeUserId, date) {
+  const nextDate = nextCalendarDate(date);
+  const dayStart = date + ' 00:00:00';
+  const dayEnd = nextDate + ' 00:00:00';
+  // A route must come from one Field tracking session.  Otherwise points
+  // from a completed early-morning session and a later live session are
+  // connected into one false journey on the map.
+  const [sessions] = await db.query(
+    `SELECT started_at, stopped_at
+     FROM hrms_field_tracking_sessions
+     WHERE employee_user_id = ?
+       AND started_at >= ?
+       AND started_at < ?
+     ORDER BY is_active DESC, started_at DESC
+     LIMIT 1`,
+    [employeeUserId, dayStart, dayEnd]
+  );
+  if (!sessions.length) return [];
+  const session = sessions[0];
+  const sessionStart = session.started_at;
+  const sessionEnd = session.stopped_at || dayEnd;
+
+  // A half-open range is index-friendly and cannot include location pings
+  // from another date or another Field tracking session.
+  const [pings] = await db.query(
+    `SELECT latitude, longitude, address, recorded_at
+     FROM hrms_location_pings
+     WHERE employee_user_id = ?
+       AND recorded_at >= ?
+       AND recorded_at < ?
+     ORDER BY recorded_at ASC`,
+    [employeeUserId, sessionStart, sessionEnd]
+  );
+  return pings;
+}
+
 async function list(req, res) {
   try {
     const today = policy.todayIstDate();
@@ -264,6 +307,30 @@ function routesWaypoint(point) {
   return { location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } } };
 }
 
+function waitForRouteRetry(milliseconds) {
+  return new Promise(function (resolve) { setTimeout(resolve, milliseconds); });
+}
+
+async function googleRouteFetch(url, options) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status !== 429 && response.status < 500) return response;
+      lastError = new Error('Google route service returned ' + response.status);
+    } catch (error) {
+      // Certificate errors are configuration errors, not temporary failures.
+      // Retrying them only delays the employee's route screen.
+      if (error && error.cause && error.cause.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+        throw error;
+      }
+      lastError = error;
+    }
+    if (attempt < 2) await waitForRouteRetry(300 * (attempt + 1));
+  }
+  throw lastError || new Error('Google route service was unavailable');
+}
+
 async function routeWithGoogleRoutes(rawPoints, apiKey) {
   // Routes API accepts a limited number of intermediate waypoints. Each group
   // overlaps one point, preserving a continuous whole-day journey.
@@ -272,7 +339,7 @@ async function routeWithGoogleRoutes(rawPoints, apiKey) {
   for (let start = 0; start < rawPoints.length - 1; start += MAX_POINTS_PER_REQUEST - 1) {
     const chunk = rawPoints.slice(start, start + MAX_POINTS_PER_REQUEST);
     if (chunk.length < 2) break;
-    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    const response = await googleRouteFetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -361,7 +428,7 @@ async function snapRouteToRoads(employeeUserId, date, rawPoints) {
       }).join('|');
       const url = 'https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' +
         encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey);
-      const response = await fetch(url);
+      const response = await googleRouteFetch(url, {});
       if (!response.ok) throw new Error('Roads API returned ' + response.status);
       const body = await response.json();
       const points = Array.isArray(body.snappedPoints) ? body.snappedPoints : [];
@@ -834,13 +901,7 @@ async function routeHistory(req, res) {
     if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
 
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, address, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
-       ORDER BY recorded_at ASC`,
-      [employeeUserId, date]
-    );
+    const pings = await routePingsForDate(employeeUserId, date);
 
     const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
     return ok(res, {
@@ -851,6 +912,57 @@ async function routeHistory(req, res) {
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function employeeTrackingDetails(req, res) {
+  try {
+    const employeeUserId = Number(req.params.employeeUserId);
+    const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
+    if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
+
+    const nextDate = nextCalendarDate(date);
+    const dayStart = date + ' 00:00:00';
+    const dayEnd = nextDate + ' 00:00:00';
+    const results = await Promise.all([
+      routePingsForDate(employeeUserId, date),
+      db.query(
+        `SELECT id, latitude, longitude, waiting_minutes, reason,
+                waiting_started_at, waiting_detected_at, reason_submitted_at,
+                review_status
+         FROM hrms_field_waiting_reasons
+         WHERE employee_user_id = ?
+           AND waiting_detected_at >= ? AND waiting_detected_at < ?
+         ORDER BY waiting_detected_at ASC`,
+        [employeeUserId, dayStart, dayEnd]
+      ),
+      db.query(
+        `SELECT id, comment_text AS comment, latitude, longitude, address,
+                created_at AS createdAt
+         FROM hrms_employee_tracking_comments
+         WHERE employee_user_id = ?
+           AND created_at >= ? AND created_at < ?
+         ORDER BY created_at ASC`,
+        [employeeUserId, dayStart, dayEnd]
+      ),
+    ]);
+    const pings = results[0];
+    const waitingReasons = results[1][0];
+    const comments = results[2][0];
+    const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
+    return ok(res, {
+      employeeUserId,
+      date,
+      points: route.points,
+      activityPoints: rawRoutePoints(pings),
+      roadSnapped: route.roadSnapped,
+      waitingReasons,
+      comments,
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/employee/:employeeUserId/details', error);
     return fail(res, 500, error.message);
   }
 }
@@ -902,13 +1014,7 @@ async function myRouteHistory(req, res) {
   try {
     const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
-    const [pings] = await db.query(
-      `SELECT latitude, longitude, address, recorded_at
-       FROM hrms_location_pings
-       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
-       ORDER BY recorded_at ASC`,
-      [req.user.id, date]
-    );
+    const pings = await routePingsForDate(req.user.id, date);
     const route = await snapRouteToRoads(req.user.id, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: req.user.id,
@@ -1590,11 +1696,13 @@ async function getMyWaitingAlert(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT id, waiting_minutes, waiting_started_at, waiting_detected_at
-       FROM hrms_field_waiting_reasons
-       WHERE employee_user_id = ?
-         AND reason IS NULL
-         AND review_status = 'pending'
+      `SELECT waiting.id, waiting.waiting_minutes, waiting.waiting_started_at, waiting.waiting_detected_at
+       FROM hrms_field_waiting_reasons waiting
+       INNER JOIN hrms_field_tracking_sessions session
+         ON session.id = waiting.field_session_id AND session.is_active = 1
+       WHERE waiting.employee_user_id = ?
+         AND waiting.reason IS NULL
+         AND waiting.review_status = 'pending'
        ORDER BY waiting_detected_at DESC
        LIMIT 1`,
       [employeeUserId]
@@ -1741,6 +1849,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  employeeTrackingDetails,
   myRouteHistoryList,
   myRouteHistory,
   getTrackingSettings,
