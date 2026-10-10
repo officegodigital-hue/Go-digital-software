@@ -160,12 +160,21 @@ class _AttendanceGridState extends State<AttendanceGrid> {
             : availableForCalendar / visibleIndexes.length;
         final canStretchToFit = stretchColWidth >= _dayColWidth;
         final needsScroll =
-            !canStretchToFit && baseDayColsWidth > availableForCalendar;
-        final colWidth = needsScroll
-            ? _dayColWidth
-            : (canStretchToFit
-                  ? stretchColWidth.clamp(_dayColWidth, _dayColWidthMax)
-                  : _dayColWidth);
+            widget.showSummary &&
+            !canStretchToFit &&
+            baseDayColsWidth > availableForCalendar;
+        // With the payroll summary hidden, every date is intentionally
+        // visible at once. Let the date cells shrink to share the available
+        // table width instead of putting the calendar in a horizontal scroll.
+        final colWidth = widget.showSummary
+            ? (needsScroll
+                  ? _dayColWidth
+                  : (canStretchToFit
+                        ? stretchColWidth.clamp(_dayColWidth, _dayColWidthMax)
+                        : _dayColWidth))
+            : (visibleIndexes.isEmpty
+                  ? _dayColWidth
+                  : availableForCalendar / visibleIndexes.length);
 
         Widget calendarHeader = _calendarHeaderRow(colWidth);
         Widget calendarBody = _calendarBodyColumn(colWidth);
