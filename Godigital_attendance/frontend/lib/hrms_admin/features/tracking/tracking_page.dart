@@ -66,6 +66,7 @@ class TrackingPage extends StatefulWidget {
 }
 
 class _TrackingPageState extends State<TrackingPage> {
+  bool _openedSettingsAction = false;
   String mode = 'Field';
 
   static const _modeStorageKey = 'admin_tracking_last_mode';
@@ -93,6 +94,18 @@ class _TrackingPageState extends State<TrackingPage> {
     _loadMode();
     _load();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _load(silent: true));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    if (_openedSettingsAction || action == null) return;
+    _openedSettingsAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (action == 'officeLocation') _openOfficeLocation();
+      if (action == 'trackingSettings') _openFieldWaitingSettings();
+    });
   }
 
   @override
@@ -268,11 +281,9 @@ class _TrackingPageState extends State<TrackingPage> {
                       children: [
                         _TrackingHeader(
                           onRefresh: _load,
-                          onManageWaiting: _openFieldWaitingSettings,
                           onViewReasons: _openFieldWaitingReasons,
                           onHomeApprovals: _openHomeApprovals,
                           homeTrackingEnabled: homeTrackingEnabled,
-                          onOfficeLocation: _openOfficeLocation,
                         ),
                         const SizedBox(height: 14),
                         if (loading && employees.isEmpty)
@@ -287,8 +298,6 @@ class _TrackingPageState extends State<TrackingPage> {
                           if (mobile) ...[
                             const SizedBox(height: 16),
                             _TrackingMobileActions(
-                              onOfficeLocation: _openOfficeLocation,
-                              onManageWaiting: _openFieldWaitingSettings,
                               onHomeApprovals: _openHomeApprovals,
                               homeTrackingEnabled: homeTrackingEnabled,
                               onRefresh: _load,
@@ -325,13 +334,11 @@ class _TrackingPageState extends State<TrackingPage> {
 
 class _TrackingMobileActions extends StatelessWidget {
   const _TrackingMobileActions({
-    required this.onOfficeLocation,
-    required this.onManageWaiting,
     required this.onHomeApprovals,
     required this.onRefresh,
     required this.homeTrackingEnabled,
   });
-  final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
+  final VoidCallback onHomeApprovals;
   final Future<void> Function() onRefresh;
   final bool homeTrackingEnabled;
 
@@ -346,8 +353,6 @@ class _TrackingMobileActions extends StatelessWidget {
     ),
     child: Row(
       children: [
-        _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
-        _tool(Icons.timer_outlined, 'Field', onManageWaiting),
         if (homeTrackingEnabled)
           _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
         _tool(Icons.refresh, 'Refresh', () => onRefresh()),
@@ -381,18 +386,14 @@ class _TrackingMobileActions extends StatelessWidget {
 class _TrackingHeader extends StatelessWidget {
   const _TrackingHeader({
     required this.onRefresh,
-    required this.onManageWaiting,
     required this.onViewReasons,
     required this.onHomeApprovals,
-    required this.onOfficeLocation,
     required this.homeTrackingEnabled,
   });
 
   final Future<void> Function() onRefresh;
-  final VoidCallback onManageWaiting;
   final VoidCallback onViewReasons;
   final VoidCallback onHomeApprovals;
-  final VoidCallback onOfficeLocation;
   final bool homeTrackingEnabled;
 
   @override
@@ -404,21 +405,6 @@ class _TrackingHeader extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        FilledButton.icon(
-          onPressed: onOfficeLocation,
-          icon: const Icon(Icons.location_on_outlined, size: 18),
-          label: const Text('Manage Office Location'),
-          style: FilledButton.styleFrom(backgroundColor: HrmsColors.blue),
-        ),
-        OutlinedButton.icon(
-          onPressed: onManageWaiting,
-          icon: const Icon(Icons.timer_outlined, size: 18),
-          label: const Text('Tracking Settings'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.blue,
-            side: const BorderSide(color: Color(0xFFBFD4FF)),
-          ),
-        ),
         if (homeTrackingEnabled)
           OutlinedButton.icon(
             onPressed: onHomeApprovals,

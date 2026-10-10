@@ -230,6 +230,59 @@ async function detail(req, res) {
        ORDER BY pay_year DESC, pay_month DESC LIMIT 1`,
       [id]
     );
+    const [attendanceRows] = await db.query(
+      `SELECT DATE_FORMAT(a.attendance_date, '%a, %d %b') AS date,
+              DATE_FORMAT(a.check_in_at, '%h:%i %p') AS check_in,
+              DATE_FORMAT(a.check_out_at, '%h:%i %p') AS check_out,
+              CONCAT(FLOOR(COALESCE(a.working_minutes, 0) / 60), 'h ',
+                     LPAD(MOD(COALESCE(a.working_minutes, 0), 60), 2, '0'), 'm') AS worked,
+              DATE_FORMAT(MIN(b.started_at), '%h:%i %p') AS break_start,
+              DATE_FORMAT(MAX(b.ended_at), '%h:%i %p') AS break_end,
+              CONCAT(FLOOR(COALESCE(SUM(b.duration_minutes), 0) / 60), 'h ',
+                     LPAD(MOD(COALESCE(SUM(b.duration_minutes), 0), 60), 2, '0'), 'm') AS break_duration,
+              CASE WHEN a.attendance_status = 'absent' THEN 'Absent'
+                   WHEN a.attendance_status = 'on_leave' THEN 'On leave'
+                   WHEN a.attendance_status = 'half_leave' THEN 'Half leave'
+                   WHEN a.is_late = 1 THEN 'Late' ELSE 'Present' END AS status,
+              CASE WHEN a.attendance_status = 'absent' THEN 'Yes' ELSE 'No' END AS lop,
+              COALESCE(a.check_in_method, '-') AS method
+       FROM attendance_records a
+       LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
+         AND b.status IN ('completed', 'auto_closed')
+       WHERE a.employee_id = ?
+         AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         AND a.attendance_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+       GROUP BY a.id, a.attendance_date, a.check_in_at, a.check_out_at,
+                a.working_minutes, a.attendance_status, a.is_late, a.check_in_method
+       ORDER BY a.attendance_date ASC`,
+      [employeeId]
+    );
+    const [leaveRows] = await db.query(
+      `SELECT leave_type, duration_type, DATE_FORMAT(from_date, '%d %b %Y') AS from_date,
+              DATE_FORMAT(to_date, '%d %b %Y') AS to_date, days_count, reason, status
+       FROM employee_leaves
+       WHERE employee_id = ? AND from_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+         AND to_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+       ORDER BY from_date DESC`,
+      [employeeId]
+    );
+    const [permissionRows] = await db.query(
+      `SELECT request_type, DATE_FORMAT(request_date, '%d %b %Y') AS request_date,
+              TIME_FORMAT(permission_start_time, '%h:%i %p') AS start_time,
+              TIME_FORMAT(permission_end_time, '%h:%i %p') AS end_time, reason, status
+       FROM attendance_permission_requests
+       WHERE employee_id = ? AND request_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         AND request_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+       ORDER BY request_date DESC`,
+      [employeeId]
+    );
+    const [payrollHistoryRows] = await db.query(
+      `SELECT pay_year, pay_month, monthly_salary, working_days, paid_days, lop_days,
+              late_deductions, absent_deductions, deductions, net_pay, status
+       FROM hrms_payroll_items WHERE profile_id = ?
+       ORDER BY pay_year DESC, pay_month DESC LIMIT 6`,
+      [id]
+    );
     return ok(res, {
       employee: toUi(profile),
       attendance: {
@@ -244,6 +297,25 @@ async function detail(req, res) {
         totalDeduction: Number(payroll.late_deductions || payroll.deductions || 0) + Number(payroll.absent_deductions || 0),
         netPay: Number(payroll.net_pay || 0), status: payroll.status,
       } : null,
+      attendanceRows: attendanceRows.map(function (row) {
+        return Object.assign({}, row, {
+          check_in: row.check_in || '-', check_out: row.check_out || '-',
+          break_start: row.break_start || '-', break_end: row.break_end || '-'
+        });
+      }),
+      leaveRows: leaveRows,
+      permissionRows: permissionRows,
+      payrollHistory: payrollHistoryRows.map(function (row) {
+        const late = Number(row.late_deductions || row.deductions || 0);
+        const absent = Number(row.absent_deductions || 0);
+        return {
+          month: new Date(Number(row.pay_year), Number(row.pay_month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+          salary: Number(row.monthly_salary || 0), workingDays: Number(row.working_days || 0),
+          paidDays: Number(row.paid_days || 0), lopDays: Number(row.lop_days || 0),
+          lateDeduction: late, absentDeduction: absent, totalDeduction: late + absent,
+          netPay: Number(row.net_pay || 0), status: row.status
+        };
+      })
     });
   } catch (error) {
     return fail(res, 500, error.message);

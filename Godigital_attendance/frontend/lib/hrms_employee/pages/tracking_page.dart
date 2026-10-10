@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:audioplayers/audioplayers.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/tracking_comments_section.dart';
@@ -45,16 +43,12 @@ class _TrackingViewState extends State<_TrackingView> {
   String updated = 'Not tracking yet';
   bool trackingActive = false;
   Timer? _locationTimer;
-  Timer? _waitingAlertTimer;
-  Timer? _waitingPromptSoundTimer;
-  final AudioPlayer _waitingPromptPlayer = AudioPlayer();
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
-  bool _waitingDialogOpen = false;
   bool _trackingActionInProgress = false;
   bool _fieldTrackingEnabled = false;
   bool _homeLocationEnabled = true;
@@ -84,36 +78,12 @@ class _TrackingViewState extends State<_TrackingView> {
       _loadHomeLocation();
       _loadOfficeSettings();
     });
-
-    _waitingAlertTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => _checkWaitingAlert(),
-    );
   }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
-    _waitingAlertTimer?.cancel();
-    _stopWaitingPrompt();
-    _waitingPromptPlayer.dispose();
     super.dispose();
-  }
-
-  void _startWaitingPrompt() {
-    _stopWaitingPrompt();
-    void notify() {
-      _waitingPromptPlayer.play(AssetSource('sounds/notification.mp3'), volume: 0.8);
-      HapticFeedback.heavyImpact();
-    }
-    notify();
-    _waitingPromptSoundTimer = Timer.periodic(const Duration(seconds: 5), (_) => notify());
-  }
-
-  void _stopWaitingPrompt() {
-    _waitingPromptSoundTimer?.cancel();
-    _waitingPromptSoundTimer = null;
-    _waitingPromptPlayer.stop();
   }
 
   Future<void> _loadTrackingPermissions() async {
@@ -247,7 +217,6 @@ class _TrackingViewState extends State<_TrackingView> {
       if (active) {
         _startLocationTimer();
         await _sendLocationPing(showMessage: false);
-        await _checkWaitingAlert();
       }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
@@ -677,147 +646,6 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
-  Future<void> _checkWaitingAlert() async {
-    // A waiting reason belongs only to a running field-tracking session.
-    // Never surface an old, pending alert simply because the Tracking page
-    // was opened after a session has stopped.
-    if (!trackingActive || mode != _WorkMode.field || _homeDialogOpen || _waitingDialogOpen) return;
-    try {
-      final alert = await HrmsTrackingApi.waitingAlert();
-
-      debugPrint('Waiting alert response: $alert');
-
-      if (!mounted || _homeDialogOpen || _waitingDialogOpen || alert == null) {
-        return;
-      }
-
-      final reasonId = int.tryParse('${alert['id']}');
-
-      if (reasonId == null) {
-        debugPrint('Waiting alert has no valid ID');
-        return;
-      }
-
-      _waitingDialogOpen = true;
-      try {
-        await _showWaitingReasonDialog(
-          reasonId: reasonId,
-          waitingMinutes: alert['waiting_minutes'] ?? 0,
-        );
-      } finally {
-        _waitingDialogOpen = false;
-      }
-    } catch (error) {
-      debugPrint('Waiting alert check failed: $error');
-    }
-  }
-
-  Future<void> _showWaitingReasonDialog({
-    required int reasonId,
-    required dynamic waitingMinutes,
-  }) async {
-    final controller = TextEditingController();
-    var isSubmitting = false;
-    String? submitError;
-    _startWaitingPrompt();
-
-    try {
-      await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('Field waiting reason'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'You have been at this location for $waitingMinutes minutes. '
-                    'Please enter the reason for waiting.',
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Reason for waiting',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (submitError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      submitError!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final reason = controller.text.trim();
-
-                          if (reason.isEmpty) {
-                            setDialogState(
-                              () => submitError = 'Please enter a reason.',
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            isSubmitting = true;
-                            submitError = null;
-                          });
-
-                          try {
-                            await HrmsTrackingApi.submitWaitingReason(
-                              reasonId: reasonId,
-                              reason: reason,
-                            );
-
-                            if (dialogContext.mounted) {
-                              Navigator.of(
-                                dialogContext,
-                                rootNavigator: true,
-                              ).pop();
-                            }
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Waiting reason submitted'),
-                                ),
-                              );
-                            }
-                          } catch (error) {
-                            debugPrint('Waiting reason submit failed: $error');
-                            if (dialogContext.mounted) {
-                              setDialogState(() {
-                                isSubmitting = false;
-                                submitError =
-                                    'Could not submit the reason. '
-                                    'Please try again.';
-                              });
-                            }
-                          }
-                        },
-                  child: Text(isSubmitting ? 'Submitting…' : 'Submit'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-      );
-    } finally {
-      _stopWaitingPrompt();
-      controller.dispose();
-    }
-  }
 }
 
 class _RouteHistoryView extends StatelessWidget {

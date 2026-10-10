@@ -19,6 +19,7 @@ class PayrollPage extends StatefulWidget {
 }
 
 class _PayrollPageState extends State<PayrollPage> {
+  bool _openedSettingsAction = false;
   late int year;
   late int month;
   String employee = 'All Employees';
@@ -42,6 +43,15 @@ class _PayrollPageState extends State<PayrollPage> {
     year = now.year;
     month = now.month;
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    if (_openedSettingsAction || action != 'payrollPolicy') return;
+    _openedSettingsAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _editPolicy());
   }
 
   String get _monthKey => '$year-${month.toString().padLeft(2, '0')}';
@@ -300,7 +310,6 @@ class _PayrollPageState extends State<PayrollPage> {
                             _PayrollHeader(
                               generating: generating,
                               onGenerate: _generate,
-                              onPolicy: _editPolicy,
                             ),
                             const SizedBox(height: 17),
                             _PayrollKpis(
@@ -573,23 +582,15 @@ class _PayrollHeader extends StatelessWidget {
   const _PayrollHeader({
     required this.generating,
     required this.onGenerate,
-    required this.onPolicy,
   });
   final bool generating;
   final VoidCallback onGenerate;
-  final VoidCallback onPolicy;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         const Expanded(child: AdminPageHeader(title: 'Payroll')),
-        OutlinedButton.icon(
-          onPressed: onPolicy,
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Payroll Policy'),
-        ),
-        const SizedBox(width: 8),
         FilledButton.icon(
           onPressed: generating ? null : onGenerate,
           icon: generating
@@ -1291,9 +1292,13 @@ class _PayrollTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      // Keep every payroll column in the current frame. At narrower desktop
-      // widths, all columns reduce proportionally instead of scrolling.
-      final scale = constraints.maxWidth / _PayrollTableHeader.naturalWidth;
+      // Keep every payroll column in the current frame. The container border
+      // consumes two pixels, and enlarging beyond the natural table width can
+      // force the final Action cell outside the frame. Only shrink when needed.
+      final availableWidth = constraints.maxWidth - 2;
+      final scale = (availableWidth / _PayrollTableHeader.naturalWidth)
+          .clamp(0.45, 1.0)
+          .toDouble();
       return Container(
         decoration: BoxDecoration(
           border: Border.all(color: const Color(0xFFE3E7EF)),

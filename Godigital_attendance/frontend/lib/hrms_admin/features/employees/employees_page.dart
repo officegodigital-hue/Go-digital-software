@@ -32,6 +32,7 @@ class EmployeesPage extends StatefulWidget {
 }
 
 class _EmployeesPageState extends State<EmployeesPage> {
+  bool _openedSettingsAction = false;
   final searchController = TextEditingController();
   String query = '';
   String department = 'All Departments';
@@ -56,6 +57,19 @@ class _EmployeesPageState extends State<EmployeesPage> {
   void initState() {
     super.initState();
     _loadEmployees();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    if (_openedSettingsAction || action == null) return;
+    _openedSettingsAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (action == 'deviceRequests') _showDeviceRequests();
+      if (action == 'leavePolicy') _showLeavePolicies();
+      if (action == 'addEmployee') _showEmployeeForm();
+    });
   }
 
   @override
@@ -180,10 +194,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _PageHeader(
-                              onAdd: () => _showEmployeeForm(),
                               onExport: _exportEmployees,
-                              onLeavePolicy: _showLeavePolicies,
-                              onDeviceRequests: _showDeviceRequests,
                             ),
                             const SizedBox(height: 18),
                             _EmployeeKpis(
@@ -980,7 +991,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete employee?'),
         content: Text(
-          '${employee.name} will be removed from the employee list.',
+          '${employee.name} will be removed from Employee Management and the active attendance dashboard. Historical attendance and payroll records will be retained.',
         ),
         actions: [
           TextButton(
@@ -990,7 +1001,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: const Text('Delete from lists'),
           ),
         ],
       ),
@@ -1002,13 +1013,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
 
 class _PageHeader extends StatelessWidget {
   const _PageHeader({
-    required this.onAdd,
     required this.onExport,
-    required this.onLeavePolicy,
-    required this.onDeviceRequests,
   });
 
-  final VoidCallback onAdd, onExport, onLeavePolicy, onDeviceRequests;
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) => AdminPageHeader(
@@ -1017,47 +1025,6 @@ class _PageHeader extends StatelessWidget {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        OutlinedButton.icon(
-          onPressed: onDeviceRequests,
-          icon: const Icon(Icons.phonelink_lock_outlined),
-          label: const Text('Device Requests'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.navy,
-            side: const BorderSide(color: HrmsColors.line),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        OutlinedButton.icon(
-          onPressed: onLeavePolicy,
-          icon: const Icon(Icons.event_available_outlined),
-          label: const Text('Leave Policy'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.navy,
-            side: const BorderSide(color: HrmsColors.line),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        FilledButton.icon(
-          onPressed: onAdd,
-          icon: const Icon(Icons.add, size: 25),
-          label: const Text('Add Employee'),
-          style: FilledButton.styleFrom(
-            backgroundColor: HrmsColors.blue,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-        ),
-        const SizedBox(width: 14),
         OutlinedButton.icon(
           onPressed: onExport,
           icon: const Icon(Icons.download_outlined),
@@ -2231,32 +2198,19 @@ class _EmployeeRow extends StatelessWidget {
                   size: 20,
                 ),
               ),
-              PopupMenuButton<String>(
-                tooltip: 'More',
+              IconButton(
+                tooltip: 'Delete from active lists',
+                onPressed: onDelete,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints.tightFor(
                   width: 34,
                   height: 34,
                 ),
-                onSelected: (value) {
-                  if (value == 'toggle') onToggle();
-                  if (value == 'delete') onDelete();
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: 'toggle',
-                    child: Text(
-                      employee.status == 'Inactive'
-                          ? 'Reactivate'
-                          : 'Deactivate',
-                    ),
-                  ),
-                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                ],
+                visualDensity: VisualDensity.compact,
                 icon: const Icon(
-                  Icons.more_vert_rounded,
-                  color: HrmsColors.navy,
-                  size: 22,
+                  Icons.delete_outline_rounded,
+                  color: Color(0xFFD92929),
+                  size: 21,
                 ),
               ),
             ],
@@ -2423,11 +2377,65 @@ class _EmployeeDetailPage extends StatefulWidget {
 
 class _EmployeeDetailPageState extends State<_EmployeeDetailPage> {
   late Future<Map<String, dynamic>> _detail;
+  int _selectedTab = 0;
 
   String _money(dynamic value) {
     final amount = value is num ? value : num.tryParse('$value');
     if (amount == null) return '₹0';
     return '₹${amount.round().toString().replaceAllMapped(RegExp(r'(?<=\d)(?=(\d{3})+$)'), (_) => ',')}';
+  }
+
+  List<Map<String, dynamic>> _rows(dynamic value) => (value as List? ?? const [])
+      .whereType<Map>()
+      .map((row) => Map<String, dynamic>.from(row))
+      .toList();
+
+  Widget _detailTable({
+    required List<String> headers,
+    required List<List<Widget>> rows,
+    required String emptyMessage,
+  }) {
+    if (rows.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 46),
+        alignment: Alignment.center,
+        child: Text(emptyMessage, style: const TextStyle(color: Color(0xFF8795AD))),
+      );
+    }
+    final headerStyle = const TextStyle(color: Color(0xFF71819C), fontSize: 11, fontWeight: FontWeight.w700);
+    return Table(
+      border: TableBorder.symmetric(
+        inside: const BorderSide(color: Color(0xFFE5EAF2)),
+        outside: const BorderSide(color: Color(0xFFE0E6EF)),
+      ),
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      children: [
+        TableRow(
+          decoration: const BoxDecoration(color: Color(0xFFF7F9FD)),
+          children: headers.map((header) => Padding(padding: const EdgeInsets.all(10), child: Text(header, style: headerStyle))).toList(),
+        ),
+        ...rows.map((cells) => TableRow(children: cells.map((cell) => Padding(padding: const EdgeInsets.all(10), child: cell)).toList())),
+      ],
+    );
+  }
+
+  Widget _tableText(dynamic value, {Color color = HrmsColors.navy, FontWeight weight = FontWeight.w500}) => Text(
+    '${value ?? '-'}',
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(color: color, fontSize: 12, fontWeight: weight),
+  );
+
+  Widget _statusCell(dynamic value) {
+    final status = '${value ?? '-'}';
+    final lower = status.toLowerCase();
+    final color = lower == 'present' || lower == 'approved' || lower == 'paid'
+        ? const Color(0xFF177020)
+        : lower == 'absent' || lower == 'rejected'
+            ? const Color(0xFFD92929)
+            : const Color(0xFFB55B00);
+    return Text(status, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700));
   }
 
   @override
@@ -2461,70 +2469,102 @@ class _EmployeeDetailPageState extends State<_EmployeeDetailPage> {
         final attendance = Map<String, dynamic>.from(data['attendance'] as Map? ?? {});
         final leave = Map<String, dynamic>.from(data['leave'] as Map? ?? {});
         final payroll = data['payroll'] is Map ? Map<String, dynamic>.from(data['payroll'] as Map) : null;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(28),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1360),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(widget.employee.name, style: const TextStyle(color: HrmsColors.navy, fontSize: 28, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('${widget.employee.id} • ${widget.employee.department} • ${widget.employee.workMode}', style: const TextStyle(color: Color(0xFF657087))),
-                const SizedBox(height: 22),
-                Wrap(spacing: 14, runSpacing: 14, children: [
-                  _EmployeeDetailMetric('Working days', '${payroll?['workingDays'] ?? 0}', Icons.calendar_month_outlined, HrmsColors.blue),
-                  _EmployeeDetailMetric('Paid days', '${payroll?['paidDays'] ?? 0}', Icons.check_circle_outline, const Color(0xFF158C20)),
-                  _EmployeeDetailMetric('Accrued net pay', '₹${payroll?['netPay'] ?? 0}', Icons.account_balance_wallet_outlined, HrmsColors.blue),
-                  _EmployeeDetailMetric('Payroll status', '${payroll?['status'] ?? 'Not generated'}', Icons.payments_outlined, const Color(0xFFFF6500)),
-                ]),
-                const SizedBox(height: 24),
-                _EmployeeDetailSection(title: 'Attendance', children: [
-                  _EmployeeDetailLine('Present', '${attendance['present'] ?? 0}'),
-                  _EmployeeDetailLine('Late', '${attendance['late'] ?? 0}'),
-                  _EmployeeDetailLine('Absent', '${attendance['absent'] ?? 0}'),
-                ]),
-                const SizedBox(height: 16),
-                _EmployeeDetailSection(title: 'Leaves & Permissions', children: [
-                  _EmployeeDetailLine('Leave requests', '${leave['total'] ?? 0}'),
-                  _EmployeeDetailLine('Approved leave', '${leave['approved'] ?? 0}'),
-                  _EmployeeDetailLine('Pending leave', '${leave['pending'] ?? 0}'),
-                ]),
-                const SizedBox(height: 16),
-                _EmployeeDetailSection(title: 'Payroll history', children: [
-                  _EmployeeDetailLine('Monthly salary', widget.employee.salary),
-                  _EmployeeDetailLine('LOP days', '${payroll?['lopDays'] ?? 0}'),
-                  _EmployeeDetailLine('Late deduction', _money(payroll?['lateDeduction'])),
-                  _EmployeeDetailLine('Absent / LOP value', _money(payroll?['absentDeduction'])),
-                  _EmployeeDetailLine('Total deduction value', _money(payroll?['totalDeduction'])),
-                  const Padding(
-                    padding: EdgeInsets.only(top: 3),
-                    child: Text(
-                      'Absent / LOP value is shown for clarity. Net Pay grows only from paid days, so it is not subtracted a second time.',
-                      style: TextStyle(color: Color(0xFF657087), fontSize: 12),
-                    ),
-                  ),
-                  const Divider(height: 24),
-                  _EmployeeDetailLine('Current accrued net pay', _money(payroll?['netPay'])),
-                ]),
+        final attendanceRows = _rows(data['attendanceRows']);
+        final leaveRows = _rows(data['leaveRows']);
+        final permissionRows = _rows(data['permissionRows']);
+        final payrollHistory = _rows(data['payrollHistory']);
+        return LayoutBuilder(builder: (context, constraints) {
+          final metricWidth = constraints.maxWidth < 760 ? (constraints.maxWidth - 64) / 2 : 190.0;
+          final tabContent = _selectedTab == 0
+              ? _detailTable(headers: const ['Date', 'Check in', 'Check out', 'Worked', 'Break start', 'Break end', 'Break', 'Status', 'LOP', 'Method'], emptyMessage: 'No attendance records for this month.', rows: attendanceRows.map((row) => [_tableText(row['date'], color: HrmsColors.blue, weight: FontWeight.w700), _tableText(row['check_in']), _tableText(row['check_out']), _tableText(row['worked']), _tableText(row['break_start']), _tableText(row['break_end']), _tableText(row['break_duration']), _statusCell(row['status']), _statusCell(row['lop']), _tableText(row['method'])]).toList())
+              : _selectedTab == 1
+                  ? _detailTable(headers: const ['Type', 'From', 'To', 'Days', 'Reason', 'Status'], emptyMessage: 'No leave or permission records for this month.', rows: [...leaveRows.map((row) => [_tableText(row['leave_type']), _tableText(row['from_date']), _tableText(row['to_date']), _tableText(row['days_count']), _tableText(row['reason']), _statusCell(row['status'])]), ...permissionRows.map((row) => [_tableText(row['request_type']), _tableText(row['request_date']), _tableText(row['request_date']), _tableText('-'), _tableText(row['reason']), _statusCell(row['status'])])])
+                  : _detailTable(headers: const ['Month', 'Salary', 'Working', 'Paid', 'LOP', 'Late deduction', 'Absent / LOP', 'Total deduction', 'Net pay', 'Status'], emptyMessage: 'No payroll history is available.', rows: payrollHistory.map((row) => [_tableText(row['month'], color: HrmsColors.blue, weight: FontWeight.w700), _tableText(_money(row['salary'])), _tableText(row['workingDays']), _tableText(row['paidDays']), _tableText(row['lopDays']), _tableText(_money(row['lateDeduction'])), _tableText(_money(row['absentDeduction'])), _tableText(_money(row['totalDeduction'])), _tableText(_money(row['netPay']), color: HrmsColors.blue, weight: FontWeight.w800), _statusCell(row['status'])]).toList());
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(28, 20, 28, 32),
+            child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1860), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [CircleAvatar(radius: 22, backgroundColor: const Color(0xFFEAF0FA), child: Text(widget.employee.name.isEmpty ? '?' : widget.employee.name.substring(0, 1).toUpperCase(), style: const TextStyle(color: HrmsColors.blue, fontWeight: FontWeight.w800, fontSize: 18))), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(widget.employee.name, style: const TextStyle(color: HrmsColors.navy, fontSize: 21, fontWeight: FontWeight.w800)), const SizedBox(height: 2), Wrap(spacing: 9, children: [Text('Employee ID ${widget.employee.id}', style: const TextStyle(color: Color(0xFF657087))), Text(widget.employee.department, style: const TextStyle(color: Color(0xFF657087))), Text(widget.employee.workMode, style: const TextStyle(color: Color(0xFF657087))), _StatusBadge(status: widget.employee.status)])]))]),
+              const SizedBox(height: 16),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _EmployeeDetailMetric('Working', '${payroll?['workingDays'] ?? 0}', Icons.calendar_month_outlined, HrmsColors.blue, width: metricWidth), _EmployeeDetailMetric('Paid', '${payroll?['paidDays'] ?? 0}', Icons.check_circle_outline, const Color(0xFF158C20), width: metricWidth), _EmployeeDetailMetric('Present', '${attendance['present'] ?? 0}', Icons.check_circle_outline, const Color(0xFF158C20), width: metricWidth), _EmployeeDetailMetric('Late', '${attendance['late'] ?? 0}', Icons.access_time_rounded, const Color(0xFFFF7A00), width: metricWidth), _EmployeeDetailMetric('Absent', '${attendance['absent'] ?? 0}', Icons.person_off_outlined, const Color(0xFFD92929), width: metricWidth), _EmployeeDetailMetric('LOP', '${payroll?['lopDays'] ?? 0}', Icons.money_off_csred_outlined, const Color(0xFFD92929), width: metricWidth), _EmployeeDetailMetric('Net pay', _money(payroll?['netPay']), Icons.account_balance_wallet_outlined, HrmsColors.navy, width: metricWidth), _EmployeeDetailMetric('Payroll', '${payroll?['status'] ?? 'Not generated'}', Icons.payments_outlined, const Color(0xFFFF6500), width: metricWidth),
               ]),
-            ),
-          ),
-        );
+              const SizedBox(height: 20),
+              Container(
+                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFDDE4EF)))),
+                child: Row(
+                  children: List.generate(3, (index) {
+                    final labels = ['Attendance', 'Leaves & Permissions', 'Payroll History'];
+                    final selected = _selectedTab == index;
+                    return Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _selectedTab = index),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Column(children: [
+                            Text(labels[index], style: TextStyle(color: selected ? HrmsColors.blue : const Color(0xFF7B8AA5), fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+                            const SizedBox(height: 9),
+                            Container(height: 3, width: 96, color: selected ? HrmsColors.blue : Colors.transparent),
+                          ]),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(_selectedTab == 0 ? 'Daily attendance' : _selectedTab == 1 ? 'Leaves & permissions' : 'Payroll history', style: const TextStyle(color: HrmsColors.navy, fontSize: 19, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 14), tabContent,
+            ]))),
+          );
+        });
       },
     ),
   );
 }
 
 class _EmployeeDetailMetric extends StatelessWidget {
-  const _EmployeeDetailMetric(this.label, this.value, this.icon, this.color);
+  const _EmployeeDetailMetric(
+    this.label,
+    this.value,
+    this.icon,
+    this.color, {
+    required this.width,
+  });
   final String label, value;
   final IconData icon;
   final Color color;
+  final double width;
+
   @override
-  Widget build(BuildContext context) => SizedBox(width: 260, child: Container(
-    padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withValues(alpha: .25))),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color), const SizedBox(height: 12), Text(label, style: const TextStyle(color: Color(0xFF657087))), Text(value, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800))]),
-  ));
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    height: 72,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFDCE4F1)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 19),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: Color(0xFF657087), fontSize: 12)),
+                const SizedBox(height: 2),
+                Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _EmployeeDetailSection extends StatelessWidget {

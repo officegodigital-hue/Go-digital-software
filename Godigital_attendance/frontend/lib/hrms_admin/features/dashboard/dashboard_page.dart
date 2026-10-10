@@ -51,6 +51,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  bool _openedSettingsAction = false;
   final ScrollController _tableScrollController = ScrollController();
   bool _monthly = true;
   bool _showSummary = true;
@@ -91,6 +92,18 @@ class _DashboardPageState extends State<DashboardPage> {
     _year = today.year;
     _month = _monthCodes[today.month - 1];
     _boot();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    if (_openedSettingsAction || action == null) return;
+    _openedSettingsAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (action == 'manageTime') _openManageTime();
+      if (action == 'manageCalendar') _openManageCalendar();
+    });
   }
 
   Future<void> _boot() async {
@@ -300,8 +313,6 @@ class _DashboardPageState extends State<DashboardPage> {
           setState(() => _year = value);
           _loadDashboard();
         },
-        onManageTime: _openManageTime,
-        onManageCalendar: _openManageCalendar,
         onExport: _exportAttendanceCsv,
         month: _month,
         employees: _employees,
@@ -488,45 +499,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _openManageTime,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _navy,
-                    side: const BorderSide(color: Color(0xFFBFD2F2)),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  icon: const Icon(Icons.schedule_rounded, size: 20),
-                  label: const Text(
-                    'Manage Time',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _openManageCalendar,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _blue,
-                    side: const BorderSide(color: _blue),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  icon: const Icon(Icons.edit_calendar_outlined, size: 20),
-                  label: const Text(
-                    'Manage Calendar',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                ),
               ],
             ),
           ),
@@ -907,8 +879,6 @@ class _MobileDashboard extends StatelessWidget {
     required this.onMonthlyChanged,
     required this.year,
     required this.onYearChanged,
-    required this.onManageTime,
-    required this.onManageCalendar,
     required this.onExport,
     required this.month,
     required this.employees,
@@ -924,8 +894,6 @@ class _MobileDashboard extends StatelessWidget {
   final ValueChanged<bool> onMonthlyChanged;
   final int year;
   final ValueChanged<int> onYearChanged;
-  final VoidCallback onManageTime;
-  final VoidCallback onManageCalendar;
   final VoidCallback onExport;
   final String month;
   final List<_EmployeeAttendance> employees;
@@ -1078,8 +1046,6 @@ class _MobileDashboard extends StatelessWidget {
                   month: month,
                   year: year,
                   employees: employees,
-                  onManageTime: onManageTime,
-                  onManageCalendar: onManageCalendar,
                   onExport: onExport,
                 ),
               ],
@@ -1252,8 +1218,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
     required this.month,
     required this.year,
     required this.employees,
-    required this.onManageTime,
-    required this.onManageCalendar,
     required this.onExport,
   });
 
@@ -1261,8 +1225,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
   final String month;
   final int year;
   final List<_EmployeeAttendance> employees;
-  final VoidCallback onManageTime;
-  final VoidCallback onManageCalendar;
   final VoidCallback onExport;
 
   @override
@@ -1297,16 +1259,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
               onPressed: onExport,
               icon: const Icon(Icons.file_download_outlined, color: _navy),
               tooltip: 'Export',
-            ),
-            IconButton(
-              onPressed: onManageTime,
-              icon: const Icon(Icons.schedule_rounded, color: _navy),
-              tooltip: 'Manage Time',
-            ),
-            IconButton(
-              onPressed: onManageCalendar,
-              icon: const Icon(Icons.edit_calendar_outlined, color: _blue),
-              tooltip: 'Manage Calendar',
             ),
           ],
         ),

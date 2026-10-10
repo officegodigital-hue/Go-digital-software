@@ -894,9 +894,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         LayoutBuilder(
           builder: (context, constraints) => constraints.maxWidth < 520
               ? Column(children: [workday, const SizedBox(height: 14), month])
-              : SizedBox(
-                  height: 340,
+              : IntrinsicHeight(
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(child: workday),
                       const SizedBox(width: 18),

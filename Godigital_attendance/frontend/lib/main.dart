@@ -12,6 +12,9 @@ import 'package:godigital_portal/hrms_employee/pages/extra_hours_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/profile_page.dart';
+import 'package:godigital_portal/hrms_employee/shared/field_waiting_prompt_host.dart';
+
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,8 +27,13 @@ class AttendanceApp extends StatelessWidget {
   Widget build(BuildContext context) => ChangeNotifierProvider(
     create: (_) => AuthService(),
     child: MaterialApp(
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'GoDigital Attendance',
+      builder: (context, child) => FieldWaitingPromptHost(
+        child: child ?? const SizedBox.shrink(),
+        navigatorKey: appNavigatorKey,
+      ),
       initialRoute: '/',
       routes: {
         '/': (_) => const AuthGate(),
