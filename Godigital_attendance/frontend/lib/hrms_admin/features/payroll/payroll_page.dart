@@ -1339,7 +1339,9 @@ class _PayrollTableHeader extends StatelessWidget {
         _Cell(width: 110, child: Text('Working', style: _headStyle)),
         _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
         _Cell(width: 90, child: Text('LOP', style: _headStyle)),
-        _Cell(width: 140, child: Text('Deductions', style: _headStyle)),
+        _Cell(width: 130, child: Text('Late\nDeduction', style: _headStyle)),
+        _Cell(width: 140, child: Text('Absent / LOP\nValue', style: _headStyle)),
+        _Cell(width: 130, child: Text('Total\nDeduction', style: _headStyle)),
         _Cell(width: 140, child: Text('Net pay', style: _headStyle)),
         _Cell(width: 120, child: Text('Status', style: _headStyle)),
         _Cell(width: 140, child: Text('Action', style: _headStyle)),
@@ -1415,7 +1417,9 @@ class _PayrollTableRow extends StatelessWidget {
         _Cell(width: 110, child: Text('${row.workingDays}', style: _cellStyle)),
         _Cell(width: 110, child: Text('${row.paidDays}', style: _cellStyle)),
         _Cell(width: 90, child: Text('${row.lopDays}', style: _cellStyle)),
-        _Cell(width: 140, child: Text(row.deductions, style: _cellStyle)),
+        _Cell(width: 130, child: Text(row.lateDeduction, style: _cellStyle)),
+        _Cell(width: 140, child: Text(row.absentDeduction, style: _cellStyle)),
+        _Cell(width: 130, child: Text(row.totalDeduction, style: _cellStyle)),
         _Cell(
           width: 140,
           child: Text(
@@ -1541,7 +1545,9 @@ class _PayrollRow {
     required this.workingDays,
     required this.paidDays,
     required this.lopDays,
-    required this.deductions,
+    required this.lateDeduction,
+    required this.absentDeduction,
+    required this.totalDeduction,
     required this.netPay,
     required this.status,
     required this.salaryType,
@@ -1551,7 +1557,8 @@ class _PayrollRow {
 
   final int? itemId;
   final int profileId;
-  final String name, code, department, salary, deductions, netPay, status;
+  final String name, code, department, salary, lateDeduction, absentDeduction,
+      totalDeduction, netPay, status;
   final int workingDays, paidDays, lopDays;
   final String salaryType, periodStart, periodEnd;
 
@@ -1559,6 +1566,18 @@ class _PayrollRow {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     final rawId = json['id'];
+    String money(dynamic value) {
+      final amount = value is num ? value : num.tryParse('$value');
+      if (amount == null) return '–';
+      return '₹${amount.round()}';
+    }
+    final lateDeduction = json['lateDeductions'] ?? json['deductions'] ?? 0;
+    final absentDeduction = json['absentDeductions'] ?? 0;
+    final totalDeduction =
+        (lateDeduction is num ? lateDeduction : num.tryParse('$lateDeduction') ?? 0) +
+        (absentDeduction is num
+            ? absentDeduction
+            : num.tryParse('$absentDeduction') ?? 0);
     return _PayrollRow(
       itemId: rawId == null ? null : asInt(rawId),
       profileId: asInt(json['profileId']),
@@ -1569,7 +1588,9 @@ class _PayrollRow {
       workingDays: asInt(json['workingDays']),
       paidDays: asInt(json['paidDays']),
       lopDays: asInt(json['lopDays']),
-      deductions: (json['deductionsLabel'] ?? '–').toString(),
+      lateDeduction: money(lateDeduction),
+      absentDeduction: money(absentDeduction),
+      totalDeduction: money(totalDeduction),
       netPay: (json['netPayLabel'] ?? '–').toString(),
       status: (json['status'] ?? 'Draft').toString(),
       salaryType: (json['salaryType'] ?? 'Standard').toString(),

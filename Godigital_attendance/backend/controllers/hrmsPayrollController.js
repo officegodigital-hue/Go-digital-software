@@ -394,7 +394,8 @@ async function computeRows(year, month, today) {
         department: profile.department, monthlySalary: null, salary: 'Not Set',
         salaryType: period.salaryType, periodStart: period.start, periodEnd: period.end, cycleOverridden: Boolean(period.overridden),
         workingDays: workingDays, presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
-        paidDays: paidDays, lopDays: lopDays, deductions: 0, deductionsLabel: '–', netPay: 0, netPayLabel: '–',
+        paidDays: paidDays, lopDays: lopDays, deductions: 0, deductionsLabel: '–',
+        lateDeductions: 0, absentDeductions: 0, netPay: 0, netPayLabel: '–',
         status: 'Salary required', paidAt: '',
       };
     }
@@ -407,7 +408,10 @@ async function computeRows(year, month, today) {
         salaryType: period.salaryType, periodStart: period.start, periodEnd: period.end, cycleOverridden: Boolean(period.overridden),
         workingDays: Number(saved.working_days || 0), presentDays: present, lateDays: late, leaveDays: leaveDays, absentDays: absent,
         paidDays: Number(saved.paid_days || 0), lopDays: Number(saved.lop_days || 0), deductions: Number(saved.deductions || 0),
-        deductionsLabel: formatSalary(saved.deductions), netPay: Number(saved.net_pay || 0), netPayLabel: formatSalary(saved.net_pay),
+        deductionsLabel: formatSalary(saved.deductions),
+        lateDeductions: Number(saved.late_deductions || saved.deductions || 0),
+        absentDeductions: Number(saved.absent_deductions || 0),
+        netPay: Number(saved.net_pay || 0), netPayLabel: formatSalary(saved.net_pay),
         status: 'Paid', paidAt: saved.paid_at ? isoDate(saved.paid_at) : '',
       };
     }
