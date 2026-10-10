@@ -100,7 +100,7 @@ function toUi(row) {
 async function summary(req, res) {
   try {
     const [rows] = await db.query(
-      "SELECT COUNT(*) AS total, SUM(employment_status = 'Active') AS active, SUM(employment_status = 'On Leave') AS onLeave, SUM(employment_status = 'Inactive') AS inactive FROM hrms_employee_profiles"
+      "SELECT COUNT(*) AS total, SUM(p.employment_status = 'Active') AS active, SUM(p.employment_status = 'On Leave') AS onLeave, SUM(p.employment_status = 'Inactive') AS inactive FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.is_active = 1"
     );
     const row = rows[0];
     return ok(res, {
@@ -127,7 +127,10 @@ async function list(req, res) {
     const workMode = String(req.query.workMode || req.query.work_mode || '').trim();
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 6)));
-    const where = ["u.user_type = 'employee'"];
+    // Deleted employees are safely deactivated, not hard-deleted, so their
+    // historical attendance and payroll records remain intact. They are not
+    // part of active Employee Management or dashboard lists.
+    const where = ["u.user_type = 'employee'", 'u.is_active = 1'];
     const params = [];
 
     if (search) {
@@ -159,7 +162,7 @@ async function list(req, res) {
       'SELECT p.*, u.username AS username, (SELECT MAX(changed_at) FROM hrms_password_change_log l WHERE l.employee_user_id = p.employee_user_id) AS password_last_changed_at FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id ' + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
       params.concat([limit, offset])
     );
-    const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee'");
+    const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee' AND u.is_active = 1");
     // Roles are managed in the main admin area while older HRMS records keep
     // their designation in `department`.  Combining both sources keeps this
     // filter current as soon as an admin creates a role or employee.
@@ -411,11 +414,12 @@ async function remove(req, res) {
     const [profiles] = await connection.query('SELECT employee_user_id FROM hrms_employee_profiles WHERE id = ? FOR UPDATE', [id]);
     if (!profiles.length) { await connection.rollback(); return fail(res, 404, 'Employee not found'); }
     const userId = profiles[0].employee_user_id;
-    await connection.query('DELETE FROM hrms_employee_compensation WHERE profile_id = ?', [id]).catch(() => {});
-    await connection.query('DELETE FROM hrms_employee_profiles WHERE id = ?', [id]);
-    if (userId) await connection.query('DELETE FROM employee_users WHERE id = ?', [userId]);
+    // Keep related attendance/payroll rows for audit history, while making
+    // this employee disappear from the active employee and dashboard lists.
+    await connection.query("UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE id = ?", [id]);
+    if (userId) await connection.query('UPDATE employee_users SET is_active = 0 WHERE id = ?', [userId]);
     await connection.commit();
-    return ok(res, { id: id }, 'Employee permanently deleted');
+    return ok(res, { id: id }, 'Employee deleted from active lists');
   } catch (error) {
     await connection.rollback();
     return fail(res, 500, error.message);
@@ -426,7 +430,9 @@ async function remove(req, res) {
 
 async function exportCsv(req, res) {
   try {
-    const [rows] = await db.query('SELECT * FROM hrms_employee_profiles ORDER BY full_name ASC');
+    const [rows] = await db.query(
+      'SELECT p.* FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.is_active = 1 ORDER BY p.full_name ASC'
+    );
     const lines = ['Employee,Employee ID,Department,Work Mode,Monthly Salary,Status'];
     rows.forEach(function (row) {
       const item = toUi(row);
