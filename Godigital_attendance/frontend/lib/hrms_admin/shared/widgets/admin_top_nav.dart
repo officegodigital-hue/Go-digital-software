@@ -725,7 +725,7 @@ class _NotificationsDialogState extends State<_NotificationsDialog> {
   }
 
   Future<void> _markAllRead() async {
-    if (_markingAllRead || _unreadCount == 0) return;
+    if (_markingAllRead || _items.isEmpty) return;
     setState(() => _markingAllRead = true);
     try {
       await widget.onMarkAllRead();
@@ -758,7 +758,7 @@ class _NotificationsDialogState extends State<_NotificationsDialog> {
           tooltip: 'Notification settings',
         ),
         TextButton(
-          onPressed: _unreadCount == 0 || _markingAllRead ? null : _markAllRead,
+          onPressed: _items.isEmpty || _markingAllRead ? null : _markAllRead,
           child: Text(_markingAllRead ? 'Marking…' : 'Mark all as read'),
         ),
       ],
