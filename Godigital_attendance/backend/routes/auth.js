@@ -338,9 +338,11 @@ router.get('/calendar-notifications', authenticateToken, async (req, res) => {
       is_dismissed TINYINT(1) NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY employee_unread (employee_user_id, is_dismissed, created_at)
     )`);
-    const [rows] = await db.query(`SELECT id, DATE_FORMAT(calendar_date, '%d %b %Y') AS date, status, reason
-      FROM hrms_employee_calendar_notifications WHERE employee_user_id = ? AND is_dismissed = 0 ORDER BY created_at DESC LIMIT 1`, [req.user.id]);
-    return res.json({ success: true, data: rows[0] || null });
+    const [rows] = await db.query(`SELECT id, DATE_FORMAT(calendar_date, '%a, %d %b %Y') AS date, status, reason
+      FROM hrms_employee_calendar_notifications
+      WHERE employee_user_id = ? AND is_dismissed = 0
+      ORDER BY calendar_date ASC, created_at ASC`, [req.user.id]);
+    return res.json({ success: true, data: { notifications: rows } });
   } catch (_) { return res.status(500).json({ success: false, message: 'Unable to load calendar notification.' }); }
 });
 

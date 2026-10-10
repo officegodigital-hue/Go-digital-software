@@ -1590,11 +1590,13 @@ async function getMyWaitingAlert(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT id, waiting_minutes, waiting_started_at, waiting_detected_at
-       FROM hrms_field_waiting_reasons
-       WHERE employee_user_id = ?
-         AND reason IS NULL
-         AND review_status = 'pending'
+      `SELECT waiting.id, waiting.waiting_minutes, waiting.waiting_started_at, waiting.waiting_detected_at
+       FROM hrms_field_waiting_reasons waiting
+       INNER JOIN hrms_field_tracking_sessions session
+         ON session.id = waiting.field_session_id AND session.is_active = 1
+       WHERE waiting.employee_user_id = ?
+         AND waiting.reason IS NULL
+         AND waiting.review_status = 'pending'
        ORDER BY waiting_detected_at DESC
        LIMIT 1`,
       [employeeUserId]
