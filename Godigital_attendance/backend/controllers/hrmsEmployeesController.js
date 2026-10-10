@@ -100,7 +100,7 @@ function toUi(row) {
 async function summary(req, res) {
   try {
     const [rows] = await db.query(
-      "SELECT COUNT(*) AS total, SUM(employment_status = 'Active') AS active, SUM(employment_status = 'On Leave') AS onLeave, SUM(employment_status = 'Inactive') AS inactive FROM hrms_employee_profiles"
+      "SELECT COUNT(*) AS total, SUM(p.employment_status = 'Active') AS active, SUM(p.employment_status = 'On Leave') AS onLeave, SUM(p.employment_status = 'Inactive') AS inactive FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.is_active = 1"
     );
     const row = rows[0];
     return ok(res, {
@@ -127,7 +127,10 @@ async function list(req, res) {
     const workMode = String(req.query.workMode || req.query.work_mode || '').trim();
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 6)));
-    const where = ["u.user_type = 'employee'"];
+    // Deleted employees are safely deactivated, not hard-deleted, so their
+    // historical attendance and payroll records remain intact. They are not
+    // part of active Employee Management or dashboard lists.
+    const where = ["u.user_type = 'employee'", 'u.is_active = 1'];
     const params = [];
 
     if (search) {
@@ -159,7 +162,7 @@ async function list(req, res) {
       'SELECT p.*, u.username AS username, (SELECT MAX(changed_at) FROM hrms_password_change_log l WHERE l.employee_user_id = p.employee_user_id) AS password_last_changed_at FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id ' + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
       params.concat([limit, offset])
     );
-    const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee'");
+    const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee' AND u.is_active = 1");
     // Roles are managed in the main admin area while older HRMS records keep
     // their designation in `department`.  Combining both sources keeps this
     // filter current as soon as an admin creates a role or employee.
@@ -188,6 +191,131 @@ async function list(req, res) {
         onLeave: allRows.filter(function (r) { return r.employment_status === 'On Leave'; }).length,
         inactive: allRows.filter(function (r) { return r.employment_status === 'Inactive'; }).length
       }
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function detail(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const [[profile]] = await db.query(
+      `SELECT p.*, u.username FROM hrms_employee_profiles p
+       LEFT JOIN employee_users u ON u.id = p.employee_user_id WHERE p.id = ?`,
+      [id]
+    );
+    if (!profile) return fail(res, 404, 'Employee not found');
+    const employeeId = Number(profile.employee_user_id || 0);
+    const [[attendance]] = await db.query(
+      `SELECT
+        SUM(CASE WHEN check_in_at IS NOT NULL AND attendance_status <> 'absent' THEN 1 ELSE 0 END) AS present,
+        SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END) AS late,
+        SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent
+       FROM attendance_records WHERE employee_id = ?
+         AND attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         AND attendance_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)`,
+      [employeeId]
+    );
+    const [[leave]] = await db.query(
+      `SELECT COUNT(*) AS total, SUM(status = 'approved') AS approved, SUM(status = 'pending') AS pending
+       FROM employee_leaves WHERE employee_id = ?
+         AND from_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')`,
+      [employeeId]
+    );
+    const [[payroll]] = await db.query(
+      `SELECT working_days, paid_days, lop_days, deductions, late_deductions,
+              absent_deductions, net_pay, status
+       FROM hrms_payroll_items WHERE profile_id = ?
+       ORDER BY pay_year DESC, pay_month DESC LIMIT 1`,
+      [id]
+    );
+    const [attendanceRows] = await db.query(
+      `SELECT DATE_FORMAT(a.attendance_date, '%a, %d %b') AS date,
+              DATE_FORMAT(a.check_in_at, '%h:%i %p') AS check_in,
+              DATE_FORMAT(a.check_out_at, '%h:%i %p') AS check_out,
+              CONCAT(FLOOR(COALESCE(a.working_minutes, 0) / 60), 'h ',
+                     LPAD(MOD(COALESCE(a.working_minutes, 0), 60), 2, '0'), 'm') AS worked,
+              DATE_FORMAT(MIN(b.started_at), '%h:%i %p') AS break_start,
+              DATE_FORMAT(MAX(b.ended_at), '%h:%i %p') AS break_end,
+              CONCAT(FLOOR(COALESCE(SUM(b.duration_minutes), 0) / 60), 'h ',
+                     LPAD(MOD(COALESCE(SUM(b.duration_minutes), 0), 60), 2, '0'), 'm') AS break_duration,
+              CASE WHEN a.attendance_status = 'absent' THEN 'Absent'
+                   WHEN a.attendance_status = 'on_leave' THEN 'On leave'
+                   WHEN a.attendance_status = 'half_leave' THEN 'Half leave'
+                   WHEN a.is_late = 1 THEN 'Late' ELSE 'Present' END AS status,
+              CASE WHEN a.attendance_status = 'absent' THEN 'Yes' ELSE 'No' END AS lop,
+              COALESCE(a.check_in_method, '-') AS method
+       FROM attendance_records a
+       LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
+         AND b.status IN ('completed', 'auto_closed')
+       WHERE a.employee_id = ?
+         AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         AND a.attendance_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+       GROUP BY a.id, a.attendance_date, a.check_in_at, a.check_out_at,
+                a.working_minutes, a.attendance_status, a.is_late, a.check_in_method
+       ORDER BY a.attendance_date ASC`,
+      [employeeId]
+    );
+    const [leaveRows] = await db.query(
+      `SELECT leave_type, duration_type, DATE_FORMAT(from_date, '%d %b %Y') AS from_date,
+              DATE_FORMAT(to_date, '%d %b %Y') AS to_date, days_count, reason, status
+       FROM employee_leaves
+       WHERE employee_id = ? AND from_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+         AND to_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+       ORDER BY from_date DESC`,
+      [employeeId]
+    );
+    const [permissionRows] = await db.query(
+      `SELECT request_type, DATE_FORMAT(request_date, '%d %b %Y') AS request_date,
+              TIME_FORMAT(permission_start_time, '%h:%i %p') AS start_time,
+              TIME_FORMAT(permission_end_time, '%h:%i %p') AS end_time, reason, status
+       FROM attendance_permission_requests
+       WHERE employee_id = ? AND request_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         AND request_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+       ORDER BY request_date DESC`,
+      [employeeId]
+    );
+    const [payrollHistoryRows] = await db.query(
+      `SELECT pay_year, pay_month, monthly_salary, working_days, paid_days, lop_days,
+              late_deductions, absent_deductions, deductions, net_pay, status
+       FROM hrms_payroll_items WHERE profile_id = ?
+       ORDER BY pay_year DESC, pay_month DESC LIMIT 6`,
+      [id]
+    );
+    return ok(res, {
+      employee: toUi(profile),
+      attendance: {
+        present: Number(attendance.present || 0), late: Number(attendance.late || 0), absent: Number(attendance.absent || 0),
+      },
+      leave: { total: Number(leave.total || 0), approved: Number(leave.approved || 0), pending: Number(leave.pending || 0) },
+      payroll: payroll ? {
+        workingDays: Number(payroll.working_days || 0), paidDays: Number(payroll.paid_days || 0),
+        lopDays: Number(payroll.lop_days || 0),
+        lateDeduction: Number(payroll.late_deductions || payroll.deductions || 0),
+        absentDeduction: Number(payroll.absent_deductions || 0),
+        totalDeduction: Number(payroll.late_deductions || payroll.deductions || 0) + Number(payroll.absent_deductions || 0),
+        netPay: Number(payroll.net_pay || 0), status: payroll.status,
+      } : null,
+      attendanceRows: attendanceRows.map(function (row) {
+        return Object.assign({}, row, {
+          check_in: row.check_in || '-', check_out: row.check_out || '-',
+          break_start: row.break_start || '-', break_end: row.break_end || '-'
+        });
+      }),
+      leaveRows: leaveRows,
+      permissionRows: permissionRows,
+      payrollHistory: payrollHistoryRows.map(function (row) {
+        const late = Number(row.late_deductions || row.deductions || 0);
+        const absent = Number(row.absent_deductions || 0);
+        return {
+          month: new Date(Number(row.pay_year), Number(row.pay_month) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+          salary: Number(row.monthly_salary || 0), workingDays: Number(row.working_days || 0),
+          paidDays: Number(row.paid_days || 0), lopDays: Number(row.lop_days || 0),
+          lateDeduction: late, absentDeduction: absent, totalDeduction: late + absent,
+          netPay: Number(row.net_pay || 0), status: row.status
+        };
+      })
     });
   } catch (error) {
     return fail(res, 500, error.message);
@@ -358,11 +486,12 @@ async function remove(req, res) {
     const [profiles] = await connection.query('SELECT employee_user_id FROM hrms_employee_profiles WHERE id = ? FOR UPDATE', [id]);
     if (!profiles.length) { await connection.rollback(); return fail(res, 404, 'Employee not found'); }
     const userId = profiles[0].employee_user_id;
-    await connection.query('DELETE FROM hrms_employee_compensation WHERE profile_id = ?', [id]).catch(() => {});
-    await connection.query('DELETE FROM hrms_employee_profiles WHERE id = ?', [id]);
-    if (userId) await connection.query('DELETE FROM employee_users WHERE id = ?', [userId]);
+    // Keep related attendance/payroll rows for audit history, while making
+    // this employee disappear from the active employee and dashboard lists.
+    await connection.query("UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE id = ?", [id]);
+    if (userId) await connection.query('UPDATE employee_users SET is_active = 0 WHERE id = ?', [userId]);
     await connection.commit();
-    return ok(res, { id: id }, 'Employee permanently deleted');
+    return ok(res, { id: id }, 'Employee deleted from active lists');
   } catch (error) {
     await connection.rollback();
     return fail(res, 500, error.message);
@@ -373,7 +502,9 @@ async function remove(req, res) {
 
 async function exportCsv(req, res) {
   try {
-    const [rows] = await db.query('SELECT * FROM hrms_employee_profiles ORDER BY full_name ASC');
+    const [rows] = await db.query(
+      'SELECT p.* FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.is_active = 1 ORDER BY p.full_name ASC'
+    );
     const lines = ['Employee,Employee ID,Department,Work Mode,Monthly Salary,Status'];
     rows.forEach(function (row) {
       const item = toUi(row);
@@ -391,6 +522,7 @@ async function exportCsv(req, res) {
 module.exports = {
   requireAdmin: requireAdmin,
   summary: summary,
+  detail: detail,
   list: list,
   create: create,
   resetPassword: resetPassword,

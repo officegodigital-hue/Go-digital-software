@@ -7,7 +7,8 @@ enum AdminNavItem {
   employees('Employees', '/admin/employees'),
   approvals('Approvals', '/admin/approvals'),
   payroll('Payroll', '/admin/payroll'),
-  tracking('Tracking', '/admin/tracking');
+  tracking('Tracking', '/admin/tracking'),
+  settings('Settings', '/admin/settings');
 
   final String label;
   final String route;
