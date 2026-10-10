@@ -1289,19 +1289,20 @@ class _PayrollTable extends StatelessWidget {
   final ValueChanged<_PayrollRow> onCycleOverride;
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFFE3E7EF)),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: 1480,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      // Keep every payroll column in the current frame. At narrower desktop
+      // widths, all columns reduce proportionally instead of scrolling.
+      final scale = constraints.maxWidth / _PayrollTableHeader.naturalWidth;
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE3E7EF)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            const _PayrollTableHeader(),
+            _PayrollTableHeader(scale: scale),
             if (rows.isEmpty)
               const SizedBox(
                 height: 160,
@@ -1313,6 +1314,7 @@ class _PayrollTable extends StatelessWidget {
               ...rows.map(
                 (row) => _PayrollTableRow(
                   row: row,
+                  scale: scale,
                   onMarkPaid: onMarkPaid,
                   onHistory: onHistory,
                   onCycleOverride: onCycleOverride,
@@ -1320,31 +1322,33 @@ class _PayrollTable extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    ),
+      );
+    },
   );
 }
 
 class _PayrollTableHeader extends StatelessWidget {
-  const _PayrollTableHeader();
+  const _PayrollTableHeader({required this.scale});
+  static const naturalWidth = 1650.0;
+  final double scale;
   @override
   Widget build(BuildContext context) => Container(
     height: 44,
     color: const Color(0xFFFCFCFD),
-    child: const Row(
+    child: Row(
       children: [
-        _Cell(width: 250, child: Text('Employee', style: _headStyle)),
-        _Cell(width: 150, child: Text('Department', style: _headStyle)),
-        _Cell(width: 140, child: Text('Monthly salary', style: _headStyle)),
-        _Cell(width: 110, child: Text('Working', style: _headStyle)),
-        _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
-        _Cell(width: 90, child: Text('LOP', style: _headStyle)),
-        _Cell(width: 130, child: Text('Late\nDeduction', style: _headStyle)),
-        _Cell(width: 140, child: Text('Absent / LOP\nValue', style: _headStyle)),
-        _Cell(width: 130, child: Text('Total\nDeduction', style: _headStyle)),
-        _Cell(width: 140, child: Text('Net pay', style: _headStyle)),
-        _Cell(width: 120, child: Text('Status', style: _headStyle)),
-        _Cell(width: 140, child: Text('Action', style: _headStyle)),
+        _Cell(width: 250 * scale, child: Text('Employee', style: _headStyle)),
+        _Cell(width: 150 * scale, child: Text('Department', style: _headStyle)),
+        _Cell(width: 140 * scale, child: Text('Monthly salary', style: _headStyle)),
+        _Cell(width: 110 * scale, child: Text('Working', style: _headStyle)),
+        _Cell(width: 110 * scale, child: Text('Paid days', style: _headStyle)),
+        _Cell(width: 90 * scale, child: Text('LOP', style: _headStyle)),
+        _Cell(width: 130 * scale, child: Text('Late\nDeduction', style: _headStyle)),
+        _Cell(width: 140 * scale, child: Text('Absent / LOP\nValue', style: _headStyle)),
+        _Cell(width: 130 * scale, child: Text('Total\nDeduction', style: _headStyle)),
+        _Cell(width: 140 * scale, child: Text('Net pay', style: _headStyle)),
+        _Cell(width: 120 * scale, child: Text('Status', style: _headStyle)),
+        _Cell(width: 140 * scale, child: Text('Action', style: _headStyle)),
       ],
     ),
   );
@@ -1353,11 +1357,13 @@ class _PayrollTableHeader extends StatelessWidget {
 class _PayrollTableRow extends StatelessWidget {
   const _PayrollTableRow({
     required this.row,
+    required this.scale,
     required this.onMarkPaid,
     required this.onHistory,
     required this.onCycleOverride,
   });
   final _PayrollRow row;
+  final double scale;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final ValueChanged<_PayrollRow> onHistory;
   final ValueChanged<_PayrollRow> onCycleOverride;
@@ -1371,7 +1377,7 @@ class _PayrollTableRow extends StatelessWidget {
     child: Row(
       children: [
         _Cell(
-          width: 250,
+          width: 250 * scale,
           child: Row(
             children: [
               CircleAvatar(
@@ -1412,16 +1418,16 @@ class _PayrollTableRow extends StatelessWidget {
             ],
           ),
         ),
-        _Cell(width: 150, child: Text(row.department, style: _cellStyle)),
-        _Cell(width: 140, child: Text(row.salary, style: _cellStyle)),
-        _Cell(width: 110, child: Text('${row.workingDays}', style: _cellStyle)),
-        _Cell(width: 110, child: Text('${row.paidDays}', style: _cellStyle)),
-        _Cell(width: 90, child: Text('${row.lopDays}', style: _cellStyle)),
-        _Cell(width: 130, child: Text(row.lateDeduction, style: _cellStyle)),
-        _Cell(width: 140, child: Text(row.absentDeduction, style: _cellStyle)),
-        _Cell(width: 130, child: Text(row.totalDeduction, style: _cellStyle)),
+        _Cell(width: 150 * scale, child: Text(row.department, style: _cellStyle)),
+        _Cell(width: 140 * scale, child: Text(row.salary, style: _cellStyle)),
+        _Cell(width: 110 * scale, child: Text('${row.workingDays}', style: _cellStyle)),
+        _Cell(width: 110 * scale, child: Text('${row.paidDays}', style: _cellStyle)),
+        _Cell(width: 90 * scale, child: Text('${row.lopDays}', style: _cellStyle)),
+        _Cell(width: 130 * scale, child: Text(row.lateDeduction, style: _cellStyle)),
+        _Cell(width: 140 * scale, child: Text(row.absentDeduction, style: _cellStyle)),
+        _Cell(width: 130 * scale, child: Text(row.totalDeduction, style: _cellStyle)),
         _Cell(
-          width: 140,
+          width: 140 * scale,
           child: Text(
             row.netPay,
             style: const TextStyle(
@@ -1431,9 +1437,9 @@ class _PayrollTableRow extends StatelessWidget {
             ),
           ),
         ),
-        _Cell(width: 120, child: _PayStatus(status: row.status)),
+        _Cell(width: 120 * scale, child: _PayStatus(status: row.status)),
         _Cell(
-          width: 140,
+          width: 140 * scale,
           child: PopupMenuButton<int>(
             tooltip: 'Payroll actions',
             onSelected: (action) {
