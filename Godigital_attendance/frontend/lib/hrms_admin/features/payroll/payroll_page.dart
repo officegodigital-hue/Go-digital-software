@@ -30,7 +30,6 @@ class _PayrollPageState extends State<PayrollPage> {
   int kpiEmployees = 0;
   int kpiPaid = 0;
   int kpiPending = 0;
-  int kpiWorkingDays = 0;
   bool loading = true;
   bool generating = false;
   String? error;
@@ -81,7 +80,6 @@ class _PayrollPageState extends State<PayrollPage> {
         kpiEmployees = _asInt(kpis['employees'], 0);
         kpiPaid = _asInt(kpis['paid'], 0);
         kpiPending = _asInt(kpis['pending'], 0) + _asInt(kpis['draft'], 0);
-        kpiWorkingDays = _asInt(kpis['totalWorkingDays'], 0);
         loading = false;
       });
     } catch (err) {
@@ -105,11 +103,7 @@ class _PayrollPageState extends State<PayrollPage> {
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Payroll run generated for every employee with configured compensation.',
-          ),
-        ),
+        const SnackBar(content: Text('Payroll run generated for every employee with configured compensation.')),
       );
     } catch (err) {
       if (!mounted) return;
@@ -124,7 +118,8 @@ class _PayrollPageState extends State<PayrollPage> {
   Future<void> _markPaid(_PayrollRow row) async {
     if (row.itemId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Generate payroll for this month first.')),
+        const SnackBar(
+            content: Text('Generate payroll for this month first.')),
       );
       return;
     }
@@ -141,79 +136,22 @@ class _PayrollPageState extends State<PayrollPage> {
 
   Future<void> _viewHistory(_PayrollRow row) async {
     try {
-      final items = await HrmsPayrollApi.deductionHistory(
-        profileId: row.profileId,
-        year: year,
-        month: month,
-      );
+      final items = await HrmsPayrollApi.deductionHistory(profileId: row.profileId, year: year, month: month);
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${row.name} — deduction history'),
-          content: SizedBox(
-            width: 520,
-            child: items.isEmpty
-                ? const Text(
-                    'No late or absent salary deductions were generated for this payroll period.',
-                  )
-                : SingleChildScrollView(
-                    child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Date')),
-                        DataColumn(label: Text('Type')),
-                        DataColumn(label: Text('Late')),
-                        DataColumn(label: Text('Amount')),
-                      ],
-                      rows: items
-                          .map(
-                            (item) => DataRow(
-                              cells: [
-                                DataCell(Text('${item['attendance_date']}')),
-                                DataCell(
-                                  Text(
-                                    '${item['deduction_type']}' == 'late'
-                                        ? 'Late'
-                                        : 'Absent',
-                                  ),
-                                ),
-                                DataCell(
-                                  Text('${item['late_minutes'] ?? 0} min'),
-                                ),
-                                DataCell(Text('₹${item['amount']}')),
-                              ],
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error.toString().replaceFirst('Exception: ', '')),
-          ),
-        );
-    }
+      await showDialog<void>(context: context, builder: (context) => AlertDialog(
+        title: Text('${row.name} — deduction history'),
+        content: SizedBox(width: 520, child: items.isEmpty
+          ? const Text('No late or absent salary deductions were generated for this payroll period.')
+          : SingleChildScrollView(child: DataTable(columns: const [DataColumn(label: Text('Date')), DataColumn(label: Text('Type')), DataColumn(label: Text('Late')), DataColumn(label: Text('Amount'))], rows: items.map((item) => DataRow(cells: [DataCell(Text('${item['attendance_date']}')), DataCell(Text('${item['deduction_type']}' == 'late' ? 'Late' : 'Absent')), DataCell(Text('${item['late_minutes'] ?? 0} min')), DataCell(Text('₹${item['amount']}'))])).toList()))),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      ));
+    } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', '')))); }
   }
 
   Future<void> _overrideCycle(_PayrollRow row) async {
     if (row.salaryType != 'Flexible') {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Only Flexible employees can have a custom payroll cycle.',
-          ),
-        ),
+        const SnackBar(content: Text('Only Flexible employees can have a custom payroll cycle.')),
       );
       return;
     }
@@ -246,9 +184,7 @@ class _PayrollPageState extends State<PayrollPage> {
     } catch (err) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(err.toString().replaceFirst('Exception: ', '')),
-          ),
+          SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
         );
       }
     }
@@ -259,9 +195,7 @@ class _PayrollPageState extends State<PayrollPage> {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: _PayrollColors.page,
-      bottomNavigationBar: mobile
-          ? const AdminMobileBottomNav(activeRoute: '/admin/payroll')
-          : null,
+      bottomNavigationBar: mobile ? const AdminMobileBottomNav(activeRoute: '/admin/payroll') : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/payroll'),
@@ -269,89 +203,82 @@ class _PayrollPageState extends State<PayrollPage> {
             child: loading && rows.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : error != null && rows.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(error!, textAlign: TextAlign.center),
-                        ),
-                        FilledButton(
-                          onPressed: _load,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  )
-                : SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      mobile ? 16 : 28,
-                      18,
-                      mobile ? 16 : 28,
-                      28,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1580),
+                    ? Center(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            _PayrollHeader(
-                              generating: generating,
-                              onGenerate: _generate,
-                              onPolicy: _editPolicy,
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(error!, textAlign: TextAlign.center),
                             ),
-                            const SizedBox(height: 17),
-                            _PayrollKpis(
-                              total: kpiTotal,
-                              employees: kpiEmployees,
-                              paid: kpiPaid,
-                              pending: kpiPending,
-                              workingDays: kpiWorkingDays,
-                            ),
-                            const SizedBox(height: 16),
-                            if (loading)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 12),
-                                child: LinearProgressIndicator(minHeight: 2),
-                              ),
-                            _PayrollPanel(
-                              monthKey: _monthKey,
-                              months: months,
-                              employee: employee,
-                              status: status,
-                              employees: employeeNames,
-                              rows: rows,
-                              onMonthChanged: (value) {
-                                if (value == null) return;
-                                final parts = value.split('-');
-                                year = int.parse(parts[0]);
-                                month = int.parse(parts[1]);
-                                _load();
-                              },
-                              onEmployeeChanged: (value) {
-                                employee = value!;
-                                _load();
-                              },
-                              onStatusChanged: (value) {
-                                status = value!;
-                                _load();
-                              },
-                              onReset: () {
-                                employee = 'All Employees';
-                                status = 'All Status';
-                                _load();
-                              },
-                              onMarkPaid: _markPaid,
-                              onHistory: _viewHistory,
-                              onCycleOverride: _overrideCycle,
-                            ),
+                            FilledButton(
+                                onPressed: _load, child: const Text('Retry')),
                           ],
                         ),
+                      )
+                    : SingleChildScrollView(
+                        padding: EdgeInsets.fromLTRB(
+                            mobile ? 16 : 28, 18, mobile ? 16 : 28, 28),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1580),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _PayrollHeader(
+                                  generating: generating,
+                                  onGenerate: _generate,
+                                  onPolicy: _editPolicy,
+                                ),
+                                const SizedBox(height: 17),
+                                _PayrollKpis(
+                                  total: kpiTotal,
+                                  employees: kpiEmployees,
+                                  paid: kpiPaid,
+                                  pending: kpiPending,
+                                ),
+                                const SizedBox(height: 16),
+                                if (loading)
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 12),
+                                    child: LinearProgressIndicator(minHeight: 2),
+                                  ),
+                                _PayrollPanel(
+                                  monthKey: _monthKey,
+                                  months: months,
+                                  employee: employee,
+                                  status: status,
+                                  employees: employeeNames,
+                                  rows: rows,
+                                  onMonthChanged: (value) {
+                                    if (value == null) return;
+                                    final parts = value.split('-');
+                                    year = int.parse(parts[0]);
+                                    month = int.parse(parts[1]);
+                                    _load();
+                                  },
+                                  onEmployeeChanged: (value) {
+                                    employee = value!;
+                                    _load();
+                                  },
+                                  onStatusChanged: (value) {
+                                    status = value!;
+                                    _load();
+                                  },
+                                  onReset: () {
+                                    employee = 'All Employees';
+                                    status = 'All Status';
+                                    _load();
+                                  },
+                                  onMarkPaid: _markPaid,
+                                  onHistory: _viewHistory,
+                                  onCycleOverride: _overrideCycle,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
           ),
         ],
       ),
@@ -360,26 +287,17 @@ class _PayrollPageState extends State<PayrollPage> {
 
   Future<void> _editPolicy() async {
     try {
-      final saved = await showDialog<bool>(
-        context: context,
-        builder: (_) => const _PayrollPolicyDialog(),
-      );
+      final saved = await showDialog<bool>(context: context, builder: (_) => const _PayrollPolicyDialog());
       if (saved == true) _load();
     } catch (err) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(err.toString().replaceFirst('Exception: ', '')),
-          ),
-        );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))));
     }
   }
 }
 
 class _PayrollPolicyDialog extends StatefulWidget {
   const _PayrollPolicyDialog();
-  @override
-  State<_PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
+  @override State<_PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
 }
 
 class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
@@ -391,160 +309,38 @@ class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
   bool loading = true;
   bool saving = false;
   final TextEditingController divisor = TextEditingController(text: '26');
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
+  @override void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final data = await HrmsPayrollApi.policy();
     if (!mounted) return;
-    setState(() {
-      offDays = ((data['weeklyOffDays'] as List? ?? [0])
-          .map((v) => int.tryParse('$v') ?? 0)
-          .toSet());
-      approvedLeave = data['deductApprovedLeave'] == true;
-      explicitAbsence = data['deductExplicitAbsence'] == true;
-      missingAttendance = data['missingAttendanceIsAbsent'] == true;
-      autoGenerate = data['autoGenerate'] == true;
-      divisor.text = '${data['salaryDayDivisor'] ?? 26}';
-      loading = false;
-    });
+    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); approvedLeave = data['deductApprovedLeave'] == true; explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; autoGenerate = data['autoGenerate'] == true; divisor.text = '${data['salaryDayDivisor'] ?? 26}'; loading = false; });
   }
-
   Future<void> _save() async {
     setState(() => saving = true);
-    try {
-      await HrmsPayrollApi.savePolicy({
-        'weeklyOffDays': offDays.toList()..sort(),
-        'deductApprovedLeave': approvedLeave,
-        'deductExplicitAbsence': explicitAbsence,
-        'missingAttendanceIsAbsent': missingAttendance,
-        'salaryDayDivisor': int.tryParse(divisor.text) ?? 26,
-        'autoGenerate': autoGenerate,
-      });
-      if (mounted) Navigator.pop(context, true);
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
+    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductApprovedLeave': approvedLeave, 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance, 'salaryDayDivisor': int.tryParse(divisor.text) ?? 26, 'autoGenerate': autoGenerate}); if (mounted) Navigator.pop(context, true); }
+    finally { if (mounted) setState(() => saving = false); }
   }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
+  @override Widget build(BuildContext context) => AlertDialog(
     title: const Text('Payroll policy'),
-    content: loading
-        ? const SizedBox(
-            height: 100,
-            child: Center(child: CircularProgressIndicator()),
-          )
-        : SingleChildScrollView(
-            child: SizedBox(
-              width: 380,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Weekly off days'),
-                  Wrap(
-                    children: List.generate(7, (day) {
-                      const labels = [
-                        'Sun',
-                        'Mon',
-                        'Tue',
-                        'Wed',
-                        'Thu',
-                        'Fri',
-                        'Sat',
-                      ];
-                      return FilterChip(
-                        label: Text(labels[day]),
-                        selected: offDays.contains(day),
-                        onSelected: (selected) => setState(() {
-                          if (selected) {
-                            offDays.add(day);
-                          } else {
-                            offDays.remove(day);
-                          }
-                        }),
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: divisor,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Salary-day divisor',
-                      helperText:
-                          'Use 26 for the standard monthly payroll calculation',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Payroll generation mode'),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Manual'),
-                        selected: !autoGenerate,
-                        onSelected: (_) => setState(() => autoGenerate = false),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Auto'),
-                        selected: autoGenerate,
-                        onSelected: (_) => setState(() => autoGenerate = true),
-                      ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      autoGenerate
-                          ? 'Auto refreshes unpaid payroll once each new day. Paid rows are never changed.'
-                          : 'Use Generate payroll whenever you want to update this month.',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Deduct approved leave'),
-                    value: approvedLeave,
-                    onChanged: (value) => setState(() => approvedLeave = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Deduct explicit absence'),
-                    value: explicitAbsence,
-                    onChanged: (value) =>
-                        setState(() => explicitAbsence = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Treat missing attendance as absence'),
-                    value: missingAttendance,
-                    onChanged: (value) =>
-                        setState(() => missingAttendance = value),
-                  ),
-                ],
-              ),
-            ),
-          ),
-    actions: [
-      TextButton(
-        onPressed: saving ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: saving ? null : _save,
-        child: Text(saving ? 'Saving…' : 'Save policy'),
-      ),
-    ],
+    content: loading ? const SizedBox(height: 100, child: Center(child: CircularProgressIndicator())) : SingleChildScrollView(child: SizedBox(width: 380, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Weekly off days'),
+      Wrap(children: List.generate(7, (day) { const labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; return FilterChip(label: Text(labels[day]), selected: offDays.contains(day), onSelected: (selected) => setState(() { if (selected) { offDays.add(day); } else { offDays.remove(day); } })); })),
+      const SizedBox(height: 10),
+      TextField(controller: divisor, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Salary-day divisor', helperText: 'Use 26 for the standard monthly payroll calculation')),
+      const SizedBox(height: 8),
+      const Text('Payroll generation mode'),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, children: [
+        ChoiceChip(label: const Text('Manual'), selected: !autoGenerate, onSelected: (_) => setState(() => autoGenerate = false)),
+        ChoiceChip(label: const Text('Auto'), selected: autoGenerate, onSelected: (_) => setState(() => autoGenerate = true)),
+      ]),
+      Padding(padding: const EdgeInsets.only(top: 6), child: Text(autoGenerate ? 'Auto refreshes unpaid payroll once each new day. Paid rows are never changed.' : 'Use Generate payroll whenever you want to update this month.', style: const TextStyle(fontSize: 12, color: Colors.black54))),
+      const SizedBox(height: 8),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct approved leave'), value: approvedLeave, onChanged: (value) => setState(() => approvedLeave = value)),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct explicit absence'), value: explicitAbsence, onChanged: (value) => setState(() => explicitAbsence = value)),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Treat missing attendance as absence'), value: missingAttendance, onChanged: (value) => setState(() => missingAttendance = value)),
+    ]))),
+    actions: [TextButton(onPressed: saving ? null : () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: saving ? null : _save, child: Text(saving ? 'Saving…' : 'Save policy'))],
   );
 }
 
@@ -570,11 +366,7 @@ class _MonthOption {
 }
 
 class _PayrollHeader extends StatelessWidget {
-  const _PayrollHeader({
-    required this.generating,
-    required this.onGenerate,
-    required this.onPolicy,
-  });
+  const _PayrollHeader({required this.generating, required this.onGenerate, required this.onPolicy});
   final bool generating;
   final VoidCallback onGenerate;
   final VoidCallback onPolicy;
@@ -584,11 +376,7 @@ class _PayrollHeader extends StatelessWidget {
     return Row(
       children: [
         const Expanded(child: AdminPageHeader(title: 'Payroll')),
-        OutlinedButton.icon(
-          onPressed: onPolicy,
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Payroll Policy'),
-        ),
+        IconButton(tooltip: 'Payroll policy', onPressed: onPolicy, icon: const Icon(Icons.tune_rounded, color: _PayrollColors.navy)),
         const SizedBox(width: 8),
         FilledButton.icon(
           onPressed: generating ? null : onGenerate,
@@ -597,9 +385,7 @@ class _PayrollHeader extends StatelessWidget {
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
+                      strokeWidth: 2, color: Colors.white),
                 )
               : const Icon(Icons.playlist_add_check_rounded),
           label: Text(generating ? 'Generating…' : 'Generate payroll'),
@@ -619,83 +405,47 @@ class _PayrollKpis extends StatelessWidget {
     required this.employees,
     required this.paid,
     required this.pending,
-    required this.workingDays,
   });
   final String total;
-  final int employees, paid, pending, workingDays;
+  final int employees, paid, pending;
 
   @override
   Widget build(BuildContext context) {
     final cards = [
-      _PayrollKpi(
-        'Working days',
-        '$workingDays',
-        'For this payroll month',
-        Icons.calendar_month_outlined,
-        const Color(0xFF075EF7),
-      ),
-      _PayrollKpi(
-        'This month net',
-        total,
-        'Present + late days vs working days',
-        Icons.account_balance_wallet_outlined,
-        _PayrollColors.blue,
-      ),
-      _PayrollKpi(
-        'Employees',
-        '$employees',
-        'Active / on leave staff',
-        Icons.groups_outlined,
-        const Color(0xFF158C20),
-      ),
-      _PayrollKpi(
-        'Paid',
-        '$paid',
-        'Marked paid',
-        Icons.check_circle_outline_rounded,
-        const Color(0xFF158C20),
-      ),
-      _PayrollKpi(
-        'Unpaid',
-        '$pending',
-        'Draft or pending rows',
-        Icons.pending_actions_outlined,
-        const Color(0xFFFF6500),
-      ),
+      _PayrollKpi('This month net', total, 'Present + late days vs working days',
+          Icons.account_balance_wallet_outlined, _PayrollColors.blue),
+      _PayrollKpi('Employees', '$employees', 'Active / on leave staff',
+          Icons.groups_outlined, const Color(0xFF158C20)),
+      _PayrollKpi('Paid', '$paid', 'Marked paid',
+          Icons.check_circle_outline_rounded, const Color(0xFF158C20)),
+      _PayrollKpi('Unpaid', '$pending', 'Draft or pending rows',
+          Icons.pending_actions_outlined, const Color(0xFFFF6500)),
     ];
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final mobile = constraints.maxWidth < 600;
-        final columns = mobile
-            ? 4
-            : constraints.maxWidth < 700
-            ? 1
-            : constraints.maxWidth < 1100
-            ? 2
-            : 5;
-        final spacing = mobile ? 8.0 : 16.0;
-        final width =
-            (constraints.maxWidth - (columns - 1) * spacing) / columns;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: mobile ? 8 : 16,
-          children: cards
-              .map((card) => SizedBox(width: width, child: card))
-              .toList(),
-        );
-      },
-    );
+    return LayoutBuilder(builder: (_, constraints) {
+      final mobile = constraints.maxWidth < 600;
+      final columns = mobile
+          ? 4
+          : constraints.maxWidth < 700
+          ? 1
+          : constraints.maxWidth < 1100
+              ? 2
+              : 4;
+      final spacing = mobile ? 8.0 : 16.0;
+      final width = (constraints.maxWidth - (columns - 1) * spacing) / columns;
+      return Wrap(
+        spacing: spacing,
+        runSpacing: mobile ? 8 : 16,
+        children: cards
+            .map((card) => SizedBox(width: width, child: card))
+            .toList(),
+      );
+    });
   }
 }
 
 class _PayrollKpi extends StatelessWidget {
   const _PayrollKpi(
-    this.label,
-    this.value,
-    this.caption,
-    this.icon,
-    this.color,
-  );
+      this.label, this.value, this.caption, this.icon, this.color);
   final String label, value, caption;
   final IconData icon;
   final Color color;
@@ -707,116 +457,79 @@ class _PayrollKpi extends StatelessWidget {
       return Container(
         height: 80,
         padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
+          const Spacer(),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+    return Container(
+        height: 116,
+        padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
         decoration: BoxDecoration(
           color: Colors.white,
-          border: Border.all(color: color.withValues(alpha: .25)),
-          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE5E8EF)),
+          borderRadius: BorderRadius.circular(13),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x0C071A72), blurRadius: 16, offset: Offset(0, 6))
+          ],
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                      color: color.withValues(alpha: .09),
+                      shape: BoxShape.circle),
+                  child: Icon(icon, color: color, size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: const TextStyle(
+                              color: Color(0xFF596176), fontSize: 14)),
+                      Text(value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Color(0xFF090B12),
+                              fontSize: 24,
+                              height: 1.15,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(caption,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Color(0xFF596176), fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const Spacer(),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 23,
-                fontWeight: FontWeight.w800,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: 55,
+                height: 3,
+                decoration: BoxDecoration(
+                    color: _PayrollColors.blue,
+                    borderRadius: BorderRadius.circular(4)),
               ),
             ),
           ],
         ),
       );
-    }
-    return Container(
-      height: 116,
-      padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE5E8EF)),
-        borderRadius: BorderRadius.circular(13),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0C071A72),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .09),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: color, size: 26),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        color: Color(0xFF596176),
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF090B12),
-                        fontSize: 24,
-                        height: 1.15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      caption,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF596176),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              width: 55,
-              height: 3,
-              decoration: BoxDecoration(
-                color: _PayrollColors.blue,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -842,9 +555,7 @@ class _PayrollPanel extends StatelessWidget {
   final String employee, status;
   final List<String> employees;
   final List<_PayrollRow> rows;
-  final ValueChanged<String?> onMonthChanged,
-      onEmployeeChanged,
-      onStatusChanged;
+  final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final ValueChanged<_PayrollRow> onHistory;
@@ -854,74 +565,61 @@ class _PayrollPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-        20,
-        MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-        18,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE4E7EE)),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A071A72),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!mobile)
-            const Text(
-              'Monthly payroll',
-              style: TextStyle(
-                color: _PayrollColors.navy,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          if (!mobile) const SizedBox(height: 6),
-          if (!mobile)
-            const Text(
+        padding: EdgeInsets.fromLTRB(
+          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
+          20,
+          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
+          18,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE4E7EE)),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!mobile) const Text('Monthly payroll',
+                style: TextStyle(
+                    color: _PayrollColors.navy,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700)),
+            if (!mobile) const SizedBox(height: 6),
+            if (!mobile) const Text(
               'Generate one monthly run for all employees with configured compensation. Net pay is monthly salary minus deductions from the Payroll policy.',
               style: TextStyle(color: Color(0xFF596176), fontSize: 13),
             ),
-          SizedBox(height: mobile ? 0 : 16),
-          _PayrollFilters(
-            monthKey: monthKey,
-            months: months,
-            employee: employee,
-            employees: employees,
-            status: status,
-            onMonthChanged: onMonthChanged,
-            onEmployeeChanged: onEmployeeChanged,
-            onStatusChanged: onStatusChanged,
-            onReset: onReset,
-          ),
-          const SizedBox(height: 16),
-          if (MediaQuery.sizeOf(context).width < 600)
-            _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
-          else
-            _PayrollTable(
-              rows: rows,
-              onMarkPaid: onMarkPaid,
-              onHistory: onHistory,
-              onCycleOverride: onCycleOverride,
+            SizedBox(height: mobile ? 0 : 16),
+            _PayrollFilters(
+              monthKey: monthKey,
+              months: months,
+              employee: employee,
+              employees: employees,
+              status: status,
+              onMonthChanged: onMonthChanged,
+              onEmployeeChanged: onEmployeeChanged,
+              onStatusChanged: onStatusChanged,
+              onReset: onReset,
             ),
-          const SizedBox(height: 16),
-          Text(
-            rows.isEmpty
-                ? 'No payroll rows for these filters.'
-                : 'Showing ${rows.length} employee${rows.length == 1 ? '' : 's'}',
-            style: const TextStyle(color: Color(0xFF596176), fontSize: 13),
-          ),
-        ],
-      ),
-    );
+            const SizedBox(height: 16),
+            if (MediaQuery.sizeOf(context).width < 600)
+              _MobilePayrollList(rows: rows, onMarkPaid: onMarkPaid)
+            else
+              _PayrollTable(rows: rows, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride),
+            const SizedBox(height: 16),
+            Text(
+              rows.isEmpty
+                  ? 'No payroll rows for these filters.'
+                  : 'Showing ${rows.length} employee${rows.length == 1 ? '' : 's'}',
+              style: const TextStyle(color: Color(0xFF596176), fontSize: 13),
+            ),
+          ],
+        ),
+      );
   }
 }
 
@@ -942,9 +640,7 @@ class _PayrollFilters extends StatelessWidget {
   final List<_MonthOption> months;
   final String employee, status;
   final List<String> employees;
-  final ValueChanged<String?> onMonthChanged,
-      onEmployeeChanged,
-      onStatusChanged;
+  final ValueChanged<String?> onMonthChanged, onEmployeeChanged, onStatusChanged;
   final VoidCallback onReset;
 
   @override
@@ -952,230 +648,128 @@ class _PayrollFilters extends StatelessWidget {
     final monthValue = months.any((item) => item.key == monthKey)
         ? monthKey
         : (months.isEmpty ? monthKey : months.first.key);
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final mobile = MediaQuery.sizeOf(context).width < 600;
-        if (mobile) {
-          return Row(
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _showMobileFilters(context, monthValue),
-                icon: const Icon(Icons.tune_rounded, size: 19),
-                label: const Text('Filter'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _PayrollColors.blue,
-                  side: const BorderSide(color: _PayrollColors.blue),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 13,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.outlined(
-                onPressed: onReset,
-                icon: const Icon(Icons.restart_alt_rounded),
-                color: _PayrollColors.blue,
-                tooltip: 'Reset filters',
-              ),
-            ],
-          );
-        }
-        final width = constraints.maxWidth < 900 ? constraints.maxWidth : 280.0;
-        return Wrap(
-          spacing: 24,
-          runSpacing: 14,
-          crossAxisAlignment: WrapCrossAlignment.end,
-          children: [
-            _FilterField(
-              label: 'Month',
-              width: width,
-              child: DropdownButtonFormField<String>(
-                initialValue: monthValue,
-                onChanged: onMonthChanged,
-                decoration: _fieldDecoration(),
-                items:
-                    (months.isEmpty
-                            ? [
-                                _MonthOption(
-                                  year: DateTime.now().year,
-                                  month: DateTime.now().month,
-                                  label: 'This month',
-                                ),
-                              ]
-                            : months)
-                        .map(
-                          (item) => DropdownMenuItem(
-                            value: item.key,
-                            child: Text(item.label),
-                          ),
-                        )
-                        .toList(),
-              ),
+    return LayoutBuilder(builder: (_, constraints) {
+      final mobile = MediaQuery.sizeOf(context).width < 600;
+      if (mobile) {
+        return Row(children: [
+          OutlinedButton.icon(onPressed: () => _showMobileFilters(context, monthValue), icon: const Icon(Icons.tune_rounded, size: 19), label: const Text('Filter'), style: OutlinedButton.styleFrom(foregroundColor: _PayrollColors.blue, side: const BorderSide(color: _PayrollColors.blue), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13))),
+          const SizedBox(width: 8),
+          IconButton.outlined(onPressed: onReset, icon: const Icon(Icons.restart_alt_rounded), color: _PayrollColors.blue, tooltip: 'Reset filters'),
+        ]);
+      }
+      final width = constraints.maxWidth < 900 ? constraints.maxWidth : 280.0;
+      return Wrap(
+        spacing: 24,
+        runSpacing: 14,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          _FilterField(
+            label: 'Month',
+            width: width,
+            child: DropdownButtonFormField<String>(
+              initialValue: monthValue,
+              onChanged: onMonthChanged,
+              decoration: _fieldDecoration(),
+              items: (months.isEmpty
+                      ? [
+                          _MonthOption(
+                              year: DateTime.now().year,
+                              month: DateTime.now().month,
+                              label: 'This month')
+                        ]
+                      : months)
+                  .map((item) => DropdownMenuItem(
+                      value: item.key, child: Text(item.label)))
+                  .toList(),
             ),
-            _FilterField(
-              label: 'Employee',
-              width: width,
-              child: DropdownButtonFormField<String>(
-                initialValue: employee,
-                onChanged: onEmployeeChanged,
-                decoration: _fieldDecoration(),
-                items: employees
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-              ),
+          ),
+          _FilterField(
+            label: 'Employee',
+            width: width,
+            child: DropdownButtonFormField<String>(
+              initialValue: employee,
+              onChanged: onEmployeeChanged,
+              decoration: _fieldDecoration(),
+              items: employees
+                  .map((item) =>
+                      DropdownMenuItem(value: item, child: Text(item)))
+                  .toList(),
             ),
-            _FilterField(
-              label: 'Status',
-              width: width,
-              child: DropdownButtonFormField<String>(
-                initialValue: status,
-                onChanged: onStatusChanged,
-                decoration: _fieldDecoration(),
-                items: const ['All Status', 'Draft', 'Pending', 'Paid']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-              ),
+          ),
+          _FilterField(
+            label: 'Status',
+            width: width,
+            child: DropdownButtonFormField<String>(
+              initialValue: status,
+              onChanged: onStatusChanged,
+              decoration: _fieldDecoration(),
+              items: const [
+                'All Status',
+                'Draft',
+                'Pending',
+                'Paid',
+              ]
+                  .map((item) =>
+                      DropdownMenuItem(value: item, child: Text(item)))
+                  .toList(),
             ),
-            OutlinedButton.icon(
-              onPressed: onReset,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Reset'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _PayrollColors.blue,
-                side: const BorderSide(color: Color(0xFFD6DDEA)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 17,
-                  vertical: 17,
-                ),
-              ),
+          ),
+          OutlinedButton.icon(
+            onPressed: onReset,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Reset'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _PayrollColors.blue,
+              side: const BorderSide(color: Color(0xFFD6DDEA)),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 17, vertical: 17),
             ),
-          ],
-        );
-      },
-    );
+          ),
+        ],
+      );
+    });
   }
 
   void _showMobileFilters(BuildContext context, String monthValue) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Filter payroll',
-                style: TextStyle(
-                  color: _PayrollColors.navy,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: monthValue,
-                onChanged: onMonthChanged,
-                decoration: _fieldDecoration().copyWith(labelText: 'Month'),
-                items: months
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.key,
-                        child: Text(item.label),
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: employee,
-                onChanged: onEmployeeChanged,
-                decoration: _fieldDecoration().copyWith(labelText: 'Employee'),
-                items: employees
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: status,
-                onChanged: onStatusChanged,
-                decoration: _fieldDecoration().copyWith(labelText: 'Status'),
-                items: const ['All Status', 'Draft', 'Pending', 'Paid']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => Navigator.pop(sheetContext),
-                child: const Text('Apply filters'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    showModalBottomSheet<void>(context: context, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(padding: const EdgeInsets.fromLTRB(20, 18, 20, 24), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const Text('Filter payroll', style: TextStyle(color: _PayrollColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
+      DropdownButtonFormField<String>(initialValue: monthValue, onChanged: onMonthChanged, decoration: _fieldDecoration().copyWith(labelText: 'Month'), items: months.map((item) => DropdownMenuItem(value: item.key, child: Text(item.label))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration().copyWith(labelText: 'Employee'), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: status, onChanged: onStatusChanged, decoration: _fieldDecoration().copyWith(labelText: 'Status'), items: const ['All Status','Draft','Pending','Paid'].map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 16),
+      FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Apply filters')),
+    ]))));
   }
 }
 
 class _FilterField extends StatelessWidget {
-  const _FilterField({
-    required this.label,
-    required this.width,
-    required this.child,
-  });
+  const _FilterField(
+      {required this.label, required this.width, required this.child});
   final String label;
   final double width;
   final Widget child;
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(color: Color(0xFF596176), fontSize: 13),
-        ),
-        const SizedBox(height: 8),
-        child,
-      ],
-    ),
-  );
+        width: width,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: const TextStyle(color: Color(0xFF596176), fontSize: 13)),
+          const SizedBox(height: 8),
+          child,
+        ]),
+      );
 }
 
 InputDecoration _fieldDecoration() => InputDecoration(
-  filled: true,
-  fillColor: Colors.white,
-  contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-  enabledBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(7),
-    borderSide: const BorderSide(color: Color(0xFFD8DEE9)),
-  ),
-  focusedBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(7),
-    borderSide: const BorderSide(color: _PayrollColors.blue),
-  ),
-);
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+      enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: Color(0xFFD8DEE9))),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: _PayrollColors.blue)),
+    );
 
 class _MobilePayrollList extends StatelessWidget {
   const _MobilePayrollList({required this.rows, required this.onMarkPaid});
@@ -1186,9 +780,8 @@ class _MobilePayrollList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
       return const SizedBox(
-        height: 140,
-        child: Center(child: Text('No payroll rows match these filters.')),
-      );
+          height: 140,
+          child: Center(child: Text('No payroll rows match these filters.')));
     }
     return Column(
       children: rows
@@ -1197,73 +790,51 @@ class _MobilePayrollList extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: const Color(0xFFE5EAF3)),
-                borderRadius: BorderRadius.circular(14),
-              ),
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFE5EAF3)),
+                  borderRadius: BorderRadius.circular(14)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
+                  Row(children: [
+                    CircleAvatar(
                         radius: 20,
                         backgroundColor: const Color(0xFFEAF1FF),
                         child: Text(
-                          row.name.isEmpty ? '?' : row.name.substring(0, 1),
-                          style: const TextStyle(
-                            color: _PayrollColors.blue,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
+                            row.name.isEmpty ? '?' : row.name.substring(0, 1),
+                            style: const TextStyle(
+                                color: _PayrollColors.blue,
+                                fontWeight: FontWeight.w800))),
+                    const SizedBox(width: 10),
+                    Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              row.name,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text(row.name,
                               style: const TextStyle(
-                                color: _PayrollColors.navy,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${row.code} • ${row.department}',
+                                  color: _PayrollColors.navy,
+                                  fontWeight: FontWeight.w700)),
+                          Text('${row.code} • ${row.department}',
                               style: const TextStyle(
-                                color: Color(0xFF657087),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _PayStatus(status: row.status),
-                    ],
-                  ),
+                                  color: Color(0xFF657087), fontSize: 11)),
+                        ])),
+                    _PayStatus(status: row.status),
+                  ]),
                   const SizedBox(height: 10),
+                  Text('Salary ${row.salary}  →  Net ${row.netPay}',
+                      style: const TextStyle(
+                          color: _PayrollColors.navy,
+                          fontWeight: FontWeight.w600)),
                   Text(
-                    'Salary ${row.salary}  →  Net ${row.netPay}',
-                    style: const TextStyle(
-                      color: _PayrollColors.navy,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    'Paid ${row.paidDays}/${row.workingDays} days • LOP ${row.lopDays}',
-                    style: const TextStyle(
-                      color: Color(0xFF657087),
-                      fontSize: 12,
-                    ),
-                  ),
+                      'Paid ${row.paidDays}/${row.workingDays} days • LOP ${row.lopDays}',
+                      style: const TextStyle(
+                          color: Color(0xFF657087), fontSize: 12)),
                   if (row.status == 'Pending') ...[
                     const SizedBox(height: 10),
                     FilledButton(
                       onPressed: () => onMarkPaid(row),
                       style: FilledButton.styleFrom(
-                        backgroundColor: _PayrollColors.blue,
-                      ),
+                          backgroundColor: _PayrollColors.blue),
                       child: const Text('Mark paid'),
                     ),
                   ],
@@ -1277,12 +848,7 @@ class _MobilePayrollList extends StatelessWidget {
 }
 
 class _PayrollTable extends StatelessWidget {
-  const _PayrollTable({
-    required this.rows,
-    required this.onMarkPaid,
-    required this.onHistory,
-    required this.onCycleOverride,
-  });
+  const _PayrollTable({required this.rows, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final ValueChanged<_PayrollRow> onHistory;
@@ -1290,71 +856,56 @@ class _PayrollTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFFE3E7EF)),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: 1480,
-        child: Column(
-          children: [
-            const _PayrollTableHeader(),
-            if (rows.isEmpty)
-              const SizedBox(
-                height: 160,
-                child: Center(
-                  child: Text('No payroll rows match these filters.'),
-                ),
-              )
-            else
-              ...rows.map(
-                (row) => _PayrollTableRow(
-                  row: row,
-                  onMarkPaid: onMarkPaid,
-                  onHistory: onHistory,
-                  onCycleOverride: onCycleOverride,
-                ),
-              ),
-          ],
+        decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFE3E7EF)),
+            borderRadius: BorderRadius.circular(10)),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: 1480,
+            child: Column(
+              children: [
+                const _PayrollTableHeader(),
+                if (rows.isEmpty)
+                  const SizedBox(
+                      height: 160,
+                      child: Center(
+                          child: Text(
+                              'No payroll rows match these filters.')))
+                else
+                  ...rows.map((row) =>
+                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, onHistory: onHistory, onCycleOverride: onCycleOverride)),
+              ],
+            ),
+          ),
         ),
-      ),
-    ),
-  );
+      );
 }
 
 class _PayrollTableHeader extends StatelessWidget {
   const _PayrollTableHeader();
   @override
   Widget build(BuildContext context) => Container(
-    height: 44,
-    color: const Color(0xFFFCFCFD),
-    child: const Row(
-      children: [
-        _Cell(width: 250, child: Text('Employee', style: _headStyle)),
-        _Cell(width: 150, child: Text('Department', style: _headStyle)),
-        _Cell(width: 140, child: Text('Monthly salary', style: _headStyle)),
-        _Cell(width: 110, child: Text('Working', style: _headStyle)),
-        _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
-        _Cell(width: 90, child: Text('LOP', style: _headStyle)),
-        _Cell(width: 140, child: Text('Deductions', style: _headStyle)),
-        _Cell(width: 140, child: Text('Net pay', style: _headStyle)),
-        _Cell(width: 120, child: Text('Status', style: _headStyle)),
-        _Cell(width: 140, child: Text('Action', style: _headStyle)),
-      ],
-    ),
-  );
+        height: 44,
+        color: const Color(0xFFFCFCFD),
+        child: const Row(children: [
+          _Cell(width: 250, child: Text('Employee', style: _headStyle)),
+          _Cell(width: 150, child: Text('Department', style: _headStyle)),
+          _Cell(width: 140, child: Text('Monthly salary', style: _headStyle)),
+          _Cell(width: 110, child: Text('Working', style: _headStyle)),
+          _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
+          _Cell(width: 90, child: Text('LOP', style: _headStyle)),
+          _Cell(width: 140, child: Text('Deductions', style: _headStyle)),
+          _Cell(width: 140, child: Text('Net pay', style: _headStyle)),
+          _Cell(width: 120, child: Text('Status', style: _headStyle)),
+          _Cell(width: 140, child: Text('Action', style: _headStyle)),
+        ]),
+      );
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({
-    required this.row,
-    required this.onMarkPaid,
-    required this.onHistory,
-    required this.onCycleOverride,
-  });
+  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.onHistory, required this.onCycleOverride});
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final ValueChanged<_PayrollRow> onHistory;
@@ -1362,137 +913,88 @@ class _PayrollTableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 64,
-    decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Color(0xFFE6E9EF))),
-    ),
-    child: Row(
-      children: [
-        _Cell(
-          width: 250,
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFFE8EEF8),
-                child: Text(
-                  row.name.isEmpty ? '?' : row.name.substring(0, 1),
-                  style: const TextStyle(
-                    color: _PayrollColors.navy,
-                    fontWeight: FontWeight.w700,
-                  ),
+        height: 64,
+        decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
+        child: Row(
+          children: [
+            _Cell(
+              width: 250,
+              child: Row(children: [
+                CircleAvatar(
+                    radius: 18,
+                    backgroundColor: const Color(0xFFE8EEF8),
+                    child: Text(
+                        row.name.isEmpty ? '?' : row.name.substring(0, 1),
+                        style: const TextStyle(
+                            color: _PayrollColors.navy,
+                            fontWeight: FontWeight.w700))),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(row.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Color(0xFF11131A),
+                                fontWeight: FontWeight.w600)),
+                        Text(row.code,
+                            style: const TextStyle(
+                                color: Color(0xFF596176), fontSize: 12)),
+                      ]),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF11131A),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      row.code,
-                      style: const TextStyle(
-                        color: Color(0xFF596176),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        _Cell(width: 150, child: Text(row.department, style: _cellStyle)),
-        _Cell(width: 140, child: Text(row.salary, style: _cellStyle)),
-        _Cell(width: 110, child: Text('${row.workingDays}', style: _cellStyle)),
-        _Cell(width: 110, child: Text('${row.paidDays}', style: _cellStyle)),
-        _Cell(width: 90, child: Text('${row.lopDays}', style: _cellStyle)),
-        _Cell(width: 140, child: Text(row.deductions, style: _cellStyle)),
-        _Cell(
-          width: 140,
-          child: Text(
-            row.netPay,
-            style: const TextStyle(
-              color: _PayrollColors.navy,
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
+              ]),
             ),
-          ),
-        ),
-        _Cell(width: 120, child: _PayStatus(status: row.status)),
-        _Cell(
-          width: 140,
-          child: PopupMenuButton<int>(
-            tooltip: 'Payroll actions',
-            onSelected: (action) {
-              if (action == 0) onHistory(row);
-              if (action == 1) onCycleOverride(row);
-              if (action == 2) onMarkPaid(row);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 0,
-                child: ListTile(
-                  leading: Icon(Icons.history_outlined),
-                  title: Text('View history'),
-                ),
-              ),
-              if (row.salaryType == 'Flexible' && row.status != 'Paid')
-                const PopupMenuItem(
-                  value: 1,
-                  child: ListTile(
-                    leading: Icon(Icons.date_range_outlined),
-                    title: Text('Custom cycle'),
-                  ),
-                ),
-              if (row.status == 'Pending')
-                const PopupMenuItem(
-                  value: 2,
-                  child: ListTile(
-                    leading: Icon(Icons.check_circle_outline),
-                    title: Text('Mark paid'),
-                  ),
-                ),
-            ],
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFD8DEE9)),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.more_horiz_rounded,
-                    size: 18,
-                    color: _PayrollColors.blue,
-                  ),
-                  SizedBox(width: 5),
-                  Text(
-                    'Actions',
-                    style: TextStyle(
-                      color: _PayrollColors.blue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            _Cell(width: 150, child: Text(row.department, style: _cellStyle)),
+            _Cell(width: 140, child: Text(row.salary, style: _cellStyle)),
+            _Cell(
+                width: 110,
+                child: Text('${row.workingDays}', style: _cellStyle)),
+            _Cell(
+                width: 110, child: Text('${row.paidDays}', style: _cellStyle)),
+            _Cell(width: 90, child: Text('${row.lopDays}', style: _cellStyle)),
+            _Cell(
+                width: 140, child: Text(row.deductions, style: _cellStyle)),
+            _Cell(
+                width: 140,
+                child: Text(row.netPay,
+                    style: const TextStyle(
+                        color: _PayrollColors.navy,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13))),
+            _Cell(width: 120, child: _PayStatus(status: row.status)),
+            _Cell(
+              width: 140,
+              child: PopupMenuButton<int>(
+                tooltip: 'Payroll actions',
+                onSelected: (action) {
+                  if (action == 0) onHistory(row);
+                  if (action == 1) onCycleOverride(row);
+                  if (action == 2) onMarkPaid(row);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.history_outlined), title: Text('View history'))),
+                  if (row.salaryType == 'Flexible' && row.status != 'Paid')
+                    const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.date_range_outlined), title: Text('Custom cycle'))),
+                  if (row.status == 'Pending')
+                    const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('Mark paid'))),
                 ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(border: Border.all(color: const Color(0xFFD8DEE9)), borderRadius: BorderRadius.circular(7)),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.more_horiz_rounded, size: 18, color: _PayrollColors.blue),
+                    SizedBox(width: 5),
+                    Text('Actions', style: TextStyle(color: _PayrollColors.blue, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
               ),
             ),
-          ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 }
 
 class _Cell extends StatelessWidget {
@@ -1501,12 +1003,9 @@ class _Cell extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: child,
-    ),
-  );
+      width: width,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14), child: child));
 }
 
 class _PayStatus extends StatelessWidget {
@@ -1517,14 +1016,13 @@ class _PayStatus extends StatelessWidget {
     final color = status == 'Paid'
         ? const Color(0xFF188226)
         : status == 'Pending'
-        ? const Color(0xFFFF6500)
-        : const Color(0xFF596176);
+            ? const Color(0xFFFF6500)
+            : const Color(0xFF596176);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: .10),
-        borderRadius: BorderRadius.circular(5),
-      ),
+          color: color.withValues(alpha: .10),
+          borderRadius: BorderRadius.circular(5)),
       child: Text(status, style: TextStyle(color: color, fontSize: 12)),
     );
   }
@@ -1580,8 +1078,5 @@ class _PayrollRow {
 }
 
 const _headStyle = TextStyle(
-  color: Color(0xFF11131A),
-  fontSize: 13,
-  fontWeight: FontWeight.w600,
-);
+    color: Color(0xFF11131A), fontSize: 13, fontWeight: FontWeight.w600);
 const _cellStyle = TextStyle(color: Color(0xFF272B35), fontSize: 13);

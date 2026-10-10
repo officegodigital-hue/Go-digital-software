@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -18,7 +18,7 @@ class ClockLogPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const EmployeeScaffold(
         route: '/employee/clock-log',
-        title: 'Clock In / Clock Out',
+        title: 'Check In / Check Out',
         subtitle: 'Track your daily working hours in real time',
         desktop: _ClockView(mobile: false),
         mobile: _ClockView(mobile: true),
@@ -186,6 +186,37 @@ class _ClockViewState extends State<_ClockView> {
     final token = _getToken();
     if (_actionLoading) return;
     if (token == null || token.isEmpty) return;
+    if (!_isCheckedIn) {
+      try {
+        final policyResponse = await http.get(
+          Uri.parse(
+            '${ApiConfig.baseUrl}/attendance/check-in-policy?_=${DateTime.now().microsecondsSinceEpoch}',
+          ),
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        ).timeout(const Duration(seconds: 15));
+        final policyBody = jsonDecode(policyResponse.body);
+        final policy = policyBody is Map ? policyBody['data'] : null;
+        if (policyResponse.statusCode == 200 &&
+            policyBody is Map &&
+            policyBody['success'] == true &&
+            policy is Map &&
+            policy['workMode'] == 'Hybrid') {
+          if (!mounted || token != _getToken()) return;
+          final clockedIn = await Navigator.pushNamed<bool>(
+            context,
+            '/employee/tracking',
+            arguments: const {'clockInAfterTracking': true},
+          );
+          if (clockedIn == true && mounted) await _fetchTodayStatus();
+          return;
+        }
+      } catch (_) {
+        // The normal Clock In request below will show the backend's message.
+      }
+    }
     setState(() => _actionLoading = true);
     final endpoint = _isCheckedIn ? '/attendance/clock-out' : '/attendance/clock-in';
     final client = http.Client();
@@ -218,7 +249,7 @@ class _ClockViewState extends State<_ClockView> {
       final body = jsonDecode(response.body);
       if (response.statusCode != 200 || body is! Map || body['success'] != true) {
         throw AttendanceLocationError(body is Map
-            ? body['message']?.toString() ?? 'Clock In failed.' : 'Clock In failed.');
+            ? body['message']?.toString() ?? 'Check In failed.' : 'Check In failed.');
       }
       if (!mounted || token != _getToken()) return;
       await _fetchTodayStatus();
@@ -283,8 +314,8 @@ class _ClockViewState extends State<_ClockView> {
                     title: "TODAY'S SESSION — $todayFormatted",
                     value: _clockInTimeStr ?? '—:—',
                     caption: _isCheckedIn
-                        ? 'Clock In'
-                        : (_clockOutTimeStr != null ? 'Ended at $_clockOutTimeStr' : 'Not clocked in'),
+                        ? 'Check In'
+                        : (_clockOutTimeStr != null ? 'Ended at $_clockOutTimeStr' : 'Not checked in'),
                   ),
                   _SessionMetric(
                     title: 'ELAPSED TODAY',
@@ -328,7 +359,7 @@ class _ClockViewState extends State<_ClockView> {
                               child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                             )
                           : Icon(_isCheckedIn ? Icons.logout : Icons.login, size: 18),
-                      label: Text(_isCheckedIn ? 'Clock Out' : 'Clock In'),
+                      label: Text(_isCheckedIn ? 'Check Out' : 'Check In'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _isCheckedIn ? const Color(0xFF0668F5) : Colors.green,
                         foregroundColor: Colors.white,

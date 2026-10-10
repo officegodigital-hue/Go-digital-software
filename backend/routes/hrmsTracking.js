@@ -19,6 +19,7 @@ router.get('/', hrms.requireAdmin, hrms.list);
 router.get('/live', hrms.requireAdmin, hrms.liveOverview);
 router.get('/route/me', hrms.myRouteHistory);
 router.get('/route/:employeeUserId', hrms.requireAdmin, hrms.routeHistory);
+router.get('/employee/:employeeUserId/monthly', hrms.requireAdmin, hrms.monthlyReport);
 
 router.get('/home-location', hrms.getMyHomeLocation);
 router.post('/home-location', hrms.submitHomeLocation);

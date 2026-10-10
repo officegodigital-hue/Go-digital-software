@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -58,12 +58,12 @@ class _DashboardPageState extends State<DashboardPage> {
   String _dept = '';
   final _searchCtrl = TextEditingController();
   int _weeklyOffDay = DateTime.sunday;
-  List<Map<String, dynamic>> _calendarOverrides = [];
   List<_EmployeeAttendance> _employees = [];
   int _kpiTotal = 0;
   int _kpiPresent = 0;
   int _kpiAbsent = 0;
   int _kpiLate = 0;
+  int _kpiWorkingDays = 0;
   bool _loading = true;
   String? _error;
 
@@ -99,11 +99,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _loadCalendarSettings() async {
     final weeklyOff = await CalendarStore.loadWeeklyOff();
-    final overrides = await CalendarStore.loadOverrides();
     if (!mounted) return;
     setState(() {
       _weeklyOffDay = weeklyOff;
-      _calendarOverrides = overrides;
     });
   }
 
@@ -132,6 +130,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _kpiPresent = _asInt(kpis['present']);
         _kpiAbsent = _asInt(kpis['absent']);
         _kpiLate = _asInt(kpis['late']);
+        _kpiWorkingDays = _asInt(kpis['workingDays']);
         _loading = false;
       });
     } catch (err) {
@@ -151,14 +150,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _dayMarkColor(String code) {
     switch (code) {
-      case 'P':   return _hex(_green);
-      case 'A':   return _hex(_red);
-      case 'LT':  return _hex(_orange);
-      case 'OFF': return _hex(_muted);
+      case 'P':
+        return _hex(_green);
+      case 'A':
+        return _hex(_red);
+      case 'LT':
+        return _hex(_orange);
+      case 'OFF':
+        return _hex(_muted);
       case '–':
-      case '':    return _hex(_muted);
+      case '':
+        return _hex(_muted);
       // Any other code (HL, H, or a leave abbreviation like CL/EL/SL) = leave colour
-      default:    return _hex(_purple);
+      default:
+        return _hex(_purple);
     }
   }
 
@@ -220,12 +225,15 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     html.writeln('''
           <th style="color:${_hex(_green)}">Present</th>
+          <th style="color:${_hex(_red)}">Absent</th>
           <th style="color:${_hex(_orange)}">Late</th>
           <th style="color:${_hex(_purple)}">Leave</th>
           <th style="color:${_hex(_purple)}">Half Leave</th>
           <th style="color:${_hex(_blue)}">Earned Leave</th>
+          <th>Paid Leave</th>
+          <th>Unpaid LOP Leave</th>
           <th>Salary Per Month</th>
-          <th>Absent Deduction</th>
+          <th>Deduction</th>
           <th>Updated Salary</th>
         </tr>
     ''');
@@ -242,12 +250,15 @@ class _DashboardPageState extends State<DashboardPage> {
       }
       html.writeln('''
           <td style="color:${_hex(_green)}; font-weight:700;">${employee.present}</td>
+          <td style="color:${_hex(_red)}; font-weight:700;">${employee.unexcused}</td>
           <td style="color:${_hex(_orange)}; font-weight:700;">${employee.late}</td>
           <td style="color:${_hex(_purple)}; font-weight:700;">${employee.approvedLeave}</td>
           <td style="color:${_hex(_purple)}; font-weight:700;">${employee.halfLeave}</td>
           <td style="color:${_hex(_blue)}; font-weight:700;">${employee.earnedLeave}</td>
+          <td>${employee.paidLeaveDays}</td>
+          <td>${employee.lopLeaveDays}</td>
           <td>${employee.salary}</td>
-          <td>${employee.daysPaid} ${employee.afterLeaves}</td>
+          <td>${employee.afterLeaves}</td>
           <td>${employee.updatedSalary}</td>
         </tr>
       ''');
@@ -284,17 +295,20 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   List<_EmployeeAttendance> get _filteredEmployees => _employees.where((e) {
-        if (_dept.isNotEmpty && e.department != _dept) return false;
-        if (_search.isNotEmpty &&
-            !e.name.toLowerCase().contains(_search.toLowerCase())) {
-          return false;
-        }
-        return true;
-      }).toList();
+    if (_dept.isNotEmpty && e.department != _dept) return false;
+    if (_search.isNotEmpty &&
+        !e.name.toLowerCase().contains(_search.toLowerCase())) {
+      return false;
+    }
+    return true;
+  }).toList();
 
   List<String> get _departments => [
-        ...{for (final e in _employees) if (e.department.isNotEmpty) e.department},
-      ]..sort();
+    ...{
+      for (final e in _employees)
+        if (e.department.isNotEmpty) e.department,
+    },
+  ]..sort();
 
   @override
   void dispose() {
@@ -355,6 +369,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       present: _kpiPresent,
                       absent: _kpiAbsent,
                       late: _kpiLate,
+                      workingDays: _kpiWorkingDays,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -498,8 +513,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   items: [
                     const DropdownMenuItem<String>(
                       value: '',
-                      child: Text('All departments',
-                          style: TextStyle(color: _muted)),
+                      child: Text(
+                        'All departments',
+                        style: TextStyle(color: _muted),
+                      ),
                     ),
                     for (final d in _departments)
                       DropdownMenuItem<String>(value: d, child: Text(d)),
@@ -525,11 +542,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const SizedBox(width: 8),
         ],
-        _panelBtn(
-          Icons.file_download_outlined,
-          'Export',
-          _exportAttendanceCsv,
-        ),
+        _panelBtn(Icons.file_download_outlined, 'Export', _exportAttendanceCsv),
         const SizedBox(width: 8),
         _panelBtn(Icons.schedule_rounded, 'Manage Time', _openManageTime),
         const SizedBox(width: 8),
@@ -574,8 +587,11 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _weekNavRow() => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      _weekNavBtn(Icons.chevron_left_rounded, _weekIndex > 0,
-          () => setState(() => _weekIndex--)),
+      _weekNavBtn(
+        Icons.chevron_left_rounded,
+        _weekIndex > 0,
+        () => setState(() => _weekIndex--),
+      ),
       const SizedBox(width: 6),
       Container(
         height: 40,
@@ -643,28 +659,23 @@ class _DashboardPageState extends State<DashboardPage> {
     ],
   );
 
-  Widget _weekNavBtn(IconData icon, bool enabled, VoidCallback onTap) =>
-      SizedBox(
-        width: 40,
-        height: 40,
-        child: OutlinedButton(
-          onPressed: enabled ? onTap : null,
-          style: OutlinedButton.styleFrom(
-            padding: EdgeInsets.zero,
-            side: BorderSide(
-              color: enabled ? _line : _line.withValues(alpha: .5),
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
-          ),
-          child: Icon(
-            icon,
-            size: 20,
-            color: enabled ? _navy : _muted,
-          ),
-        ),
-      );
+  Widget _weekNavBtn(
+    IconData icon,
+    bool enabled,
+    VoidCallback onTap,
+  ) => SizedBox(
+    width: 40,
+    height: 40,
+    child: OutlinedButton(
+      onPressed: enabled ? onTap : null,
+      style: OutlinedButton.styleFrom(
+        padding: EdgeInsets.zero,
+        side: BorderSide(color: enabled ? _line : _line.withValues(alpha: .5)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      ),
+      child: Icon(icon, size: 20, color: enabled ? _navy : _muted),
+    ),
+  );
 
   Widget _panelLegend() => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -695,44 +706,43 @@ class _DashboardPageState extends State<DashboardPage> {
                 padding: const EdgeInsets.all(16),
                 child: Text(_error!, textAlign: TextAlign.center),
               ),
-              FilledButton(onPressed: _loadDashboard, child: const Text('Retry')),
+              FilledButton(
+                onPressed: _loadDashboard,
+                child: const Text('Retry'),
+              ),
             ],
           ),
         )
       : _monthly
       ? _showSummary
-          // ── Week view with summary columns ──────────────────────────────
-          ? _AttendanceTable(
-              horizontalController: _tableScrollController,
-              year: _year,
-              month: _monthCodes.indexOf(_month) + 1,
-              weekDays: _weekDays,
-              weeklyOffDay: _weeklyOffDay,
-              overrides: _calendarOverrides,
-              employees: _filteredEmployees,
-              showSummary: true,
-              onCellTap: _openEditDialog,
-            )
-          // ── Full month view (no summary) ─────────────────────────────────
-          : SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              controller: _tableScrollController,
-              child: SizedBox(
-                // 230 frozen + 44px per day (fits ~23 days at 1280px, scrolls rest)
-                width: 230 + _daysInMonth * 44.0,
-                child: _AttendanceTable(
-                  horizontalController: _tableScrollController,
-                  year: _year,
-                  month: _monthCodes.indexOf(_month) + 1,
-                  weekDays: List.generate(_daysInMonth, (i) => i + 1),
-                  weeklyOffDay: _weeklyOffDay,
-                  overrides: _calendarOverrides,
-                  employees: _filteredEmployees,
-                  showSummary: false,
-                  onCellTap: _openEditDialog,
+            // ── Week view with summary columns ──────────────────────────────
+            ? _AttendanceTable(
+                horizontalController: _tableScrollController,
+                year: _year,
+                month: _monthCodes.indexOf(_month) + 1,
+                weekDays: _weekDays,
+                weeklyOffDay: _weeklyOffDay,
+                employees: _filteredEmployees,
+                showSummary: true,
+              )
+            // ── Full month view (no summary) ─────────────────────────────────
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                controller: _tableScrollController,
+                child: SizedBox(
+                  // 230 frozen + 44px per day (fits ~23 days at 1280px, scrolls rest)
+                  width: 230 + _daysInMonth * 44.0,
+                  child: _AttendanceTable(
+                    horizontalController: _tableScrollController,
+                    year: _year,
+                    month: _monthCodes.indexOf(_month) + 1,
+                    weekDays: List.generate(_daysInMonth, (i) => i + 1),
+                    weeklyOffDay: _weeklyOffDay,
+                    employees: _filteredEmployees,
+                    showSummary: false,
+                  ),
                 ),
-              ),
-            )
+              )
       : _YearlyAttendanceSummary(employees: _filteredEmployees);
 
   Widget _panelFooter() => Padding(
@@ -772,7 +782,9 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) => AlertDialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           titlePadding: const EdgeInsets.fromLTRB(22, 20, 16, 0),
           title: Row(
             children: [
@@ -842,13 +854,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(
-                      child: _timeField('Clock In', timeCtrl1),
-                    ),
+                    Expanded(child: _timeField('Check In', timeCtrl1)),
                     const SizedBox(width: 12),
-                    Expanded(
-                      child: _timeField('Clock Out', timeCtrl2),
-                    ),
+                    Expanded(child: _timeField('Check Out', timeCtrl2)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -874,7 +882,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ? null
                   : () {
                       Navigator.pop(ctx);
-                      // API call placeholder — wire to your attendance update endpoint
+                      _loadDashboard();
                     },
               style: FilledButton.styleFrom(
                 backgroundColor: _blue,
@@ -893,16 +901,24 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _timeField(String label, TextEditingController ctrl) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(label,
-          style: const TextStyle(
-              color: _navy, fontSize: 12, fontWeight: FontWeight.w600)),
+      Text(
+        label,
+        style: const TextStyle(
+          color: _navy,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       const SizedBox(height: 6),
       TextField(
         controller: ctrl,
         decoration: InputDecoration(
           hintText: '09:30',
           hintStyle: const TextStyle(color: _muted),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(9),
             borderSide: const BorderSide(color: _line),
@@ -920,9 +936,14 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _remarksField(TextEditingController ctrl) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text('Remarks',
-          style: TextStyle(
-              color: _navy, fontSize: 12, fontWeight: FontWeight.w600)),
+      const Text(
+        'Remarks',
+        style: TextStyle(
+          color: _navy,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       const SizedBox(height: 6),
       TextField(
         controller: ctrl,
@@ -964,8 +985,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   final newMonthNum = _monthCodes.indexOf(month) + 1;
                   setState(() {
                     _month = month;
-                    _weekIndex = (_year == today.year &&
-                            newMonthNum == today.month)
+                    _weekIndex =
+                        (_year == today.year && newMonthNum == today.month)
                         ? (today.day - 1) ~/ 7
                         : 0;
                   });
@@ -1022,10 +1043,11 @@ class _KpiRow extends StatelessWidget {
     required this.present,
     required this.absent,
     required this.late,
+    required this.workingDays,
   });
 
   final bool monthly;
-  final int total, present, absent, late;
+  final int total, present, absent, late, workingDays;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1037,6 +1059,16 @@ class _KpiRow extends StatelessWidget {
           subtitle: 'Current',
           color: _blue,
           icon: Icons.groups_2_outlined,
+        ),
+      ),
+      const SizedBox(width: 20),
+      Expanded(
+        child: _KpiCard(
+          label: 'Working Days',
+          value: '$workingDays',
+          subtitle: 'This Month',
+          color: const Color(0xFF0891B2),
+          icon: Icons.calendar_today_outlined,
         ),
       ),
       const SizedBox(width: 20),
@@ -1080,7 +1112,6 @@ class _AttendanceTable extends StatelessWidget {
     required this.month,
     required this.weekDays,
     required this.weeklyOffDay,
-    required this.overrides,
     required this.employees,
     required this.showSummary,
     this.onCellTap,
@@ -1091,11 +1122,15 @@ class _AttendanceTable extends StatelessWidget {
   final int month;
   final List<int> weekDays;
   final int weeklyOffDay;
-  final List<Map<String, dynamic>> overrides;
   final List<_EmployeeAttendance> employees;
   final bool showSummary;
-  final void Function(_EmployeeAttendance, int dayIndex, int day, String dateKey)?
-      onCellTap;
+  final void Function(
+    _EmployeeAttendance,
+    int dayIndex,
+    int day,
+    String dateKey,
+  )?
+  onCellTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1152,7 +1187,6 @@ class _AttendanceTable extends StatelessWidget {
                     year,
                     month,
                     weeklyOffDay,
-                    overrides,
                   ),
                 ),
             ],
@@ -1164,8 +1198,7 @@ class _AttendanceTable extends StatelessWidget {
             earnedLeave: employee.earnedLeave,
             approvedLeave: employee.approvedLeave,
             salaryPerMonth: employee.salary,
-            totalSalaryAfterLeaves:
-                '${employee.daysPaid} ${employee.afterLeaves}',
+            totalSalaryAfterLeaves: employee.afterLeaves,
             updatedSalary: employee.updatedSalary,
           ),
       ],
@@ -1178,17 +1211,11 @@ class _AttendanceTable extends StatelessWidget {
     int year,
     int month,
     int weeklyOffDay,
-    List<Map<String, dynamic>> overrides,
   ) {
     final day = index + 1;
-    final dateKey =
-        '$year-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
-    final changes = overrides.where((item) => item['date'] == dateKey).toList();
-    if (changes.isNotEmpty) {
-      final status = changes.last['status'] as String;
-      if (status == 'Weekly Off') return 'OFF';
-      if (status == 'Holiday') return 'H';
-    }
+    // `employee.days` comes from the server's employee-specific calendar
+    // resolver. Never overwrite it with the admin's global override list:
+    // that list also contains department and selected-employee rules.
     if (index < employee.days.length) return employee.days[index];
     if (DateTime(year, month, day).weekday == weeklyOffDay) return 'OFF';
     return '';
@@ -1243,6 +1270,8 @@ class _EmployeeAttendance {
     required this.unexcused,
     required this.salary,
     required this.daysPaid,
+    required this.paidLeaveDays,
+    required this.lopLeaveDays,
     required this.afterLeaves,
     required this.updatedSalary,
     required this.days,
@@ -1252,36 +1281,40 @@ class _EmployeeAttendance {
   final String name;
   final String designation;
   final String department;
-  final int present;
-  final int late;
-  final int halfLeave;
-  final int earnedLeave;
-  final int approvedLeave;
-  final int excused;
-  final int unexcused;
+  final num present;
+  final num late;
+  final num halfLeave;
+  final num earnedLeave;
+  final num approvedLeave;
+  final num excused;
+  final num unexcused;
   final String salary;
   final String daysPaid;
+  final num paidLeaveDays;
+  final num lopLeaveDays;
   final String afterLeaves;
   final String updatedSalary;
   final List<String> days;
 
   factory _EmployeeAttendance.fromApi(Map<String, dynamic> json) {
-    int asInt(dynamic value) =>
-        value is int ? value : int.tryParse('$value') ?? 0;
+    num asNum(dynamic value) =>
+        value is num ? value : num.tryParse('$value') ?? 0;
     return _EmployeeAttendance(
       employeeId: (json['employeeId'] ?? json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
       designation: (json['designation'] ?? '').toString(),
       department: (json['department'] ?? '').toString(),
-      present: asInt(json['present']),
-      late: asInt(json['late']),
-      halfLeave: asInt(json['halfLeave']),
-      earnedLeave: asInt(json['earnedLeave']),
-      approvedLeave: asInt(json['approvedLeave']),
-      excused: asInt(json['excused']),
-      unexcused: asInt(json['unexcused']),
+      present: asNum(json['present']),
+      late: asNum(json['late']),
+      halfLeave: asNum(json['halfLeave']),
+      earnedLeave: asNum(json['earnedLeave']),
+      approvedLeave: asNum(json['approvedLeave']),
+      excused: asNum(json['excused']),
+      unexcused: asNum(json['unexcused']),
       salary: (json['salary'] ?? 'Not Set').toString(),
       daysPaid: (json['daysPaid'] ?? '0').toString(),
+      paidLeaveDays: asNum(json['paidLeaveDays']),
+      lopLeaveDays: asNum(json['lopLeaveDays']),
       afterLeaves: (json['afterLeaves'] ?? '–').toString(),
       updatedSalary: (json['updatedSalary'] ?? 'Not Set').toString(),
       days: (json['days'] as List? ?? [])
@@ -1404,6 +1437,7 @@ class _MobileDashboard extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.onRetry,
+    this.workingDays = 0,
   });
   final bool monthly;
   final ValueChanged<bool> onMonthlyChanged;
@@ -1414,7 +1448,7 @@ class _MobileDashboard extends StatelessWidget {
   final VoidCallback onExport;
   final String month;
   final List<_EmployeeAttendance> employees;
-  final int total, present, absent, late;
+  final int total, present, absent, late, workingDays;
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
@@ -1534,6 +1568,12 @@ class _MobileDashboard extends StatelessWidget {
                       label: 'Employees',
                       value: '$total',
                       color: _blue,
+                    ),
+                    SizedBox(width: 8),
+                    _MobileDashboardMetric(
+                      label: 'Work Days',
+                      value: '$workingDays',
+                      color: const Color(0xFF0891B2),
                     ),
                     SizedBox(width: 8),
                     _MobileDashboardMetric(
@@ -2042,15 +2082,26 @@ class _MobileCalendarScroll extends StatelessWidget {
     final dayCount = DateTime(year, monthNumber + 1, 0).day;
     const employeeWidth = 142.0;
     const dayWidth = 38.0;
-    const summaryWidths = [46.0, 40.0, 56.0, 48.0, 52.0, 82.0, 82.0, 82.0];
+    const summaryWidths = [
+      46.0,
+      46.0,
+      40.0,
+      56.0,
+      48.0,
+      52.0,
+      82.0,
+      82.0,
+      82.0,
+    ];
     const summaryLabels = [
       'Present',
+      'Absent',
       'Late',
       'Leave',
       'Half\nLeave',
       'Earned\nLeave',
       'Salary\nper month',
-      'Absent\ndeduction',
+      'Deduction',
       'Updated\nsalary',
     ];
     final weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -2147,39 +2198,44 @@ class _MobileCalendarScroll extends StatelessWidget {
                                 summaryWidths[0],
                               ),
                               _summaryCell(
+                                '${employee.unexcused}',
+                                _red,
+                                summaryWidths[1],
+                              ),
+                              _summaryCell(
                                 '${employee.late}',
                                 _orange,
-                                summaryWidths[1],
+                                summaryWidths[2],
                               ),
                               _summaryCell(
                                 '${employee.approvedLeave}',
                                 _purple,
-                                summaryWidths[2],
+                                summaryWidths[3],
                               ),
                               _summaryCell(
                                 '${employee.halfLeave}',
                                 _purple,
-                                summaryWidths[3],
+                                summaryWidths[4],
                               ),
                               _summaryCell(
                                 '${employee.earnedLeave}',
                                 _blue,
-                                summaryWidths[4],
+                                summaryWidths[5],
                               ),
                               _summaryCell(
                                 employee.salary,
                                 _navy,
-                                summaryWidths[5],
+                                summaryWidths[6],
                               ),
                               _summaryCell(
                                 employee.afterLeaves,
                                 _navy,
-                                summaryWidths[6],
+                                summaryWidths[7],
                               ),
                               _summaryCell(
                                 employee.updatedSalary,
                                 _navy,
-                                summaryWidths[7],
+                                summaryWidths[8],
                               ),
                             ],
                           ),
@@ -2578,7 +2634,6 @@ class _KpiCard extends StatelessWidget {
     },
   );
 }
-
 
 class _YearlyHeaderRow extends StatelessWidget {
   const _YearlyHeaderRow();

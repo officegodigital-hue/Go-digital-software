@@ -72,6 +72,56 @@ function monthBounds(month) {
   ];
 }
 
+// Compatibility service used by the standalone employee module.  Keep its
+// summary aligned with the payroll calendar rather than returning a fixed 26.
+async function workingDaysForMonth(pool, start, end, employee) {
+  let weeklyOffDays = new Set([0]);
+  let overrides = new Map();
+  try {
+    const [policyRows] = await pool.execute(
+      'SELECT weekly_off_days FROM hrms_payroll_policy WHERE id = 1 LIMIT 1',
+    );
+    const row = policyRows[0];
+    if (row && row.weekly_off_days) {
+      const parsed = typeof row.weekly_off_days === 'string'
+        ? JSON.parse(row.weekly_off_days)
+        : row.weekly_off_days;
+      if (Array.isArray(parsed)) weeklyOffDays = new Set(parsed.map(Number));
+    }
+    const [overrideRows] = await pool.execute(
+      `SELECT DATE_FORMAT(o.work_date, '%Y-%m-%d') AS work_date, o.status, o.scope_type, o.department, t.employee_id,
+              p.department AS employee_department
+         FROM hrms_calendar_overrides o
+         LEFT JOIN hrms_calendar_override_targets t ON t.override_id=o.id
+         LEFT JOIN hrms_employee_profiles p ON p.employee_user_id=?
+         WHERE o.work_date >= ? AND o.work_date < ?`,
+      [employee.id, start, end],
+    );
+    for (const row of overrideRows) {
+      const priority = row.scope_type === 'employees' ? 3 : row.scope_type === 'department' ? 2 : 1;
+      const matches = !row.scope_type || row.scope_type === 'all' ||
+        (row.scope_type === 'department' && String(row.department || '') === String(employee.department || row.employee_department || '')) ||
+        (row.scope_type === 'employees' && Number(row.employee_id) === Number(employee.id));
+      if (!matches) continue;
+      const current = overrides.get(String(row.work_date));
+      if (!current || priority >= current.priority) overrides.set(String(row.work_date), { status: String(row.status), priority });
+    }
+  } catch (_) {
+    // Old standalone installations may not have HRMS calendar tables yet.
+  }
+
+  let count = 0;
+  for (let date = start; date < end;) {
+    const override = overrides.get(date)?.status;
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (override === 'Working Day' || (!override && !weeklyOffDays.has(weekday))) count += 1;
+    const next = new Date(`${date}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    date = next.toISOString().slice(0, 10);
+  }
+  return count;
+}
+
 function createService(
   pool,
   { timeZone = 'Asia/Kolkata', clock = () => new Date() } = {},
@@ -155,6 +205,7 @@ function createService(
       activeBreak = breaks[0] || null;
     }
 
+    const workingDays = await workingDaysForMonth(pool, start, end, employee);
     return {
       employee: {
         id: employee.id,
@@ -182,7 +233,7 @@ function createService(
         present_days: Number(counts[0].present_days || 0),
         absent_days: Number(counts[0].absent_days || 0),
         late_days: Number(counts[0].late_days || 0),
-        working_days: 26,
+        working_days: workingDays,
       },
     };
   }
@@ -498,4 +549,5 @@ module.exports = {
   localDate,
   sessionView,
   monthBounds,
+  workingDaysForMonth,
 };

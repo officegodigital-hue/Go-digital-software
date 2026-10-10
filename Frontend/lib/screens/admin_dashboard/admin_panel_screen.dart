@@ -1,4 +1,4 @@
-// name=admin_panel_screen.dart
+﻿// name=admin_panel_screen.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -201,7 +201,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       '/admin/tracking': 'Tracking',
       '/employee/dashboard': 'Dashboard',
       '/employee/attendance': 'Attendance',
-      '/employee/clock-log': 'Clock In / Out',
+      '/employee/clock-log': 'Check In / Out',
       '/employee/leave': 'Leave',
       '/employee/permission': 'Permission',
       '/employee/extra-hours': 'Extra Hours',

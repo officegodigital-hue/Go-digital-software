@@ -26,7 +26,8 @@ exports.create = async (req, res) => {
     const mode = body.display_mode === 'USAGE_ONLY' ? 'USAGE_ONLY' : 'BALANCE_USAGE';
     const abbr = String(body.abbreviation || '').trim().toUpperCase().slice(0, 10) || null;
     const isLop = body.is_lop === false || body.is_lop === 0 ? 0 : 1;
-    const [result] = await db.query(`INSERT INTO hrms_leave_types (name, annual_allowance, is_active, show_balance_card, usage_only, display_mode, abbreviation, is_lop, card_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [name, Number(body.annual_allowance), body.is_active === false ? 0 : 1, show ? 1 : 0, mode === 'USAGE_ONLY' ? 1 : 0, mode, abbr, isLop, show ? Number(body.card_order || 99) : null]);
+    const allowHalfDay = body.allow_half_day === false || body.allow_half_day === 0 ? 0 : 1;
+    const [result] = await db.query(`INSERT INTO hrms_leave_types (name, annual_allowance, is_active, show_balance_card, usage_only, display_mode, allow_half_day, abbreviation, is_lop, card_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [name, Number(body.annual_allowance), body.is_active === false ? 0 : 1, show ? 1 : 0, mode === 'USAGE_ONLY' ? 1 : 0, mode, allowHalfDay, abbr, isLop, show ? Number(body.card_order || 99) : null]);
     res.status(201).json({ success: true, id: result.insertId });
   } catch (error) { res.status(error.code === 'ER_DUP_ENTRY' ? 409 : 500).json({ success: false, message: error.code === 'ER_DUP_ENTRY' ? 'A leave type with this name already exists.' : 'Unable to create leave type.' }); }
 };
@@ -63,9 +64,10 @@ exports.saveAll = async (req, res) => {
       const mode = item.display_mode === 'USAGE_ONLY' || item.usage_only === true || item.usage_only === 1 ? 'USAGE_ONLY' : 'BALANCE_USAGE';
       const abbr = String(item.abbreviation || '').trim().toUpperCase().slice(0, 10) || null;
       const isLop = item.is_lop === false || item.is_lop === 0 ? 0 : 1;
+      const allowHalfDay = item.allow_half_day === false || item.allow_half_day === 0 ? 0 : 1;
       await db.query(`UPDATE hrms_leave_types SET name = ?, annual_allowance = ?, is_active = ?, show_balance_card = ?,
-        usage_only = ?, display_mode = ?, abbreviation = ?, is_lop = ?, card_order = ? WHERE id = ?`,
-        [name, Number(item.annual_allowance), active, show, mode === 'USAGE_ONLY' ? 1 : 0, mode, abbr, isLop, show ? i + 1 : null, id]);
+        usage_only = ?, display_mode = ?, allow_half_day = ?, abbreviation = ?, is_lop = ?, card_order = ? WHERE id = ?`,
+        [name, Number(item.annual_allowance), active, show, mode === 'USAGE_ONLY' ? 1 : 0, mode, allowHalfDay, abbr, isLop, show ? i + 1 : null, id]);
     }
     res.json({ success: true });
   } catch (error) {
@@ -88,7 +90,8 @@ exports.save = async (req, res) => {
     const mode = body.display_mode === 'USAGE_ONLY' || body.usage_only === true || body.usage_only === 1 ? 'USAGE_ONLY' : 'BALANCE_USAGE';
     const abbr = String(body.abbreviation || '').trim().toUpperCase().slice(0, 10) || null;
     const isLop = body.is_lop === false || body.is_lop === 0 ? 0 : 1;
-    await db.query(`UPDATE hrms_leave_types SET name = ?, annual_allowance = ?, is_active = ?, show_balance_card = ?, usage_only = ?, display_mode = ?, abbreviation = ?, is_lop = ?, card_order = ? WHERE id = ?`, [name, Number(body.annual_allowance), active, show, mode === 'USAGE_ONLY' ? 1 : 0, mode, abbr, isLop, show ? Number(body.card_order || 99) : null, id]);
+    const allowHalfDay = body.allow_half_day === false || body.allow_half_day === 0 ? 0 : 1;
+    await db.query(`UPDATE hrms_leave_types SET name = ?, annual_allowance = ?, is_active = ?, show_balance_card = ?, usage_only = ?, display_mode = ?, allow_half_day = ?, abbreviation = ?, is_lop = ?, card_order = ? WHERE id = ?`, [name, Number(body.annual_allowance), active, show, mode === 'USAGE_ONLY' ? 1 : 0, mode, allowHalfDay, abbr, isLop, show ? Number(body.card_order || 99) : null, id]);
     res.json({ success: true });
   } catch (error) { res.status(error.code === 'ER_DUP_ENTRY' ? 409 : 500).json({ success: false, message: error.code === 'ER_DUP_ENTRY' ? 'A leave type with this name already exists.' : 'Unable to save leave type.' }); }
 };

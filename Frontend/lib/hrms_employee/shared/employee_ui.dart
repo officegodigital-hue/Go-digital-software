@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -102,9 +102,17 @@ class EmployeeMobileBottomNav extends StatelessWidget {
 
   static const _items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
+    _NavItem(
+      '/employee/attendance',
+      'Attendance',
+      Icons.calendar_month_outlined,
+    ),
     _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
-    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem(
+      '/employee/permission',
+      'Permission',
+      Icons.verified_user_outlined,
+    ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
@@ -112,51 +120,55 @@ class EmployeeMobileBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
-        child: Container(
-          height: 62,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF172554),
-            borderRadius: BorderRadius.circular(34),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
+    top: false,
+    minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+    child: Container(
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF172554),
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
           ),
-          child: Row(
-            children: _items.map((item) {
-              final active = item.route == route;
-              return Expanded(
-                child: Tooltip(
-                  message: item.label,
-                  child: InkWell(
-                    onTap: active
-                        ? null
-                        : () => Navigator.of(context).pushReplacementNamed(item.route),
-                    borderRadius: BorderRadius.circular(25),
-                    child: Center(
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: active ? const Color(0xFF2563EB) : Colors.transparent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(item.icon, color: Colors.white, size: 22),
-                      ),
+        ],
+      ),
+      child: Row(
+        children: _items.map((item) {
+          final active = item.route == route;
+          return Expanded(
+            child: Tooltip(
+              message: item.label,
+              child: InkWell(
+                onTap: active
+                    ? null
+                    : () => Navigator.of(
+                        context,
+                      ).pushReplacementNamed(item.route),
+                borderRadius: BorderRadius.circular(25),
+                child: Center(
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF2563EB)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
                     ),
+                    child: Icon(item.icon, color: Colors.white, size: 22),
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-      );
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    ),
+  );
 }
 
 class EmployeeSidebar extends StatefulWidget {
@@ -165,10 +177,18 @@ class EmployeeSidebar extends StatefulWidget {
 
   static const items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
-    _NavItem('/employee/attendance', 'Attendance', Icons.calendar_month_outlined),
-    _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
+    _NavItem(
+      '/employee/attendance',
+      'Attendance',
+      Icons.calendar_month_outlined,
+    ),
+    _NavItem('/employee/clock-log', 'Check In / Out', Icons.schedule_rounded),
     _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
-    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem(
+      '/employee/permission',
+      'Permission',
+      Icons.verified_user_outlined,
+    ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
@@ -190,16 +210,20 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> {
   Future<void> _fetchPendingLeave() async {
     try {
       final token = context.read<AuthService>().token ?? '';
-      final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/leave/dashboard'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
+      final res = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/attendance/leave/dashboard'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 10));
       if (!mounted) return;
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         if (body['success'] == true) {
           final requests = (body['data']?['requests'] as List? ?? []);
-          final pending = requests.where((r) => r['status'] == 'pending').length;
+          final pending = requests
+              .where((r) => r['status'] == 'pending')
+              .length;
           setState(() => _pendingLeaveCount = pending);
         }
       }
@@ -209,7 +233,12 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> {
   List<_NavItem> get _items {
     return EmployeeSidebar.items.map((item) {
       if (item.route == '/employee/leave' && _pendingLeaveCount > 0) {
-        return _NavItem(item.route, item.label, item.icon, badge: '$_pendingLeaveCount');
+        return _NavItem(
+          item.route,
+          item.label,
+          item.icon,
+          badge: '$_pendingLeaveCount',
+        );
       }
       return item;
     }).toList();
@@ -268,7 +297,9 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> {
         ),
         const SizedBox(height: 20),
         const _SectionLabel('MAIN'),
-        ..._items.take(6).map((item) => _SidebarTile(item: item, route: widget.route)),
+        ..._items
+            .take(6)
+            .map((item) => _SidebarTile(item: item, route: widget.route)),
         const SizedBox(height: 8),
         const _SectionLabel('FINANCE'),
         _SidebarTile(item: _items[6], route: widget.route),
@@ -445,34 +476,57 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       if (raw == null || raw.isEmpty) return;
       final data = jsonDecode(raw);
       if (data is Map && mounted) {
-        setState(() => _applyIdentity(
-          data['fullName']?.toString() ?? data['full_name']?.toString() ?? data['name']?.toString(),
-          data['staffId']?.toString() ?? data['staff_id']?.toString() ?? data['employee_id']?.toString(),
-        ));
+        setState(
+          () => _applyIdentity(
+            data['fullName']?.toString() ??
+                data['full_name']?.toString() ??
+                data['name']?.toString(),
+            data['staffId']?.toString() ??
+                data['staff_id']?.toString() ??
+                data['employee_id']?.toString(),
+          ),
+        );
       }
     } catch (_) {}
   }
 
   Future<void> _fetchProfile() async {
-    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    final token =
+        context.read<AuthService>().token ??
+        await AuthStorage.getString('auth_token');
     if (token == null || token.isEmpty) return;
     try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
-        headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 5));
       final body = jsonDecode(response.body);
-      if (response.statusCode != 200 || body is! Map || body['success'] != true || body['data'] is! Map || !mounted) return;
+      if (response.statusCode != 200 ||
+          body is! Map ||
+          body['success'] != true ||
+          body['data'] is! Map ||
+          !mounted) {
+        return;
+      }
       final profile = Map<String, dynamic>.from(body['data'] as Map);
-      setState(() => _applyIdentity(
-        profile['fullName']?.toString() ?? profile['full_name']?.toString(),
-        profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
-      ));
+      setState(
+        () => _applyIdentity(
+          profile['fullName']?.toString() ?? profile['full_name']?.toString(),
+          profile['staffId']?.toString() ?? profile['staff_id']?.toString(),
+        ),
+      );
     } catch (_) {}
   }
 
   Future<void> _fetchHeaderStatus() async {
-    final token = context.read<AuthService>().token ?? await AuthStorage.getString('auth_token');
+    final token =
+        context.read<AuthService>().token ??
+        await AuthStorage.getString('auth_token');
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
@@ -496,7 +550,10 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
             final data = body['data'];
             setState(() {
               _isCheckedIn = data['is_checked_in'] == true;
-              _applyIdentity(data['full_name']?.toString(), data['staff_id']?.toString());
+              _applyIdentity(
+                data['full_name']?.toString(),
+                data['staff_id']?.toString(),
+              );
               _unreadNotifications = data['unread_count'] ?? 0;
 
               if (data['notifications'] is List) {
@@ -700,9 +757,43 @@ class EmployeeNotificationButton extends StatelessWidget {
     children: [
       IconButton(
         tooltip: 'Notifications',
-        onPressed: () {
+        onPressed: () async {
           onOpened?.call();
-          Navigator.pushNamed(context, '/employee/announcements');
+          if (notifications.isEmpty) {
+            Navigator.pushNamed(context, '/employee/announcements');
+            return;
+          }
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Calendar updates'),
+              content: SizedBox(
+                width: 420,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: notifications.length,
+                  separatorBuilder: (_, _) => const Divider(),
+                  itemBuilder: (_, index) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.event_note_outlined,
+                      color: employeeBlue,
+                    ),
+                    title: Text(
+                      notifications[index]['title'] ?? 'Calendar update',
+                    ),
+                    subtitle: Text(notifications[index]['message'] ?? ''),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          );
         },
         style: IconButton.styleFrom(
           backgroundColor: const Color(0xFFF3F6FB),
@@ -755,22 +846,31 @@ class EmployeeProfileMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final user = authService.user ?? {};
-    
+
     // Backend-l irunthu varra data-ai eduthukollalam
-    final resolvedName = (user['full_name'] ?? user['fullName'] ?? fullName).toString();
-    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? staffId).toString();
-    final avatarColor = (user['avatar_color'] ?? user['avatarColor'] ?? '#0767F2').toString();
+    final resolvedName = (user['full_name'] ?? user['fullName'] ?? fullName)
+        .toString();
+    final resolvedStaffId = (user['staff_id'] ?? user['staffId'] ?? staffId)
+        .toString();
+    final avatarColor =
+        (user['avatar_color'] ?? user['avatarColor'] ?? '#0767F2').toString();
     final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
-    
+
     final nameParts = resolvedName.trim().split(RegExp(r'\s+'));
     final resolvedInitials = nameParts.length > 1
         ? '${nameParts[0][0]}${nameParts[1][0]}'.toUpperCase()
-        : (resolvedName.isNotEmpty ? resolvedName.substring(0, resolvedName.length >= 2 ? 2 : 1).toUpperCase() : initials);
+        : (resolvedName.isNotEmpty
+              ? resolvedName
+                    .substring(0, resolvedName.length >= 2 ? 2 : 1)
+                    .toUpperCase()
+              : initials);
 
     ImageProvider? photoProvider;
     if (profilePhoto != null && profilePhoto.toString().isNotEmpty) {
       try {
-        photoProvider = MemoryImage(base64Decode(profilePhoto.toString().split(',').last));
+        photoProvider = MemoryImage(
+          base64Decode(profilePhoto.toString().split(',').last),
+        );
       } catch (_) {}
     }
 
@@ -1256,30 +1356,45 @@ class _MobileEmployeeHeaderState extends State<MobileEmployeeHeader> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthService>().user ?? const <String, dynamic>{};
-    final identity = (user['fullName'] ?? user['full_name'] ?? user['name'] ?? user['employee_name'] ?? user['employeeName'] ?? user['admin_name'] ?? user['adminName'] ?? user['username'] ?? user['firstName'] ?? user['first_name'] ?? '').toString().trim();
-    final name = identity.isNotEmpty ? identity : (user['email']?.toString().split('@').first ?? '').trim();
+    final identity =
+        (user['fullName'] ??
+                user['full_name'] ??
+                user['name'] ??
+                user['employee_name'] ??
+                user['employeeName'] ??
+                user['admin_name'] ??
+                user['adminName'] ??
+                user['username'] ??
+                user['firstName'] ??
+                user['first_name'] ??
+                '')
+            .toString()
+            .trim();
+    final name = identity.isNotEmpty
+        ? identity
+        : (user['email']?.toString().split('@').first ?? '').trim();
     final greeting = name.isEmpty ? 'Hello 👋' : 'Hello, $name 👋';
 
     return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Image.asset('assets/images/godigital_logo.png', height: 68),
-          const Spacer(),
-          const EmployeeNotificationButton(compact: true),
-          const SizedBox(width: 12),
-          const EmployeeProfileMenu(radius: 25),
-        ],
-      ),
-      if (widget.showGreeting) ...[
-        const SizedBox(height: 22),
-        Text(
-          greeting,
-          style: TextStyle(color: Color(0xFF495572), fontSize: 19),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Image.asset('assets/images/godigital_logo.png', height: 68),
+            const Spacer(),
+            const EmployeeNotificationButton(compact: true),
+            const SizedBox(width: 12),
+            const EmployeeProfileMenu(radius: 25),
+          ],
         ),
+        if (widget.showGreeting) ...[
+          const SizedBox(height: 22),
+          Text(
+            greeting,
+            style: TextStyle(color: Color(0xFF495572), fontSize: 19),
+          ),
+        ],
       ],
-    ],
     );
   }
 }

@@ -107,13 +107,6 @@ class _MobileClockLogs extends StatelessWidget {
                   Row(
                     children: [
                       _MobileMetric(
-                        label: 'Records',
-                        value: '${logs.length}',
-                        color: _blue,
-                        background: const Color(0xFFEAF1FF),
-                      ),
-                      const SizedBox(width: 8),
-                      _MobileMetric(
                         label: 'Present',
                         value: '$present',
                         color: const Color(0xFF149B2B),
@@ -534,7 +527,7 @@ class _MobileDateHistory extends StatelessWidget {
                 ),
               ),
             ),
-            ...entry.value.map((item) => _MobileDailyLogRow(item: item)),
+            ...entry.value.asMap().entries.map((e) => _MobileDailyLogRow(item: e.value, index: e.key + 1)),
             const SizedBox(height: 5),
           ],
         ),
@@ -756,8 +749,9 @@ class _HistoryCount extends StatelessWidget {
 }
 
 class _MobileDailyLogRow extends StatelessWidget {
-  const _MobileDailyLogRow({required this.item});
+  const _MobileDailyLogRow({required this.item, required this.index});
   final Map<String, dynamic> item;
+  final int index;
   @override
   Widget build(BuildContext context) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
@@ -920,6 +914,8 @@ class _ClockValues extends StatelessWidget {
 
 class _ClockLogsPageState extends State<ClockLogsPage> {
   final _employeeSearchController = TextEditingController();
+  final _tableHeaderScrollCtrl = ScrollController();
+  final _tableBodyScrollCtrl = ScrollController();
   DateTime _date = DateTime.now();
   bool _monthly = true;
   int? _employeeId;
@@ -937,12 +933,20 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       const Duration(minutes: 1),
       (_) => _load(silent: true),
     );
+    _tableBodyScrollCtrl.addListener(() {
+      if (_tableHeaderScrollCtrl.hasClients &&
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+        _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
+      }
+    });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
     _employeeSearchController.dispose();
+    _tableHeaderScrollCtrl.dispose();
+    _tableBodyScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -1057,10 +1061,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                         breadcrumb: 'Clock Logs',
                       ),
                       const SizedBox(height: 20),
-                      _summary(),
-                      const SizedBox(height: 18),
                       _filters(narrow),
-                      const SizedBox(height: 23),
+                      const SizedBox(height: 20),
                       if (_loading)
                         const Center(
                           child: Padding(
@@ -1083,74 +1085,45 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     );
   }
 
-  Widget _filters(bool narrow) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x0C071A72),
-          blurRadius: 18,
-          offset: Offset(0, 6),
-        ),
-      ],
-    ),
-    child: Wrap(
-      spacing: 18,
-      runSpacing: 14,
-      crossAxisAlignment: WrapCrossAlignment.end,
-      children: [
-        SizedBox(
-          width: narrow ? double.infinity : 430,
-          child: TextField(
-            controller: _employeeSearchController,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Search by name, employee ID or email',
-              hintStyle: const TextStyle(
-                color: Color(0xFF50649E),
-                fontSize: 14,
-              ),
-              prefixIcon: const Icon(Icons.search_rounded, color: _navy),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 18),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: _line),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: _blue),
-              ),
+  Widget _filters(bool narrow) => Wrap(
+    spacing: 16,
+    runSpacing: 12,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      SizedBox(
+        width: narrow ? double.infinity : 400,
+        child: TextField(
+          controller: _employeeSearchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            hintText: 'Search by name, employee ID or email',
+            hintStyle: const TextStyle(
+              color: Color(0xFF50649E),
+              fontSize: 14,
+            ),
+            prefixIcon: const Icon(Icons.search_rounded, color: _navy),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _line),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _blue),
             ),
           ),
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('View', style: TextStyle(color: _navy, fontSize: 13)),
-            const SizedBox(height: 7),
-            _toggle(),
-          ],
-        ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Date', style: TextStyle(color: _navy, fontSize: 13)),
-            const SizedBox(height: 7),
-            OutlinedButton.icon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.calendar_month_outlined),
-              label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
-              style: _fieldStyle(),
-            ),
-          ],
-        ),
-      ],
-    ),
+      ),
+      _toggle(),
+      OutlinedButton.icon(
+        onPressed: _pickDate,
+        icon: const Icon(Icons.calendar_month_outlined),
+        label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
+        style: _fieldStyle(),
+      ),
+    ],
   );
 
   Widget _summary() {
@@ -1174,7 +1147,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
 
     return LayoutBuilder(
       builder: (_, constraints) {
-        final columns = 4;
+        final columns = 3;
         final spacing = constraints.maxWidth < 700 ? 8.0 : 16.0;
         final width =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;
@@ -1182,10 +1155,6 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
           spacing: spacing,
           runSpacing: 8,
           children: [
-            SizedBox(
-              width: width,
-              child: _compactMetric('Records', logs.length, _blue),
-            ),
             SizedBox(
               width: width,
               child: _compactMetric(
@@ -1386,41 +1355,63 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
           borderRadius: BorderRadius.circular(14),
         ),
         clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: tableWidth,
-            child: Column(
-              children: [
-                _row(const [
+        child: Column(
+          children: [
+            // Sticky header
+            SingleChildScrollView(
+              controller: _tableHeaderScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: SizedBox(
+                width: tableWidth,
+                child: _row(const [
+                  'S.No',
                   'Employee',
                   'Date',
                   'Check In',
+                  'Check Out',
                   'Break Begins',
                   'Break Ends',
                   'Break Review',
                   'Break Time',
-                  'Check Out',
                   'Worked',
                   'Status',
                   'Work Location',
                   'Method',
                 ], header: true),
-                if (_visibleLogs.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(40),
-                    child: Text('No clock logs found for the selected period.'),
-                  ),
-                ..._visibleLogs.map(_logRow),
-              ],
+              ),
             ),
-          ),
+            // Scrollable body
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520),
+              child: SingleChildScrollView(
+                controller: _tableBodyScrollCtrl,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: tableWidth,
+                  child: SingleChildScrollView(
+                    primary: false,
+                    child: Column(
+                      children: [
+                        if (_visibleLogs.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(40),
+                            child: Text('No clock logs found for the selected period.'),
+                          ),
+                        ..._visibleLogs.asMap().entries.map((e) => _logRow(e.value, e.key + 1)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     },
   );
 
-  Widget _logRow(Map<String, dynamic> item) {
+  Widget _logRow(Map<String, dynamic> item, int index) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId =
         item['staffId']?.toString() ??
@@ -1434,14 +1425,15 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ? (item['employeeId'] as num).toInt()
         : null;
     return _row([
+      '$index',
       _employeeCellTappable(name, staffId, profileId, employeeUserId),
       item['date']?.toString() ?? '-',
       item['checkIn']?.toString() ?? '-',
+      item['checkOut']?.toString() ?? '-',
       item['breakStart']?.toString() ?? '-',
       item['breakEnd']?.toString() ?? '-',
       _breakReview(item),
       _worked(item['breakMinutes']),
-      item['checkOut']?.toString() ?? '-',
       _worked(item['workingMinutes']),
       _status(item['status']?.toString() ?? 'Absent'),
       item['workMode']?.toString() ?? 'Not set',
@@ -1458,7 +1450,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       children: List.generate(
         values.length,
         (i) => Expanded(
-          flex: const [22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10][i],
+          flex: const [5, 22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10][i],
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Align(

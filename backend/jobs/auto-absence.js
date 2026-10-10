@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const { effectiveOverrides } = require('../lib/calendarOverrides');
 
 function previousDate(date) {
   const [year, month, day] = date.split('-').map(Number);
@@ -7,7 +8,7 @@ function previousDate(date) {
   return value.toISOString().slice(0, 10);
 }
 
-async function isWorkingDay(date) {
+async function isWorkingDay(date, employee) {
   const day = new Date(`${date}T00:00:00Z`).getUTCDay();
   let weeklyOffDays = [0];
   try {
@@ -23,6 +24,12 @@ async function isWorkingDay(date) {
   } catch (_) {}
 
   try {
+    if (employee) {
+      const scoped = await effectiveOverrides(date, date, [employee]);
+      const override = scoped.get(Number(employee.id || employee.employee_user_id))?.get(date);
+      if (override) return override.status === 'Working Day';
+      return !weeklyOffDays.includes(day);
+    }
     const [[override]] = await db.query(
       'SELECT status FROM hrms_calendar_overrides WHERE work_date = ? LIMIT 1',
       [date]
@@ -45,14 +52,16 @@ async function ensureAuditTable() {
 
 async function runAutoAbsence(targetDate = previousDate(policy.todayIstDate())) {
   await ensureAuditTable();
-  if (!await isWorkingDay(targetDate)) return { date: targetDate, skipped: 'non-working day', created: 0 };
-
   const [employees] = await db.query(
-    `SELECT id FROM employee_users
-      WHERE user_type = 'employee' AND is_active = 1`
+    `SELECT u.id, COALESCE(NULLIF(p.department, ''), u.role, '') AS department FROM employee_users u
+      LEFT JOIN hrms_employee_profiles p ON p.employee_user_id=u.id
+      WHERE u.user_type = 'employee' AND u.is_active = 1`
   );
   if (!employees.length) return { date: targetDate, created: 0 };
-  const ids = employees.map((row) => row.id);
+  const workingEmployees = [];
+  for (const employee of employees) if (await isWorkingDay(targetDate, employee)) workingEmployees.push(employee);
+  if (!workingEmployees.length) return { date: targetDate, skipped: 'non-working day', created: 0 };
+  const ids = workingEmployees.map((row) => row.id);
 
   const [records] = await db.query(
     'SELECT employee_id FROM attendance_records WHERE attendance_date = ? AND employee_id IN (?)',

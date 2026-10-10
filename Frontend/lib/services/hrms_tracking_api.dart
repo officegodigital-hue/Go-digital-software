@@ -135,9 +135,7 @@ class HrmsTrackingApi {
   }) async {
     final response = await http
         .put(
-          // Office data is owned by the tracking settings record.  The
-          // dedicated office-location endpoint is not registered by the API.
-          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/office-location'),
           headers: await _headers(),
           body: jsonEncode({
             'officeName': officeName,
@@ -193,6 +191,19 @@ class HrmsTrackingApi {
         .timeout(const Duration(seconds: 15));
 
     return _resolveTrackingNames(_decode(response));
+  }
+
+  static Future<Map<String, dynamic>> monthlyReport({
+    required int employeeUserId,
+    required String month,
+  }) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/tracking/employee/$employeeUserId/monthly',
+    ).replace(queryParameters: {'month': month});
+    final response = await http
+        .get(uri, headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    return _decode(response);
   }
 
   static Future<Map<String, dynamic>> route({

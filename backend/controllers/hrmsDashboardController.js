@@ -1,5 +1,7 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const { computeRows, payrollPolicy } = require('./hrmsPayrollController');
+const { ensureCalendarOverrideTables, effectiveOverrides } = require('../lib/calendarOverrides');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -19,9 +21,12 @@ function requireAdmin(req, res, next) {
 
 function formatSalary(value) {
   if (value === null || value === undefined || value === '') return 'Not Set';
-  const digits = String(value).replace(/[^0-9]/g, '');
-  if (!digits) return 'Not Set';
-  return '₹' + Number(digits).toLocaleString('en-IN');
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 'Not Set';
+  return '₹' + amount.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function pad(value) {
@@ -53,22 +58,6 @@ function nextDate(date) {
   return ymd(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
 }
 
-async function getPayrollPolicy() {
-  await db.query(`CREATE TABLE IF NOT EXISTS hrms_payroll_policy (
-    id TINYINT UNSIGNED NOT NULL PRIMARY KEY, weekly_off_days JSON NOT NULL,
-    deduct_approved_leave TINYINT(1) NOT NULL DEFAULT 1,
-    deduct_explicit_absence TINYINT(1) NOT NULL DEFAULT 1,
-    missing_attendance_is_absent TINYINT(1) NOT NULL DEFAULT 0
-  )`);
-  try { await db.query('ALTER TABLE hrms_payroll_policy ADD COLUMN salary_day_divisor TINYINT UNSIGNED NOT NULL DEFAULT 26'); } catch (_) {}
-  await db.query(`INSERT IGNORE INTO hrms_payroll_policy (id, weekly_off_days) VALUES (1, '[0]')`);
-  const [rows] = await db.query('SELECT * FROM hrms_payroll_policy WHERE id = 1');
-  const row = rows[0] || {};
-  let days = [0];
-  try { days = JSON.parse(row.weekly_off_days || '[0]'); } catch (_) {}
-  return { weeklyOffDays: new Set(Array.isArray(days) ? days.map(Number) : [0]), deductLeave: Boolean(Number(row.deduct_approved_leave ?? 1)), deductAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)), missingIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)), salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)) };
-}
-
 async function ensureCalendarOverridesTable() {
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -76,20 +65,20 @@ async function ensureCalendarOverridesTable() {
     status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
     scope VARCHAR(64) NOT NULL DEFAULT 'All Employees',
     reason VARCHAR(500) NULL,
-    recalculate TINYINT(1) NOT NULL DEFAULT 1,
     notify_employees TINYINT(1) NOT NULL DEFAULT 1,
     updated_by INT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_work_date (work_date)
   )`);
+  await ensureCalendarOverrideTables();
 }
 
 async function getCalendarOverrides(start, end) {
   await ensureCalendarOverridesTable();
   const [rows] = await db.query(
     `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') AS date, status, scope, reason,
-            recalculate, notify_employees AS notifyEmployees, updated_at AS savedAt
+            notify_employees AS notifyEmployees, updated_at AS savedAt
        FROM hrms_calendar_overrides
       WHERE work_date BETWEEN ? AND ? ORDER BY work_date`,
     [start, end]
@@ -99,15 +88,34 @@ async function getCalendarOverrides(start, end) {
 
 async function calendar(req, res) {
   try {
-    const policy = await getPayrollPolicy();
+    const policy = await payrollPolicy();
     await ensureCalendarOverridesTable();
     const [overrides] = await db.query(
-      `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') AS date, status, scope, reason,
-              recalculate, notify_employees AS notifyEmployees, updated_at AS savedAt
-         FROM hrms_calendar_overrides ORDER BY work_date`
+      `SELECT o.id, DATE_FORMAT(o.work_date, '%Y-%m-%d') AS date, o.status, o.scope,
+              o.scope_type AS scopeType, o.department, o.reason,
+              o.notify_employees AS notifyEmployees, o.updated_at AS savedAt,
+              GROUP_CONCAT(t.employee_id ORDER BY t.employee_id) AS employeeIds,
+              GROUP_CONCAT(COALESCE(u.full_name, '') ORDER BY t.employee_id SEPARATOR '||') AS employeeNames
+         FROM hrms_calendar_overrides o
+         LEFT JOIN hrms_calendar_override_targets t ON t.override_id = o.id
+         LEFT JOIN employee_users u ON u.id = t.employee_id
+        GROUP BY o.id ORDER BY o.work_date, o.id`
     );
-    const weeklyOff = [...policy.weeklyOffDays][0] ?? 0;
-    return ok(res, { weeklyOffDay: weeklyOff === 0 ? 7 : weeklyOff, overrides });
+    const normalized = overrides.map((row) => {
+      const employeeIds = row.employeeIds ? String(row.employeeIds).split(',').map(Number) : [];
+      const employeeNames = row.employeeNames ? String(row.employeeNames).split('||') : [];
+      return {
+        ...row,
+        employeeIds,
+        targetEmployees: employeeIds.map((id, index) => ({ id, name: employeeNames[index] || `Employee ${id}` })),
+      };
+    });
+    const weeklyOff = policy.weeklyOffDays[0] ?? 0;
+    return ok(res, {
+      weeklyOffDay: weeklyOff === 0 ? 7 : weeklyOff,
+      weeklyOffDays: policy.weeklyOffDays,
+      overrides: normalized,
+    });
   } catch (error) {
     return fail(res, 500, error.message);
   }
@@ -118,23 +126,62 @@ async function updateCalendar(req, res) {
     const body = req.body || {};
     if (body.weeklyOffDay !== undefined) {
       const day = jsWeeklyOff(body.weeklyOffDay);
-      await getPayrollPolicy();
+      await payrollPolicy();
       await db.query('UPDATE hrms_payroll_policy SET weekly_off_days = ? WHERE id = 1', [JSON.stringify([day])]);
     }
     if (body.override) {
       const item = body.override;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))) return fail(res, 400, 'A valid date is required');
       if (!['Working Day', 'Weekly Off', 'Holiday'].includes(item.status)) return fail(res, 400, 'Invalid calendar status');
+      if (!String(item.reason || '').trim()) return fail(res, 400, 'A reason is required');
+      const scopeType = item.scope === 'Department' ? 'department' : item.scope === 'Selected Employees' ? 'employees' : 'all';
+      const department = String(item.department || '').trim();
+      const employeeIds = [...new Set((item.employeeIds || []).map(Number).filter(Number.isInteger))];
+      if (scopeType === 'department' && !department) return fail(res, 400, 'Choose a department');
+      if (scopeType === 'employees' && !employeeIds.length) return fail(res, 400, 'Choose at least one employee');
       await ensureCalendarOverridesTable();
-      await db.query(
-        `INSERT INTO hrms_calendar_overrides
-          (work_date, status, scope, reason, recalculate, notify_employees, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE status=VALUES(status), scope=VALUES(scope), reason=VALUES(reason),
-           recalculate=VALUES(recalculate), notify_employees=VALUES(notify_employees), updated_by=VALUES(updated_by)`,
-        [item.date, item.status, item.scope || 'All Employees', item.reason || null,
-          item.recalculate ? 1 : 0, item.notifyEmployees ? 1 : 0, req.user && req.user.id]
-      );
+      const saveOne = async (type, targetEmployeeId) => {
+        let existing;
+        if (type === 'all') {
+          [existing] = await db.query("SELECT id FROM hrms_calendar_overrides WHERE work_date=? AND scope_type='all' LIMIT 1", [item.date]);
+        } else if (type === 'department') {
+          [existing] = await db.query("SELECT id FROM hrms_calendar_overrides WHERE work_date=? AND scope_type='department' AND department=? LIMIT 1", [item.date, department]);
+        } else {
+          [existing] = await db.query(`SELECT o.id FROM hrms_calendar_overrides o JOIN hrms_calendar_override_targets t ON t.override_id=o.id
+            WHERE o.work_date=? AND o.scope_type='employees' AND t.employee_id=? LIMIT 1`, [item.date, targetEmployeeId]);
+        }
+        let overrideId;
+        if (existing[0]) {
+          overrideId = Number(existing[0].id);
+          await db.query(`UPDATE hrms_calendar_overrides SET status=?, scope=?, department=?, reason=?, notify_employees=?, updated_by=? WHERE id=?`,
+            [item.status, item.scope || 'All Employees', type === 'department' ? department : null, item.reason.trim(), item.notifyEmployees ? 1 : 0, req.user && req.user.id, overrideId]);
+        } else {
+          const [created] = await db.query(`INSERT INTO hrms_calendar_overrides
+            (work_date,status,scope,scope_type,department,reason,notify_employees,updated_by)
+            VALUES (?,?,?,?,?,?,?,?)`,
+            [item.date, item.status, item.scope || 'All Employees', type, type === 'department' ? department : null, item.reason.trim(), item.notifyEmployees ? 1 : 0, req.user && req.user.id]);
+          overrideId = Number(created.insertId);
+          if (type === 'employees') await db.query('INSERT INTO hrms_calendar_override_targets (override_id, employee_id) VALUES (?,?)', [overrideId, targetEmployeeId]);
+        }
+        return overrideId;
+      };
+      const overrideIds = scopeType === 'employees'
+        ? await Promise.all(employeeIds.map((employeeId) => saveOne('employees', employeeId)))
+        : [await saveOne(scopeType)];
+      if (item.notifyEmployees) {
+        const affectedIds = scopeType === 'employees' ? employeeIds : null;
+        const filter = scopeType === 'department' ? 'AND p.department = ?' : affectedIds ? 'AND u.id IN (?)' : '';
+        const params = scopeType === 'department' ? [department] : affectedIds ? [affectedIds] : [];
+        const [affected] = await db.query(`SELECT u.id FROM employee_users u LEFT JOIN hrms_employee_profiles p ON p.employee_user_id=u.id
+          WHERE u.user_type='employee' AND u.is_active=1 ${filter}`, params);
+        for (const employee of affected) {
+          const overrideId = scopeType === 'employees' ? overrideIds[employeeIds.indexOf(Number(employee.id))] : overrideIds[0];
+          await db.query(`INSERT INTO hrms_employee_calendar_notifications (employee_id, override_id, title, message)
+            VALUES (?, ?, 'Work calendar updated', ?)
+            ON DUPLICATE KEY UPDATE title=VALUES(title), message=VALUES(message), is_read=0, read_at=NULL, created_at=CURRENT_TIMESTAMP`,
+            [employee.id, overrideId, `${item.date} is marked ${item.status}. ${item.reason.trim()}`]);
+        }
+      }
     }
     return calendar(req, res);
   } catch (error) {
@@ -166,14 +213,13 @@ async function monthView(req, res) {
       return fail(res, 400, 'year and month (1-12) are required');
     }
 
-    const payrollRules = await getPayrollPolicy();
-    const weeklyOff = payrollRules.weeklyOffDays;
+    const payrollRules = await payrollPolicy();
+    const weeklyOff = new Set(payrollRules.weeklyOffDays);
     const totalDays = daysInMonth(year, month);
     const start = ymd(year, month, 1);
     const end = ymd(year, month, totalDays);
     const today = policy.todayIstDate();
     const calendarOverrides = await getCalendarOverrides(start, end);
-    const overrideMap = new Map(calendarOverrides.map(function (item) { return [item.date, item]; }));
 
     // employee_users is the source of truth for who is an active employee.
     // HRMS profile data enriches the row, but a stale profile status must not
@@ -196,6 +242,15 @@ async function monthView(req, res) {
     const userIds = profiles
       .map(function (row) { return row.employee_user_id; })
       .filter(Boolean);
+    const overridesByEmployee = await effectiveOverrides(start, end, profiles);
+
+    // This is the same live calculation used by the Payroll and Employee
+    // Salary screens.  The dashboard only renders calendar marks itself;
+    // every salary number comes from this one shared source of truth.
+    const payrollRows = await computeRows(year, month, today);
+    const payrollByEmployee = new Map(
+      payrollRows.map((row) => [Number(row.employeeUserId), row])
+    );
 
     const [records] = userIds.length
       ? await db.query(
@@ -208,7 +263,7 @@ async function monthView(req, res) {
 
     const [leaves] = userIds.length
       ? await db.query(
-          `SELECT el.employee_id, el.duration_type, el.leave_type,
+          `SELECT el.employee_id, el.duration_type, el.leave_type, lt.is_lop,
                   COALESCE(lt.abbreviation, '') AS abbreviation,
                   DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
                   DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date
@@ -238,7 +293,7 @@ async function monthView(req, res) {
       const code = row.duration_type === 'Half Day' ? 'HL' : abbr;
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
-        leaveMap.set(key, { code, leaveType: row.leave_type, abbreviation: abbr });
+        leaveMap.set(key, { code, leaveType: row.leave_type, abbreviation: abbr, isLop: Number(row.is_lop) === 1 });
         date = nextDate(date);
       }
     });
@@ -248,6 +303,7 @@ async function monthView(req, res) {
     let lateDays = 0;
 
     const employees = profiles.map(function (profile) {
+      const payroll = payrollByEmployee.get(Number(profile.employee_user_id));
       const days = [];
       let present = 0;
       let late = 0;
@@ -260,7 +316,7 @@ async function monthView(req, res) {
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
         const weekday = utcWeekday(year, month, day);
-        const calendarOverride = overrideMap.get(date);
+        const calendarOverride = overridesByEmployee.get(Number(profile.employee_user_id))?.get(date);
         const isWeeklyOff = calendarOverride
           ? calendarOverride.status === 'Weekly Off'
           : weeklyOff.has(weekday);
@@ -290,7 +346,7 @@ async function monthView(req, res) {
         // persisted status first so it is shown as A instead of an empty dash.
         if (record && String(record.attendance_status) === 'absent') {
           days.push('A');
-          if (payrollRules.deductAbsence) {
+          if (payrollRules.deductExplicitAbsence) {
             unexcused += 1;
             absentDays += 1;
           }
@@ -311,19 +367,19 @@ async function monthView(req, res) {
           approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
           if (leaveInfo.leaveType === 'Earned Leave' || leaveInfo.abbreviation === 'EL') earnedLeave += 1;
-          if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
+          if (date <= today && leaveInfo.isLop) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing record is unrecorded during development, not absent.
           days.push('–');
-          if (date <= today && payrollRules.missingIsAbsent) { unexcused += 1; absentDays += 1; }
+          if (date <= today && payrollRules.missingAttendanceIsAbsent) { unexcused += 1; absentDays += 1; }
         }
       }
 
-      const salaryNumber = Number(profile.monthly_salary || 0);
-      const lopDays = Math.min(workingDays, unexcused);
-      const paidDays = Math.max(0, workingDays - lopDays);
-      const deduction = salaryNumber ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / payrollRules.salaryDayDivisor))) : 0;
-      const afterLeaves = Math.max(0, salaryNumber - deduction);
+      const salaryNumber = payroll ? Number(payroll.monthlySalary || 0) : Number(profile.monthly_salary || 0);
+      const lopDays = payroll ? Number(payroll.lopDays || 0) : Math.min(workingDays, unexcused);
+      const paidDays = payroll ? Number(payroll.paidDays || 0) : Math.max(0, workingDays - lopDays);
+      const deduction = payroll ? Number(payroll.deductions || 0) : 0;
+      const afterLeaves = payroll ? Number(payroll.netPay || 0) : salaryNumber;
 
       return {
         id: profile.id,
@@ -332,17 +388,24 @@ async function monthView(req, res) {
         designation: profile.department,
         department: profile.department,
         days: days,
-        present: present,
-        late: late,
+        present: payroll ? Number(payroll.presentDays || 0) : present,
+        late: payroll ? Number(payroll.lateDays || 0) : late,
         excused: halfLeave,
-        unexcused: unexcused,
+        unexcused: payroll ? Number(payroll.absentDays || 0) : unexcused,
         halfLeave: halfLeave,
         earnedLeave: earnedLeave,
-        approvedLeave: approvedLeave,
-        salary: formatSalary(profile.monthly_salary),
+        approvedLeave: payroll ? Number(payroll.leaveDays || 0) : approvedLeave,
+        salary: payroll ? payroll.salary : formatSalary(profile.monthly_salary),
         daysPaid: String(lopDays),
-        afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
-        updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
+        afterLeaves: payroll ? payroll.deductionsLabel : (salaryNumber ? formatSalary(deduction) : '–'),
+        updatedSalary: payroll ? payroll.netPayLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
+        workingDays: payroll ? Number(payroll.workingDays || 0) : workingDays,
+        dailySalary: payroll ? Number(payroll.dailyRate || 0) : 0,
+        paidDays: paidDays,
+        paidLeaveDays: payroll ? Number(payroll.paidLeaveDays || 0) : 0,
+        lopLeaveDays: payroll ? Number(payroll.lopLeaveDays || 0) : 0,
+        absentDays: payroll ? Number(payroll.absentDays || 0) : absentDays,
+        deductions: deduction,
       };
     });
 
@@ -355,9 +418,7 @@ async function monthView(req, res) {
     let todayAbsent = 0;
     let todayLate = 0;
 
-    const todayOverride = overrideMap.get(today);
-    const todayIsOff = todayOverride ? todayOverride.status !== 'Working Day' : weeklyOff.has(todayWeekday);
-    if (!todayIsOff && userIds.length) {
+    if (userIds.length) {
       const [todayRecords] = await db.query(
         `SELECT * FROM attendance_records WHERE attendance_date = ? AND employee_id IN (?)`,
         [today, userIds]
@@ -372,20 +433,39 @@ async function monthView(req, res) {
       const todayLeaveSet = new Set(todayLeaves.map(function (row) { return row.employee_id; }));
 
       profiles.forEach(function (profile) {
+        const todayOverride = overridesByEmployee.get(Number(profile.employee_user_id))?.get(today);
+        const todayIsOff = todayOverride ? todayOverride.status !== 'Working Day' : weeklyOff.has(todayWeekday);
+        if (todayIsOff) return;
         const userId = profile.employee_user_id;
         const record = userId ? todayRecordMap.get(userId) : null;
         if (record && String(record.attendance_status) === 'absent') {
-          if (payrollRules.deductAbsence) todayAbsent += 1;
+          if (payrollRules.deductExplicitAbsence) todayAbsent += 1;
         } else if (record && record.check_in_at) {
           if (Number(record.is_late)) {
             todayLate += 1;
           } else {
             todayPresent += 1;
           }
-        } else if (!todayLeaveSet.has(userId) && payrollRules.missingIsAbsent) {
+        } else if (!todayLeaveSet.has(userId) && payrollRules.missingAttendanceIsAbsent) {
           todayAbsent += 1;
         }
       });
+    }
+
+    // Compute company-wide working days (only all-employees scope overrides)
+    const allOverrideMap = new Map();
+    calendarOverrides.forEach(function (o) {
+      if (!o.scope || o.scope === 'All Employees') allOverrideMap.set(o.date, o.status);
+    });
+    let monthWorkingDays = 0;
+    for (let day = 1; day <= totalDays; day += 1) {
+      const date = ymd(year, month, day);
+      const weekday = utcWeekday(year, month, day);
+      const overrideStatus = allOverrideMap.get(date);
+      const isOff = overrideStatus
+        ? overrideStatus !== 'Working Day'
+        : weeklyOff.has(weekday);
+      if (!isOff) monthWorkingDays += 1;
     }
 
     return ok(res, {
@@ -393,13 +473,14 @@ async function monthView(req, res) {
       month: month,
       daysInMonth: totalDays,
       timezone: policy.TIME_ZONE,
-      payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
+      payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductExplicitAbsence: payrollRules.deductExplicitAbsence, missingAttendanceIsAbsent: payrollRules.missingAttendanceIsAbsent },
       calendarOverrides: calendarOverrides,
       kpis: {
         totalEmployees: profiles.length,
         present: todayPresent,
         absent: todayAbsent,
         late: todayLate,
+        workingDays: monthWorkingDays,
       },
       employees: employees,
     });

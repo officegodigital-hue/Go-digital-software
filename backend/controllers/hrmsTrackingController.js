@@ -1190,6 +1190,121 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
+async function monthlyReport(req, res) {
+  try {
+    const employeeUserId = Number(req.params.employeeUserId);
+    if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
+
+    const monthParam = String(req.query.month || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+      return fail(res, 400, 'month must be YYYY-MM');
+    }
+
+    const [year, month] = monthParam.split('-').map(Number);
+    const firstDay = `${monthParam}-01`;
+    const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+
+    const [profiles] = await db.query(
+      `SELECT full_name, employee_code, work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1`,
+      [employeeUserId]
+    );
+    if (!profiles.length) return fail(res, 404, 'Employee not found');
+    const profile = profiles[0];
+
+    const [attendance] = await db.query(
+      `SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS date,
+              check_in_at, check_out_at, is_late, working_minutes,
+              attendance_status, check_in_method, session_status
+       FROM attendance_records
+       WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?
+       ORDER BY attendance_date ASC`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const [pingSummary] = await db.query(
+      `SELECT DATE_FORMAT(recorded_at, '%Y-%m-%d') AS date,
+              COUNT(*) AS ping_count
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(recorded_at, '%Y-%m-%d')`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const [fieldSessions] = await db.query(
+      `SELECT DATE_FORMAT(started_at, '%Y-%m-%d') AS date,
+              COUNT(*) AS session_count,
+              SUM(TIMESTAMPDIFF(MINUTE, started_at, IFNULL(stopped_at, NOW()))) AS field_minutes
+       FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND DATE(started_at) BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(started_at, '%Y-%m-%d')`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const attendanceMap = new Map(attendance.map(function (r) { return [r.date, r]; }));
+    const pingMap = new Map(pingSummary.map(function (r) { return [r.date, r]; }));
+    const sessionMap = new Map(fieldSessions.map(function (r) { return [r.date, r]; }));
+
+    const today = policy.todayIstDate();
+    const days = [];
+    for (let d = new Date(Date.UTC(year, month - 1, 1)); isoDate(d) <= lastDay && isoDate(d) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = isoDate(d);
+      const att = attendanceMap.get(dateStr);
+      const pings = pingMap.get(dateStr);
+      const sessions = sessionMap.get(dateStr);
+
+      let status = 'Absent';
+      if (att) {
+        if (att.attendance_status === 'absent') {
+          status = 'Absent';
+        } else if (att.check_in_at && att.check_out_at) {
+          status = att.is_late ? 'Late' : 'Present';
+        } else if (att.check_in_at) {
+          status = att.is_late ? 'Late (in)' : 'Checked In';
+        }
+      }
+
+      const weekday = new Date(Date.UTC(year, month - 1, d.getUTCDate())).getUTCDay();
+
+      days.push({
+        date: dateStr,
+        weekday: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekday],
+        status: status,
+        checkIn: att && att.check_in_at ? policy.formatDisplayTime(att.check_in_at) : null,
+        checkOut: att && att.check_out_at ? policy.formatDisplayTime(att.check_out_at) : null,
+        workingMinutes: att ? Number(att.working_minutes || 0) : 0,
+        isLate: att ? Boolean(att.is_late) : false,
+        method: att ? (att.check_in_method || null) : null,
+        pingCount: pings ? Number(pings.ping_count) : 0,
+        fieldSessions: sessions ? Number(sessions.session_count) : 0,
+        fieldMinutes: sessions ? Math.round(Number(sessions.field_minutes || 0)) : 0,
+      });
+    }
+
+    const presentDays = days.filter(function (d) { return d.status === 'Present' || d.status === 'Late' || d.status === 'Checked In' || d.status === 'Late (in)'; }).length;
+    const lateDays = days.filter(function (d) { return d.isLate; }).length;
+    const totalPings = days.reduce(function (sum, d) { return sum + d.pingCount; }, 0);
+
+    return ok(res, {
+      employeeUserId: employeeUserId,
+      name: profile.full_name,
+      employeeCode: profile.employee_code,
+      workMode: profile.work_mode,
+      month: monthParam,
+      days: days,
+      summary: {
+        presentDays: presentDays,
+        lateDays: lateDays,
+        absentDays: days.length - presentDays,
+        totalPings: totalPings,
+        totalDays: days.length,
+      },
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/employee/:id/monthly', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1211,4 +1326,5 @@ getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
 reviewFieldWaitingReason,
+  monthlyReport,
 };

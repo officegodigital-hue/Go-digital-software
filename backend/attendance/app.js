@@ -136,6 +136,33 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     );
 
     // ==========================================
+    // 1b. HOLIDAY ANNOUNCEMENTS (employee-facing)
+    // ==========================================
+    app.get(`${prefix}/holiday-announcements`, authMiddleware, async (req, res, next) => {
+      try {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const monthStart = `${year}-${month}-01`;
+        const nextMonth = now.getUTCMonth() === 11
+          ? `${year + 1}-01-01`
+          : `${year}-${String(now.getUTCMonth() + 2).padStart(2, '0')}-01`;
+        const [rows] = await pool.execute(
+          `SELECT id, DATE_FORMAT(work_date, '%Y-%m-%d') AS date, status, reason, scope, scope_type
+             FROM hrms_calendar_overrides
+            WHERE work_date >= ? AND work_date < ?
+              AND status = 'Holiday'
+              AND (scope_type = 'all' OR scope IS NULL OR scope = 'All Employees')
+            ORDER BY work_date ASC`,
+          [monthStart, nextMonth]
+        );
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // ==========================================
     // 2. LEAVE ROUTES
     // ==========================================
     app.get(`${prefix}/leave/dashboard`, authMiddleware, async (req, res, next) => {
@@ -171,6 +198,7 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           type: row.name,
           abbreviation: row.abbreviation || null,
           is_lop: Boolean(row.is_lop),
+          allow_half_day: Boolean(row.allow_half_day),
           used: Number(consumed[row.name] || 0),
           total: Number(row.annual_allowance || 0),
           show_balance_card: Boolean(row.show_balance_card),
@@ -199,6 +227,7 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         res.json({ success: true, data: types.map((row) => ({
           id: row.id, name: row.name, abbreviation: row.abbreviation || null,
           annual_allowance: Number(row.annual_allowance || 0),
+          allow_half_day: Boolean(row.allow_half_day),
           show_balance_card: Boolean(row.show_balance_card), usage_only: Boolean(row.usage_only),
           display_mode: row.display_mode || (row.usage_only ? 'USAGE_ONLY' : 'BALANCE_USAGE'),
           card_order: row.card_order,
@@ -219,13 +248,15 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         const today = policy.todayIstDate();
         if (!start || !end || end < start) return res.status(400).json({ success: false, message: 'Choose a valid date range.' });
         if (start < today) return res.status(400).json({ success: false, message: 'Past dates require an attendance correction.' });
-        if (duration_type === 'Half Day' && start !== end) return res.status(400).json({ success: false, message: 'Half-day leave must use one date.' });
-        const [types] = await pool.execute('SELECT id, name, annual_allowance FROM hrms_leave_types WHERE name = ? AND is_active = 1 LIMIT 1', [leave_type]);
+        const requestedDuration = duration_type === 'Half Day' ? 'Half Day' : 'Full Day';
+        if (requestedDuration === 'Half Day' && start !== end) return res.status(400).json({ success: false, message: 'Half-day leave must use one date.' });
+        const [types] = await pool.execute('SELECT id, name, annual_allowance, allow_half_day FROM hrms_leave_types WHERE name = ? AND is_active = 1 LIMIT 1', [leave_type]);
         const leaveType = types[0];
         if (!leaveType) return res.status(400).json({ success: false, message: 'This leave type is not configured by Admin.' });
-        const daysList = await leaveSystem.workingDates(pool, start, end);
+        if (requestedDuration === 'Half Day' && !Number(leaveType.allow_half_day)) return res.status(400).json({ success: false, message: 'Half-day leave is not enabled for this leave type by Admin.' });
+        const daysList = await leaveSystem.workingDates(pool, start, end, empId);
         if (!daysList.length) return res.status(400).json({ success: false, message: 'Choose at least one working day.' });
-        const days = duration_type === 'Half Day' ? 0.5 : daysList.length;
+        const days = requestedDuration === 'Half Day' ? 0.5 : daysList.length;
         const [[overlap]] = await pool.execute(`SELECT id FROM employee_leaves WHERE employee_id = ?
           AND status IN ('PENDING','APPROVED') AND from_date <= ? AND to_date >= ? LIMIT 1`, [empId, end, start]);
         if (overlap) return res.status(409).json({ success: false, message: 'This request overlaps an existing leave request.' });
@@ -237,10 +268,10 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           `INSERT INTO employee_leaves
             (employee_id, leave_type, leave_type_id, duration_type, from_date, to_date, days_count, reason, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-          [empId, leaveType.name, leaveType.id, duration_type || 'Full Day', start, end, days, String(reason).trim()]
+          [empId, leaveType.name, leaveType.id, requestedDuration, start, end, days, String(reason).trim()]
         );
         await ensureLeaveApprovalLinks();
-        const adminReason = `${leave_type} · ${duration_type || 'Full Day'} · ${from_date} to ${to_date}\n${reason || ''}`.trim();
+        const adminReason = `${leave_type} · ${requestedDuration} · ${from_date} to ${to_date}\n${reason || ''}`.trim();
         const [approval] = await pool.execute(
           `INSERT INTO attendance_permission_requests
              (employee_id, request_type, request_date, reason, status)

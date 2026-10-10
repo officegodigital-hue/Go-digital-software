@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -17,7 +17,7 @@ class EmployeeClockPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const EmployeeScaffold(
     route: '/employee/clock-log',
-    title: 'Clock In / Clock Out',
+    title: 'Check In / Check Out',
     subtitle: 'Track your daily working hours in real time',
     desktop: _ClockView(mobile: false),
     mobile: _ClockView(mobile: true),
@@ -229,7 +229,7 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
         payload: payload,
       );
       message = clockOut
-          ? 'You have been clocked out.'
+          ? 'You have been checked out.'
           : 'You are now checked in.';
     } catch (error) {
       message = '${_message(error)} Refresh attendance before trying again.';
@@ -364,10 +364,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
                       title: "TODAY'S SESSION — $todayFormatted",
                       value: punchInDisplay,
                       caption: checkedIn
-                          ? 'Clock In · ${session?['work_mode'] ?? 'Not set'}'
+                          ? 'Check In · ${session?['work_mode'] ?? 'Not set'}'
                           : (checkedOut
                                 ? 'Ended at $punchOutDisplay'
-                                : 'Not clocked in'),
+                                : 'Not checked in'),
                     ),
                     _SessionMetric(
                       title: 'ELAPSED TODAY',
@@ -425,10 +425,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
                       _punching
                           ? 'Saving…'
                           : checkedIn
-                          ? 'Clock Out'
+                          ? 'Check Out'
                           : checkedOut
                           ? 'Completed'
-                          : 'Clock In',
+                          : 'Check In',
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: checkedIn
@@ -592,10 +592,10 @@ class _RecentRecordHeader extends StatelessWidget {
       children: [
         Expanded(flex: 3, child: Text('DATE', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('CHECK IN', style: _recordHeaderStyle)),
+        Expanded(flex: 2, child: Text('CHECK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK IN', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK TIME', style: _recordHeaderStyle)),
-        Expanded(flex: 2, child: Text('CHECK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('WORKED', style: _recordHeaderStyle)),
         Expanded(
           flex: 2,
@@ -727,6 +727,18 @@ class _RecentRecordRow extends StatelessWidget {
                     ),
                     Expanded(
                       child: _compactValue(
+                        'Check out',
+                        _timeLabel(record['clock_out_at']),
+                      ),
+                    ),
+                    Expanded(child: _compactValue('Worked', _duration())),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _compactValue(
                         'Break in',
                         breakInLabel,
                         valueColor: breakColor,
@@ -739,17 +751,6 @@ class _RecentRecordRow extends StatelessWidget {
                         valueColor: breakColor,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _compactValue(
-                        'Check out',
-                        _timeLabel(record['clock_out_at']),
-                      ),
-                    ),
                     Expanded(
                       child: _compactValue(
                         'Break time',
@@ -757,7 +758,6 @@ class _RecentRecordRow extends StatelessWidget {
                         valueColor: breakColor,
                       ),
                     ),
-                    Expanded(child: _compactValue('Worked', _duration())),
                   ],
                 ),
               ],
@@ -768,6 +768,10 @@ class _RecentRecordRow extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: _value(_timeLabel(record['clock_in_at'])),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: _value(_timeLabel(record['clock_out_at'])),
                 ),
                 Expanded(
                   flex: 2,
@@ -784,10 +788,6 @@ class _RecentRecordRow extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: _value(_breakDuration(), color: breakColor),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: _value(_timeLabel(record['clock_out_at'])),
                 ),
                 Expanded(flex: 2, child: _value(_duration())),
                 Expanded(flex: 2, child: _value(_workLocation())),

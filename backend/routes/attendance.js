@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('./auth');
 const attendance = require('../controllers/attendanceController');
+const calendarNotifications = require('../controllers/calendarNotificationsController');
 
 router.use(authenticateToken);
 const leavePolicies = require('../controllers/leavePolicies');
@@ -27,6 +28,8 @@ router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions)
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
 
 router.get('/me', attendance.myHistory);
+router.get('/calendar-notifications', calendarNotifications.mine);
+router.patch('/calendar-notifications/:id/read', calendarNotifications.markRead);
 router.get('/me/export', attendance.myExport);
 router.get('/check-in-policy', attendance.checkInPolicy);
 router.post('/check-in', attendance.checkIn);

@@ -863,11 +863,37 @@ class _EmployeesPageState extends State<EmployeesPage> {
     );
   }
 
-  Future<void> _showEmployeeDetails(_Employee employee) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => _EmployeeDetailPage(employee: employee)),
-    );
-  }
+  Future<void> _showEmployeeDetails(_Employee employee) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(employee.name),
+      content: SizedBox(
+        width: 390,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _detailRow('Employee ID', employee.id),
+            _detailRow('Department', employee.department),
+            _detailRow('Work mode', employee.workMode),
+            _detailRow('Monthly salary', employee.salary),
+            _detailRow('Status', employee.status),
+            _detailRow(
+              'Password',
+              employee.passwordLastChangedAt == null
+                  ? 'Not changed by employee yet'
+                  : 'Changed ${employee.passwordLastChangedAt}',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _showDeviceRequests() async {
     try {
@@ -1924,17 +1950,14 @@ class _CompactMobileEmployeeRow extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    InkWell(
-                      onTap: onView,
-                      child: Text(
-                        employee.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: HrmsColors.blue,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    Text(
+                      employee.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: HrmsColors.navy,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     Text(
@@ -2118,14 +2141,11 @@ class _EmployeeRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  InkWell(
-                    onTap: onView,
-                    child: Text(
-                      employee.name,
-                      style: const TextStyle(
-                        color: HrmsColors.blue,
-                        fontWeight: FontWeight.w700,
-                      ),
+                  Text(
+                    employee.name,
+                    style: const TextStyle(
+                      color: HrmsColors.navy,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   Text(
@@ -2411,121 +2431,6 @@ Future<void> _resetEmployeePassword(
         ),
       );
   }
-}
-
-class _EmployeeDetailPage extends StatefulWidget {
-  const _EmployeeDetailPage({required this.employee});
-  final _Employee employee;
-
-  @override
-  State<_EmployeeDetailPage> createState() => _EmployeeDetailPageState();
-}
-
-class _EmployeeDetailPageState extends State<_EmployeeDetailPage> {
-  late Future<Map<String, dynamic>> _detail;
-
-  @override
-  void initState() {
-    super.initState();
-    _detail = HrmsEmployeesApi.detail(widget.employee.profileId);
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF6F8FC),
-    appBar: AppBar(
-      title: const Text('Employee details'),
-      backgroundColor: Colors.white,
-      foregroundColor: HrmsColors.navy,
-      elevation: 0,
-    ),
-    body: FutureBuilder<Map<String, dynamic>>(
-      future: _detail,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: FilledButton.icon(
-            onPressed: () => setState(() => _detail = HrmsEmployeesApi.detail(widget.employee.profileId)),
-            icon: const Icon(Icons.refresh_rounded), label: const Text('Retry loading employee details'),
-          ));
-        }
-        final data = snapshot.data ?? const <String, dynamic>{};
-        final attendance = Map<String, dynamic>.from(data['attendance'] as Map? ?? {});
-        final leave = Map<String, dynamic>.from(data['leave'] as Map? ?? {});
-        final payroll = data['payroll'] is Map ? Map<String, dynamic>.from(data['payroll'] as Map) : null;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(28),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1360),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(widget.employee.name, style: const TextStyle(color: HrmsColors.navy, fontSize: 28, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('${widget.employee.id} • ${widget.employee.department} • ${widget.employee.workMode}', style: const TextStyle(color: Color(0xFF657087))),
-                const SizedBox(height: 22),
-                Wrap(spacing: 14, runSpacing: 14, children: [
-                  _EmployeeDetailMetric('Working days', '${payroll?['workingDays'] ?? 0}', Icons.calendar_month_outlined, HrmsColors.blue),
-                  _EmployeeDetailMetric('Paid days', '${payroll?['paidDays'] ?? 0}', Icons.check_circle_outline, const Color(0xFF158C20)),
-                  _EmployeeDetailMetric('Accrued net pay', '₹${payroll?['netPay'] ?? 0}', Icons.account_balance_wallet_outlined, HrmsColors.blue),
-                  _EmployeeDetailMetric('Payroll status', '${payroll?['status'] ?? 'Not generated'}', Icons.payments_outlined, const Color(0xFFFF6500)),
-                ]),
-                const SizedBox(height: 24),
-                _EmployeeDetailSection(title: 'Attendance', children: [
-                  _EmployeeDetailLine('Present', '${attendance['present'] ?? 0}'),
-                  _EmployeeDetailLine('Late', '${attendance['late'] ?? 0}'),
-                  _EmployeeDetailLine('Absent', '${attendance['absent'] ?? 0}'),
-                ]),
-                const SizedBox(height: 16),
-                _EmployeeDetailSection(title: 'Leaves & Permissions', children: [
-                  _EmployeeDetailLine('Leave requests', '${leave['total'] ?? 0}'),
-                  _EmployeeDetailLine('Approved leave', '${leave['approved'] ?? 0}'),
-                  _EmployeeDetailLine('Pending leave', '${leave['pending'] ?? 0}'),
-                ]),
-                const SizedBox(height: 16),
-                _EmployeeDetailSection(title: 'Payroll history', children: [
-                  _EmployeeDetailLine('Monthly salary', widget.employee.salary),
-                  _EmployeeDetailLine('LOP days', '${payroll?['lopDays'] ?? 0}'),
-                  _EmployeeDetailLine('Current accrued net pay', '₹${payroll?['netPay'] ?? 0}'),
-                ]),
-              ]),
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
-class _EmployeeDetailMetric extends StatelessWidget {
-  const _EmployeeDetailMetric(this.label, this.value, this.icon, this.color);
-  final String label, value;
-  final IconData icon;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => SizedBox(width: 260, child: Container(
-    padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withValues(alpha: .25))),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color), const SizedBox(height: 12), Text(label, style: const TextStyle(color: Color(0xFF657087))), Text(value, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800))]),
-  ));
-}
-
-class _EmployeeDetailSection extends StatelessWidget {
-  const _EmployeeDetailSection({required this.title, required this.children});
-  final String title;
-  final List<Widget> children;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity, padding: const EdgeInsets.all(22), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: const Color(0xFFE3E8F2))),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: HrmsColors.navy, fontSize: 18, fontWeight: FontWeight.w800)), const SizedBox(height: 12), ...children]),
-  );
-}
-
-class _EmployeeDetailLine extends StatelessWidget {
-  const _EmployeeDetailLine(this.label, this.value);
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF657087)))), Text(value, style: const TextStyle(color: HrmsColors.navy, fontWeight: FontWeight.w700))]));
 }
 
 class _Employee {

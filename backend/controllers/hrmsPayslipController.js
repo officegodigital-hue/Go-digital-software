@@ -1,5 +1,8 @@
 const db = require('../config/db');
 const { buildPayslipPdf } = require('../lib/payslipPdf');
+const { computeRows } = require('./hrmsPayrollController');
+const attendancePolicy = require('../lib/attendancePolicy');
+const companyName = process.env.COMPANY_NAME || 'GO DIGITAL';
 
 const ok = (res, data, message) => res.json({ success: true, message: message || 'OK', data });
 const fail = (res, status, message) => res.status(status).json({ success: false, message });
@@ -54,7 +57,11 @@ async function summary(req, res) {
       WHERE p.employee_user_id = ? AND p.monthly_salary > 0 ORDER BY p.pay_year DESC, p.pay_month DESC, p.id DESC LIMIT 1`, [req.user.id]);
     const [[invalid]] = await db.query(`SELECT p.id FROM hrms_payroll_items p JOIN hrms_employee_profiles e ON e.id = p.profile_id
       WHERE e.employee_user_id = ? AND (NOT(p.employee_user_id <=> e.employee_user_id) OR (p.status = 'paid' AND COALESCE(p.monthly_salary, 0) <= 0)) LIMIT 1`, [req.user.id]);
-    return ok(res, { compensation: compensation || null, payroll: payroll || null, reviewRequired: Boolean(invalid) });
+    const today = attendancePolicy.todayIstDate();
+    const [year, month] = today.split('-').map(Number);
+    const rows = await computeRows(year, month, today);
+    const live = rows.find((row) => Number(row.employeeUserId) === Number(req.user.id)) || null;
+    return ok(res, { compensation: compensation || null, payroll: payroll || null, livePayroll: live, reviewRequired: Boolean(invalid) });
   } catch (error) { return fail(res, 500, error.message); }
 }
 
@@ -147,7 +154,7 @@ async function download(req, res) {
     const employeeName = row.employee_name || row.name || 'Employee';
     const pdfText = (value) => String(value ?? '').replace(/[\\()]/g, '\\$&');
     const lines = [
-      'GO DIGITAL', `SALARY SLIP FOR THE MONTH - ${row.pay_month}/${row.pay_year}`,
+      companyName, `SALARY SLIP FOR THE MONTH - ${row.pay_month}/${row.pay_year}`,
       `Employee Name: ${employeeName}`, `Employee Code: ${row.employee_code || row.employee_user_id || '-'}`,
       `Gross Earnings (A): ${money(row.monthly_salary)}`, `Leave Deduction: ${money(row.deductions)}`,
       `Total Deductions (B): ${money(row.deductions)}`, `TOTAL NET PAYABLE (A-B): ${money(row.net_pay)}`,
@@ -176,7 +183,7 @@ async function download(req, res) {
       .meta{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;padding:22px 32px;border-bottom:1px solid #e5eaf2}.label{color:#64748b;font-size:12px;text-transform:uppercase}.value{font-weight:700;margin-top:5px}
       table{width:calc(100% - 64px);margin:24px 32px;border-collapse:collapse}th,td{padding:10px 12px;border:1px solid #dbe3f0;text-align:left}th{background:#eef3fb}td:nth-child(even),th:nth-child(even){text-align:right}
       .net{margin:0 32px 30px;padding:20px;background:#eaf2ff;border-left:5px solid #1261e8;display:flex;justify-content:space-between;font-size:20px;font-weight:700}.foot{padding:16px 32px;color:#64748b;font-size:12px;border-top:1px solid #e5eaf2}
-    </style></head><body><section class="sheet"><header class="head"><div class="brand">GO DIGITAL</div><div class="title">Salary Slip</div></header>
+    </style></head><body><section class="sheet"><header class="head"><div class="brand">${companyName}</div><div class="title">Salary Slip</div></header>
       <div class="meta"><div><div class="label">Employee Name</div><div class="value">${employeeName}</div></div><div><div class="label">Employee Code</div><div class="value">${row.employee_code || row.employee_user_id || '—'}</div></div><div><div class="label">Pay period</div><div class="value">${row.pay_month}/${row.pay_year}</div></div><div><div class="label">Net days payable</div><div class="value">${row.paid_days || '—'}</div></div></div>
       <table><tr><th>Earnings</th><th>Amount (INR)</th><th>Deductions</th><th>Amount (INR)</th></tr><tr><td>Gross Salary</td><td>${money(row.monthly_salary)}</td><td>Leave Deduction</td><td>${money(row.deductions)}</td></tr><tr><td>Other Earnings</td><td>${money(0)}</td><td>Other Deductions</td><td>${money(0)}</td></tr><tr><th>Total Earnings (A)</th><th>${money(row.monthly_salary)}</th><th>Total Deductions (B)</th><th>${money(row.deductions)}</th></tr></table>
       <div class="net"><span>Total Net Payable (A − B)</span><span>${money(row.net_pay)}</span></div><div class="foot">This is a system generated pay slip and hence company signature is not required.</div></section></body></html>`);

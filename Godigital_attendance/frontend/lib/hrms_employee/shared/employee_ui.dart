@@ -183,7 +183,7 @@ class EmployeeSidebar extends StatelessWidget {
       'Attendance',
       Icons.calendar_month_outlined,
     ),
-    _NavItem('/employee/clock-log', 'Check In / Out', Icons.schedule_rounded),
+    _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
     _NavItem(
       '/employee/leave',
       'Leave',
@@ -852,8 +852,6 @@ class EmployeeProfileMenu extends StatelessWidget {
         );
       } else if (value == 'password') {
         await _showChangePasswordDialog(context);
-      } else if (value == 'profile') {
-        if (context.mounted) Navigator.pushNamed(context, '/employee/profile');
       }
     },
     itemBuilder: (_) => [
@@ -877,22 +875,6 @@ class EmployeeProfileMenu extends StatelessWidget {
         ),
       ),
       const PopupMenuDivider(),
-      const PopupMenuItem<String>(
-        value: 'profile',
-        child: Row(
-          children: [
-            Icon(Icons.person_outline_rounded, size: 18, color: employeeBlue),
-            SizedBox(width: 10),
-            Text(
-              'Profile',
-              style: TextStyle(
-                color: employeeBlue,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
       const PopupMenuItem<String>(
         value: 'password',
         child: Row(

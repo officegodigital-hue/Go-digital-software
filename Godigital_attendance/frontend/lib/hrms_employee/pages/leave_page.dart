@@ -180,7 +180,7 @@ class _DesktopLeave extends StatelessWidget {
       children: [
         _LeaveBalance(balances: balances),
         const SizedBox(height: 20),
-        _LeaveForm(balances: balances, desktop: true, onSuccess: onRefresh),
+        _LeaveForm(desktop: true, onSuccess: onRefresh),
       ],
     );
   }
@@ -204,13 +204,11 @@ class _LeaveBalance extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final activeBalances = balances.where(_hasLeaveAllocation).toList();
-    return EmployeeCard(
+  Widget build(BuildContext context) => EmployeeCard(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (activeBalances.isEmpty)
+        if (balances.isEmpty)
           const Text(
             'No balance data available',
             style: TextStyle(color: employeeMuted),
@@ -226,7 +224,7 @@ class _LeaveBalance extends StatelessWidget {
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
-                children: activeBalances.map((b) {
+                children: balances.map((b) {
                   final total = (b['total'] as num?) ?? 0;
                   final used = (b['used'] as num?) ?? 0;
                   final type = b['type']?.toString() ?? 'Leave';
@@ -245,21 +243,8 @@ class _LeaveBalance extends StatelessWidget {
           ),
       ],
     ),
-    );
-  }
+  );
 }
-
-bool _hasLeaveAllocation(dynamic balance) {
-  if (balance is! Map) return false;
-  final total = balance['total'];
-  return total is num ? total > 0 : (num.tryParse('$total') ?? 0) > 0;
-}
-
-List<String> _availableLeaveTypes(List<dynamic> balances) => balances
-    .where(_hasLeaveAllocation)
-    .map((balance) => balance['type']?.toString() ?? '')
-    .where((type) => type.isNotEmpty)
-    .toList();
 
 class _LeaveLoadError extends StatelessWidget {
   const _LeaveLoadError({required this.message, required this.onRetry});
@@ -474,12 +459,7 @@ class _DesktopRequestRow extends StatelessWidget {
 }
 
 class _LeaveForm extends StatefulWidget {
-  const _LeaveForm({
-    required this.balances,
-    required this.desktop,
-    required this.onSuccess,
-  });
-  final List<dynamic> balances;
+  const _LeaveForm({required this.desktop, required this.onSuccess});
   final bool desktop;
   final VoidCallback onSuccess;
 
@@ -488,19 +468,12 @@ class _LeaveForm extends StatefulWidget {
 }
 
 class _LeaveFormState extends State<_LeaveForm> {
-  String type = '';
+  String type = 'Casual Leave';
   String duration = 'Full Day';
   DateTime fromDate = DateTime.now();
   DateTime toDate = DateTime.now();
   final _reasonCtrl = TextEditingController();
   bool _submitting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final types = _availableLeaveTypes(widget.balances);
-    if (types.isNotEmpty) type = types.first;
-  }
 
   Future<void> _pickDate(bool isFrom) async {
     final picked = await showDatePicker(
@@ -590,17 +563,6 @@ class _LeaveFormState extends State<_LeaveForm> {
 
   @override
   Widget build(BuildContext context) {
-    final leaveTypes = _availableLeaveTypes(widget.balances);
-    if (leaveTypes.isEmpty) {
-      return const EmployeeCard(
-        child: Text(
-          'No leave types are currently available. Please contact your administrator.',
-          style: TextStyle(color: employeeMuted),
-        ),
-      );
-    }
-    final selectedType = leaveTypes.contains(type) ? type : leaveTypes.first;
-    if (selectedType != type) type = selectedType;
     final fromStr = DateFormat('dd/MM/yyyy').format(fromDate);
     final toStr = DateFormat('dd/MM/yyyy').format(toDate);
 
@@ -617,7 +579,12 @@ class _LeaveFormState extends State<_LeaveForm> {
             Row(
               children: [
                 Expanded(
-                  child: _DropdownField('LEAVE TYPE', selectedType, leaveTypes, (v) => setState(() => type = v!)),
+                  child: _DropdownField('LEAVE TYPE', type, const [
+                    'Casual Leave',
+                    'Sick Leave',
+                    'Earned Leave',
+                    'Optional Holiday',
+                  ], (v) => setState(() => type = v!)),
                 ),
                 const SizedBox(width: 18),
                 Expanded(
@@ -629,14 +596,19 @@ class _LeaveFormState extends State<_LeaveForm> {
               ],
             )
           else ...[
-            _DropdownField('Leave Type', selectedType, leaveTypes, (v) => setState(() => type = v!)),
+            _DropdownField('Leave Type', type, const [
+              'Casual Leave',
+              'Sick Leave',
+              'Earned Leave',
+              'Optional Holiday',
+            ], (v) => setState(() => type = v!)),
             const SizedBox(height: 14),
             _DropdownField('Duration', duration, const [
               'Full Day',
               'Half Day',
             ], (v) => setState(() => duration = v!)),
           ],
-          if (selectedType == 'Earned Leave') ...[
+          if (type == 'Earned Leave') ...[
             const SizedBox(height: 8),
             const Text(
               'Earned Leave is paid leave. Your company paid-leave rules apply to this request.',
@@ -878,9 +850,7 @@ class _MobileLeaveBalance extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final activeBalances = balances.where(_hasLeaveAllocation).toList();
-    return EmployeeCard(
+  Widget build(BuildContext context) => EmployeeCard(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -902,14 +872,14 @@ class _MobileLeaveBalance extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        if (activeBalances.isEmpty)
+        if (balances.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Center(child: Text('No balance data available', style: TextStyle(color: employeeMuted))),
           )
         else
           Row(
-            children: activeBalances.take(4).map((balance) {
+            children: balances.take(4).map((balance) {
               final type = (balance['type'] ?? 'Leave').toString();
               final total = (balance['total'] as num?)?.toInt() ?? 0;
               final used = (balance['used'] as num?)?.toInt() ?? 0;
@@ -944,8 +914,7 @@ class _MobileLeaveBalance extends StatelessWidget {
           ),
       ],
     ),
-    );
-  }
+  );
 }
 class _MobileLeave extends StatelessWidget {
   const _MobileLeave({
@@ -1000,7 +969,7 @@ class _MobileLeave extends StatelessWidget {
         const SizedBox(height: 18),
         _MobileLeaveBalance(balances: balances),
         const SizedBox(height: 18),
-        _LeaveForm(balances: balances, desktop: false, onSuccess: onRefresh),
+        _LeaveForm(desktop: false, onSuccess: onRefresh),
       ],
     );
   }

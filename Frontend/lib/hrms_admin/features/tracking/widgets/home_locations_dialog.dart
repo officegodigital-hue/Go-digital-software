@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../../../services/hrms_tracking_api.dart';
 
@@ -99,7 +99,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
     setState(() => _savingRadius = true);
     try {
       await HrmsTrackingApi.updateHomeRadius(radius);
-      if (mounted) _showSnack('Home Clock In radius saved.');
+      if (mounted) _showSnack('Home Check In radius saved.');
     } catch (e) {
       if (mounted) setState(() => _settingsError = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -267,7 +267,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   Widget _radiusCard() => _sectionCard(
     icon: Icons.location_on_rounded,
     iconColor: _iconColor, iconBg: _iconBg,
-    title: 'Home Clock In Radius',
+    title: 'Home Check In Radius',
     desc: 'This applies to approved Home locations only. Office radius is configured separately in Manage Office Location.',
     child: _loadingSettings
         ? const LinearProgressIndicator()

@@ -171,9 +171,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       });
       final activeBreak = data['active_break'];
       if (activeBreak is Map && activeBreak['comment_required'] == true) {
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => _showBreakCommentDialog(),
-        );
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showBreakCommentDialog());
       }
     } catch (error) {
       if (!mounted || request != _request || token != _token) return;
@@ -189,15 +187,42 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    // A Hybrid employee must prove that live tracking is active before the
+    // normal attendance endpoint will accept a clock-in.
+    if (!clockOut) {
+      try {
+        final policy = await _call('check-in-policy', token);
+        if (policy['workMode'] == 'Hybrid') {
+          if (!mounted || token != _token) return;
+          final clockedIn = await Navigator.pushNamed<bool>(
+            context,
+            '/employee/tracking',
+            arguments: const {'clockInAfterTracking': true},
+          );
+          if (!mounted || token != _token) return;
+          await _load();
+          if (clockedIn == true && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are now checked in.')),
+            );
+          }
+          return;
+        }
+      } catch (error) {
+        if (!mounted || token != _token) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_message(error))),
+        );
+        return;
+      }
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(clockOut ? 'Clock out?' : 'Clock in?'),
-        content: Text(
-          clockOut
-              ? 'Confirm that you want to end your work session.'
-              : 'Confirm that you want to start your work session.',
-        ),
+        content: Text(clockOut
+            ? 'Confirm that you want to end your work session.'
+            : 'Confirm that you want to start your work session.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -205,7 +230,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: Text(clockOut ? 'Check Out' : 'Check In'),
+            child: Text(clockOut ? 'Clock Out' : 'Clock In'),
           ),
         ],
       ),
@@ -264,9 +289,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Send Admin a request to reopen today\'s attendance. After approval, Clock In will be available again.',
-                ),
+                const Text('Send Admin a request to reopen today\'s attendance. After approval, Clock In will be available again.'),
                 const SizedBox(height: 14),
                 Text('Date: $date'),
                 Text('Original Clock In: $clockIn'),
@@ -290,9 +313,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           ),
           actions: [
             TextButton(
-              onPressed: submitting
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -301,9 +322,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   : () async {
                       final reason = controller.text.trim();
                       if (reason.length < 3) {
-                        setDialogState(
-                          () => error = 'Enter at least 3 characters.',
-                        );
+                        setDialogState(() => error = 'Enter at least 3 characters.');
                         return;
                       }
                       setDialogState(() {
@@ -322,9 +341,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                         await _load();
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Clock In request sent to Admin.'),
-                          ),
+                          const SnackBar(content: Text('Clock In request sent to Admin.')),
                         );
                       } catch (e) {
                         setDialogState(() {
@@ -350,11 +367,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       context: context,
       builder: (context) => AlertDialog(
         title: Text(activeBreak ? 'Resume work?' : 'Start break?'),
-        content: Text(
-          activeBreak
-              ? 'Confirm that you want to end your break and resume your work session.'
-              : 'Confirm that you want to start your lunch break.',
-        ),
+        content: Text(activeBreak
+            ? 'Confirm that you want to end your break and resume your work session.'
+            : 'Confirm that you want to start your lunch break.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -372,9 +387,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     String message;
     try {
       await _call(activeBreak ? 'break-out' : 'break-in', token, post: true);
-      message = activeBreak
-          ? 'Break ended. You are back at work.'
-          : 'Break started. You remain checked in.';
+      message = activeBreak ? 'Break ended. You are back at work.' : 'Break started. You remain checked in.';
     } catch (error) {
       message = _message(error);
     }
@@ -382,9 +395,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     await _load();
     if (!mounted || token != _token) return;
     setState(() => _punching = false);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _showBreakCommentDialog() async {
@@ -405,9 +416,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Enter the reason for continuing after your fixed lunch end time. This will be sent to Admin.',
-              ),
+              const Text('Enter the reason for continuing after your fixed lunch end time. This will be sent to Admin.'),
               const SizedBox(height: 14),
               TextField(
                 controller: controller,
@@ -420,43 +429,27 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   border: OutlineInputBorder(),
                 ),
               ),
-              if (error != null)
-                Text(error!, style: const TextStyle(color: Colors.red)),
+              if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
             ],
           ),
           actions: [
             FilledButton(
-              onPressed: submitting
-                  ? null
-                  : () async {
-                      final comment = controller.text.trim();
-                      if (comment.length < 3) {
-                        setDialogState(
-                          () => error = 'Enter at least 3 characters.',
-                        );
-                        return;
-                      }
-                      setDialogState(() {
-                        submitting = true;
-                        error = null;
-                      });
-                      try {
-                        await _call(
-                          'break-exceeded-comment',
-                          token,
-                          post: true,
-                          payload: {'comment': comment},
-                        );
-                        if (!mounted) return;
-                        Navigator.of(dialogContext).pop();
-                        await _load();
-                      } catch (e) {
-                        setDialogState(() {
-                          submitting = false;
-                          error = _message(e);
-                        });
-                      }
-                    },
+              onPressed: submitting ? null : () async {
+                final comment = controller.text.trim();
+                if (comment.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
+                }
+                setDialogState(() { submitting = true; error = null; });
+                try {
+                  await _call('break-exceeded-comment', token, post: true, payload: {'comment': comment});
+                  if (!mounted) return;
+                  Navigator.of(dialogContext).pop();
+                  await _load();
+                } catch (e) {
+                  setDialogState(() { submitting = false; error = _message(e); });
+                }
+              },
               child: Text(submitting ? 'Sending…' : 'Send to Admin'),
             ),
           ],
@@ -508,8 +501,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final workTime = overview['work_time'] as Map? ?? const {};
     final actualMinutes = (workTime['actual_minutes'] as num?)?.toInt() ?? 0;
     final targetMinutes = (workTime['target_minutes'] as num?)?.toInt() ?? 0;
-    final overtimeMinutes =
-        (workTime['overtime_minutes'] as num?)?.toInt() ?? 0;
+    final overtimeMinutes = (workTime['overtime_minutes'] as num?)?.toInt() ?? 0;
     final progress = targetMinutes == 0
         ? 0.0
         : (actualMinutes / targetMinutes).clamp(0.0, 1.0);
@@ -525,12 +517,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         final started = DateTime.parse(
           activeBreak['started_at'].toString().replaceFirst(' ', 'T'),
         ).toLocal();
-        breakStartedLabel =
-            'Break started: ${DateFormat('hh:mm a').format(started)}';
+        breakStartedLabel = 'Break started: ${DateFormat('hh:mm a').format(started)}';
         final lunchEnd = activeBreak['lunch_end']?.toString() ?? '';
-        final normalizedLunchEnd = lunchEnd.length == 5
-            ? '$lunchEnd:00'
-            : lunchEnd;
+        final normalizedLunchEnd = lunchEnd.length == 5 ? '$lunchEnd:00' : lunchEnd;
         final endsAt = DateTime.parse(
           '${data['date']} $normalizedLunchEnd'.replaceFirst(' ', 'T'),
         ).toLocal();
@@ -538,8 +527,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         final safeSeconds = remainingSeconds < 0 ? 0 : remainingSeconds;
         final minutes = safeSeconds ~/ 60;
         final seconds = safeSeconds % 60;
-        breakTimeLeftLabel =
-            'Lunch ends at ${DateFormat('hh:mm a').format(endsAt)} • ${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s left';
+        breakTimeLeftLabel = 'Lunch ends at ${DateFormat('hh:mm a').format(endsAt)} • ${minutes ~/ 60}h ${(minutes % 60).toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s left';
       } catch (_) {
         breakTimeLeftLabel = 'Break is active';
       }
@@ -656,19 +644,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 13),
-          const Text(
-            'Monthly Work Time',
-            style: TextStyle(color: employeeMuted, fontSize: 12),
-          ),
+          const Text('Monthly Work Time',
+              style: TextStyle(color: employeeMuted, fontSize: 12)),
           const SizedBox(height: 4),
-          Text(
-            _durationLabel(actualMinutes),
-            style: const TextStyle(
-              color: employeeNavy,
-              fontSize: 27,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          Text(_durationLabel(actualMinutes),
+              style: const TextStyle(
+                  color: employeeNavy, fontSize: 27, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           TweenAnimationBuilder<double>(
             duration: const Duration(milliseconds: 650),
@@ -681,8 +662,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                 minHeight: 7,
                 backgroundColor: employeeLine,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  overtimeMinutes > 0 ? const Color(0xFF11A55B) : employeeBlue,
-                ),
+                    overtimeMinutes > 0 ? const Color(0xFF11A55B) : employeeBlue),
               ),
             ),
           ),
@@ -808,21 +788,14 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
               const SizedBox(width: 10),
               if (checkedIn)
                 OutlinedButton.icon(
-                  onPressed:
-                      _loading || _punching || _error != null || breakCompleted
+                  onPressed: _loading || _punching || _error != null || breakCompleted
                       ? null
                       : _toggleBreak,
                   icon: Icon(
-                    onBreak
-                        ? Icons.play_arrow
-                        : (breakCompleted ? Icons.check : Icons.pause),
+                    onBreak ? Icons.play_arrow : (breakCompleted ? Icons.check : Icons.pause),
                     size: 18,
                   ),
-                  label: Text(
-                    onBreak
-                        ? 'Resume'
-                        : (breakCompleted ? 'Break Over' : 'Break'),
-                  ),
+                  label: Text(onBreak ? 'Resume' : (breakCompleted ? 'Break Over' : 'Break')),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     disabledForegroundColor: Colors.white70,
@@ -848,28 +821,25 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   _punching
                       ? 'Saving…'
                       : checkedIn
-                      ? 'Check Out'
+                      ? 'Clock Out'
                       : checkedOut && actions['can_clock_in'] == true
-                      ? 'Check In'
+                      ? 'Clock In'
                       : checkedOut
                       ? 'Completed'
-                      : 'Check In',
+                      : 'Clock In',
                 ),
               ),
               if (checkedOut) const SizedBox(width: 10),
               if (checkedOut)
                 OutlinedButton(
-                  onPressed:
-                      _loading ||
-                          _punching ||
-                          _error != null ||
+                  onPressed: _loading || _punching || _error != null ||
                           actions['can_reclock_in_request'] != true
                       ? null
                       : () => _requestAnotherClockIn(
-                          date: DateFormat('d MMM yyyy').format(today),
-                          clockIn: punchInDisplay,
-                          clockOut: punchOutDisplay,
-                        ),
+                            date: DateFormat('d MMM yyyy').format(today),
+                            clockIn: punchInDisplay,
+                            clockOut: punchOutDisplay,
+                          ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     disabledForegroundColor: Colors.white70,
@@ -880,8 +850,8 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                             reclockRequest?['reclocked_at'] == null
                         ? 'Request Approved'
                         : reclockRequest?['status'] == 'Pending'
-                        ? 'Request Pending'
-                        : 'Clock In Request',
+                            ? 'Request Pending'
+                            : 'Clock In Request',
                   ),
                 ),
             ],

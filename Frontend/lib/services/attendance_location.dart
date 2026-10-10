@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:geolocator/geolocator.dart';
@@ -37,7 +37,7 @@ class AttendanceLocation {
       }
       if (permission == LocationPermission.denied) {
         throw const AttendanceLocationError(
-          'Location permission is needed to verify Clock In.',
+          'Location permission is needed to verify Check In.',
         );
       }
       final position = await Geolocator.getCurrentPosition(
@@ -95,7 +95,7 @@ class AttendanceLocation {
       decoded = jsonDecode(response.body);
     } catch (_) {
       throw const AttendanceLocationError(
-        'Could not load Clock In rules. Please retry.',
+        'Could not load Check In rules. Please retry.',
       );
     }
     if (response.statusCode != 200 ||
@@ -103,14 +103,14 @@ class AttendanceLocation {
         decoded['success'] != true) {
       throw AttendanceLocationError(
         decoded is Map
-            ? decoded['message']?.toString() ?? 'Could not load Clock In rules.'
-            : 'Could not load Clock In rules.',
+            ? decoded['message']?.toString() ?? 'Could not load Check In rules.'
+            : 'Could not load Check In rules.',
       );
     }
     final policy = decoded['data'];
     if (policy is! Map) {
       throw const AttendanceLocationError(
-        'Clock In rules are unavailable. Contact your admin.',
+        'Check In rules are unavailable. Contact your admin.',
       );
     }
     return Map<String, dynamic>.from(policy);
@@ -130,7 +130,7 @@ class AttendanceLocation {
     if (policy['requiresLocation'] != true ||
         !['Office', 'Home'].contains(policy['workMode'])) {
       throw const AttendanceLocationError(
-        'Clock In rules are unavailable. Contact your admin.',
+        'Check In rules are unavailable. Contact your admin.',
       );
     }
     final position = await (locate ?? currentPosition)();
