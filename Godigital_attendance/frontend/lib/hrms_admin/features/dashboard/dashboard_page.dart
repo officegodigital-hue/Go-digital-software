@@ -234,7 +234,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <th style="color:${_hex(_purple)}">Half Leave</th>
           <th style="color:${_hex(_blue)}">Earned Leave</th>
           <th>Salary Per Month</th>
-          <th>Absent Deduction</th>
+          <th style="color:${_hex(_red)}">Absent</th>
           <th>Updated Salary</th>
         </tr>
     ''');
@@ -256,7 +256,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <td style="color:${_hex(_purple)}; font-weight:700;">${employee.halfLeave}</td>
           <td style="color:${_hex(_blue)}; font-weight:700;">${employee.earnedLeave}</td>
           <td>${employee.salary}</td>
-          <td>${employee.daysPaid} ${employee.afterLeaves}</td>
+          <td style="color:${_hex(_red)}; font-weight:700;">${employee.absent}</td>
           <td>${employee.updatedSalary}</td>
         </tr>
       ''');
@@ -765,6 +765,7 @@ class _AttendanceTable extends StatelessWidget {
                 ),
             ],
             present: employee.present,
+            absent: employee.absent,
             late: employee.late,
             excused: employee.excused,
             unexcused: employee.unexcused,
@@ -841,6 +842,7 @@ class _EmployeeAttendance {
     required this.name,
     required this.designation,
     required this.present,
+    required this.absent,
     required this.late,
     required this.halfLeave,
     required this.earnedLeave,
@@ -857,6 +859,7 @@ class _EmployeeAttendance {
   final String name;
   final String designation;
   final int present;
+  final int absent;
   final int late;
   final int halfLeave;
   final int earnedLeave;
@@ -876,6 +879,7 @@ class _EmployeeAttendance {
       name: (json['name'] ?? '').toString(),
       designation: (json['designation'] ?? '').toString(),
       present: asInt(json['present']),
+      absent: asInt(json['absent']),
       late: asInt(json['late']),
       halfLeave: asInt(json['halfLeave']),
       earnedLeave: asInt(json['earnedLeave']),
@@ -2211,7 +2215,7 @@ class _YearlyEmployeeRow extends StatelessWidget {
           ),
         ),
         _YearStatCell('${employee.present}', _green, 11),
-        _YearStatCell('${employee.unexcused}', _red, 11),
+        _YearStatCell('${employee.absent}', _red, 11),
         _YearStatCell('${employee.late}', _orange, 11),
         _YearStatCell('${employee.approvedLeave}', _purple, 11),
         _YearStatCell('${employee.halfLeave}', _purple, 11),

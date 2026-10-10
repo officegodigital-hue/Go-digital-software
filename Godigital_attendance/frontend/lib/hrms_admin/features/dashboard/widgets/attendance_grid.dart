@@ -36,6 +36,7 @@ class AttendanceRowData {
   final String designation;
   final List<AttendanceDayMark> days;
   final int present;
+  final int absent;
   final int late;
   final int excused;
   final int unexcused;
@@ -51,6 +52,7 @@ class AttendanceRowData {
     required this.designation,
     required this.days,
     required this.present,
+    required this.absent,
     required this.late,
     required this.excused,
     required this.unexcused,
@@ -392,8 +394,8 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     );
   }
 
-  static const _summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nPer\nMonth', 'Absent\nDeduction', 'Updated\nSalary'];
-  static const _summaryColors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, HrmsColors.accentPurple, HrmsColors.info, Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F)];
+  static const _summaryLabels = ['Present', 'Late', 'Leave', 'Half\nLeave', 'Earned\nLeave', 'Salary\nPer\nMonth', 'Absent', 'Updated\nSalary'];
+  static const _summaryColors = [HrmsColors.success, HrmsColors.warning, HrmsColors.accentPurple, HrmsColors.accentPurple, HrmsColors.info, Color(0xFF07186F), HrmsColors.danger, Color(0xFF07186F)];
   static const _summaryPanelWidth = 624.0;
 
   Widget _summaryHeaderRow() => SizedBox(
@@ -414,7 +416,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
           _BodyCell(width: _summaryWidths[3], child: Center(child: _statText('${row.halfLeave}', HrmsColors.accentPurple))),
           _BodyCell(width: _summaryWidths[4], child: Center(child: _statText('${row.earnedLeave}', HrmsColors.info))),
           _BodyCell(width: _summaryWidths[5], child: Center(child: Text(row.salaryPerMonth, maxLines: 1, style: _moneyStyle))),
-          _BodyCell(width: _summaryWidths[6], child: Center(child: Text(row.totalSalaryAfterLeaves, maxLines: 1, style: _moneyStyle))),
+          _BodyCell(width: _summaryWidths[6], child: Center(child: _statText('${row.absent}', HrmsColors.danger))),
           _BodyCell(width: _summaryWidths[7], child: Center(child: Text(row.updatedSalary, maxLines: 1, style: _moneyStyle))),
         ])),
     ]);

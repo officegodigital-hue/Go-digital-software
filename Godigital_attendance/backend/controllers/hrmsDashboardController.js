@@ -257,6 +257,7 @@ async function monthView(req, res) {
       let halfLeave = 0;
       let earnedLeave = 0;
       let approvedLeave = 0;
+      let absent = 0;
       let unexcused = 0;
       let accruedPaidDays = 0;
       let workingDays = 0;
@@ -284,16 +285,19 @@ async function monthView(req, res) {
 
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
-        if (record && record.check_in_at) {
+        // An explicit absence is always shown as an absence. Whether it is
+        // an LOP day is a separate payroll-policy decision.
+        if (record && String(record.attendance_status).toLowerCase() === 'absent') {
+          days.push('A');
+          absent += 1;
+          absentDays += 1;
+          if (payrollRules.deductAbsence) unexcused += 1;
+        } else if (record && record.check_in_at) {
           if (String(record.attendance_status) === 'half_leave') {
             days.push('HL');
             halfLeave += 1;
             unexcused += 0.5;
             accruedPaidDays += 0.5;
-          } else if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
-            days.push('A');
-            unexcused += 1;
-            absentDays += 1;
           } else if (Number(record.is_late)) {
             days.push('L');
             late += 1;
@@ -321,6 +325,7 @@ async function monthView(req, res) {
           if (date < today && payrollRules.missingIsAbsent) {
             days.push('A');
             unexcused += 1;
+            absent += 1;
             absentDays += 1;
           } else {
             days.push('–');
@@ -349,6 +354,7 @@ async function monthView(req, res) {
         halfLeave: halfLeave,
         earnedLeave: earnedLeave,
         approvedLeave: approvedLeave,
+        absent: absent,
         salary: formatSalary(profile.monthly_salary),
         daysPaid: String(accruedPaidDays),
         afterLeaves: salaryNumber ? formatSalary(0) : '–',
