@@ -260,7 +260,6 @@ async function monthView(req, res) {
       let absent = 0;
       let unexcused = 0;
       let accruedPaidDays = 0;
-      let workingDays = 0;
 
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
@@ -280,8 +279,6 @@ async function monthView(req, res) {
           days.push('');
           continue;
         }
-
-        workingDays += 1;
 
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
@@ -336,13 +333,16 @@ async function monthView(req, res) {
       }
 
       const salaryNumber = Number(profile.monthly_salary || 0);
-      const lopDays = Math.min(workingDays, unexcused);
-      const dailyRate = workingDays > 0 ? salaryNumber / workingDays : 0;
+      // Daily pay is always based on the full selected month's working days.
+      // Using only days elapsed so far inflates absence values mid-month.
+      const salaryWorkingDays = Math.max(1, totalWorkingDays);
+      const lopDays = Math.min(salaryWorkingDays, unexcused);
+      const dailyRate = salaryNumber / salaryWorkingDays;
       const absentDeduction = Math.round(absent * dailyRate * 100) / 100;
       // The dashboard is an earned-to-date view: pay starts at zero and
       // grows only for check-ins and approved paid leave.  Absence never
       // removes money already accrued.
-      const accruedSalary = Math.round(Math.min(workingDays, accruedPaidDays) * dailyRate * 100) / 100;
+      const accruedSalary = Math.round(Math.min(salaryWorkingDays, accruedPaidDays) * dailyRate * 100) / 100;
 
       return {
         id: profile.id,
