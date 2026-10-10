@@ -1067,6 +1067,7 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
   bool _loading = true;
   String? _error;
   List<_RoutePoint> _points = const [];
+  bool _roadSnapped = false;
   BitmapDescriptor? _startMarker, _endMarker;
 
   List<LatLng> get _coordinates => _points
@@ -1119,6 +1120,7 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
       if (mounted)
         setState(() {
           _points = points;
+          _roadSnapped = data['roadSnapped'] == true;
           _loading = false;
         });
     } catch (error) {
@@ -1239,14 +1241,18 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
                             zoom: 15,
                           ),
                           mapToolbarEnabled: false,
-                          polylines: {
-                            Polyline(
-                              polylineId: const PolylineId('selected-route'),
-                              points: route,
-                              color: HrmsColors.blue,
-                              width: 5,
-                            ),
-                          },
+                          polylines: _roadSnapped
+                              ? {
+                                  Polyline(
+                                    polylineId: const PolylineId(
+                                      'selected-route',
+                                    ),
+                                    points: route,
+                                    color: HrmsColors.blue,
+                                    width: 5,
+                                  ),
+                                }
+                              : const {},
                           markers: {
                             Marker(
                               markerId: const MarkerId('route-start'),
@@ -1288,11 +1294,24 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
                         ),
                       ),
                     ),
+                    if (!_roadSnapped)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Road route is temporarily unavailable. Showing GPS points only.',
+                          style: TextStyle(
+                            color: Color(0xFF9B6200),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 9),
                     _RouteMetrics(
-                      distance: '${_distanceKm(route).toStringAsFixed(2)} km',
+                      distance: _roadSnapped
+                          ? '${_distanceKm(route).toStringAsFixed(2)} km'
+                          : '--',
                       duration: _durationLabel(_routeDuration),
-                      speed: _routeDuration.inMinutes == 0
+                      speed: !_roadSnapped || _routeDuration.inMinutes == 0
                           ? '--'
                           : '${(_distanceKm(route) / (_routeDuration.inMinutes / 60)).toStringAsFixed(1)} km/h',
                       updated: widget.employee.updatedLabel,
@@ -2040,6 +2059,7 @@ class _EmployeeTrackingDetailsDialogState
   int _tab = 0;
   List<_RoutePoint> _mapPoints = const [];
   List<_RoutePoint> _activityPoints = const [];
+  bool _roadSnapped = false;
   List<Map<String, dynamic>> _waitingReasons = const [];
   List<Map<String, dynamic>> _comments = const [];
 
@@ -2085,6 +2105,7 @@ class _EmployeeTrackingDetailsDialogState
       setState(() {
         _mapPoints = pointsFor('points');
         _activityPoints = pointsFor('activityPoints');
+        _roadSnapped = data['roadSnapped'] == true;
         _waitingReasons = entriesFor('waitingReasons');
         _comments = entriesFor('comments');
         _loading = false;
@@ -2333,39 +2354,66 @@ class _EmployeeTrackingDetailsDialogState
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: GoogleMap(
-        key: ValueKey(
-          'details-${widget.employee.employeeUserId}-${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
-        ),
-        initialCameraPosition: CameraPosition(target: _route.first, zoom: 14),
-        mapToolbarEnabled: false,
-        polylines: {
-          Polyline(
-            polylineId: const PolylineId('details-route'),
-            points: _route,
-            color: HrmsColors.blue,
-            width: 5,
-          ),
-        },
-        markers: {
-          Marker(
-            markerId: const MarkerId('details-start'),
-            position: _route.first,
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueGreen,
+      child: Stack(
+        children: [
+          GoogleMap(
+            key: ValueKey(
+              'details-${widget.employee.employeeUserId}-${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
             ),
-            infoWindow: const InfoWindow(title: 'Start'),
-          ),
-          if (_route.length > 1)
-            Marker(
-              markerId: const MarkerId('details-end'),
-              position: _route.last,
-              icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueRed,
+            initialCameraPosition: CameraPosition(
+              target: _route.first,
+              zoom: 14,
+            ),
+            mapToolbarEnabled: false,
+            polylines: _roadSnapped
+                ? {
+                    Polyline(
+                      polylineId: const PolylineId('details-route'),
+                      points: _route,
+                      color: HrmsColors.blue,
+                      width: 5,
+                    ),
+                  }
+                : const {},
+            markers: {
+              Marker(
+                markerId: const MarkerId('details-start'),
+                position: _route.first,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueGreen,
+                ),
+                infoWindow: const InfoWindow(title: 'Start'),
               ),
-              infoWindow: const InfoWindow(title: 'End'),
+              if (_route.length > 1)
+                Marker(
+                  markerId: const MarkerId('details-end'),
+                  position: _route.last,
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueRed,
+                  ),
+                  infoWindow: const InfoWindow(title: 'End'),
+                ),
+            },
+          ),
+          if (!_roadSnapped)
+            const Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Material(
+                color: Color(0xFFFDF5E7),
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  child: Text(
+                    'Road route is temporarily unavailable. Showing GPS points only.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF9B6200), fontSize: 11),
+                  ),
+                ),
+              ),
             ),
-        },
+        ],
       ),
     );
   }

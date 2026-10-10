@@ -307,6 +307,30 @@ function routesWaypoint(point) {
   return { location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } } };
 }
 
+function waitForRouteRetry(milliseconds) {
+  return new Promise(function (resolve) { setTimeout(resolve, milliseconds); });
+}
+
+async function googleRouteFetch(url, options) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status !== 429 && response.status < 500) return response;
+      lastError = new Error('Google route service returned ' + response.status);
+    } catch (error) {
+      // Certificate errors are configuration errors, not temporary failures.
+      // Retrying them only delays the employee's route screen.
+      if (error && error.cause && error.cause.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+        throw error;
+      }
+      lastError = error;
+    }
+    if (attempt < 2) await waitForRouteRetry(300 * (attempt + 1));
+  }
+  throw lastError || new Error('Google route service was unavailable');
+}
+
 async function routeWithGoogleRoutes(rawPoints, apiKey) {
   // Routes API accepts a limited number of intermediate waypoints. Each group
   // overlaps one point, preserving a continuous whole-day journey.
@@ -315,7 +339,7 @@ async function routeWithGoogleRoutes(rawPoints, apiKey) {
   for (let start = 0; start < rawPoints.length - 1; start += MAX_POINTS_PER_REQUEST - 1) {
     const chunk = rawPoints.slice(start, start + MAX_POINTS_PER_REQUEST);
     if (chunk.length < 2) break;
-    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    const response = await googleRouteFetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -404,7 +428,7 @@ async function snapRouteToRoads(employeeUserId, date, rawPoints) {
       }).join('|');
       const url = 'https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' +
         encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey);
-      const response = await fetch(url);
+      const response = await googleRouteFetch(url, {});
       if (!response.ok) throw new Error('Roads API returned ' + response.status);
       const body = await response.json();
       const points = Array.isArray(body.snappedPoints) ? body.snappedPoints : [];
