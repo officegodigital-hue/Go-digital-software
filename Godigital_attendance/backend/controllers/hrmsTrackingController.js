@@ -60,8 +60,28 @@ function nextCalendarDate(date) {
 
 async function routePingsForDate(employeeUserId, date) {
   const nextDate = nextCalendarDate(date);
-  // A half-open day range is both index-friendly and prevents a database
-  // time-zone conversion from returning another day's route.
+  const dayStart = date + ' 00:00:00';
+  const dayEnd = nextDate + ' 00:00:00';
+  // A route must come from one Field tracking session.  Otherwise points
+  // from a completed early-morning session and a later live session are
+  // connected into one false journey on the map.
+  const [sessions] = await db.query(
+    `SELECT started_at, stopped_at
+     FROM hrms_field_tracking_sessions
+     WHERE employee_user_id = ?
+       AND started_at >= ?
+       AND started_at < ?
+     ORDER BY is_active DESC, started_at DESC
+     LIMIT 1`,
+    [employeeUserId, dayStart, dayEnd]
+  );
+  if (!sessions.length) return [];
+  const session = sessions[0];
+  const sessionStart = session.started_at;
+  const sessionEnd = session.stopped_at || dayEnd;
+
+  // A half-open range is index-friendly and cannot include location pings
+  // from another date or another Field tracking session.
   const [pings] = await db.query(
     `SELECT latitude, longitude, address, recorded_at
      FROM hrms_location_pings
@@ -69,7 +89,7 @@ async function routePingsForDate(employeeUserId, date) {
        AND recorded_at >= ?
        AND recorded_at < ?
      ORDER BY recorded_at ASC`,
-    [employeeUserId, date + ' 00:00:00', nextDate + ' 00:00:00']
+    [employeeUserId, sessionStart, sessionEnd]
   );
   return pings;
 }
