@@ -2,7 +2,6 @@ const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
 const crypto = require('crypto');
-const { TYPES, createAdminNotification } = require('../lib/adminNotifications');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -49,49 +48,6 @@ function minutesFromCheckIn(checkInAt) {
 function weekdayIndex(date) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-}
-
-function nextCalendarDate(date) {
-  const [year, month, day] = String(date).split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + 1))
-    .toISOString()
-    .slice(0, 10);
-}
-
-async function routePingsForDate(employeeUserId, date) {
-  const nextDate = nextCalendarDate(date);
-  const dayStart = date + ' 00:00:00';
-  const dayEnd = nextDate + ' 00:00:00';
-  // A route must come from one Field tracking session.  Otherwise points
-  // from a completed early-morning session and a later live session are
-  // connected into one false journey on the map.
-  const [sessions] = await db.query(
-    `SELECT started_at, stopped_at
-     FROM hrms_field_tracking_sessions
-     WHERE employee_user_id = ?
-       AND started_at >= ?
-       AND started_at < ?
-     ORDER BY is_active DESC, started_at DESC
-     LIMIT 1`,
-    [employeeUserId, dayStart, dayEnd]
-  );
-  if (!sessions.length) return [];
-  const session = sessions[0];
-  const sessionStart = session.started_at;
-  const sessionEnd = session.stopped_at || dayEnd;
-
-  // A half-open range is index-friendly and cannot include location pings
-  // from another date or another Field tracking session.
-  const [pings] = await db.query(
-    `SELECT latitude, longitude, address, recorded_at
-     FROM hrms_location_pings
-     WHERE employee_user_id = ?
-       AND recorded_at >= ?
-       AND recorded_at < ?
-     ORDER BY recorded_at ASC`,
-    [employeeUserId, sessionStart, sessionEnd]
-  );
-  return pings;
 }
 
 async function list(req, res) {
@@ -244,10 +200,6 @@ async function list(req, res) {
 }
 
 const ACTIVE_WINDOW_MINUTES = 15;
-// A browser can fall back to Wi-Fi/IP positioning and report a location tens
-// of kilometres away with an equally large accuracy radius. Such a point must
-// not be treated as employee travel or reset stationary-time detection.
-const MAX_USABLE_GPS_ACCURACY_METERS = 1000;
 
 async function ensureRoadRouteCacheTable() {
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_road_route_cache (
@@ -307,30 +259,6 @@ function routesWaypoint(point) {
   return { location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } } };
 }
 
-function waitForRouteRetry(milliseconds) {
-  return new Promise(function (resolve) { setTimeout(resolve, milliseconds); });
-}
-
-async function googleRouteFetch(url, options) {
-  let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await fetch(url, options);
-      if (response.status !== 429 && response.status < 500) return response;
-      lastError = new Error('Google route service returned ' + response.status);
-    } catch (error) {
-      // Certificate errors are configuration errors, not temporary failures.
-      // Retrying them only delays the employee's route screen.
-      if (error && error.cause && error.cause.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-        throw error;
-      }
-      lastError = error;
-    }
-    if (attempt < 2) await waitForRouteRetry(300 * (attempt + 1));
-  }
-  throw lastError || new Error('Google route service was unavailable');
-}
-
 async function routeWithGoogleRoutes(rawPoints, apiKey) {
   // Routes API accepts a limited number of intermediate waypoints. Each group
   // overlaps one point, preserving a continuous whole-day journey.
@@ -339,7 +267,7 @@ async function routeWithGoogleRoutes(rawPoints, apiKey) {
   for (let start = 0; start < rawPoints.length - 1; start += MAX_POINTS_PER_REQUEST - 1) {
     const chunk = rawPoints.slice(start, start + MAX_POINTS_PER_REQUEST);
     if (chunk.length < 2) break;
-    const response = await googleRouteFetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -428,7 +356,7 @@ async function snapRouteToRoads(employeeUserId, date, rawPoints) {
       }).join('|');
       const url = 'https://roads.googleapis.com/v1/snapToRoads?interpolate=true&path=' +
         encodeURIComponent(path) + '&key=' + encodeURIComponent(apiKey);
-      const response = await googleRouteFetch(url, {});
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Roads API returned ' + response.status);
       const body = await response.json();
       const points = Array.isArray(body.snappedPoints) ? body.snappedPoints : [];
@@ -547,16 +475,15 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
 
 async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   const [sessions] = await db.query(
-    `SELECT id,
-            DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at
+    `SELECT id, started_at
      FROM hrms_field_tracking_sessions
      WHERE employee_user_id = ? AND is_active = 1
-     ORDER BY started_at DESC, id DESC
+     ORDER BY started_at DESC
      LIMIT 1`,
     [employeeUserId]
   );
 
-  if (!sessions.length) return false;
+  if (!sessions.length) return;
 
   const session = sessions[0];
 
@@ -566,7 +493,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
      WHERE id = 1`
   );
 
-  if (!settingsRows.length) return false;
+  if (!settingsRows.length) return;
 
   const waitingMinutes = Number(settingsRows[0].field_waiting_minutes || 60);
 
@@ -584,12 +511,10 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     [session.id]
   );
 
-  if (existingAlerts.length) return false;
+  if (existingAlerts.length) return;
 
   const [pings] = await db.query(
-    `SELECT latitude,
-            longitude,
-            DATE_FORMAT(recorded_at, '%Y-%m-%d %H:%i:%s') AS recorded_at
+    `SELECT latitude, longitude, recorded_at
      FROM hrms_location_pings
      WHERE employee_user_id = ?
        AND recorded_at >= ?
@@ -597,7 +522,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     [employeeUserId, session.started_at]
   );
 
-  if (pings.length < 2) return false;
+  if (pings.length < 2) return;
 
   let firstStillPing = pings[pings.length - 1];
 
@@ -616,18 +541,18 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
     firstStillPing = ping;
   }
 
-  const [[elapsedRow]] = await db.query(
-    `SELECT GREATEST(0, TIMESTAMPDIFF(MINUTE, ?, CURRENT_TIMESTAMP))
-       AS elapsed_minutes`,
-    [firstStillPing.recorded_at]
+  const startedAt = new Date(firstStillPing.recorded_at);
+
+  const elapsedMinutes = Math.floor(
+    (Date.now() - startedAt.getTime()) / 60000
   );
-  const elapsedMinutes = Number(elapsedRow && elapsedRow.elapsed_minutes) || 0;
 
-  if (elapsedMinutes < waitingMinutes) return false;
+  if (elapsedMinutes < waitingMinutes) return;
 
-  const eventKey = `${session.id}:${firstStillPing.recorded_at}`;
+const eventKey =
+  '${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}';
 
-const [insertResult] = await db.query(
+await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (
      field_session_id,
      employee_user_id,
@@ -649,43 +574,6 @@ const [insertResult] = await db.query(
     eventKey,
   ]
 );
-
-return insertResult.affectedRows > 0;
-}
-
-// A server-side fallback for active field sessions. Browser timers can be
-// throttled and an individual ping request must never be the only way a
-// waiting alert is created.
-async function runFieldWaitingChecks() {
-  const [activeEmployees] = await db.query(
-    `SELECT DISTINCT s.employee_user_id, latest.latitude, latest.longitude
-     FROM hrms_field_tracking_sessions s
-     INNER JOIN (
-       SELECT p.employee_user_id, p.latitude, p.longitude, p.recorded_at
-       FROM hrms_location_pings p
-       INNER JOIN (
-         SELECT employee_user_id, MAX(recorded_at) AS recorded_at
-         FROM hrms_location_pings
-         GROUP BY employee_user_id
-       ) newest
-         ON newest.employee_user_id = p.employee_user_id
-        AND newest.recorded_at = p.recorded_at
-     ) latest ON latest.employee_user_id = s.employee_user_id
-     WHERE s.is_active = 1
-       AND latest.recorded_at >= CURRENT_TIMESTAMP - INTERVAL ${ACTIVE_WINDOW_MINUTES} MINUTE`
-  );
-
-  let createdCount = 0;
-  for (const employee of activeEmployees) {
-    const created = await detectFieldWaitingTime(
-      employee.employee_user_id,
-      Number(employee.latitude),
-      Number(employee.longitude)
-    );
-    if (created) createdCount += 1;
-  }
-
-  return { checked: activeEmployees.length, created: createdCount };
 }
 
 async function ping(req, res) {
@@ -697,20 +585,6 @@ async function ping(req, res) {
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return fail(res, 400, 'latitude and longitude are required numbers');
-    }
-    if (
-      Number.isFinite(accuracy) &&
-      accuracy > MAX_USABLE_GPS_ACCURACY_METERS
-    ) {
-      return ok(
-        res,
-        {
-          locationRecorded: false,
-          locationIgnored: true,
-          accuracyMeters: accuracy,
-        },
-        'Location ignored because GPS accuracy is too low. Move outdoors or enable precise location.'
-      );
     }
     const [result] = await db.query(
       `INSERT INTO hrms_location_pings (employee_user_id, latitude, longitude, accuracy_meters)
@@ -901,7 +775,13 @@ async function routeHistory(req, res) {
     if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
 
-    const pings = await routePingsForDate(employeeUserId, date);
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
+       ORDER BY recorded_at ASC`,
+      [employeeUserId, date]
+    );
 
     const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
     return ok(res, {
@@ -912,57 +792,6 @@ async function routeHistory(req, res) {
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);
-    return fail(res, 500, error.message);
-  }
-}
-
-async function employeeTrackingDetails(req, res) {
-  try {
-    const employeeUserId = Number(req.params.employeeUserId);
-    const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
-    if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
-
-    const nextDate = nextCalendarDate(date);
-    const dayStart = date + ' 00:00:00';
-    const dayEnd = nextDate + ' 00:00:00';
-    const results = await Promise.all([
-      routePingsForDate(employeeUserId, date),
-      db.query(
-        `SELECT id, latitude, longitude, waiting_minutes, reason,
-                waiting_started_at, waiting_detected_at, reason_submitted_at,
-                review_status
-         FROM hrms_field_waiting_reasons
-         WHERE employee_user_id = ?
-           AND waiting_detected_at >= ? AND waiting_detected_at < ?
-         ORDER BY waiting_detected_at ASC`,
-        [employeeUserId, dayStart, dayEnd]
-      ),
-      db.query(
-        `SELECT id, comment_text AS comment, latitude, longitude, address,
-                created_at AS createdAt
-         FROM hrms_employee_tracking_comments
-         WHERE employee_user_id = ?
-           AND created_at >= ? AND created_at < ?
-         ORDER BY created_at ASC`,
-        [employeeUserId, dayStart, dayEnd]
-      ),
-    ]);
-    const pings = results[0];
-    const waitingReasons = results[1][0];
-    const comments = results[2][0];
-    const route = await snapRouteToRoads(employeeUserId, date, rawRoutePoints(pings));
-    return ok(res, {
-      employeeUserId,
-      date,
-      points: route.points,
-      activityPoints: rawRoutePoints(pings),
-      roadSnapped: route.roadSnapped,
-      waitingReasons,
-      comments,
-    });
-  } catch (error) {
-    console.error('GET /hrms/tracking/employee/:employeeUserId/details', error);
     return fail(res, 500, error.message);
   }
 }
@@ -1014,7 +843,13 @@ async function myRouteHistory(req, res) {
   try {
     const date = String(req.query.date || policy.todayIstDate()).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, 'date must be YYYY-MM-DD');
-    const pings = await routePingsForDate(req.user.id, date);
+    const [pings] = await db.query(
+      `SELECT latitude, longitude, address, recorded_at
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) = ?
+       ORDER BY recorded_at ASC`,
+      [req.user.id, date]
+    );
     const route = await snapRouteToRoads(req.user.id, date, rawRoutePoints(pings));
     return ok(res, {
       employeeUserId: req.user.id,
@@ -1345,7 +1180,7 @@ async function getMyFieldSession(req, res) {
       `SELECT *
        FROM hrms_field_tracking_sessions
        WHERE employee_user_id = ? AND is_active = 1
-       ORDER BY started_at DESC, id DESC
+       ORDER BY started_at DESC
        LIMIT 1`,
       [employeeUserId]
     );
@@ -1393,13 +1228,10 @@ async function getFieldSessionSummary(req, res) {
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
 
     const [sessions] = await db.query(
-      `SELECT id,
-              DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
-              GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP))
-                AS duration_seconds
+      `SELECT id, started_at
        FROM hrms_field_tracking_sessions
        WHERE employee_user_id = ? AND is_active = 1
-       ORDER BY started_at DESC, id DESC LIMIT 1`,
+       ORDER BY started_at DESC LIMIT 1`,
       [employeeUserId]
     );
 
@@ -1431,7 +1263,10 @@ async function getFieldSessionSummary(req, res) {
       );
     }
 
-    const durationSeconds = Number(session.duration_seconds) || 0;
+    const durationSeconds = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000) || 0
+    );
     const distanceKm = Math.round((meters / 1000) * 100) / 100;
     const averageSpeedKmph = durationSeconds > 0
       ? Math.round(((meters / 1000) / (durationSeconds / 3600)) * 10) / 10
@@ -1446,26 +1281,6 @@ async function getFieldSessionSummary(req, res) {
   } catch (error) {
     console.error('GET /hrms/tracking/field-session/summary', error);
     return fail(res, 500, 'Unable to load field session summary');
-  }
-}
-
-async function withFieldTrackingLock(employeeUserId, action) {
-  const lockName = 'hrms-field-session:' + String(employeeUserId);
-  const [[lock]] = await db.query(
-    'SELECT GET_LOCK(?, 5) AS acquired',
-    [lockName]
-  );
-
-  if (Number(lock && lock.acquired) !== 1) {
-    throw new Error('Tracking is already being updated. Please try again.');
-  }
-
-  try {
-    return await action();
-  } finally {
-    await db.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(function (error) {
-      console.error('Unable to release field tracking lock:', error.message);
-    });
   }
 }
 
@@ -1484,16 +1299,6 @@ async function startFieldTracking(req, res) {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return fail(res, 400, 'Valid latitude and longitude are required');
     }
-    if (
-      Number.isFinite(accuracy) &&
-      accuracy > MAX_USABLE_GPS_ACCURACY_METERS
-    ) {
-      return fail(
-        res,
-        422,
-        'GPS accuracy is too low. Move outdoors or enable precise location before starting live tracking.'
-      );
-    }
 
     const [profiles] = await db.query(
       `SELECT work_mode
@@ -1506,67 +1311,49 @@ async function startFieldTracking(req, res) {
       return fail(res, 403, 'Live tracking is available only for Field or Hybrid employees');
     }
 
-    const sessionResult = await withFieldTrackingLock(
-      employeeUserId,
-      async function () {
-        const [activeSessions] = await db.query(
-          `SELECT id
-           FROM hrms_field_tracking_sessions
-           WHERE employee_user_id = ? AND is_active = 1
-           ORDER BY started_at DESC, id DESC`,
-          [employeeUserId]
-        );
+    const [activeSessions] = await db.query(
+      `SELECT id
+       FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND is_active = 1
+       LIMIT 1`,
+      [employeeUserId]
+    );
 
-        if (activeSessions.length) {
-          const primarySession = activeSessions[0];
+    if (activeSessions.length) {
+      return ok(
+        res,
+        { sessionId: activeSessions[0].id, isActive: true },
+        'Live tracking is already active'
+      );
+    }
 
-          // Older duplicate rows can only be caused by an earlier racing
-          // request. Keep the newest session and close the rest.
-          if (activeSessions.length > 1) {
-            await db.query(
-              `UPDATE hrms_field_tracking_sessions
-               SET is_active = 0, stopped_at = CURRENT_TIMESTAMP
-               WHERE employee_user_id = ? AND is_active = 1 AND id <> ?`,
-              [employeeUserId, primarySession.id]
-            );
-          }
+    const [session] = await db.query(
+      `INSERT INTO hrms_field_tracking_sessions
+        (employee_user_id, start_latitude, start_longitude)
+       VALUES (?, ?, ?)`,
+      [employeeUserId, latitude, longitude]
+    );
 
-          return { sessionId: primarySession.id, alreadyActive: true };
-        }
+    await db.query(
+      `INSERT INTO hrms_location_pings
+        (employee_user_id, latitude, longitude, accuracy_meters)
+       VALUES (?, ?, ?, ?)`,
+      [employeeUserId, latitude, longitude, accuracy]
+    );
 
-        const [session] = await db.query(
-          `INSERT INTO hrms_field_tracking_sessions
-            (employee_user_id, start_latitude, start_longitude)
-           VALUES (?, ?, ?)`,
-          [employeeUserId, latitude, longitude]
-        );
-
-        await db.query(
-          `INSERT INTO hrms_location_pings
-            (employee_user_id, latitude, longitude, accuracy_meters)
-           VALUES (?, ?, ?, ?)`,
-          [employeeUserId, latitude, longitude, accuracy]
-        );
-
-        await db.query(
-          `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-           VALUES (?, 'field')
-           ON DUPLICATE KEY UPDATE
-             status = 'field',
-             updated_at = CURRENT_TIMESTAMP`,
-          [employeeUserId]
-        );
-
-        return { sessionId: session.insertId, alreadyActive: false };
-      }
+    await db.query(
+      `INSERT INTO hrms_employee_location_status (employee_user_id, status)
+       VALUES (?, 'field')
+       ON DUPLICATE KEY UPDATE
+         status = 'field',
+         updated_at = CURRENT_TIMESTAMP`,
+      [employeeUserId]
     );
 
     return ok(
       res,
-      { sessionId: sessionResult.sessionId, isActive: true },
-      sessionResult.alreadyActive
-        ? 'Live tracking is already active'
-        : 'Field live tracking started'
+      { sessionId: session.insertId, isActive: true },
+      'Field live tracking started'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/start', error);
@@ -1588,43 +1375,34 @@ async function stopFieldTracking(req, res) {
       return fail(res, 401, 'Unauthorized');
     }
 
-    const stopResult = await withFieldTrackingLock(
-      employeeUserId,
-      async function () {
-        const [activeSessions] = await db.query(
-          `SELECT id
-           FROM hrms_field_tracking_sessions
-           WHERE employee_user_id = ? AND is_active = 1
-           ORDER BY started_at DESC, id DESC`,
-          [employeeUserId]
-        );
-
-        if (!activeSessions.length) return { sessionId: null };
-
-        const sessionId = activeSessions[0].id;
-        await db.query(
-          `UPDATE hrms_field_tracking_sessions
-           SET is_active = 0,
-               stopped_at = CURRENT_TIMESTAMP,
-               stop_latitude = ?,
-               stop_longitude = ?
-           WHERE employee_user_id = ? AND is_active = 1`,
-          [
-            Number.isFinite(latitude) ? latitude : null,
-            Number.isFinite(longitude) ? longitude : null,
-            employeeUserId,
-          ]
-        );
-
-        return { sessionId: sessionId };
-      }
+    const [activeSessions] = await db.query(
+      `SELECT id
+       FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND is_active = 1
+       ORDER BY started_at DESC
+       LIMIT 1`,
+      [employeeUserId]
     );
 
-    if (!stopResult.sessionId) {
+    if (!activeSessions.length) {
       return ok(res, { isActive: false }, 'No active field tracking session');
     }
 
-    const sessionId = stopResult.sessionId;
+    const sessionId = activeSessions[0].id;
+
+    await db.query(
+      `UPDATE hrms_field_tracking_sessions
+       SET is_active = 0,
+           stopped_at = CURRENT_TIMESTAMP,
+           stop_latitude = ?,
+           stop_longitude = ?
+       WHERE id = ?`,
+      [
+        Number.isFinite(latitude) ? latitude : null,
+        Number.isFinite(longitude) ? longitude : null,
+        sessionId,
+      ]
+    );
 
     // Stopping live tracking ends the attendance session for Field employees
     // and Hybrid employees working in field mode.
@@ -1640,11 +1418,7 @@ async function stopFieldTracking(req, res) {
       [employeeUserId, policy.todayIstDate()]
     );
 
-    if (
-      Number.isFinite(latitude) &&
-      Number.isFinite(longitude) &&
-      (!Number.isFinite(accuracy) || accuracy <= MAX_USABLE_GPS_ACCURACY_METERS)
-    ) {
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
       await db.query(
         `INSERT INTO hrms_location_pings
           (employee_user_id, latitude, longitude, accuracy_meters)
@@ -1652,15 +1426,6 @@ async function stopFieldTracking(req, res) {
         [employeeUserId, latitude, longitude, accuracy]
       );
     }
-
-    await db.query(
-      `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-       VALUES (?, 'office')
-       ON DUPLICATE KEY UPDATE
-         status = 'office',
-         updated_at = CURRENT_TIMESTAMP`,
-      [employeeUserId]
-    );
 
     return ok(
       res,
@@ -1696,13 +1461,11 @@ async function getMyWaitingAlert(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT waiting.id, waiting.waiting_minutes, waiting.waiting_started_at, waiting.waiting_detected_at
-       FROM hrms_field_waiting_reasons waiting
-       INNER JOIN hrms_field_tracking_sessions session
-         ON session.id = waiting.field_session_id AND session.is_active = 1
-       WHERE waiting.employee_user_id = ?
-         AND waiting.reason IS NULL
-         AND waiting.review_status = 'pending'
+      `SELECT id, waiting_minutes, waiting_started_at, waiting_detected_at
+       FROM hrms_field_waiting_reasons
+       WHERE employee_user_id = ?
+         AND reason IS NULL
+         AND review_status = 'pending'
        ORDER BY waiting_detected_at DESC
        LIMIT 1`,
       [employeeUserId]
@@ -1737,19 +1500,6 @@ async function submitWaitingReason(req, res) {
     if (!result.affectedRows) {
       return fail(res, 404, 'Waiting alert not found');
     }
-
-    const [profiles] = await db.query(
-      'SELECT full_name FROM hrms_employee_profiles WHERE employee_user_id = ?',
-      [employeeUserId]
-    );
-    const employeeName = String((profiles[0] && profiles[0].full_name) || 'An employee').trim();
-    createAdminNotification({
-      type: TYPES.FIELD_WAITING_REASON,
-      sourceId: reasonId,
-      employeeUserId,
-      title: 'Field waiting reason submitted',
-      message: `${employeeName} submitted a reason for waiting: ${reason.slice(0, 300)}`,
-    }).catch((error) => console.error('Could not create waiting-reason notification:', error.message));
 
     return ok(res, null, 'Waiting reason submitted');
   } catch (error) {
@@ -1814,16 +1564,7 @@ async function addTrackingComment(req, res) {
     const [profiles] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
     if (!profiles.length || !['Field', 'Hybrid'].includes(profiles[0].work_mode)) return fail(res, 403, 'Comments are available only to Field and Hybrid employees');
     const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
-    const [result] = await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
-    const [nameRows] = await db.query('SELECT full_name FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeUserId]);
-    const employeeName = String((nameRows[0] && nameRows[0].full_name) || 'An employee').trim();
-    createAdminNotification({
-      type: TYPES.TRACKING_COMMENT,
-      sourceId: result.insertId,
-      employeeUserId,
-      title: 'New employee tracking comment',
-      message: `${employeeName}: ${text.slice(0, 360)}`,
-    }).catch((error) => console.error('Could not create tracking-comment notification:', error.message));
+    await db.query('INSERT INTO hrms_employee_tracking_comments (employee_user_id, comment_text, latitude, longitude, address) VALUES (?, ?, ?, ?, ?)', [employeeUserId, text, Number.isFinite(latitude) ? latitude : null, Number.isFinite(longitude) ? longitude : null, String(req.body.address || '').trim() || null]);
     return ok(res, null, 'Comment saved');
   } catch (error) { return fail(res, 500, error.message); }
 }
@@ -1849,7 +1590,6 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
-  employeeTrackingDetails,
   myRouteHistoryList,
   myRouteHistory,
   getTrackingSettings,
@@ -1866,8 +1606,7 @@ stopFieldTracking,
 getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
-  reviewFieldWaitingReason,
-  runFieldWaitingChecks,
+reviewFieldWaitingReason,
   addTrackingComment,
   myTrackingComments,
   adminTrackingComments,

@@ -194,54 +194,6 @@ async function list(req, res) {
   }
 }
 
-async function detail(req, res) {
-  try {
-    const id = Number(req.params.id);
-    const [[profile]] = await db.query(
-      `SELECT p.*, u.username FROM hrms_employee_profiles p
-       LEFT JOIN employee_users u ON u.id = p.employee_user_id WHERE p.id = ?`,
-      [id]
-    );
-    if (!profile) return fail(res, 404, 'Employee not found');
-    const employeeId = Number(profile.employee_user_id || 0);
-    const [[attendance]] = await db.query(
-      `SELECT
-        SUM(CASE WHEN check_in_at IS NOT NULL AND attendance_status <> 'absent' THEN 1 ELSE 0 END) AS present,
-        SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END) AS late,
-        SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent
-       FROM attendance_records WHERE employee_id = ?
-         AND attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
-         AND attendance_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)`,
-      [employeeId]
-    );
-    const [[leave]] = await db.query(
-      `SELECT COUNT(*) AS total, SUM(status = 'approved') AS approved, SUM(status = 'pending') AS pending
-       FROM employee_leaves WHERE employee_id = ?
-         AND from_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')`,
-      [employeeId]
-    );
-    const [[payroll]] = await db.query(
-      `SELECT working_days, paid_days, lop_days, net_pay, status
-       FROM hrms_payroll_items WHERE profile_id = ?
-       ORDER BY pay_year DESC, pay_month DESC LIMIT 1`,
-      [id]
-    );
-    return ok(res, {
-      employee: toUi(profile),
-      attendance: {
-        present: Number(attendance.present || 0), late: Number(attendance.late || 0), absent: Number(attendance.absent || 0),
-      },
-      leave: { total: Number(leave.total || 0), approved: Number(leave.approved || 0), pending: Number(leave.pending || 0) },
-      payroll: payroll ? {
-        workingDays: Number(payroll.working_days || 0), paidDays: Number(payroll.paid_days || 0),
-        lopDays: Number(payroll.lop_days || 0), netPay: Number(payroll.net_pay || 0), status: payroll.status,
-      } : null,
-    });
-  } catch (error) {
-    return fail(res, 500, error.message);
-  }
-}
-
 async function create(req, res) {
   try {
     const body = req.body || {};
@@ -439,7 +391,6 @@ async function exportCsv(req, res) {
 module.exports = {
   requireAdmin: requireAdmin,
   summary: summary,
-  detail: detail,
   list: list,
   create: create,
   resetPassword: resetPassword,
