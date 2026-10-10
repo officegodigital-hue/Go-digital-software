@@ -71,8 +71,20 @@ class AttendanceApi {
     return _get('/attendance/me?month=$value');
   }
 
-  static Future<void> checkIn({String method = 'mobile'}) {
-    return _post('/attendance/check-in', {'method': method});
+  static Future<void> checkIn({
+    String method = 'mobile',
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    DateTime? capturedAt,
+  }) {
+    return _post('/attendance/check-in', {
+      'method': method,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (accuracy != null) 'accuracy': accuracy,
+      if (capturedAt != null) 'capturedAt': capturedAt.toUtc().toIso8601String(),
+    });
   }
 
   static Future<void> checkOut() {

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/hrms_tracking_api.dart';
 import '../../../services/office_address_search.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import 'employee_tracking_report_page.dart';
 import 'widgets/home_locations_dialog.dart';
 
 part 'tracking_desktop.dart';
@@ -29,7 +30,6 @@ class TrackingPage extends StatefulWidget {
 }
 
 class _TrackingPageState extends State<TrackingPage> {
-  String mode = 'Office';
 
   static const _modeStorageKey = 'admin_tracking_last_mode';
   static const _pollInterval = Duration(seconds: 30);
@@ -41,6 +41,7 @@ class _TrackingPageState extends State<TrackingPage> {
     field: 0,
     activeNow: 0,
   );
+  String mode = 'Office';
   bool loading = true;
   String? error;
   DateTime? lastLoadedAt;
@@ -185,6 +186,19 @@ class _TrackingPageState extends State<TrackingPage> {
     );
   }
 
+  void _viewReport(_TrackedEmployee employee) {
+    if (employee.employeeUserId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EmployeeTrackingReportPage(
+          employeeUserId: employee.employeeUserId!,
+          employeeName: employee.name,
+          employeeCode: employee.id,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mobile = MediaQuery.sizeOf(context).width < 600;
@@ -256,6 +270,7 @@ class _TrackingPageState extends State<TrackingPage> {
                               onSelectEmployee: _viewRoute,
                               onViewActivity: _viewActivity,
                               onHomeApprovals: _openHomeApprovals,
+                              onViewReport: _viewReport,
                             ),
                           ],
                         ],
@@ -3696,13 +3711,15 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied)
+        if (permission == LocationPermission.denied) {
           throw Exception('Location permission denied.');
+        }
       }
-      if (permission == LocationPermission.deniedForever)
+      if (permission == LocationPermission.deniedForever) {
         throw Exception(
           'Location permission permanently denied. Enable it in Settings.',
         );
+      }
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -4114,7 +4131,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
           onChanged: (_) => setState(() {}),
           style: const TextStyle(color: _navy, fontSize: 14),
           decoration: _dec(
-            'Allowed Clock In radius (metres)',
+            'Allowed Check In radius (metres)',
             helper: 'This distance also applies to approved home locations.',
           ),
         ),

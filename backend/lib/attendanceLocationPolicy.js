@@ -62,7 +62,7 @@ async function profileFor(db, employeeId, lock = false) {
     throw new LocationPolicyError(403, 'An employee profile must be configured by admin before clocking in.');
   }
   const profile = rows[0];
-  if (!['Office', 'Home', 'Field'].includes(profile.work_mode)) {
+  if (!['Office', 'Home', 'Hybrid'].includes(profile.work_mode)) {
     throw new LocationPolicyError(403, 'Employee work mode must be configured by admin.');
   }
   return profile;
@@ -92,7 +92,23 @@ async function settingsFor(db, lock = false) {
 async function getCheckInPolicy(db, employeeId, lock = false) {
   const profile = await profileFor(db, employeeId, lock);
   const workMode = profile.work_mode;
-  if (workMode === 'Field') return { workMode, requiresLocation: false, radiusMeters: null };
+  if (workMode === 'Hybrid') {
+    const [sessions] = await db.query(
+      `SELECT id FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND is_active = 1
+       LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+      [employeeId]
+    );
+    const trackingActive = sessions.length > 0;
+    return {
+      workMode,
+      requiresLocation: false,
+      radiusMeters: null,
+      trackingRequired: false,
+      trackingActive,
+      canClockIn: true,
+    };
+  }
   const settings = await settingsFor(db, lock);
   let center;
   if (workMode === 'Office') {

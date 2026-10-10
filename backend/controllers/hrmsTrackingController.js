@@ -245,8 +245,8 @@ async function setStatus(req, res) {
     const employeeUserId = req.user && req.user.id;
     const status = String(req.body.status || '').toLowerCase();
     if (!employeeUserId) return fail(res, 401, 'Unauthorized');
-    if (!['office', 'home', 'field'].includes(status)) {
-      return fail(res, 400, "status must be 'office', 'home', or 'field'");
+    if (!['office', 'home', 'hybrid'].includes(status)) {
+      return fail(res, 400, "status must be 'office', 'home', or 'hybrid'");
     }
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
@@ -539,7 +539,7 @@ async function liveOverview(req, res) {
 
     const now = Date.now();
     let activeNow = 0;
-    const counts = { office: 0, home: 0, field: 0 };
+    const counts = { office: 0, home: 0, hybrid: 0 };
 
     const items = profiles.map(function (profile) {
       const uid = profile.employee_user_id ? Number(profile.employee_user_id) : null;
@@ -571,7 +571,7 @@ async function liveOverview(req, res) {
       counts: {
         office: counts.office || 0,
         home: counts.home || 0,
-        field: counts.field || 0,
+        hybrid: counts.hybrid || 0,
         activeNow: activeNow,
       },
       items: items,
@@ -614,6 +614,17 @@ async function routeHistory(req, res) {
     return fail(res, 500, error.message);
   }
 }
+
+// Return the authenticated employee's own route without granting access to
+// another employee's location history.
+async function myRouteHistory(req, res) {
+  if (!req.user || !req.user.id) {
+    return fail(res, 401, 'Unauthorized');
+  }
+  req.params.employeeUserId = req.user.id;
+  return routeHistory(req, res);
+}
+
 async function getTrackingSettings(req, res) {
   try {
     const [rows] = await db.query(
@@ -895,6 +906,16 @@ async function getMyFieldSession(req, res) {
       return fail(res, 401, 'Unauthorized');
     }
 
+    const [profiles] = await db.query(
+      `SELECT work_mode FROM hrms_employee_profiles
+       WHERE employee_user_id = ?`,
+      [employeeUserId]
+    );
+    const workMode = profiles[0] && profiles[0].work_mode;
+    if (workMode !== 'Hybrid') {
+      return fail(res, 403, 'Live tracking is only available for Hybrid employees');
+    }
+
     const [rows] = await db.query(
       `SELECT *
        FROM hrms_field_tracking_sessions
@@ -904,7 +925,11 @@ async function getMyFieldSession(req, res) {
       [employeeUserId]
     );
 
-    return ok(res, rows[0] || { isActive: false });
+    return ok(res, {
+      ...(rows[0] || { isActive: false }),
+      workMode,
+      isHybrid: workMode === 'Hybrid',
+    });
   } catch (error) {
     console.error('GET /hrms/tracking/field-session', error);
     return fail(res, 500, error.message);
@@ -934,8 +959,24 @@ async function startFieldTracking(req, res) {
       [employeeUserId]
     );
 
-    if (!profiles.length || profiles[0].work_mode !== 'Field') {
-      return fail(res, 403, 'Field live tracking is only available for Field employees');
+    if (!profiles.length || profiles[0].work_mode !== 'Hybrid') {
+      return fail(res, 403, 'Live tracking is only available for Hybrid employees');
+    }
+
+    // Hybrid attendance begins with Clock In. Tracking is available only for
+    // an active attendance session, so an employee cannot create location
+    // records before starting work.
+    const [attendanceRows] = await db.query(
+      `SELECT id FROM attendance_records
+       WHERE employee_id = ?
+         AND attendance_date = ?
+         AND check_in_at IS NOT NULL
+         AND check_out_at IS NULL
+       LIMIT 1`,
+      [employeeUserId, policy.todayIstDate()]
+    );
+    if (!attendanceRows.length) {
+      return fail(res, 409, 'Clock in before starting Hybrid live tracking.');
     }
 
     const [activeSessions] = await db.query(
@@ -970,9 +1011,9 @@ async function startFieldTracking(req, res) {
 
     await db.query(
       `INSERT INTO hrms_employee_location_status (employee_user_id, status)
-       VALUES (?, 'field')
+        VALUES (?, 'hybrid')
        ON DUPLICATE KEY UPDATE
-         status = 'field',
+          status = 'hybrid',
          updated_at = CURRENT_TIMESTAMP`,
       [employeeUserId]
     );
@@ -980,7 +1021,7 @@ async function startFieldTracking(req, res) {
     return ok(
       res,
       { sessionId: session.insertId, isActive: true },
-      'Field live tracking started'
+      'Hybrid live tracking started'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/start', error);
@@ -1012,7 +1053,7 @@ async function stopFieldTracking(req, res) {
     );
 
     if (!activeSessions.length) {
-      return ok(res, { isActive: false }, 'No active field tracking session');
+      return ok(res, { isActive: false }, 'No active Hybrid tracking session');
     }
 
     const sessionId = activeSessions[0].id;
@@ -1043,7 +1084,7 @@ async function stopFieldTracking(req, res) {
     return ok(
       res,
       { sessionId: sessionId, isActive: false },
-      'Field live tracking stopped'
+      'Hybrid live tracking stopped'
     );
   } catch (error) {
     console.error('POST /hrms/tracking/field-session/stop', error);
@@ -1149,6 +1190,121 @@ async function reviewFieldWaitingReason(req, res) {
 
 
 
+async function monthlyReport(req, res) {
+  try {
+    const employeeUserId = Number(req.params.employeeUserId);
+    if (!employeeUserId) return fail(res, 400, 'Valid employeeUserId is required');
+
+    const monthParam = String(req.query.month || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+      return fail(res, 400, 'month must be YYYY-MM');
+    }
+
+    const [year, month] = monthParam.split('-').map(Number);
+    const firstDay = `${monthParam}-01`;
+    const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+
+    const [profiles] = await db.query(
+      `SELECT full_name, employee_code, work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1`,
+      [employeeUserId]
+    );
+    if (!profiles.length) return fail(res, 404, 'Employee not found');
+    const profile = profiles[0];
+
+    const [attendance] = await db.query(
+      `SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS date,
+              check_in_at, check_out_at, is_late, working_minutes,
+              attendance_status, check_in_method, session_status
+       FROM attendance_records
+       WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?
+       ORDER BY attendance_date ASC`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const [pingSummary] = await db.query(
+      `SELECT DATE_FORMAT(recorded_at, '%Y-%m-%d') AS date,
+              COUNT(*) AS ping_count
+       FROM hrms_location_pings
+       WHERE employee_user_id = ? AND DATE(recorded_at) BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(recorded_at, '%Y-%m-%d')`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const [fieldSessions] = await db.query(
+      `SELECT DATE_FORMAT(started_at, '%Y-%m-%d') AS date,
+              COUNT(*) AS session_count,
+              SUM(TIMESTAMPDIFF(MINUTE, started_at, IFNULL(stopped_at, NOW()))) AS field_minutes
+       FROM hrms_field_tracking_sessions
+       WHERE employee_user_id = ? AND DATE(started_at) BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(started_at, '%Y-%m-%d')`,
+      [employeeUserId, firstDay, lastDay]
+    );
+
+    const attendanceMap = new Map(attendance.map(function (r) { return [r.date, r]; }));
+    const pingMap = new Map(pingSummary.map(function (r) { return [r.date, r]; }));
+    const sessionMap = new Map(fieldSessions.map(function (r) { return [r.date, r]; }));
+
+    const today = policy.todayIstDate();
+    const days = [];
+    for (let d = new Date(Date.UTC(year, month - 1, 1)); isoDate(d) <= lastDay && isoDate(d) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = isoDate(d);
+      const att = attendanceMap.get(dateStr);
+      const pings = pingMap.get(dateStr);
+      const sessions = sessionMap.get(dateStr);
+
+      let status = 'Absent';
+      if (att) {
+        if (att.attendance_status === 'absent') {
+          status = 'Absent';
+        } else if (att.check_in_at && att.check_out_at) {
+          status = att.is_late ? 'Late' : 'Present';
+        } else if (att.check_in_at) {
+          status = att.is_late ? 'Late (in)' : 'Checked In';
+        }
+      }
+
+      const weekday = new Date(Date.UTC(year, month - 1, d.getUTCDate())).getUTCDay();
+
+      days.push({
+        date: dateStr,
+        weekday: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekday],
+        status: status,
+        checkIn: att && att.check_in_at ? policy.formatDisplayTime(att.check_in_at) : null,
+        checkOut: att && att.check_out_at ? policy.formatDisplayTime(att.check_out_at) : null,
+        workingMinutes: att ? Number(att.working_minutes || 0) : 0,
+        isLate: att ? Boolean(att.is_late) : false,
+        method: att ? (att.check_in_method || null) : null,
+        pingCount: pings ? Number(pings.ping_count) : 0,
+        fieldSessions: sessions ? Number(sessions.session_count) : 0,
+        fieldMinutes: sessions ? Math.round(Number(sessions.field_minutes || 0)) : 0,
+      });
+    }
+
+    const presentDays = days.filter(function (d) { return d.status === 'Present' || d.status === 'Late' || d.status === 'Checked In' || d.status === 'Late (in)'; }).length;
+    const lateDays = days.filter(function (d) { return d.isLate; }).length;
+    const totalPings = days.reduce(function (sum, d) { return sum + d.pingCount; }, 0);
+
+    return ok(res, {
+      employeeUserId: employeeUserId,
+      name: profile.full_name,
+      employeeCode: profile.employee_code,
+      workMode: profile.work_mode,
+      month: monthParam,
+      days: days,
+      summary: {
+        presentDays: presentDays,
+        lateDays: lateDays,
+        absentDays: days.length - presentDays,
+        totalPings: totalPings,
+        totalDays: days.length,
+      },
+    });
+  } catch (error) {
+    console.error('GET /hrms/tracking/employee/:id/monthly', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1156,6 +1312,7 @@ module.exports = {
   ping,
   liveOverview,
   routeHistory,
+  myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
   getMyHomeLocation,
@@ -1169,4 +1326,5 @@ getMyWaitingAlert,
 submitWaitingReason,
 listFieldWaitingReasons,
 reviewFieldWaitingReason,
+  monthlyReport,
 };

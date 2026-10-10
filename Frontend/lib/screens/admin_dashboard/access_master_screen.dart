@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -60,7 +60,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       return [
         {'key': '/employee/dashboard', 'title': 'Dashboard'},
         {'key': '/employee/attendance', 'title': 'Attendance'},
-        {'key': '/employee/clock-log', 'title': 'Clock In / Out'},
+        {'key': '/employee/clock-log', 'title': 'Check In / Out'},
         {'key': '/employee/leave', 'title': 'Leave'},
         {'key': '/employee/permission', 'title': 'Permission'},
         {'key': '/employee/extra-hours', 'title': 'Extra Hours'},

@@ -24,10 +24,4 @@ class ApiConfig {
 
     return 'http://10.0.2.2:3000';
   }
-
-  static String mediaUrl(String path) {
-    if (path.startsWith('http://') || path.startsWith('https://')) return path;
-    if (kIsWeb) return '${Uri.base.origin}$path';
-    return '$socketUrl$path';
-  }
 }

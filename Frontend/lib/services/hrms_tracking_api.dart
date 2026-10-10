@@ -193,6 +193,19 @@ class HrmsTrackingApi {
     return _resolveTrackingNames(_decode(response));
   }
 
+  static Future<Map<String, dynamic>> monthlyReport({
+    required int employeeUserId,
+    required String month,
+  }) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/tracking/employee/$employeeUserId/monthly',
+    ).replace(queryParameters: {'month': month});
+    final response = await http
+        .get(uri, headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> route({
     required int employeeUserId,
     required String date,

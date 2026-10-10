@@ -62,11 +62,9 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, dynamic>> _calendarOverrides = [];
   List<_EmployeeAttendance> _employees = [];
   int _kpiTotal = 0;
-  int _monthlyWorkingDays = 0;
   int _kpiPresent = 0;
   int _kpiAbsent = 0;
   int _kpiLate = 0;
-  List<String> _enabledLeaveTypes = const [];
   bool _loading = true;
   String? _error;
 
@@ -144,13 +142,9 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() {
         _employees = items;
         _kpiTotal = _asInt(kpis['totalEmployees']);
-        _monthlyWorkingDays = _asInt(data['totalWorkingDays']);
         _kpiPresent = _asInt(kpis['present']);
         _kpiAbsent = _asInt(kpis['absent']);
         _kpiLate = _asInt(kpis['late']);
-        _enabledLeaveTypes = (data['enabledLeaveTypes'] as List? ?? [])
-            .map((item) => item.toString())
-            .toList();
         _loading = false;
       });
     } catch (err) {
@@ -349,40 +343,39 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   EdgeInsets _dashboardPadding(double width) => EdgeInsets.fromLTRB(
-    width < 1100 ? 20 : 32,
-    22,
-    width < 1100 ? 20 : 32,
-    20,
-  );
+        width < 1100 ? 20 : 32,
+        22,
+        width < 1100 ? 20 : 32,
+        20,
+      );
 
   Widget _dashboardContent({required bool expanded}) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisSize: expanded ? MainAxisSize.min : MainAxisSize.max,
-    children: [
-      _pageHeading(),
-      const SizedBox(height: 18),
-      SizedBox(
-        height: 116,
-        child: _KpiRow(
-          monthly: _monthly,
-          workingDays: _monthlyWorkingDays,
-          total: _kpiTotal,
-          present: _kpiPresent,
-          absent: _kpiAbsent,
-          late: _kpiLate,
-        ),
-      ),
-      const SizedBox(height: 22),
-      if (expanded)
-        _attendancePanel(expanded: true)
-      else
-        Expanded(child: _attendancePanel(expanded: false)),
-      if (_monthly) ...[
-        const SizedBox(height: 12),
-        SizedBox(height: 50, child: _monthSelector()),
-      ],
-    ],
-  );
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: expanded ? MainAxisSize.min : MainAxisSize.max,
+        children: [
+          _pageHeading(),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 116,
+            child: _KpiRow(
+              monthly: _monthly,
+              total: _kpiTotal,
+              present: _kpiPresent,
+              absent: _kpiAbsent,
+              late: _kpiLate,
+            ),
+          ),
+          const SizedBox(height: 22),
+          if (expanded)
+            _attendancePanel(expanded: true)
+          else
+            Expanded(child: _attendancePanel(expanded: false)),
+          if (_monthly) ...[
+            const SizedBox(height: 12),
+            SizedBox(height: 50, child: _monthSelector()),
+          ],
+        ],
+      );
 
   Widget _pageHeading() => AdminPageHeader(
     title: 'Admin Dashboard',
@@ -443,7 +436,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(width: 24),
-                _AttendanceLegend(enabledLeaveTypes: _enabledLeaveTypes),
+                const _AttendanceLegend(),
                 const SizedBox(width: 24),
                 if (_monthly) ...[
                   Tooltip(
@@ -513,37 +506,38 @@ class _DashboardPageState extends State<DashboardPage> {
   );
 
   Widget _attendanceContent({required bool expanded}) => _loading
-      ? const Center(child: CircularProgressIndicator())
-      : _error != null
-      ? Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(_error!, textAlign: TextAlign.center),
-              ),
-              FilledButton(
-                onPressed: _loadDashboard,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        )
-      : _monthly
-      ? _AttendanceTable(
-          horizontalController: _tableScrollController,
-          year: _year,
-          month: _monthCodes.indexOf(_month) + 1,
-          weeklyOffDay: _weeklyOffDay,
-          overrides: _calendarOverrides,
-          employees: _employees,
-          showSummary: _showSummary,
-          expanded: expanded,
-          onToggleExpanded: () =>
-              setState(() => _employeeListExpanded = !_employeeListExpanded),
-        )
-      : _YearlyAttendanceSummary(employees: _employees);
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(_error!, textAlign: TextAlign.center),
+                      ),
+                      FilledButton(
+                        onPressed: _loadDashboard,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : _monthly
+              ? _AttendanceTable(
+                  horizontalController: _tableScrollController,
+                  year: _year,
+                  month: _monthCodes.indexOf(_month) + 1,
+                  weeklyOffDay: _weeklyOffDay,
+                  overrides: _calendarOverrides,
+                  employees: _employees,
+                  showSummary: _showSummary,
+                  expanded: expanded,
+                  onToggleExpanded: () => setState(
+                    () => _employeeListExpanded = !_employeeListExpanded,
+                  ),
+                )
+              : _YearlyAttendanceSummary(employees: _employees);
 
   Widget _monthSelector() {
     const months = _monthCodes;
@@ -610,7 +604,6 @@ class _DashboardPageState extends State<DashboardPage> {
 class _KpiRow extends StatelessWidget {
   const _KpiRow({
     required this.monthly,
-    required this.workingDays,
     required this.total,
     required this.present,
     required this.absent,
@@ -618,7 +611,7 @@ class _KpiRow extends StatelessWidget {
   });
 
   final bool monthly;
-  final int total, present, absent, late, workingDays;
+  final int total, present, absent, late;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -627,19 +620,9 @@ class _KpiRow extends StatelessWidget {
         child: _KpiCard(
           label: 'Total Employees',
           value: '$total',
-          subtitle: 'Active employees',
+          subtitle: 'Current',
           color: _blue,
-          icon: Icons.groups_outlined,
-        ),
-      ),
-      const SizedBox(width: 20),
-      Expanded(
-        child: _KpiCard(
-          label: 'Monthly Working Days',
-          value: '$workingDays',
-          subtitle: 'Selected month',
-          color: _blue,
-          icon: Icons.calendar_month_outlined,
+          icon: Icons.groups_2_outlined,
         ),
       ),
       const SizedBox(width: 20),
@@ -2057,35 +2040,23 @@ class _KpiCard extends StatelessWidget {
 }
 
 class _AttendanceLegend extends StatelessWidget {
-  const _AttendanceLegend({required this.enabledLeaveTypes});
-  final List<String> enabledLeaveTypes;
+  const _AttendanceLegend();
 
   static const items = <(String, String, Color)>[
     ('P', 'Present', _green),
     ('A', 'Absent', Color(0xFFB0000B)),
     ('L', 'Late', _orange),
     ('H', 'Holiday', _purple),
+    ('L', 'Leave', _purple),
+    ('HL', 'Half Leave', _purple),
     ('OFF', 'Weekly Off (Sunday)', Color(0xFF8C9AB8)),
   ];
-
-  static const leaveCodes = <String, String>{
-    'Casual Leave': 'CL',
-    'Sick Leave': 'SL',
-    'Earned Leave': 'EL',
-    'Optional Holiday': 'OH',
-  };
 
   @override
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      for (final item in [
-        ...items.take(4),
-        for (final type in enabledLeaveTypes)
-          (leaveCodes[type] ?? 'LV', type, _purple),
-        if (enabledLeaveTypes.isNotEmpty) ('HL', 'Half Leave', _purple),
-        items.last,
-      ]) ...[
+      for (final item in items) ...[
         Container(
           width: item.$1.length > 2 ? 25 : 20,
           height: 20,

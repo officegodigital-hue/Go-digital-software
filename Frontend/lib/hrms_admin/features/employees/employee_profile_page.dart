@@ -19,6 +19,9 @@ const _orangeLt= Color(0xFFFFF1E8);
 const _purple  = Color(0xFF6B21A8);
 const _purpleLt= Color(0xFFF3E8FF);
 
+const _profileHeadStyle = TextStyle(
+  fontSize: 13, fontWeight: FontWeight.w600, color: _muted);
+
 const _months = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
@@ -316,7 +319,9 @@ class _OverviewCard extends StatelessWidget {
     final ps      = (summary['payrollStatus'] as String? ?? 'draft').toLowerCase();
     final psLabel = ps.isEmpty ? 'Draft' : ps[0].toUpperCase() + ps.substring(1);
     final psColor = ps == 'paid' ? _green : ps == 'pending' ? _orange : _muted;
-    final netPay  = summary['netPayLabel'] as String? ?? '–';
+    final netPay  = ps == 'paid'
+        ? (summary['netPayLabel'] as String? ?? '–')
+        : (summary['earnedToDateLabel'] as String? ?? summary['netPayLabel'] as String? ?? '–');
 
     return Container(
       color: _page,
@@ -337,7 +342,7 @@ class _OverviewCard extends StatelessWidget {
             const SizedBox(width: 12),
             _kpiCard('Payroll status', psLabel,                           psColor, null,       null),
             const SizedBox(width: 12),
-            _kpiCard('Net pay',        netPay,                            _navy,   'this month', _green),
+            _kpiCard(ps == 'paid' ? 'Net Pay' : 'Updated Salary', netPay, _navy, 'this month', _green),
           ]),
           const SizedBox(height: 12),
           // bottom row — 5 attendance cards
@@ -392,19 +397,44 @@ class _OverviewCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Attendance tab
 // ─────────────────────────────────────────────────────────────────────────────
-class _AttendanceTab extends StatelessWidget {
+class _AttendanceTab extends StatefulWidget {
   const _AttendanceTab(
       {required this.days, required this.month, required this.year});
   final List<Map<String, dynamic>> days;
   final int month, year;
 
   @override
+  State<_AttendanceTab> createState() => _AttendanceTabState();
+}
+
+class _AttendanceTabState extends State<_AttendanceTab> {
+  final _headerCtrl = ScrollController();
+  final _bodyCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _bodyCtrl.addListener(() {
+      if (_headerCtrl.hasClients &&
+          (_headerCtrl.offset - _bodyCtrl.offset).abs() > 0.5) {
+        _headerCtrl.jumpTo(_bodyCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _headerCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (days.isEmpty) return const _Empty('No attendance records for this month');
+    if (widget.days.isEmpty) return const _Empty('No attendance records for this month');
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
       children: [
-        // section title
         Row(children: [
           const Text('Daily attendance',
             style: TextStyle(
@@ -412,46 +442,80 @@ class _AttendanceTab extends StatelessWidget {
           const SizedBox(width: 16),
           Container(width: 1, height: 18, color: _border),
           const SizedBox(width: 16),
-          Text('${_months[month - 1]} $year',
+          Text('${_months[widget.month - 1]} ${widget.year}',
             style: const TextStyle(fontSize: 14, color: _muted)),
         ]),
         const SizedBox(height: 18),
         LayoutBuilder(builder: (ctx, bc) {
           final minW = bc.maxWidth.isFinite ? bc.maxWidth : 1000.0;
           return _FlatTable(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: minW),
-                child: DataTable(
-                  headingRowColor:
-                      WidgetStateProperty.all(const Color(0xFFF2F5FB)),
-                  headingTextStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: _muted),
-                  dataTextStyle:
-                      const TextStyle(fontSize: 14, color: _navy),
-                  columnSpacing: 16,
-                  horizontalMargin: 24,
-                  dataRowMinHeight: 56,
-                  dataRowMaxHeight: 64,
-                  dividerThickness: 1,
-                  columns: const [
-                    DataColumn(label: SizedBox(width: 130, child: Text('Date'))),
-                    DataColumn(label: SizedBox(width: 90,  child: Text('Check In'))),
-                    DataColumn(label: SizedBox(width: 90,  child: Text('Check Out'))),
-                    DataColumn(label: SizedBox(width: 80,  child: Text('Worked'))),
-                    DataColumn(label: SizedBox(width: 90,  child: Text('Break Start'))),
-                    DataColumn(label: SizedBox(width: 90,  child: Text('Break End'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Break'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Status'))),
-                    DataColumn(label: SizedBox(width: 56,  child: Text('LOP'))),
-                    DataColumn(label: SizedBox(width: 80,  child: Text('Method'))),
-                  ],
-                  rows: days.map(_row).toList(),
+            child: Column(
+              children: [
+                SingleChildScrollView(
+                  controller: _headerCtrl,
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: Container(
+                      height: 56,
+                      color: const Color(0xFFF2F5FB),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: const Row(children: [
+                        SizedBox(width: 130, child: Text('Date',        style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 90,  child: Text('Check In',    style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 90,  child: Text('Check Out',   style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 80,  child: Text('Worked',      style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 90,  child: Text('Break Start', style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 90,  child: Text('Break End',   style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Break',       style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Status',      style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 56,  child: Text('LOP',         style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 80,  child: Text('Method',      style: _profileHeadStyle)),
+                      ]),
+                    ),
+                  ),
                 ),
-              ),
+                SingleChildScrollView(
+                  controller: _bodyCtrl,
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: DataTable(
+                      headingRowHeight: 0,
+                      dataTextStyle:
+                          const TextStyle(fontSize: 14, color: _navy),
+                      columnSpacing: 16,
+                      horizontalMargin: 24,
+                      dataRowMinHeight: 56,
+                      dataRowMaxHeight: 64,
+                      dividerThickness: 1,
+                      columns: const [
+                        DataColumn(label: SizedBox(width: 130, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 90,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 90,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 80,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 90,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 90,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 56,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 80,  child: Text(''))),
+                      ],
+                      rows: widget.days.map(_row).toList(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         }),
@@ -526,15 +590,41 @@ class _AttendanceTab extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Leaves tab
 // ─────────────────────────────────────────────────────────────────────────────
-class _LeavesTab extends StatelessWidget {
+class _LeavesTab extends StatefulWidget {
   const _LeavesTab(
       {required this.leaves, required this.month, required this.year});
   final List<Map<String, dynamic>> leaves;
   final int month, year;
 
   @override
+  State<_LeavesTab> createState() => _LeavesTabState();
+}
+
+class _LeavesTabState extends State<_LeavesTab> {
+  final _headerCtrl = ScrollController();
+  final _bodyCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _bodyCtrl.addListener(() {
+      if (_headerCtrl.hasClients &&
+          (_headerCtrl.offset - _bodyCtrl.offset).abs() > 0.5) {
+        _headerCtrl.jumpTo(_bodyCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _headerCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (leaves.isEmpty) return const _Empty('No leave or permission records');
+    if (widget.leaves.isEmpty) return const _Empty('No leave or permission records');
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
       children: [
@@ -545,41 +635,73 @@ class _LeavesTab extends StatelessWidget {
           const SizedBox(width: 16),
           Container(width: 1, height: 18, color: _border),
           const SizedBox(width: 16),
-          Text('${_months[month - 1]} $year',
+          Text('${_months[widget.month - 1]} ${widget.year}',
               style: const TextStyle(fontSize: 14, color: _muted)),
         ]),
         const SizedBox(height: 18),
         LayoutBuilder(builder: (ctx, bc) {
           final minW = bc.maxWidth.isFinite ? bc.maxWidth : 920.0;
           return _FlatTable(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: minW),
-                child: DataTable(
-                  headingRowColor:
-                      WidgetStateProperty.all(const Color(0xFFF2F5FB)),
-                  headingTextStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: _muted),
-                  dataTextStyle:
-                      const TextStyle(fontSize: 14, color: _navy),
-                  columnSpacing: 16,
-                  horizontalMargin: 24,
-                  dataRowMinHeight: 56,
-                  dataRowMaxHeight: 64,
-                  columns: const [
-                    DataColumn(label: SizedBox(width: 130, child: Text('Type'))),
-                    DataColumn(label: SizedBox(width: 150, child: Text('Period'))),
-                    DataColumn(label: SizedBox(width: 90,  child: Text('Duration'))),
-                    DataColumn(label: SizedBox(width: 170, child: Text('Reason'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Applied On'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Reviewed By'))),
-                    DataColumn(label: SizedBox(width: 100, child: Text('Status'))),
-                    DataColumn(label: SizedBox(width: 56,  child: Text('LOP'))),
-                  ],
-                  rows: leaves.map(_row).toList(),
+            child: Column(
+              children: [
+                SingleChildScrollView(
+                  controller: _headerCtrl,
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: Container(
+                      height: 56,
+                      color: const Color(0xFFF2F5FB),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: const Row(children: [
+                        SizedBox(width: 130, child: Text('Type',        style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 150, child: Text('Period',      style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 90,  child: Text('Duration',    style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 170, child: Text('Reason',      style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Applied On',  style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Reviewed By', style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 100, child: Text('Status',      style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 56,  child: Text('LOP',         style: _profileHeadStyle)),
+                      ]),
+                    ),
+                  ),
                 ),
-              ),
+                SingleChildScrollView(
+                  controller: _bodyCtrl,
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: DataTable(
+                      headingRowHeight: 0,
+                      dataTextStyle:
+                          const TextStyle(fontSize: 14, color: _navy),
+                      columnSpacing: 16,
+                      horizontalMargin: 24,
+                      dataRowMinHeight: 56,
+                      dataRowMaxHeight: 64,
+                      columns: const [
+                        DataColumn(label: SizedBox(width: 130, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 150, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 90,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 170, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 100, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 56,  child: Text(''))),
+                      ],
+                      rows: widget.leaves.map(_row).toList(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         }),
@@ -632,13 +754,39 @@ class _LeavesTab extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Payroll tab
 // ─────────────────────────────────────────────────────────────────────────────
-class _PayrollTab extends StatelessWidget {
+class _PayrollTab extends StatefulWidget {
   const _PayrollTab({required this.history});
   final List<Map<String, dynamic>> history;
 
   @override
+  State<_PayrollTab> createState() => _PayrollTabState();
+}
+
+class _PayrollTabState extends State<_PayrollTab> {
+  final _headerCtrl = ScrollController();
+  final _bodyCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _bodyCtrl.addListener(() {
+      if (_headerCtrl.hasClients &&
+          (_headerCtrl.offset - _bodyCtrl.offset).abs() > 0.5) {
+        _headerCtrl.jumpTo(_bodyCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _headerCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (history.isEmpty) return const _Empty('No payroll history');
+    if (widget.history.isEmpty) return const _Empty('No payroll history');
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
       children: [
@@ -656,35 +804,69 @@ class _PayrollTab extends StatelessWidget {
         LayoutBuilder(builder: (ctx, bc) {
           final minW = bc.maxWidth.isFinite ? bc.maxWidth : 900.0;
           return _FlatTable(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: minW),
-                child: DataTable(
-                  headingRowColor:
-                      WidgetStateProperty.all(const Color(0xFFF2F5FB)),
-                  headingTextStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: _muted),
-                  dataTextStyle:
-                      const TextStyle(fontSize: 14, color: _navy),
-                  columnSpacing: 16,
-                  horizontalMargin: 24,
-                  dataRowMinHeight: 56,
-                  dataRowMaxHeight: 64,
-                  columns: const [
-                    DataColumn(label: SizedBox(width: 130, child: Text('Month'))),
-                    DataColumn(label: SizedBox(width: 120, child: Text('Period'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Salary'))),
-                    DataColumn(label: SizedBox(width: 80,  child: Text('Working'))),
-                    DataColumn(label: SizedBox(width: 80,  child: Text('Paid Days'))),
-                    DataColumn(label: SizedBox(width: 56,  child: Text('LOP'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Deduction'))),
-                    DataColumn(label: SizedBox(width: 110, child: Text('Net Pay'))),
-                    DataColumn(label: SizedBox(width: 100, child: Text('Status'))),
-                  ],
-                  rows: history.map(_row).toList(),
+            child: Column(
+              children: [
+                SingleChildScrollView(
+                  controller: _headerCtrl,
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: Container(
+                      height: 56,
+                      color: const Color(0xFFF2F5FB),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: const Row(children: [
+                        SizedBox(width: 130, child: Text('Month',     style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 120, child: Text('Period',    style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Salary',    style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 80,  child: Text('Working',   style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 80,  child: Text('Paid Days', style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 56,  child: Text('LOP',       style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Deduction', style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 110, child: Text('Net Pay',   style: _profileHeadStyle)),
+                        SizedBox(width: 16),
+                        SizedBox(width: 100, child: Text('Status',    style: _profileHeadStyle)),
+                      ]),
+                    ),
+                  ),
                 ),
-              ),
+                SingleChildScrollView(
+                  controller: _bodyCtrl,
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minW),
+                    child: DataTable(
+                      headingRowHeight: 0,
+                      dataTextStyle:
+                          const TextStyle(fontSize: 14, color: _navy),
+                      columnSpacing: 16,
+                      horizontalMargin: 24,
+                      dataRowMinHeight: 56,
+                      dataRowMaxHeight: 64,
+                      columns: const [
+                        DataColumn(label: SizedBox(width: 130, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 120, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 80,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 80,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 56,  child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 110, child: Text(''))),
+                        DataColumn(label: SizedBox(width: 100, child: Text(''))),
+                      ],
+                      rows: widget.history.map(_row).toList(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         }),
@@ -942,3 +1124,4 @@ class _ErrorView extends StatelessWidget {
 
 String _cap(String s) =>
     s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+

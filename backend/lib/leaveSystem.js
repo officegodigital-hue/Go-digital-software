@@ -1,8 +1,8 @@
 const policy = require('./attendancePolicy');
 
 // [name, annual_allowance, usage_only, abbreviation, is_lop]
-// is_lop=0 = paid (no salary deduction): Earned Leave, Optional Holiday are non-LOP.
-// Late entry permission is also never deducted but is handled in the permissions system, not here.
+// Defaults are used only while seeding an empty database.  Once an administrator
+// changes a leave policy, payroll must use that saved policy without resetting it.
 const DEFAULT_TYPES = [
   ['Casual Leave',    12, 0, 'CL',  1],
   ['Sick Leave',       8, 1, 'SL',  1],
@@ -31,6 +31,7 @@ async function ensureLeaveTables(db) {
     show_balance_card TINYINT(1) NOT NULL DEFAULT 0,
     usage_only TINYINT(1) NOT NULL DEFAULT 0,
     display_mode ENUM('BALANCE_USAGE','USAGE_ONLY') NOT NULL DEFAULT 'BALANCE_USAGE',
+    allow_half_day TINYINT(1) NOT NULL DEFAULT 1,
     card_order TINYINT UNSIGNED NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -57,20 +58,15 @@ async function ensureLeaveTables(db) {
   )`);
   try { await db.query('ALTER TABLE hrms_leave_types ADD COLUMN usage_only TINYINT(1) NOT NULL DEFAULT 0 AFTER show_balance_card'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
   try { await db.query("ALTER TABLE hrms_leave_types ADD COLUMN display_mode ENUM('BALANCE_USAGE','USAGE_ONLY') NOT NULL DEFAULT 'BALANCE_USAGE' AFTER usage_only"); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
+  try { await db.query('ALTER TABLE hrms_leave_types ADD COLUMN allow_half_day TINYINT(1) NOT NULL DEFAULT 1 AFTER display_mode'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
   try { await db.query("ALTER TABLE hrms_leave_types ADD COLUMN abbreviation VARCHAR(10) NULL AFTER display_mode"); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
   try { await db.query('ALTER TABLE hrms_leave_types ADD COLUMN is_lop TINYINT(1) NOT NULL DEFAULT 1 AFTER abbreviation'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; }
-  // Back-fill display_mode only for rows where it still holds the schema default
-  // (meaning it was never explicitly set by admin). Running this unconditionally
-  // would overwrite changes the admin made through the UI.
-  await db.query(`UPDATE hrms_leave_types SET display_mode = 'USAGE_ONLY', usage_only = 1
-    WHERE name = 'Sick Leave' AND display_mode = 'BALANCE_USAGE' AND usage_only = 0`);
   for (const [name, allowance, usageOnly, abbreviation, isLop] of DEFAULT_TYPES) {
     await db.query(`INSERT IGNORE INTO hrms_leave_types (name, annual_allowance, is_active, show_balance_card, usage_only, abbreviation, is_lop, card_order)
       VALUES (?, ?, 1, 1, ?, ?, ?, ?)`, [name, allowance, usageOnly, abbreviation, isLop, DEFAULT_TYPES.findIndex((e) => e[0] === name) + 1]);
   }
-  await db.query(`UPDATE hrms_leave_types SET usage_only = 1 WHERE name = 'Sick Leave'`);
-  // Ensure non-LOP defaults; back-fill abbreviations for existing rows that have none.
-  await db.query(`UPDATE hrms_leave_types SET is_lop = 0 WHERE name IN ('Earned Leave', 'Optional Holiday')`);
+  // Back-fill presentation-only abbreviations.  Do not update is_lop,
+  // allow_half_day, or any other payroll policy here: Admin owns them.
   await db.query(`UPDATE hrms_leave_types SET abbreviation = 'CL' WHERE name = 'Casual Leave'    AND (abbreviation IS NULL OR abbreviation = '')`);
   await db.query(`UPDATE hrms_leave_types SET abbreviation = 'SL' WHERE name = 'Sick Leave'      AND (abbreviation IS NULL OR abbreviation = '')`);
   await db.query(`UPDATE hrms_leave_types SET abbreviation = 'EL' WHERE name = 'Earned Leave'    AND (abbreviation IS NULL OR abbreviation = '')`);
@@ -81,16 +77,36 @@ async function ensureLeaveTables(db) {
     SET l.leave_type_id = t.id WHERE l.leave_type_id IS NULL`);
 }
 
-async function workingDates(db, fromDate, toDate) {
+async function workingDates(db, fromDate, toDate, employeeId) {
   const start = iso(fromDate); const end = iso(toDate);
   const [settings] = await db.query('SELECT weekly_off_days FROM hrms_payroll_policy WHERE id = 1 LIMIT 1').catch(() => [[]]);
-  const weeklyOff = new Set(String(settings[0] && settings[0].weekly_off_days || '0').split(',').map(Number));
-  const [overrides] = await db.query(`SELECT DATE_FORMAT(work_date, '%Y-%m-%d') AS work_date, status
-    FROM hrms_calendar_overrides WHERE work_date BETWEEN ? AND ?`, [start, end]).catch(() => [[]]);
-  const overrideByDate = new Map(overrides.map((row) => [iso(row.work_date), row.status]));
+  let weeklyOffValues = [0];
+  try {
+    const raw = settings[0] && settings[0].weekly_off_days;
+    weeklyOffValues = Array.isArray(raw) ? raw : JSON.parse(raw || '[0]');
+  } catch (_) {}
+  const weeklyOff = new Set(Array.isArray(weeklyOffValues) ? weeklyOffValues.map(Number) : [0]);
+  let department = '';
+  if (employeeId) {
+    const [profiles] = await db.query('SELECT department FROM hrms_employee_profiles WHERE employee_user_id=? LIMIT 1', [employeeId]).catch(() => [[]]);
+    department = String(profiles[0]?.department || '');
+  }
+  const [overrides] = await db.query(`SELECT DATE_FORMAT(o.work_date, '%Y-%m-%d') AS work_date, o.status, o.scope_type, o.department, t.employee_id
+    FROM hrms_calendar_overrides o LEFT JOIN hrms_calendar_override_targets t ON t.override_id=o.id
+    WHERE o.work_date BETWEEN ? AND ?`, [start, end]).catch(() => [[]]);
+  const overrideByDate = new Map();
+  for (const row of overrides) {
+    const priority = row.scope_type === 'employees' ? 3 : row.scope_type === 'department' ? 2 : 1;
+    const matches = row.scope_type === 'all' || !row.scope_type ||
+      (row.scope_type === 'department' && String(row.department || '') === department) ||
+      (row.scope_type === 'employees' && Number(row.employee_id) === Number(employeeId));
+    if (!matches) continue;
+    const old = overrideByDate.get(iso(row.work_date));
+    if (!old || priority >= old.priority) overrideByDate.set(iso(row.work_date), { status: row.status, priority });
+  }
   const dates = [];
   for (let date = start; date && date <= end; date = nextDate(date)) {
-    const override = overrideByDate.get(date);
+    const override = overrideByDate.get(date)?.status;
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
     if (override === 'Working Day' || (!override && !weeklyOff.has(weekday))) dates.push(date);
   }
@@ -99,13 +115,13 @@ async function workingDates(db, fromDate, toDate) {
 
 async function listTypes(db, { activeOnly = false } = {}) {
   await ensureLeaveTables(db);
-  const [rows] = await db.query(`SELECT id, name, annual_allowance, is_active, show_balance_card, usage_only, display_mode, abbreviation, is_lop, card_order
+  const [rows] = await db.query(`SELECT id, name, annual_allowance, is_active, show_balance_card, usage_only, display_mode, allow_half_day, abbreviation, is_lop, card_order
     FROM hrms_leave_types ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY show_balance_card DESC, card_order ASC, name ASC`);
   return rows;
 }
 
 async function reconcileApprovedAbsences(db, leave) {
-  const dates = await workingDates(db, leave.from_date, leave.to_date);
+  const dates = await workingDates(db, leave.from_date, leave.to_date, leave.employee_id);
   if (!dates.length) return;
   await db.query(`DELETE FROM attendance_records
     WHERE employee_id = ? AND attendance_date IN (?) AND attendance_status = 'absent'

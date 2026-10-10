@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -18,17 +17,13 @@ class HrmsNotificationsApi {
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body);
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
     if (decoded is! Map) throw Exception('Unexpected response');
     final map = Map<String, dynamic>.from(decoded);
     if (response.statusCode >= 400 || map['success'] == false) {
       throw Exception(map['message']?.toString() ?? 'Request failed');
     }
-    return map['data'] is Map
-        ? Map<String, dynamic>.from(map['data'] as Map)
-        : map;
+    return map['data'] is Map ? Map<String, dynamic>.from(map['data'] as Map) : map;
   }
 
   static Future<Map<String, dynamic>> list() async {
@@ -45,44 +40,5 @@ class HrmsNotificationsApi {
       headers: await _headers(),
     );
     _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> settings() async {
-    final response = await http.get(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/notifications/settings'),
-      headers: await _headers(),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> updateSettings(
-    Map<String, dynamic> settings,
-  ) async {
-    final response = await http.put(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/notifications/settings'),
-      headers: await _headers(),
-      body: jsonEncode(settings),
-    );
-    return _decode(response);
-  }
-
-  static Future<Map<String, dynamic>> uploadCustomSound(
-    Uint8List bytes,
-    String filename,
-  ) async {
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse(
-        '${ApiConfig.baseUrl}/hrms/approvals/notifications/settings/sound',
-      ),
-    );
-    final headers = await _headers();
-    headers.remove('Content-Type');
-    request.headers.addAll(headers);
-    request.files.add(
-      http.MultipartFile.fromBytes('sound', bytes, filename: filename),
-    );
-    final response = await http.Response.fromStream(await request.send());
-    return _decode(response);
   }
 }

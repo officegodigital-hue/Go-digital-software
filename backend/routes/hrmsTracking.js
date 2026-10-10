@@ -6,9 +6,9 @@ const hrms = require('../controllers/hrmsTrackingController');
 router.use(authenticateToken);
 router.get('/settings', hrms.getTrackingSettings);
 router.put('/settings', hrms.requireAdmin, hrms.updateTrackingSettings);
-router.put('/office-location', hrms.requireAdmin, hrms.updateOfficeLocation);
-router.put('/home-settings', hrms.requireAdmin, hrms.updateHomeSettings);
-router.put('/hybrid-settings', hrms.requireAdmin, hrms.updateHybridSettings);
+// router.put('/office-location', hrms.requireAdmin, hrms.updateOfficeLocation);
+// router.put('/home-settings', hrms.requireAdmin, hrms.updateHomeSettings);
+// router.put('/hybrid-settings', hrms.requireAdmin, hrms.updateHybridSettings);
 
 // Employee self-service — called from the mobile app
 router.post('/status', hrms.setStatus);
@@ -19,6 +19,7 @@ router.get('/', hrms.requireAdmin, hrms.list);
 router.get('/live', hrms.requireAdmin, hrms.liveOverview);
 router.get('/route/me', hrms.myRouteHistory);
 router.get('/route/:employeeUserId', hrms.requireAdmin, hrms.routeHistory);
+router.get('/employee/:employeeUserId/monthly', hrms.requireAdmin, hrms.monthlyReport);
 
 router.get('/home-location', hrms.getMyHomeLocation);
 router.post('/home-location', hrms.submitHomeLocation);
@@ -50,8 +51,8 @@ router.patch(
 router.get('/field-session', hrms.getMyFieldSession);
 router.post('/field-session/start', hrms.startFieldTracking);
 router.post('/field-session/stop', hrms.stopFieldTracking);
-// Public Hybrid routes. Legacy Field routes remain above only for existing
-// installed clients; all current UI calls the Hybrid names below.
+// Public Hybrid routes. The older field-session URLs remain as compatibility
+// aliases; live tracking itself is now available only to Hybrid employees.
 router.get('/hybrid-session', hrms.getMyFieldSession);
 router.post('/hybrid-session/start', hrms.startFieldTracking);
 router.post('/hybrid-session/stop', hrms.stopFieldTracking);

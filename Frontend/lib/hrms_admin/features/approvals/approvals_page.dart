@@ -557,10 +557,6 @@ class _RequestsPanel extends StatelessWidget {
                       'Showing 1 to ${requests.length} of ${requests.length} requests',
                       style: const TextStyle(
                           color: Color(0xFF596176), fontSize: 13)),
-                  const Spacer(),
-                  const _PaginationButton(icon: Icons.chevron_left_rounded),
-                  const _PaginationButton(text: '1', active: true),
-                  const _PaginationButton(icon: Icons.chevron_right_rounded),
                 ],
               ),
           ],
@@ -587,8 +583,10 @@ class _MobileApprovalList extends StatelessWidget {
     }
     return Column(
       children: requests
+          .asMap()
+          .entries
           .map(
-            (request) => Container(
+            (e) => Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -599,13 +597,19 @@ class _MobileApprovalList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
+                    Text('#${e.key + 1}',
+                        style: const TextStyle(
+                            color: Color(0xFF9DAABF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
                     CircleAvatar(
                         radius: 21,
                         backgroundColor: const Color(0xFFEAF1FF),
                         child: Text(
-                            request.name.isEmpty
+                            e.value.name.isEmpty
                                 ? '?'
-                                : request.name.substring(0, 1),
+                                : e.value.name.substring(0, 1),
                             style: const TextStyle(
                                 color: _ApprovalsColors.blue,
                                 fontWeight: FontWeight.w800))),
@@ -614,15 +618,15 @@ class _MobileApprovalList extends StatelessWidget {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          Text(request.name,
+                          Text(e.value.name,
                               style: const TextStyle(
                                   color: _ApprovalsColors.navy,
                                   fontWeight: FontWeight.w700)),
-                          Text('${request.id} • ${request.type}',
+                          Text('${e.value.id} • ${e.value.type}',
                               style: const TextStyle(
                                   color: Color(0xFF657087), fontSize: 10))
                         ])),
-                    _RequestStatus(status: request.status),
+                    _RequestStatus(status: e.value.status),
                   ]),
                   const SizedBox(height: 13),
                   Container(
@@ -636,11 +640,11 @@ class _MobileApprovalList extends StatelessWidget {
                             size: 15, color: _ApprovalsColors.blue),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: Text(request.dates,
+                            child: Text(e.value.dates,
                                 style: const TextStyle(
                                     color: _ApprovalsColors.navy,
                                     fontSize: 11))),
-                        Text(request.duration,
+                        Text(e.value.duration,
                             style: const TextStyle(
                                 color: _ApprovalsColors.navy,
                                 fontWeight: FontWeight.w700,
@@ -652,25 +656,25 @@ class _MobileApprovalList extends StatelessWidget {
                             size: 15, color: Color(0xFF657087)),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: Text(request.reason,
+                            child: Text(e.value.reason,
                                 style: const TextStyle(
                                     color: Color(0xFF657087), fontSize: 11)))
                       ]),
                     ]),
                   ),
-                  if (request.status == 'Pending') ...[
+                  if (e.value.status == 'Pending') ...[
                     const SizedBox(height: 12),
                     Row(children: [
                       Expanded(
                           child: FilledButton(
-                              onPressed: () => onApprove(request),
+                              onPressed: () => onApprove(e.value),
                               style: FilledButton.styleFrom(
                                   backgroundColor: _ApprovalsColors.blue),
                               child: const Text('Approve'))),
                       const SizedBox(width: 10),
                       Expanded(
                           child: OutlinedButton(
-                              onPressed: () => onReject(request),
+                              onPressed: () => onReject(e.value),
                               style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFFF0182A),
                                   side: const BorderSide(
@@ -708,8 +712,6 @@ class _ApprovalTabs extends StatelessWidget {
             Expanded(child: _TabButton(label: 'Leave', count: leaveCount, active: requestCategory == 'leave', onTap: () => onChanged('leave'))),
             const SizedBox(width: 8),
             Expanded(child: _TabButton(label: 'Permission', count: permissionCount, active: requestCategory == 'permission', onTap: () => onChanged('permission'))),
-            const SizedBox(width: 8),
-            Expanded(child: _TabButton(label: 'Extra Hours', count: extraCount, active: requestCategory == 'extra', onTap: () => onChanged('extra'))),
           ]),
         );
       });
@@ -949,7 +951,7 @@ InputDecoration _fieldDecoration({IconData? prefix}) => InputDecoration(
           borderSide: const BorderSide(color: _ApprovalsColors.blue)),
     );
 
-class _ApprovalTable extends StatelessWidget {
+class _ApprovalTable extends StatefulWidget {
   const _ApprovalTable(
       {required this.requests,
       required this.onApprove,
@@ -958,32 +960,78 @@ class _ApprovalTable extends StatelessWidget {
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
+  State<_ApprovalTable> createState() => _ApprovalTableState();
+}
+
+class _ApprovalTableState extends State<_ApprovalTable> {
+  final _tableHeaderScrollCtrl = ScrollController();
+  final _tableBodyScrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tableBodyScrollCtrl.addListener(() {
+      if (_tableHeaderScrollCtrl.hasClients &&
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+        _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tableHeaderScrollCtrl.dispose();
+    _tableBodyScrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
             border: Border.all(color: const Color(0xFFE3E7EF)),
             borderRadius: BorderRadius.circular(10)),
         clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: 1400,
-            child: Column(
-              children: [
-                const _ApprovalTableHeader(),
-                if (requests.isEmpty)
-                  const SizedBox(
-                      height: 180,
-                      child: Center(
-                          child: Text(
-                              'No approval requests match these filters.')))
-                else
-                  ...requests.map((request) => _ApprovalRow(
-                      request: request,
-                      onApprove: onApprove,
-                      onReject: onReject)),
-              ],
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              controller: _tableHeaderScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: const SizedBox(
+                width: 1480,
+                child: _ApprovalTableHeader(),
+              ),
             ),
-          ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520),
+              child: SingleChildScrollView(
+                controller: _tableBodyScrollCtrl,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1480,
+                  child: SingleChildScrollView(
+                    primary: false,
+                    child: Column(
+                      children: [
+                        if (widget.requests.isEmpty)
+                          const SizedBox(
+                              height: 180,
+                              child: Center(
+                                  child: Text(
+                                      'No approval requests match these filters.')))
+                        else
+                          ...widget.requests.asMap().entries.map((e) => _ApprovalRow(
+                              index: e.key + 1,
+                              request: e.value,
+                              onApprove: widget.onApprove,
+                              onReject: widget.onReject)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
 }
@@ -995,6 +1043,7 @@ class _ApprovalTableHeader extends StatelessWidget {
         height: 44,
         color: const Color(0xFFFCFCFD),
         child: const Row(children: [
+          _ApprovalCell(width: 80, child: Text('S.No', style: _headStyle)),
           _ApprovalCell(width: 270, child: Text('Employee', style: _headStyle)),
           _ApprovalCell(
               width: 200, child: Text('Leave Type', style: _headStyle)),
@@ -1009,7 +1058,8 @@ class _ApprovalTableHeader extends StatelessWidget {
 
 class _ApprovalRow extends StatelessWidget {
   const _ApprovalRow(
-      {required this.request, required this.onApprove, required this.onReject});
+      {required this.index, required this.request, required this.onApprove, required this.onReject});
+  final int index;
   final _ApprovalRequest request;
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
@@ -1024,6 +1074,10 @@ class _ApprovalRow extends StatelessWidget {
             border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
         child: Row(
           children: [
+            _ApprovalCell(
+              width: 80,
+              child: Text('$index', style: const TextStyle(color: Color(0xFF596176), fontSize: 13)),
+            ),
             _ApprovalCell(
               width: 270,
               child: Row(children: [

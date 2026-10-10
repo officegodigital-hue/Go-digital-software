@@ -42,6 +42,20 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+function _countWorkingDays(start, end) {
+  let total = 0;
+  const d = new Date(start + 'T00:00:00Z');
+  const endMs = new Date(end + 'T00:00:00Z').getTime();
+  while (d.getTime() <= endMs) {
+    const dow = d.getUTCDay();
+    if (dow !== 0) total += 1; // Sunday off by default
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return total;
+}
+function _ymd(date) { return date.toISOString().slice(0, 10); }
+function _formatMoney(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+
 async function summary(req, res) {
   try {
     await ensureCompensationTable();
@@ -58,7 +72,49 @@ async function summary(req, res) {
       ORDER BY p.pay_year DESC, p.pay_month DESC, p.id DESC LIMIT 1`, [req.user.id]);
     const [[invalid]] = await db.query(`SELECT p.id FROM hrms_payroll_items p JOIN hrms_employee_profiles e ON e.id = p.profile_id
       WHERE e.employee_user_id = ? AND (NOT(p.employee_user_id <=> e.employee_user_id) OR (p.status = 'paid' AND COALESCE(p.monthly_salary, 0) <= 0)) LIMIT 1`, [req.user.id]);
-    return ok(res, { compensation: compensation || null, payroll: payroll || null, reviewRequired: Boolean(invalid) });
+
+    // Live payroll: compute earnedToDate = days_attended_so_far × daily_rate
+    let livePayroll = null;
+    const monthlySalary = Number(compensation && compensation.monthly_salary || (payroll && payroll.monthly_salary) || 0);
+    if (monthlySalary > 0) {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth() + 1;
+      const monthStart = _ymd(new Date(Date.UTC(year, month - 1, 1)));
+      const monthEnd = _ymd(new Date(Date.UTC(year, month, 0)));
+      const today = _ymd(now);
+      const cutoff = today < monthEnd ? today : monthEnd;
+      const periodWorkingDays = Math.max(1, _countWorkingDays(monthStart, monthEnd));
+      const dailyRate = monthlySalary / periodWorkingDays;
+
+      // Count days with check-in up to today
+      const [[attRow]] = await db.query(`SELECT COUNT(DISTINCT DATE(check_in_at)) AS present_days
+        FROM attendance_records
+        WHERE employee_user_id = ? AND DATE(check_in_at) BETWEEN ? AND ? AND check_in_at IS NOT NULL`,
+        [req.user.id, monthStart, cutoff]);
+      const paidDaysToDate = Number(attRow && attRow.present_days || 0);
+      const earnedToDate = Math.round(paidDaysToDate * dailyRate * 100) / 100;
+      const savedDeductions = payroll && Number(payroll.deductions) > 0 ? Number(payroll.deductions) : 0;
+
+      livePayroll = {
+        monthlySalary: monthlySalary,
+        dailyRate: Math.round(dailyRate * 100) / 100,
+        dailyRateLabel: _formatMoney(dailyRate),
+        workingDays: periodWorkingDays,
+        paidDaysToDate: paidDaysToDate,
+        earnedToDate: earnedToDate,
+        earnedToDateLabel: _formatMoney(earnedToDate),
+        deductions: savedDeductions,
+        deductionsLabel: _formatMoney(savedDeductions),
+        netPay: earnedToDate,
+        netPayLabel: _formatMoney(earnedToDate),
+        periodStart: monthStart,
+        periodEnd: monthEnd,
+        status: payroll && payroll.status === 'paid' ? 'paid' : 'pending',
+      };
+    }
+
+    return ok(res, { compensation: compensation || null, payroll: payroll || null, livePayroll, reviewRequired: Boolean(invalid) });
   } catch (error) { return fail(res, 500, error.message); }
 }
 

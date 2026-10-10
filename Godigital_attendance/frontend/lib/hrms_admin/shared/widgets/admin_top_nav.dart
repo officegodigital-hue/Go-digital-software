@@ -1,11 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
-import '../../../services/api_config.dart';
 import '../../../services/hrms_notifications_api.dart';
 import '../../../services/auth_service.dart';
 import '../../../screens/login_screen.dart';
@@ -604,24 +601,19 @@ class AdminNotificationBell extends StatefulWidget {
 
 class _AdminNotificationBellState extends State<AdminNotificationBell> {
   Timer? _timer;
-  final AudioPlayer _soundPlayer = AudioPlayer();
-  final Set<int> _knownIds = <int>{};
-  bool _loadedOnce = false;
   int _unreadCount = 0;
   List<Map<String, dynamic>> _items = const [];
-  Map<String, dynamic> _settings = const {};
 
   @override
   void initState() {
     super.initState();
     _load();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _load());
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _soundPlayer.dispose();
     super.dispose();
   }
 
@@ -629,44 +621,14 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
     try {
       final data = await HrmsNotificationsApi.list();
       if (!mounted) return;
-      final items = ((data['items'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-      final freshUnread = _loadedOnce
-          ? items.where((item) {
-              final id = (item['id'] as num?)?.toInt();
-              return id != null &&
-                  item['isRead'] != true &&
-                  !_knownIds.contains(id);
-            }).toList()
-          : const <Map<String, dynamic>>[];
-      _knownIds.addAll(
-        items.map((item) => (item['id'] as num?)?.toInt()).whereType<int>(),
-      );
-      final settings = data['settings'] is Map
-          ? Map<String, dynamic>.from(data['settings'] as Map)
-          : _settings;
       setState(() {
         _unreadCount = (data['unreadCount'] as num?)?.toInt() ?? 0;
-        _items = items;
-        _settings = settings;
+        _items = ((data['items'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
       });
-      _loadedOnce = true;
-      if (freshUnread.isNotEmpty && settings['soundEnabled'] == true) {
-        final name = settings['soundName']?.toString() ?? 'notification.mp3';
-        final volume =
-            ((settings['soundVolume'] as num?)?.toDouble() ?? 70) / 100;
-        await _playSound(name, volume, settings['customSoundUrl']?.toString());
-      }
     } catch (_) {}
-  }
-
-  Future<void> _playSound(String name, double volume, String? customUrl) {
-    final source = name == 'custom' && customUrl != null && customUrl.isNotEmpty
-        ? UrlSource(ApiConfig.mediaUrl(customUrl))
-        : AssetSource('sounds/$name');
-    return _soundPlayer.play(source, volume: volume.clamp(0.0, 1.0).toDouble());
   }
 
   Future<void> _open() async {
@@ -678,28 +640,12 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
         onMarkAllRead: () async {
           await HrmsNotificationsApi.markAllRead();
           if (!mounted) return;
-          setState(() {
-            _unreadCount = 0;
-            _items = const [];
-          });
+          setState(() => _unreadCount = 0);
+          if (dialogContext.mounted) Navigator.pop(dialogContext);
         },
         onViewApprovals: () {
           Navigator.pop(dialogContext);
           Navigator.pushReplacementNamed(context, '/admin/approvals');
-        },
-        onViewTracking: () {
-          Navigator.pop(dialogContext);
-          Navigator.pushReplacementNamed(context, '/admin/tracking');
-        },
-        onSettings: () async {
-          final changed = await showDialog<bool>(
-            context: context,
-            builder: (_) => _NotificationSettingsDialog(
-              settings: _settings,
-              onPreview: _playSound,
-            ),
-          );
-          if (changed == true) _load();
         },
       ),
     );
@@ -728,53 +674,18 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
   );
 }
 
-class _NotificationsDialog extends StatefulWidget {
+class _NotificationsDialog extends StatelessWidget {
   const _NotificationsDialog({
     required this.items,
     required this.unreadCount,
     required this.onMarkAllRead,
     required this.onViewApprovals,
-    required this.onViewTracking,
-    required this.onSettings,
   });
 
   final List<Map<String, dynamic>> items;
   final int unreadCount;
   final Future<void> Function() onMarkAllRead;
   final VoidCallback onViewApprovals;
-  final VoidCallback onViewTracking;
-  final Future<void> Function() onSettings;
-
-  @override
-  State<_NotificationsDialog> createState() => _NotificationsDialogState();
-}
-
-class _NotificationsDialogState extends State<_NotificationsDialog> {
-  late List<Map<String, dynamic>> _items;
-  late int _unreadCount;
-  bool _markingAllRead = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _items = List<Map<String, dynamic>>.from(widget.items);
-    _unreadCount = widget.unreadCount;
-  }
-
-  Future<void> _markAllRead() async {
-    if (_markingAllRead || _items.isEmpty) return;
-    setState(() => _markingAllRead = true);
-    try {
-      await widget.onMarkAllRead();
-      if (!mounted) return;
-      setState(() {
-        _unreadCount = 0;
-        _items = const [];
-      });
-    } finally {
-      if (mounted) setState(() => _markingAllRead = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -782,39 +693,28 @@ class _NotificationsDialogState extends State<_NotificationsDialog> {
       children: [
         const Icon(Icons.notifications_rounded, color: _blue),
         const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            _unreadCount == 0
-                ? 'Notifications'
-                : 'Notifications ($_unreadCount new)',
-          ),
-        ),
-        IconButton(
-          onPressed: widget.onSettings,
-          icon: const Icon(Icons.settings_outlined),
-          tooltip: 'Notification settings',
-        ),
+        const Expanded(child: Text('Notifications')),
         TextButton(
-          onPressed: _items.isEmpty || _markingAllRead ? null : _markAllRead,
-          child: Text(_markingAllRead ? 'Marking…' : 'Mark all as read'),
+          onPressed: unreadCount == 0 ? null : onMarkAllRead,
+          child: const Text('Mark all as read'),
         ),
       ],
     ),
     content: SizedBox(
       width: 420,
-      child: _items.isEmpty
+      child: items.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: Text('No notifications yet.')),
+              child: Center(child: Text('No approval notifications.')),
             )
           : ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 300),
               child: ListView.separated(
                 shrinkWrap: true,
-                itemCount: _items.length,
+                itemCount: items.length,
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (_, index) {
-                  final item = _items[index];
+                  final item = items[index];
                   final unread = item['isRead'] != true;
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -823,22 +723,18 @@ class _NotificationsDialogState extends State<_NotificationsDialog> {
                           ? const Color(0xFFEAF2FF)
                           : const Color(0xFFF3F5F9),
                       child: Icon(
-                        item['type'] == 'tracking_comment'
-                            ? Icons.comment_rounded
-                            : item['type'] == 'field_waiting_reason'
-                            ? Icons.timer_outlined
-                            : Icons.assignment_rounded,
+                        Icons.assignment_rounded,
                         color: unread ? _blue : const Color(0xFF63718F),
                       ),
                     ),
                     title: Text(
-                      item['title']?.toString() ?? 'Notification',
+                      item['title']?.toString() ?? 'Approval request',
                       style: TextStyle(
                         fontWeight: unread ? FontWeight.w700 : FontWeight.w500,
                       ),
                     ),
                     subtitle: Text(
-                      '${item['message']?.toString() ?? ''}\n${_notificationTime(item['createdAt'])}',
+                      item['message']?.toString() ?? '',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -849,281 +745,9 @@ class _NotificationsDialogState extends State<_NotificationsDialog> {
     ),
     actions: [
       OutlinedButton.icon(
-        onPressed: widget.onViewTracking,
-        icon: const Icon(Icons.location_on_outlined, size: 18),
-        label: const Text('View Tracking'),
-      ),
-      OutlinedButton.icon(
-        onPressed: widget.onViewApprovals,
+        onPressed: onViewApprovals,
         icon: const Icon(Icons.open_in_new_rounded, size: 18),
         label: const Text('View Approvals'),
-      ),
-    ],
-  );
-}
-
-String _notificationTime(Object? value) {
-  final parsed = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
-  if (parsed == null) return 'Just now';
-  final hour = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
-  final minute = parsed.minute.toString().padLeft(2, '0');
-  final period = parsed.hour >= 12 ? 'PM' : 'AM';
-  return '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')} · $hour:$minute $period';
-}
-
-class _NotificationSettingsDialog extends StatefulWidget {
-  const _NotificationSettingsDialog({
-    required this.settings,
-    required this.onPreview,
-  });
-  final Map<String, dynamic> settings;
-  final Future<void> Function(
-    String soundName,
-    double volume,
-    String? customUrl,
-  )
-  onPreview;
-
-  @override
-  State<_NotificationSettingsDialog> createState() =>
-      _NotificationSettingsDialogState();
-}
-
-class _NotificationSettingsDialogState
-    extends State<_NotificationSettingsDialog> {
-  late bool _soundEnabled;
-  late bool _commentsEnabled;
-  late bool _waitingEnabled;
-  late String _soundName;
-  String? _customSoundUrl;
-  String? _customSoundLabel;
-  late double _volume;
-  bool _saving = false;
-  bool _uploading = false;
-
-  static const _sounds = <String>[
-    'notification.mp3',
-    'notifications.mp3',
-    'notificationss.mp3',
-    'notification_ai voice.mp3',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _soundEnabled = widget.settings['soundEnabled'] != false;
-    _commentsEnabled = widget.settings['commentNotificationsEnabled'] != false;
-    _waitingEnabled =
-        widget.settings['waitingReasonNotificationsEnabled'] != false;
-    _soundName = _sounds.contains(widget.settings['soundName'])
-        ? widget.settings['soundName'] as String
-        : (widget.settings['soundName'] == 'custom' &&
-                  widget.settings['customSoundUrl'] != null
-              ? 'custom'
-              : _sounds.first);
-    _customSoundUrl = widget.settings['customSoundUrl']?.toString();
-    _customSoundLabel = _customSoundUrl == null
-        ? null
-        : 'Custom uploaded sound';
-    final requestedVolume =
-        (widget.settings['soundVolume'] as num?)?.toDouble() ?? 70;
-    _volume = requestedVolume < 0
-        ? 0
-        : (requestedVolume > 100 ? 100 : requestedVolume);
-  }
-
-  List<String> get _soundOptions => <String>[
-    ..._sounds,
-    if (_customSoundUrl != null) 'custom',
-  ];
-
-  Future<void> _uploadSound() async {
-    final selection = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['mp3', 'wav', 'm4a', 'aac', 'ogg'],
-      withData: true,
-    );
-    final file = selection != null && selection.files.isNotEmpty
-        ? selection.files.first
-        : null;
-    if (file == null) return;
-    if (file.bytes == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not read the selected file.')),
-        );
-      }
-      return;
-    }
-    if (file.bytes!.length > 5 * 1024 * 1024) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Choose an audio file smaller than 5 MB.'),
-          ),
-        );
-      }
-      return;
-    }
-    setState(() => _uploading = true);
-    try {
-      final settings = await HrmsNotificationsApi.uploadCustomSound(
-        file.bytes!,
-        file.name,
-      );
-      if (!mounted) return;
-      setState(() {
-        _customSoundUrl = settings['customSoundUrl']?.toString();
-        _customSoundLabel = file.name;
-        _soundName = 'custom';
-      });
-      await widget.onPreview('custom', _volume / 100, _customSoundUrl);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Custom sound uploaded and selected.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await HrmsNotificationsApi.updateSettings({
-        'soundEnabled': _soundEnabled,
-        'soundName': _soundName,
-        'soundVolume': _volume.round(),
-        'commentNotificationsEnabled': _commentsEnabled,
-        'waitingReasonNotificationsEnabled': _waitingEnabled,
-      });
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Notification settings'),
-    content: SizedBox(
-      width: 390,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Play a sound for new alerts'),
-            value: _soundEnabled,
-            onChanged: (value) => setState(() => _soundEnabled = value),
-          ),
-          DropdownButtonFormField<String>(
-            key: ValueKey(_soundName),
-            initialValue: _soundName,
-            decoration: const InputDecoration(labelText: 'Notification sound'),
-            items: _soundOptions
-                .map(
-                  (sound) => DropdownMenuItem(
-                    value: sound,
-                    child: Text(
-                      sound == 'custom'
-                          ? (_customSoundLabel ?? 'Custom uploaded sound')
-                          : sound.replaceAll('.mp3', '').replaceAll('_', ' '),
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: _soundEnabled
-                ? (value) => setState(() => _soundName = value!)
-                : null,
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: _uploading ? null : _uploadSound,
-              icon: const Icon(Icons.upload_file_rounded, size: 18),
-              label: Text(_uploading ? 'Uploading...' : 'Upload custom sound'),
-            ),
-          ),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text(
-                'MP3, WAV, M4A, AAC, or OGG · maximum 5 MB',
-                style: TextStyle(fontSize: 12, color: Color(0xFF63718F)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Text('Volume'),
-              Expanded(
-                child: Slider(
-                  value: _volume,
-                  min: 0,
-                  max: 100,
-                  divisions: 10,
-                  label: '${_volume.round()}%',
-                  onChanged: _soundEnabled
-                      ? (value) => setState(() => _volume = value)
-                      : null,
-                ),
-              ),
-            ],
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: _soundEnabled
-                  ? () => widget.onPreview(
-                      _soundName,
-                      _volume / 100,
-                      _customSoundUrl,
-                    )
-                  : null,
-              icon: const Icon(Icons.volume_up_outlined, size: 18),
-              label: const Text('Preview sound'),
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Employee comments'),
-            value: _commentsEnabled,
-            onChanged: (value) => setState(() => _commentsEnabled = value),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Field waiting reasons'),
-            value: _waitingEnabled,
-            onChanged: (value) => setState(() => _waitingEnabled = value),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _saving ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: _saving ? null : _save,
-        child: Text(_saving ? 'Saving...' : 'Save settings'),
       ),
     ],
   );

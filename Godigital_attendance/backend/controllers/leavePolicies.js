@@ -34,18 +34,6 @@ exports.save = async (req, res) => {
     const [rows] = await db.query('SELECT id FROM hrms_leave_policies WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({success:false,message:'Leave policy not found.'});
     await db.query('UPDATE hrms_leave_policies SET annual_allowance = ?, carry_forward = ?, active = ? WHERE id = ?', [n, b.carry_forward === true || b.carry_forward === 1 ? 1 : 0, b.active === true || b.active === 1 ? 1 : 0, req.params.id]);
-    // Keep the employee leave endpoint's legacy policy table in sync while
-    // existing employee clients migrate to hrms_leave_policies.
-    const [[policy]] = await db.query('SELECT leave_type FROM hrms_leave_policies WHERE id = ?', [req.params.id]);
-    await db.query(`CREATE TABLE IF NOT EXISTS hrms_leave_type_policies (
-      leave_type VARCHAR(64) NOT NULL PRIMARY KEY,
-      yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 0
-    )`);
-    await db.query(
-      `INSERT INTO hrms_leave_type_policies (leave_type, yearly_limit) VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE yearly_limit = VALUES(yearly_limit)`,
-      [policy.leave_type, n]
-    );
     res.json({success:true});
   } catch (_) { res.status(500).json({success:false,message:'Unable to save leave policy.'}); }
 };

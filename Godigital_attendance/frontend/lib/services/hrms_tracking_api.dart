@@ -171,17 +171,6 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> employeeTrackingDetails({
-    required int employeeUserId,
-    required String date,
-  }) async {
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/hrms/tracking/employee/$employeeUserId/details',
-    ).replace(queryParameters: {'date': date});
-    final response = await http.get(uri, headers: await _headers());
-    return _decode(response);
-  }
-
   static Future<Map<String, dynamic>> myRoute({required String date}) async {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/hrms/tracking/route/my',
@@ -208,7 +197,7 @@ class HrmsTrackingApi {
     _decode(response);
   }
 
-  static Future<Map<String, dynamic>> ping({
+  static Future<void> ping({
     required double latitude,
     required double longitude,
     double? accuracy,
@@ -223,7 +212,7 @@ class HrmsTrackingApi {
       }),
     );
 
-    return _decode(response);
+    _decode(response);
   }
 
   static Future<Map<String, dynamic>> fieldSession() async {
@@ -232,6 +221,14 @@ class HrmsTrackingApi {
       headers: await _headers(),
     );
 
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> hybridSession() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session'),
+      headers: await _headers(),
+    );
     return _decode(response);
   }
 
@@ -271,6 +268,23 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> startHybridSession({
+    required double latitude,
+    required double longitude,
+    double? accuracy,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session/start'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': ?accuracy,
+      }),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> stopFieldSession({
     double? latitude,
     double? longitude,
@@ -286,6 +300,23 @@ class HrmsTrackingApi {
       }),
     );
 
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> stopHybridSession({
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session/stop'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracy': ?accuracy,
+      }),
+    );
     return _decode(response);
   }
 

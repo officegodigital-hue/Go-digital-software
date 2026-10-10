@@ -103,7 +103,7 @@ class _PayrollPageState extends State<PayrollPage> {
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Payroll run generated for every employee with configured compensation.')),
+        const SnackBar(content: Text('Month-end payroll draft generated. Review it before marking employees as paid.')),
       );
     } catch (err) {
       if (!mounted) return;
@@ -246,21 +246,19 @@ class _PayrollPolicyDialog extends StatefulWidget {
 
 class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
   Set<int> offDays = {0};
-  bool approvedLeave = true;
   bool explicitAbsence = true;
   bool missingAttendance = false;
   bool loading = true;
   bool saving = false;
-  final TextEditingController divisor = TextEditingController(text: '26');
   @override void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final data = await HrmsPayrollApi.policy();
     if (!mounted) return;
-    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); approvedLeave = data['deductApprovedLeave'] == true; explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; divisor.text = '${data['salaryDayDivisor'] ?? 26}'; loading = false; });
+    setState(() { offDays = ((data['weeklyOffDays'] as List? ?? [0]).map((v) => int.tryParse('$v') ?? 0).toSet()); explicitAbsence = data['deductExplicitAbsence'] == true; missingAttendance = data['missingAttendanceIsAbsent'] == true; loading = false; });
   }
   Future<void> _save() async {
     setState(() => saving = true);
-    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductApprovedLeave': approvedLeave, 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance, 'salaryDayDivisor': int.tryParse(divisor.text) ?? 26}); if (mounted) Navigator.pop(context, true); }
+    try { await HrmsPayrollApi.savePolicy({'weeklyOffDays': offDays.toList()..sort(), 'deductExplicitAbsence': explicitAbsence, 'missingAttendanceIsAbsent': missingAttendance}); if (mounted) Navigator.pop(context, true); }
     finally { if (mounted) setState(() => saving = false); }
   }
   @override Widget build(BuildContext context) => AlertDialog(
@@ -269,9 +267,8 @@ class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
       const Text('Weekly off days'),
       Wrap(children: List.generate(7, (day) { const labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; return FilterChip(label: Text(labels[day]), selected: offDays.contains(day), onSelected: (selected) => setState(() { if (selected) { offDays.add(day); } else { offDays.remove(day); } })); })),
       const SizedBox(height: 10),
-      TextField(controller: divisor, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Salary-day divisor', helperText: 'Use 26 for the standard monthly payroll calculation')),
-      const SizedBox(height: 8),
-      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct approved leave'), value: approvedLeave, onChanged: (value) => setState(() => approvedLeave = value)),
+      const Padding(padding: EdgeInsets.only(top: 10), child: Text('Daily salary is calculated from the actual working days in each pay period.', style: TextStyle(fontSize: 12, color: Color(0xFF657087)))),
+      const Padding(padding: EdgeInsets.only(top: 8), child: Text('Paid or unpaid leave is controlled per leave type in Leave Policy.', style: TextStyle(fontSize: 12, color: Color(0xFF657087)))),
       SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Deduct explicit absence'), value: explicitAbsence, onChanged: (value) => setState(() => explicitAbsence = value)),
       SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Treat missing attendance as absence'), value: missingAttendance, onChanged: (value) => setState(() => missingAttendance = value)),
     ]))),
@@ -311,9 +308,19 @@ class _PayrollHeader extends StatelessWidget {
     return Row(
       children: [
         const Expanded(child: AdminPageHeader(title: 'Payroll')),
-        IconButton(tooltip: 'Payroll policy', onPressed: onPolicy, icon: const Icon(Icons.tune_rounded, color: _PayrollColors.navy)),
+        OutlinedButton(
+          onPressed: onPolicy,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _PayrollColors.navy,
+            side: const BorderSide(color: _PayrollColors.navy),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+          child: const Text('Payroll Policy', style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
         const SizedBox(width: 8),
-        FilledButton.icon(
+        Tooltip(
+          message: 'Generate the month-end draft after attendance and leave are final. Live salary previews update automatically every day.',
+          child: FilledButton.icon(
           onPressed: generating ? null : onGenerate,
           icon: generating
               ? const SizedBox(
@@ -323,10 +330,11 @@ class _PayrollHeader extends StatelessWidget {
                       strokeWidth: 2, color: Colors.white),
                 )
               : const Icon(Icons.playlist_add_check_rounded),
-          label: Text(generating ? 'Generating…' : 'Generate payroll'),
+          label: Text(generating ? 'Generating…' : 'Generate month-end draft'),
           style: FilledButton.styleFrom(
             backgroundColor: _PayrollColors.blue,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          ),
           ),
         ),
       ],
@@ -719,8 +727,10 @@ class _MobilePayrollList extends StatelessWidget {
     }
     return Column(
       children: rows
+          .asMap()
+          .entries
           .map(
-            (row) => Container(
+            (e) => Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -731,11 +741,17 @@ class _MobilePayrollList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
+                    Text('#${e.key + 1}',
+                        style: const TextStyle(
+                            color: Color(0xFF9DAABF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
                     CircleAvatar(
                         radius: 20,
                         backgroundColor: const Color(0xFFEAF1FF),
                         child: Text(
-                            row.name.isEmpty ? '?' : row.name.substring(0, 1),
+                            e.value.name.isEmpty ? '?' : e.value.name.substring(0, 1),
                             style: const TextStyle(
                                 color: _PayrollColors.blue,
                                 fontWeight: FontWeight.w800))),
@@ -744,29 +760,34 @@ class _MobilePayrollList extends StatelessWidget {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          Text(row.name,
+                          Text(e.value.name,
                               style: const TextStyle(
                                   color: _PayrollColors.navy,
                                   fontWeight: FontWeight.w700)),
-                          Text('${row.code} • ${row.department}',
+                          Text('${e.value.code} • ${e.value.department}',
                               style: const TextStyle(
                                   color: Color(0xFF657087), fontSize: 11)),
                         ])),
-                    _PayStatus(status: row.status),
+                    _PayStatus(status: e.value.status),
                   ]),
                   const SizedBox(height: 10),
-                  Text('Salary ${row.salary}  →  Net ${row.netPay}',
+                  Text(
+                      e.value.status == 'Paid'
+                          ? 'Salary ${e.value.salary}  →  Net ${e.value.netPay}'
+                          : 'Salary ${e.value.salary}  →  Updated ${e.value.earnedToDate}',
                       style: const TextStyle(
                           color: _PayrollColors.navy,
                           fontWeight: FontWeight.w600)),
                   Text(
-                      'Paid ${row.paidDays}/${row.workingDays} days • LOP ${row.lopDays}',
+                      'Paid ${e.value.paidDays}/${e.value.workingDays} days • LOP ${e.value.lopDays}',
                       style: const TextStyle(
                           color: Color(0xFF657087), fontSize: 12)),
-                  if (row.status == 'Pending') ...[
+                  Text('Daily ${e.value.dailyRate}',
+                      style: const TextStyle(color: Color(0xFF657087), fontSize: 12)),
+                  if (e.value.status == 'Pending') ...[
                     const SizedBox(height: 10),
                     FilledButton(
-                      onPressed: () => onMarkPaid(row),
+                      onPressed: () => onMarkPaid(e.value),
                       style: FilledButton.styleFrom(
                           backgroundColor: _PayrollColors.blue),
                       child: const Text('Mark paid'),
@@ -781,11 +802,37 @@ class _MobilePayrollList extends StatelessWidget {
   }
 }
 
-class _PayrollTable extends StatelessWidget {
+class _PayrollTable extends StatefulWidget {
   const _PayrollTable({required this.rows, required this.onMarkPaid, required this.year, required this.month});
   final List<_PayrollRow> rows;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final int year, month;
+
+  @override
+  State<_PayrollTable> createState() => _PayrollTableState();
+}
+
+class _PayrollTableState extends State<_PayrollTable> {
+  final _tableHeaderScrollCtrl = ScrollController();
+  final _tableBodyScrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tableBodyScrollCtrl.addListener(() {
+      if (_tableHeaderScrollCtrl.hasClients &&
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+        _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tableHeaderScrollCtrl.dispose();
+    _tableBodyScrollCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -793,25 +840,44 @@ class _PayrollTable extends StatelessWidget {
             border: Border.all(color: const Color(0xFFE3E7EF)),
             borderRadius: BorderRadius.circular(10)),
         clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: 1590,
-            child: Column(
-              children: [
-                const _PayrollTableHeader(),
-                if (rows.isEmpty)
-                  const SizedBox(
-                      height: 160,
-                      child: Center(
-                          child: Text(
-                              'No payroll rows match these filters.')))
-                else
-                  ...rows.map((row) =>
-                      _PayrollTableRow(row: row, onMarkPaid: onMarkPaid, year: year, month: month)),
-              ],
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              controller: _tableHeaderScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: const SizedBox(
+                width: 1940,
+                child: _PayrollTableHeader(),
+              ),
             ),
-          ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520),
+              child: SingleChildScrollView(
+                controller: _tableBodyScrollCtrl,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1940,
+                  child: SingleChildScrollView(
+                    primary: false,
+                    child: Column(
+                      children: [
+                        if (widget.rows.isEmpty)
+                          const SizedBox(
+                              height: 160,
+                              child: Center(
+                                  child: Text(
+                                      'No payroll rows match these filters.')))
+                        else
+                          ...widget.rows.asMap().entries.map((e) =>
+                              _PayrollTableRow(index: e.key + 1, row: e.value, onMarkPaid: widget.onMarkPaid, year: widget.year, month: widget.month)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
 }
@@ -823,15 +889,18 @@ class _PayrollTableHeader extends StatelessWidget {
         height: 44,
         color: const Color(0xFFFCFCFD),
         child: const Row(children: [
+          _Cell(width: 70, child: Text('S.No', style: _headStyle)),
           _Cell(width: 250, child: Text('Employee', style: _headStyle)),
           _Cell(width: 150, child: Text('Department', style: _headStyle)),
           _Cell(width: 140, child: Text('Monthly salary', style: _headStyle)),
+          _Cell(width: 120, child: Text('Daily salary', style: _headStyle)),
+          _Cell(width: 140, child: Text('Earned to date', style: _headStyle)),
           _Cell(width: 150, child: Text('Period', style: _headStyle)),
           _Cell(width: 110, child: Text('Working', style: _headStyle)),
           _Cell(width: 110, child: Text('Paid days', style: _headStyle)),
           _Cell(width: 90, child: Text('LOP', style: _headStyle)),
           _Cell(width: 140, child: Text('Deductions', style: _headStyle)),
-          _Cell(width: 140, child: Text('Net pay', style: _headStyle)),
+          _Cell(width: 140, child: Text('Updated Salary', style: _headStyle)),
           _Cell(width: 120, child: Text('Status', style: _headStyle)),
           _Cell(width: 140, child: Text('Action', style: _headStyle)),
         ]),
@@ -839,7 +908,8 @@ class _PayrollTableHeader extends StatelessWidget {
 }
 
 class _PayrollTableRow extends StatelessWidget {
-  const _PayrollTableRow({required this.row, required this.onMarkPaid, required this.year, required this.month});
+  const _PayrollTableRow({required this.index, required this.row, required this.onMarkPaid, required this.year, required this.month});
+  final int index;
   final _PayrollRow row;
   final ValueChanged<_PayrollRow> onMarkPaid;
   final int year, month;
@@ -851,6 +921,10 @@ class _PayrollTableRow extends StatelessWidget {
             border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
         child: Row(
           children: [
+            _Cell(
+              width: 70,
+              child: Text('$index', style: const TextStyle(color: Color(0xFF596176), fontSize: 13)),
+            ),
             _Cell(
               width: 250,
               child: Row(children: [
@@ -882,6 +956,8 @@ class _PayrollTableRow extends StatelessWidget {
             ),
             _Cell(width: 150, child: Text(row.department, style: _cellStyle)),
             _Cell(width: 140, child: Text(row.salary, style: _cellStyle)),
+            _Cell(width: 120, child: Text(row.dailyRate, style: _cellStyle)),
+            _Cell(width: 140, child: Text(row.earnedToDate, style: _cellStyle)),
             _Cell(
               width: 150,
               child: row.periodLabel != null
@@ -905,7 +981,7 @@ class _PayrollTableRow extends StatelessWidget {
                 width: 140, child: Text(row.deductions, style: _cellStyle)),
             _Cell(
                 width: 140,
-                child: Text(row.netPay,
+                child: Text(row.earnedToDate,
                     style: const TextStyle(
                         color: _PayrollColors.navy,
                         fontWeight: FontWeight.w700,
@@ -993,6 +1069,8 @@ class _PayrollRow {
     required this.lopDays,
     required this.deductions,
     required this.netPay,
+    required this.dailyRate,
+    required this.earnedToDate,
     required this.status,
     this.salaryType = 'standard',
     this.periodLabel,
@@ -1001,7 +1079,7 @@ class _PayrollRow {
   });
 
   final int? itemId, profileId;
-  final String name, code, department, salary, deductions, netPay, status;
+  final String name, code, department, salary, deductions, netPay, dailyRate, earnedToDate, status;
   final int workingDays, paidDays, lopDays;
   final String salaryType;
   final String? periodLabel, periodStart, periodEnd;
@@ -1023,6 +1101,8 @@ class _PayrollRow {
       lopDays: asInt(json['lopDays']),
       deductions: (json['deductionsLabel'] ?? '–').toString(),
       netPay: (json['netPayLabel'] ?? '–').toString(),
+      dailyRate: (json['dailyRateLabel'] ?? '–').toString(),
+      earnedToDate: (json['earnedToDateLabel'] ?? '–').toString(),
       status: (json['status'] ?? 'Draft').toString(),
       salaryType: (json['salaryType'] ?? 'standard').toString(),
       periodLabel: json['periodLabel']?.toString(),

@@ -40,13 +40,13 @@ class AttendanceRowData {
   final String name;
   final String designation;
   final List<AttendanceDayMark> days;
-  final int present;
-  final int late;
-  final int excused;
-  final int unexcused;
-  final int halfLeave;
-  final int earnedLeave;
-  final int approvedLeave;
+  final num present;
+  final num late;
+  final num excused;
+  final num unexcused;
+  final num halfLeave;
+  final num earnedLeave;
+  final num approvedLeave;
   final String salaryPerMonth;
   final String totalSalaryAfterLeaves;
   final String updatedSalary;
@@ -95,13 +95,13 @@ class AttendanceGrid extends StatelessWidget {
   static const double _maxDayW = 80;
 
   // Summary columns
-  static const List<double> _sW = [80, 64, 64, 96, 110, 120, 146, 120];
+  static const List<double> _sW = [80, 82, 64, 64, 96, 110, 120, 130, 120];
   static const List<String> _sLabel = [
-    'Present', 'Late', 'Leave', 'Half Leave',
-    'Earned Leave', 'Salary / Month', 'Absent / Deduction', 'Updated Salary',
+    'Present', 'Absent', 'Late', 'Leave', 'Half Leave',
+    'Earned Leave', 'Salary / Month', 'Deduction', 'Updated Salary',
   ];
   static const List<Color> _sColor = [
-    Color(0xFF078C42), Color(0xFFE8770C),
+    Color(0xFF078C42), Color(0xFFD62545), Color(0xFFE8770C),
     Color(0xFF7C3CF2), Color(0xFF7C3CF2),
     _chipBlue,
     Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F),
@@ -158,13 +158,14 @@ class AttendanceGrid extends StatelessWidget {
                                     : null),
                           if (showSummary) ...[
                             _bCell(_sW[0], _stat('${row.present}',        _sColor[0])),
-                            _bCell(_sW[1], _stat('${row.late}',           _sColor[1])),
-                            _bCell(_sW[2], _stat('${row.approvedLeave}',  _sColor[2])),
-                            _bCell(_sW[3], _stat('${row.halfLeave}',      _sColor[3])),
-                            _bCell(_sW[4], _stat('${row.earnedLeave}',    _sColor[4])),
-                            _bCell(_sW[5], _money(row.salaryPerMonth)),
-                            _bCell(_sW[6], _money(row.totalSalaryAfterLeaves)),
-                            _bCell(_sW[7], _money(row.updatedSalary)),
+                            _bCell(_sW[1], _stat('${row.unexcused}',      _sColor[1])),
+                            _bCell(_sW[2], _stat('${row.late}',           _sColor[2])),
+                            _bCell(_sW[3], _stat('${row.approvedLeave}',  _sColor[3])),
+                            _bCell(_sW[4], _stat('${row.halfLeave}',      _sColor[4])),
+                            _bCell(_sW[5], _stat('${row.earnedLeave}',    _sColor[5])),
+                            _bCell(_sW[6], _money(row.salaryPerMonth)),
+                            _bCell(_sW[7], _money(row.totalSalaryAfterLeaves)),
+                            _bCell(_sW[8], _money(row.updatedSalary)),
                           ],
                         ],
                       ),

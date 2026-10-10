@@ -36,10 +36,28 @@ async function ensureHrmsTrackingTables(db) {
   await db.query(`
     CREATE TABLE IF NOT EXISTS hrms_employee_location_status (
       employee_user_id INT PRIMARY KEY,
-      status ENUM('office','home','field') NOT NULL DEFAULT 'office',
+      status ENUM('office','home','hybrid') NOT NULL DEFAULT 'office',
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  // Safely replace the legacy "field" status with the Hybrid status without
+  // invalidating existing live-location records.
+  const [statusColumns] = await db.query(
+    `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'hrms_employee_location_status'
+       AND COLUMN_NAME = 'status'`
+  );
+  if (String(statusColumns[0] && statusColumns[0].COLUMN_TYPE).includes("'field'")) {
+    await db.query(
+      "ALTER TABLE hrms_employee_location_status MODIFY status ENUM('office','home','field','hybrid') NOT NULL DEFAULT 'office'"
+    );
+    await db.query("UPDATE hrms_employee_location_status SET status = 'hybrid' WHERE status = 'field'");
+    await db.query(
+      "ALTER TABLE hrms_employee_location_status MODIFY status ENUM('office','home','hybrid') NOT NULL DEFAULT 'office'"
+    );
+  }
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS hrms_location_pings (

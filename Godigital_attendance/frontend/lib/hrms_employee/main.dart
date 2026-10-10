@@ -11,7 +11,6 @@ import 'pages/leave_page.dart';
 import 'pages/permission_page.dart';
 import 'pages/salary_page.dart';
 import 'pages/tracking_page.dart';
-import 'pages/profile_page.dart';
 
 void main() => runApp(
   ChangeNotifierProvider(
@@ -59,7 +58,6 @@ class EmployeePortal extends StatelessWidget {
       '/employee/extra-hours': (_) => const EmployeeExtraHoursPage(),
       '/employee/salary': (_) => const EmployeeSalaryPage(),
       '/employee/tracking': (_) => const EmployeeTrackingPage(),
-      '/employee/profile': (_) => const EmployeeProfilePage(),
     },
   );
 }

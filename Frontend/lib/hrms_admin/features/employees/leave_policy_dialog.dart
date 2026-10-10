@@ -284,11 +284,42 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
           ),
           const SizedBox(width: 5),
           Text(
-            isLop ? 'LOP' : 'Non-LOP',
+            isLop ? 'Unpaid (LOP)' : 'Paid leave',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: isLop ? const Color(0xFFD32F2F) : const Color(0xFF008B43),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget halfDayToggle(Map<String, dynamic> r) {
+    final allowed = flag(r['allow_half_day']);
+    return GestureDetector(
+      onTap: saving
+          ? null
+          : () => setState(() => r['allow_half_day'] = !allowed),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: allowed ? const Color(0xFFEAF2FF) : const Color(0xFFEDF0F6),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: allowed ? const Color(0xFFAFC9FF) : const Color(0xFFD7DDE8),
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.timelapse_outlined, size: 14, color: allowed ? blue : muted),
+          const SizedBox(width: 5),
+          Text(
+            allowed ? 'Half day on' : 'Half day off',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: allowed ? blue : muted,
             ),
           ),
         ]),
@@ -402,6 +433,8 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                 Row(
                   children: [
                     lopToggle(r),
+                    const SizedBox(width: 8),
+                    halfDayToggle(r),
                     const Spacer(),
                     badge(r),
                     const SizedBox(width: 4),
@@ -442,12 +475,19 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                   ),
                   Expanded(
                     flex: 20,
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        lopToggle(r),
-                        const SizedBox(width: 8),
-                        Flexible(child: badge(r)),
-                        SizedBox(width: 26, child: activeMenu(r)),
+                        Wrap(spacing: 6, runSpacing: 6, children: [
+                          lopToggle(r),
+                          halfDayToggle(r),
+                        ]),
+                        const SizedBox(height: 6),
+                        Row(children: [
+                          Flexible(child: badge(r)),
+                          SizedBox(width: 26, child: activeMenu(r)),
+                        ]),
                       ],
                     ),
                   ),
@@ -550,6 +590,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
           'usage_only': displayMode(row) == 'USAGE_ONLY',
           'abbreviation': abbrs[id]!.text.trim().toUpperCase(),
           'is_lop': flag(row['is_lop']),
+          'allow_half_day': flag(row['allow_half_day']),
         };
       });
       final response = await (widget.client?.put ?? http.put)(
@@ -666,7 +707,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Configure leave balances and employee card visibility.',
+                      'Set leave balances, paid or unpaid status, and whether each type permits half-day leave.',
                       style: TextStyle(color: muted, fontSize: 16),
                     ),
                     if (mobile) ...[const SizedBox(height: 12), pill],
@@ -781,7 +822,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                                       Expanded(
                                         flex: 20,
                                         child: Text(
-                                          'LOP / Status',
+                                          'Pay / duration',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                           ),

@@ -18,6 +18,7 @@ class _DesktopTrackingDashboard extends StatelessWidget {
     required this.onSelectEmployee,
     required this.onViewActivity,
     required this.onHomeApprovals,
+    required this.onViewReport,
   });
 
   final String mode;
@@ -30,6 +31,7 @@ class _DesktopTrackingDashboard extends StatelessWidget {
   final ValueChanged<_TrackedEmployee> onSelectEmployee;
   final ValueChanged<_TrackedEmployee> onViewActivity;
   final VoidCallback onHomeApprovals;
+  final ValueChanged<_TrackedEmployee> onViewReport;
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +61,7 @@ class _DesktopTrackingDashboard extends StatelessWidget {
                   onDateChanged: onDateChanged,
                   onSelect: onSelectEmployee,
                   onViewActivity: onViewActivity,
+                  onViewReport: onViewReport,
                 ),
               ),
               const SizedBox(width: 16),
@@ -309,6 +312,7 @@ class _DesktopEmployeePanel extends StatefulWidget {
     required this.onDateChanged,
     required this.onSelect,
     required this.onViewActivity,
+    required this.onViewReport,
   });
 
   final String mode;
@@ -320,6 +324,7 @@ class _DesktopEmployeePanel extends StatefulWidget {
   final ValueChanged<DateTime> onDateChanged;
   final ValueChanged<_TrackedEmployee> onSelect;
   final ValueChanged<_TrackedEmployee> onViewActivity;
+  final ValueChanged<_TrackedEmployee> onViewReport;
 
   @override
   State<_DesktopEmployeePanel> createState() => _DesktopEmployeePanelState();
@@ -425,6 +430,8 @@ class _DesktopEmployeePanelState extends State<_DesktopEmployeePanel> {
                                   onTap: () => widget.onSelect(employee),
                                   onHistory: () =>
                                       widget.onViewActivity(employee),
+                                  onViewReport: () =>
+                                      widget.onViewReport(employee),
                                 );
                               },
                             ),
@@ -566,11 +573,12 @@ class _DesktopEmployeeRow extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onHistory,
+    required this.onViewReport,
   });
   final String mode;
   final _TrackedEmployee employee;
   final bool selected;
-  final VoidCallback onTap, onHistory;
+  final VoidCallback onTap, onHistory, onViewReport;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -590,7 +598,7 @@ class _DesktopEmployeeRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Expanded(flex: 42, child: _employeeIdentity(employee)),
+            Expanded(flex: 42, child: _employeeIdentity(employee, onViewReport)),
             Expanded(flex: 35, child: _secondCell()),
             Expanded(flex: 23, child: _actions()),
           ],
@@ -1121,8 +1129,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
   void didUpdateWidget(covariant _DesktopHybridDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId ||
-        oldWidget.date != widget.date ||
-        oldWidget.employee.lastUpdated != widget.employee.lastUpdated) {
+        oldWidget.date != widget.date) {
       load();
     }
   }
@@ -1594,7 +1601,7 @@ Widget _desktopSurface(Widget child) => Container(
   child: child,
 );
 
-Widget _employeeIdentity(_TrackedEmployee employee) => Row(
+Widget _employeeIdentity(_TrackedEmployee employee, VoidCallback onViewReport) => Row(
   children: [
     CircleAvatar(
       radius: 22,
@@ -1613,14 +1620,19 @@ Widget _employeeIdentity(_TrackedEmployee employee) => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            employee.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF10162E),
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+          GestureDetector(
+            onTap: onViewReport,
+            child: Text(
+              employee.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: HrmsColors.blue,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                decoration: TextDecoration.underline,
+                decorationColor: HrmsColors.blue,
+              ),
             ),
           ),
           Text(

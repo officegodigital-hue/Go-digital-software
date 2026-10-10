@@ -3,6 +3,7 @@ const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
 const { isWorkingDay } = require('../jobs/auto-absence');
+const { effectiveOverrides } = require('../lib/calendarOverrides');
 
 function ok(res, data, message) {
   message = message || 'OK';
@@ -59,7 +60,7 @@ function shiftDurationMinutes(shiftStart, shiftEnd) {
   return Math.max(0, end - start);
 }
 
-async function calendarSchedule(month) {
+async function calendarSchedule(month, employee) {
   const [year, monthNumber] = String(month).split('-').map(Number);
   const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
   let weeklyOffDays = new Set([0]);
@@ -70,19 +71,25 @@ async function calendarSchedule(month) {
     weeklyOffDays = new Set(Array.isArray(parsed) ? parsed.map(Number) : [0]);
   } catch (_) {}
   try {
+    if (employee) {
+      const scoped = await effectiveOverrides(month + '-01', `${month}-${String(days).padStart(2, '0')}`, [employee]);
+      overrides = scoped.get(Number(employee.id || employee.employee_user_id)) || new Map();
+    } else {
     const [rows] = await db.query(
       `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') AS date, status FROM hrms_calendar_overrides
         WHERE work_date >= ? AND work_date <= LAST_DAY(?)`,
       [month + '-01', month + '-01']
     );
     overrides = new Map(rows.map((row) => [row.date, row.status]));
+    }
   } catch (_) {}
   const statusFor = function (day) {
     const date = month + '-' + String(day).padStart(2, '0');
     const override = overrides.get(date);
-    if (override === 'Holiday') return 'H';
-    if (override === 'Weekly Off') return 'OFF';
-    if (override === 'Working Day') return '';
+    const overrideStatus = typeof override === 'string' ? override : override?.status;
+    if (overrideStatus === 'Holiday') return 'H';
+    if (overrideStatus === 'Weekly Off') return 'OFF';
+    if (overrideStatus === 'Working Day') return '';
     return weeklyOffDays.has(new Date(Date.UTC(year, monthNumber - 1, day)).getUTCDay()) ? 'OFF' : '';
   };
   let workingDays = 0;
@@ -607,8 +614,6 @@ async function employeeDashboard(req, res) {
     const date = policy.todayIstDate();
     const month = parseMonthParam(req.query.month);
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
-    const schedule = await calendarSchedule(month);
-
     const people = await staff.listActiveStaff(db);
     const person = people.find(function (item) {
       return String(item.id) === String(employeeId);
@@ -616,7 +621,8 @@ async function employeeDashboard(req, res) {
     if (!person) return fail(res, 403, 'Employee account is not active');
 
     const record = await getRecord(employeeId, date);
-    const [[profile]] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1', [employeeId]);
+    const [[profile]] = await db.query('SELECT work_mode, department FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1', [employeeId]);
+    const schedule = await calendarSchedule(month, { id: employeeId, department: (profile && profile.department) || person.role || '' });
     const currentWorkMode = (profile && profile.work_mode) || 'Not set';
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
     const checkedOut = Boolean(record && record.check_out_at);
@@ -763,6 +769,7 @@ async function employeeDashboard(req, res) {
         present_days: presentDays,
         absent_days: absentDays,
         late_days: lateDays,
+        working_days: monthlyWorkingDays,
         work_time: {
           actual_minutes: actualMinutes,
           target_minutes: targetMinutes,
@@ -786,11 +793,18 @@ async function employeeDashboard(req, res) {
 
 async function checkInPolicy(req, res) {
   try {
+    // Work-mode decisions must not be read from a stale browser cache.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     const rules = await locationPolicy.getCheckInPolicy(db, req.user && req.user.id);
     return ok(res, {
       workMode: rules.workMode,
       requiresLocation: rules.requiresLocation,
-      radiusMeters: rules.radiusMeters
+      radiusMeters: rules.radiusMeters,
+      trackingRequired: rules.trackingRequired === true,
+      trackingActive: rules.trackingActive === true,
+      canClockIn: rules.canClockIn !== false,
     });
   } catch (error) {
     if (error instanceof locationPolicy.LocationPolicyError) return fail(res, error.status, error.message);
@@ -1016,7 +1030,8 @@ async function requestAttendanceCorrection(req, res) {
     if (policy.minutesBetween(`${date} 00:00:00`, `${today} 00:00:00`) > 7 * 24 * 60) return fail(res, 400, 'Corrections are allowed within 7 days');
     if (!['missed_check_in', 'missed_check_out', 'incorrect_time', 'automatic_absence'].includes(requestType)) return fail(res, 400, 'Choose a valid correction type');
     if (!reason) return fail(res, 400, 'Provide a correction reason');
-    if (!await isWorkingDay(date)) return fail(res, 400, 'Corrections are available only for working days');
+    const [[calendarProfile]] = await db.query('SELECT department FROM hrms_employee_profiles WHERE employee_user_id=? LIMIT 1', [req.user.id]);
+    if (!await isWorkingDay(date, { id: req.user.id, department: calendarProfile?.department || '' })) return fail(res, 400, 'Corrections are available only for working days');
     const requestedCheckIn = correctionTime(date, req.body?.checkInTime);
     const requestedCheckOut = correctionTime(date, req.body?.checkOutTime);
     if ((requestType === 'missed_check_in' || requestType === 'automatic_absence') && !requestedCheckIn) return fail(res, 400, 'Provide the corrected check-in time');

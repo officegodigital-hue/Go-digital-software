@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -93,7 +93,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
         setState(() {
           _verificationMessage = null;
           _autoCheckoutMessage =
-              'You were clocked out because you remained outside your approved location beyond the allowed grace period.';
+              'You were checked out because you remained outside your approved location beyond the allowed grace period.';
         });
       } else if (_verificationMessage != null) {
         setState(() => _verificationMessage = null);
@@ -211,7 +211,7 @@ class _AutoCheckoutOverlay extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Automatically clocked out',
+                      'Automatically checked out',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,

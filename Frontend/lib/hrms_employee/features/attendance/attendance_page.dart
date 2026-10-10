@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -51,6 +53,8 @@ class _AttendanceViewState extends State<_AttendanceView> {
   Map<int, Map<String, dynamic>> _monthDays = {};
   int _presentCount = 0;
   int _lateCount = 0;
+  int _absentCount = 0;
+  int _workingDays = 0;
   String? _token;
 
   static const monthNames = [
@@ -101,6 +105,10 @@ class _AttendanceViewState extends State<_AttendanceView> {
           final overview = data['month_overview'] as Map?;
           _presentCount = (overview?['present_days'] as num?)?.toInt() ?? 0;
           _lateCount = (overview?['late_days'] as num?)?.toInt() ?? 0;
+          _absentCount = (overview?['absent_days'] as num?)?.toInt() ?? 0;
+          _workingDays = (overview?['work_time']?['working_days'] as num?)?.toInt()
+              ?? (overview?['working_days'] as num?)?.toInt()
+              ?? 0;
 
           final Map<int, Map<String, dynamic>> daysMap = {};
 
@@ -289,6 +297,8 @@ class _AttendanceViewState extends State<_AttendanceView> {
         monthLabel: monthLabel,
         present: _presentCount,
         late: _lateCount,
+        absent: _absentCount,
+        workingDays: _workingDays,
       ),
       const SizedBox(height: 16),
       _RecentAttendanceCard(year: year, month: month, days: _monthDays),
@@ -614,11 +624,15 @@ class _SummaryCard extends StatelessWidget {
     required this.monthLabel,
     required this.present,
     required this.late,
+    required this.absent,
+    required this.workingDays,
   });
 
   final String monthLabel;
   final int present;
   final int late;
+  final int absent;
+  final int workingDays;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
@@ -633,13 +647,13 @@ class _SummaryCard extends StatelessWidget {
           Row(children: [
             Expanded(
                 child: _SummaryCell(
-                    'Working Days', '26', employeeBlue)),
+                    'Working Days', '$workingDays', employeeBlue)),
             Expanded(
                 child: _SummaryCell(
                     'Present', '$present', employeeBlue)),
             Expanded(
                 child: _SummaryCell(
-                    'Absent', '—', const Color(0xFFF04438))),
+                    'Absent', '$absent', const Color(0xFFF04438))),
             Expanded(
                 child: _SummaryCell(
                     'Late', '$late', employeeOrange, last: true)),

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -83,7 +83,10 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     bool post = false,
     Map<String, dynamic>? payload,
   }) async {
-    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint');
+    final cacheBuster = endpoint == 'check-in-policy'
+        ? '?_=${DateTime.now().microsecondsSinceEpoch}'
+        : '';
+    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint$cacheBuster');
     final headers = {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -303,7 +306,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         builder: (context) => AlertDialog(
           title: const Text('End your shift now?'),
           content: const Text('Your checkout time and worked hours will be recorded.'),
-          actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clock Out'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Check Out'))],
         ),
       );
       if (confirmed != true) return;
@@ -337,7 +340,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         payload: payload,
       );
       message = clockOut
-          ? 'You have been clocked out.'
+          ? 'You have been checked out.'
           : 'You are now checked in.';
     } catch (error) {
       message = '${_message(error)} Refresh attendance before trying again.';
@@ -598,6 +601,8 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
             style: const TextStyle(color: employeeMuted, fontSize: 12),
           ),
           const SizedBox(height: 13),
+          _count('Working Days', overview['working_days'], const Color(0xFF0891B2)),
+          const Divider(color: employeeLine),
           _count('Present', overview['present_days'], const Color(0xFF11A55B)),
           const Divider(color: employeeLine),
           _count('Absent', overview['absent_days'], const Color(0xFFE34646)),
@@ -728,10 +733,10 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                   _punching
                       ? 'Saving…'
                       : checkedIn
-                      ? 'Clock Out'
+                      ? 'Check Out'
                       : checkedOut
                       ? 'Completed'
-                      : 'Clock In',
+                      : 'Check In',
                 ),
               ),
             ],
@@ -779,7 +784,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           builder: (context, constraints) => constraints.maxWidth < 520
               ? Column(children: [workday, const SizedBox(height: 14), month])
               : SizedBox(
-                  height: 340,
+                  height: 364,
                   child: Row(
                     children: [
                       Expanded(child: workday),

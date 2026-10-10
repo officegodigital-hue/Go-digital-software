@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../services/attendance_location.dart';
@@ -112,7 +112,7 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
         _position = null;
         _notice =
             'Home location submitted. An admin must approve it before '
-            'Home Clock In is available.';
+            'Home Check In is available.';
       });
       await _load();
     } catch (error) {
@@ -184,7 +184,7 @@ class _HomeLocationDialogState extends State<HomeLocationDialog> {
                           const SizedBox(height: 8),
                           const Text(
                             'Updating your approved location requires '
-                            'new admin approval. Home Clock In will be blocked '
+                            'new admin approval. Home Check In will be blocked '
                             'until the new location is approved.',
                           ),
                         ],

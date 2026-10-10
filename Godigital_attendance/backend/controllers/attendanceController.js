@@ -2,7 +2,6 @@ const db = require('../config/db');
 const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
-const calendar = require('../lib/calendarWorkingDays');
 
 function ok(res, data, message) {
   message = message || 'OK';
@@ -625,11 +624,7 @@ async function employeeDashboard(req, res) {
 
     const timeSettings = await policy.getTimeSettings(db);
     const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
-    const [monthYear, monthNumber] = month.split('-').map(Number);
-    const monthStart = `${month}-01`;
-    const monthEnd = `${month}-${String(new Date(Date.UTC(monthYear, monthNumber, 0)).getUTCDate()).padStart(2, '0')}`;
-    const calendarOverrides = await calendar.overridesForPeriod(monthStart, monthEnd);
-    const monthlyWorkingDays = calendar.countWorkingDays(monthStart, monthEnd, new Set([0]), calendarOverrides);
+    const monthlyWorkingDays = workingDaysInMonth(month);
     const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
     const completedMinutes = await Promise.all(monthRows.map(persistedWorkedMinutes));
     let actualMinutes = completedMinutes.reduce(function (sum, minutes) {
@@ -662,13 +657,13 @@ async function employeeDashboard(req, res) {
       updated_by INT NULL,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )`);
-    const [calendarOverrideRows] = await db.query(
+    const [calendarOverrides] = await db.query(
       `SELECT DATE_FORMAT(calendar_date, '%Y-%m-%d') AS work_date, status
        FROM hrms_calendar_overrides
        WHERE calendar_date >= ? AND calendar_date <= LAST_DAY(?)`,
       [month + '-01', month + '-01']
     );
-    calendarOverrideRows.forEach(function (override) {
+    calendarOverrides.forEach(function (override) {
       if (override.status === 'Holiday' && !calendarData[override.work_date]) {
         calendarData[override.work_date] = {
           work_date: override.work_date,
