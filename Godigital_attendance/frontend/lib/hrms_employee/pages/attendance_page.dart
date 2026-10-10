@@ -42,11 +42,22 @@ class _AttendanceViewState extends State<_AttendanceView> {
   int _presentCount = 0;
   int _absentCount = 0;
   int _lateCount = 0;
+  int _workingDays = 0;
   String? _token;
 
   static const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   @override
@@ -96,11 +107,18 @@ class _AttendanceViewState extends State<_AttendanceView> {
 
     setState(() => _loading = true);
     try {
-      final url = Uri.parse('${ApiConfig.baseUrl}/attendance/dashboard?month=$monthQuery');
-      final response = await http.get(url, headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 15));
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/attendance/dashboard?month=$monthQuery',
+      );
+      final response = await http
+          .get(
+            url,
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
@@ -109,18 +127,30 @@ class _AttendanceViewState extends State<_AttendanceView> {
           final overview = data['month_overview'] as Map?;
           final Map<int, Map<String, dynamic>> daysMap = {};
 
-          final records = data['month_records'] as List? ?? data['records'] as List?;
+          final records =
+              data['month_records'] as List? ?? data['records'] as List?;
           if (records != null) {
             for (final item in records) {
               final dayNum = _extractDay(item['work_date'] ?? item['date']);
               if (dayNum != null) {
-                final isLate = item['is_late'] == 1 || item['is_late'] == true || item['isLate'] == true;
-                final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
+                final isLate =
+                    item['is_late'] == 1 ||
+                    item['is_late'] == true ||
+                    item['isLate'] == true;
+                final statusStr =
+                    (item['attendance_status']?.toString() ??
+                            item['status']?.toString() ??
+                            '')
+                        .toLowerCase();
                 final isAbsent = statusStr == 'absent';
                 final isHoliday = statusStr == 'holiday';
                 final isHalfLeave = statusStr == 'half_leave';
                 daysMap[dayNum] = {
-                  'status': isHoliday ? 'H' : (isHalfLeave ? 'HL' : (isAbsent ? 'A' : (isLate ? 'L' : 'P'))),
+                  'status': isHoliday
+                      ? 'H'
+                      : (isHalfLeave
+                            ? 'HL'
+                            : (isAbsent ? 'A' : (isLate ? 'L' : 'P'))),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -133,12 +163,17 @@ class _AttendanceViewState extends State<_AttendanceView> {
               if (rawRecord is! Map) return;
               final dayNum = _extractDay(rawDate);
               if (dayNum == null || daysMap.containsKey(dayNum)) return;
-              final statusStr = (rawRecord['status']?.toString() ?? '').toLowerCase();
+              final statusStr = (rawRecord['status']?.toString() ?? '')
+                  .toLowerCase();
               final isLate = rawRecord['isLate'] == true || statusStr == 'late';
               daysMap[dayNum] = {
                 'status': statusStr == 'holiday'
                     ? 'H'
-                    : (statusStr == 'half_leave' ? 'HL' : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'))),
+                    : (statusStr == 'half_leave'
+                          ? 'HL'
+                          : (statusStr == 'absent'
+                                ? 'A'
+                                : (isLate ? 'L' : 'P'))),
                 'clock_in': rawRecord['checkInAt'] ?? rawRecord['checkIn'],
               };
             });
@@ -149,29 +184,40 @@ class _AttendanceViewState extends State<_AttendanceView> {
           // still read from attendance_records and shown in the calendar.
           if (daysMap.isEmpty) {
             final historyUrl = Uri.parse(
-                '${ApiConfig.baseUrl}/attendance/me?month=$monthQuery');
-            final historyResponse = await http.get(historyUrl, headers: {
-              'Authorization': 'Bearer $token',
-              'Accept': 'application/json',
-            }).timeout(const Duration(seconds: 15));
+              '${ApiConfig.baseUrl}/attendance/me?month=$monthQuery',
+            );
+            final historyResponse = await http
+                .get(
+                  historyUrl,
+                  headers: {
+                    'Authorization': 'Bearer $token',
+                    'Accept': 'application/json',
+                  },
+                )
+                .timeout(const Duration(seconds: 15));
 
             if (historyResponse.statusCode == 200) {
               final historyBody = jsonDecode(historyResponse.body);
               final history = historyBody['data'];
-              final historyRecords = history is Map ? history['records'] as List? : null;
+              final historyRecords = history is Map
+                  ? history['records'] as List?
+                  : null;
               if (historyRecords != null) {
                 for (final item in historyRecords) {
                   final dayNum = _extractDay(item['date'] ?? item['work_date']);
                   if (dayNum == null) continue;
-                  final statusStr =
-                      (item['status']?.toString() ?? '').toLowerCase();
+                  final statusStr = (item['status']?.toString() ?? '')
+                      .toLowerCase();
                   final isLate = item['isLate'] == true || statusStr == 'late';
                   daysMap[dayNum] = {
                     'status': statusStr == 'holiday'
                         ? 'H'
-                        : (statusStr == 'half leave' || statusStr == 'half_leave'
-                            ? 'HL'
-                            : (statusStr == 'absent' ? 'A' : (isLate ? 'L' : 'P'))),
+                        : (statusStr == 'half leave' ||
+                                  statusStr == 'half_leave'
+                              ? 'HL'
+                              : (statusStr == 'absent'
+                                    ? 'A'
+                                    : (isLate ? 'L' : 'P'))),
                     'clock_in': item['checkInAt'] ?? item['clock_in_at'],
                   };
                 }
@@ -184,6 +230,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
               _presentCount = (overview?['present_days'] as num?)?.toInt() ?? 0;
               _absentCount = (overview?['absent_days'] as num?)?.toInt() ?? 0;
               _lateCount = (overview?['late_days'] as num?)?.toInt() ?? 0;
+              _workingDays =
+                  (overview?['work_time']?['working_days'] as num?)?.toInt() ??
+                  0;
               _monthDays = daysMap;
             });
           }
@@ -232,50 +281,67 @@ class _AttendanceViewState extends State<_AttendanceView> {
       onNext: () => changeMonth(1),
     );
 
-    final details = Column(children: [
-      _SummaryCard(
-        monthLabel: monthLabel,
-        present: _presentCount,
-        absent: _absentCount,
-        late: _lateCount,
-      ),
-      const SizedBox(height: 16),
-      _RecentAttendanceCard(
-        month: monthNames[month - 1],
-        session: _monthDays.isNotEmpty ? _monthDays.values.last : null,
-      ),
-    ]);
-
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if (_loading) const LinearProgressIndicator(),
-      if (widget.mobile) ...[
-        const MobileEmployeeHeader(showGreeting: false),
-        const SizedBox(height: 24),
-        const Text('Attendance Calendar',
-            style: TextStyle(
-                color: employeeNavy,
-                fontSize: 28,
-                fontWeight: FontWeight.w800)),
-        const SizedBox(height: 5),
-        Text('Your attendance for $monthLabel',
-            style: const TextStyle(color: employeeMuted, fontSize: 16)),
-        const SizedBox(height: 18),
-        calendar,
+    final details = Column(
+      children: [
+        _SummaryCard(
+          monthLabel: monthLabel,
+          present: _presentCount,
+          absent: _absentCount,
+          late: _lateCount,
+          workingDays: _workingDays,
+        ),
         const SizedBox(height: 16),
-        details,
-      ] else
-        LayoutBuilder(builder: (context, constraints) {
-          if (constraints.maxWidth < 980) {
-            return Column(
-                children: [calendar, const SizedBox(height: 18), details]);
-          }
-          return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(flex: 7, child: calendar),
-            const SizedBox(width: 20),
-            Expanded(flex: 4, child: details),
-          ]);
-        }),
-    ]);
+        _RecentAttendanceCard(
+          month: monthNames[month - 1],
+          session: _monthDays.isNotEmpty ? _monthDays.values.last : null,
+        ),
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_loading) const LinearProgressIndicator(),
+        if (widget.mobile) ...[
+          const MobileEmployeeHeader(showGreeting: false),
+          const SizedBox(height: 24),
+          const Text(
+            'Attendance Calendar',
+            style: TextStyle(
+              color: employeeNavy,
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Your attendance for $monthLabel',
+            style: const TextStyle(color: employeeMuted, fontSize: 16),
+          ),
+          const SizedBox(height: 18),
+          calendar,
+          const SizedBox(height: 16),
+          details,
+        ] else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 980) {
+                return Column(
+                  children: [calendar, const SizedBox(height: 18), details],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 7, child: calendar),
+                  const SizedBox(width: 20),
+                  Expanded(flex: 4, child: details),
+                ],
+              );
+            },
+          ),
+      ],
+    );
   }
 }
 
@@ -300,42 +366,58 @@ class _CalendarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: EdgeInsets.all(mobile ? 14 : 22),
-        child: Column(children: [
-          Row(children: [
+    padding: EdgeInsets.all(mobile ? 14 : 22),
+    child: Column(
+      children: [
+        Row(
+          children: [
             _CalendarArrow(
-                icon: Icons.chevron_left_rounded, onPressed: onPrevious),
+              icon: Icons.chevron_left_rounded,
+              onPressed: onPrevious,
+            ),
             Expanded(
-              child: Text(label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: employeeBlue,
-                      fontSize: mobile ? 22 : 25,
-                      fontWeight: FontWeight.w800)),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: employeeBlue,
+                  fontSize: mobile ? 22 : 25,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
             _CalendarArrow(
-                icon: Icons.chevron_right_rounded, onPressed: onNext),
-          ]),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: employeeLine),
-          const SizedBox(height: 8),
-          _AttendanceCalendar(
-              year: year, month: month, mobile: mobile, dataFor: dataFor),
-          const SizedBox(height: 14),
-          const Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 15,
-              runSpacing: 9,
-              children: [
-                _LegendStatus('P', 'Present', employeeBlue),
-                _LegendStatus('A', 'Absent', Color(0xFFF2212F)),
-                _LegendStatus('L', 'Late', employeeOrange),
-                _LegendStatus('L', 'Leave', employeePurple),
-                _LegendStatus('HL', 'Half Leave', employeePurple),
-                _LegendStatus('OFF', 'Weekly Off', Color(0xFF7D8FAA)),
-              ]),
-        ]),
-      );
+              icon: Icons.chevron_right_rounded,
+              onPressed: onNext,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Divider(height: 1, color: employeeLine),
+        const SizedBox(height: 8),
+        _AttendanceCalendar(
+          year: year,
+          month: month,
+          mobile: mobile,
+          dataFor: dataFor,
+        ),
+        const SizedBox(height: 14),
+        const Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 15,
+          runSpacing: 9,
+          children: [
+            _LegendStatus('P', 'Present', employeeBlue),
+            _LegendStatus('A', 'Absent', Color(0xFFF2212F)),
+            _LegendStatus('L', 'Late', employeeOrange),
+            _LegendStatus('L', 'Leave', employeePurple),
+            _LegendStatus('HL', 'Half Leave', employeePurple),
+            _LegendStatus('OFF', 'Weekly Off', Color(0xFF7D8FAA)),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _AttendanceCalendar extends StatelessWidget {
@@ -372,31 +454,38 @@ class _AttendanceCalendar extends StatelessWidget {
       ...List.generate(trailing, (_) => const _EmptyCalendarDay()),
     ];
 
-    return Column(children: [
-      Row(
-        children: weekdays
-            .map((day) => Expanded(
+    return Column(
+      children: [
+        Row(
+          children: weekdays
+              .map(
+                (day) => Expanded(
                   child: SizedBox(
                     height: 34,
                     child: Center(
-                      child: Text(day,
-                          style: TextStyle(
-                              color: employeeMuted,
-                              fontSize: mobile ? 9 : 11,
-                              fontWeight: FontWeight.w800)),
+                      child: Text(
+                        day,
+                        style: TextStyle(
+                          color: employeeMuted,
+                          fontSize: mobile ? 9 : 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   ),
-                ))
-            .toList(),
-      ),
-      GridView.count(
-        crossAxisCount: 7,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: mobile ? .65 : 1.0,
-        children: cells,
-      ),
-    ]);
+                ),
+              )
+              .toList(),
+        ),
+        GridView.count(
+          crossAxisCount: 7,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          childAspectRatio: mobile ? .65 : 1.0,
+          children: cells,
+        ),
+      ],
+    );
   }
 }
 
@@ -405,33 +494,29 @@ class _EmptyCalendarDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: employeeLine, width: .7),
-        ),
-      );
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: employeeLine, width: .7),
+    ),
+  );
 }
 
 class _CalendarDay extends StatelessWidget {
-  const _CalendarDay({
-    required this.day,
-    required this.status,
-    this.clockIn,
-  });
+  const _CalendarDay({required this.day, required this.status, this.clockIn});
 
   final int day;
   final String status;
   final String? clockIn;
 
   Color get color => switch (status) {
-        'A' => const Color(0xFFF2212F),
-        'L' => employeeOrange,
-        'H' => employeePurple,
-        'LV' => employeePurple,
-        'HL' => employeePurple,
-        'OFF' => const Color(0xFF7D8FAA),
-        _ => employeeBlue,
-      };
+    'A' => const Color(0xFFF2212F),
+    'L' => employeeOrange,
+    'H' => employeePurple,
+    'LV' => employeePurple,
+    'HL' => employeePurple,
+    'OFF' => const Color(0xFF7D8FAA),
+    _ => employeeBlue,
+  };
 
   String? get formattedTime {
     if (clockIn == null || clockIn!.isEmpty) return null;
@@ -461,13 +546,21 @@ class _CalendarDay extends StatelessWidget {
           Text(
             '$day',
             style: const TextStyle(
-                color: employeeNavy, fontSize: 13, fontWeight: FontWeight.w700),
+              color: employeeNavy,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 3),
           if (status == 'OFF')
-            Text('OFF',
-                style: TextStyle(
-                    color: color, fontSize: 10, fontWeight: FontWeight.w600))
+            Text(
+              'OFF',
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            )
           else if (hasStatus)
             Container(
               width: status == 'HL' ? 31 : 24,
@@ -477,9 +570,10 @@ class _CalendarDay extends StatelessWidget {
               child: Text(
                 status == 'LV' ? 'L' : status,
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800),
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           if (timeStr != null) ...[
@@ -506,18 +600,18 @@ class _CalendarArrow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 42,
-        height: 42,
-        child: IconButton.outlined(
-          onPressed: onPressed,
-          padding: EdgeInsets.zero,
-          icon: Icon(icon, color: employeeBlue, size: 27),
-          style: IconButton.styleFrom(
-              side: const BorderSide(color: employeeLine),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8))),
-        ),
-      );
+    width: 42,
+    height: 42,
+    child: IconButton.outlined(
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      icon: Icon(icon, color: employeeBlue, size: 27),
+      style: IconButton.styleFrom(
+        side: const BorderSide(color: employeeLine),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    ),
+  );
 }
 
 class _LegendStatus extends StatelessWidget {
@@ -528,28 +622,30 @@ class _LegendStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: code == 'OFF' ? 34 : 27,
-            height: 27,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: code == 'OFF' ? const Color(0xFFEAF0F8) : color,
-              shape: code == 'OFF' ? BoxShape.rectangle : BoxShape.circle,
-              borderRadius: code == 'OFF' ? BorderRadius.circular(14) : null,
-            ),
-            child: Text(code,
-                style: TextStyle(
-                    color: code == 'OFF' ? employeeMuted : Colors.white,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800)),
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: code == 'OFF' ? 34 : 27,
+        height: 27,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: code == 'OFF' ? const Color(0xFFEAF0F8) : color,
+          shape: code == 'OFF' ? BoxShape.rectangle : BoxShape.circle,
+          borderRadius: code == 'OFF' ? BorderRadius.circular(14) : null,
+        ),
+        child: Text(
+          code,
+          style: TextStyle(
+            color: code == 'OFF' ? employeeMuted : Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
           ),
-          const SizedBox(width: 7),
-          Text(label,
-              style: const TextStyle(color: employeeNavy, fontSize: 11)),
-        ],
-      );
+        ),
+      ),
+      const SizedBox(width: 7),
+      Text(label, style: const TextStyle(color: employeeNavy, fontSize: 11)),
+    ],
+  );
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -558,39 +654,47 @@ class _SummaryCard extends StatelessWidget {
     required this.present,
     required this.absent,
     required this.late,
+    required this.workingDays,
   });
 
   final String monthLabel;
   final int present;
   final int absent;
   final int late;
+  final int workingDays;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${monthLabel.split(' ').first} Summary',
-              style: const TextStyle(
-                  color: employeeBlue,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 14),
-          Row(children: [
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${monthLabel.split(' ').first} Summary',
+          style: const TextStyle(
+            color: employeeBlue,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
             Expanded(
-                child: _SummaryCell(
-                    'Working Days', '26', employeeBlue)),
+              child: _SummaryCell('Working Days', '$workingDays', employeeBlue),
+            ),
+            Expanded(child: _SummaryCell('Present', '$present', employeeBlue)),
             Expanded(
-                child: _SummaryCell(
-                    'Present', '$present', employeeBlue)),
+              child: _SummaryCell('Absent', '$absent', const Color(0xFFF04438)),
+            ),
             Expanded(
-                child: _SummaryCell(
-                    'Absent', '$absent', const Color(0xFFF04438))),
-            Expanded(
-                child: _SummaryCell(
-                    'Late', '$late', employeeOrange, last: true)),
-          ]),
-        ]),
-      );
+              child: _SummaryCell('Late', '$late', employeeOrange, last: true),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _SummaryCell extends StatelessWidget {
@@ -602,23 +706,32 @@ class _SummaryCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 3),
-        decoration: BoxDecoration(
-          border: last
-              ? null
-              : const Border(right: BorderSide(color: employeeLine)),
+    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 3),
+    decoration: BoxDecoration(
+      border: last
+          ? null
+          : const Border(right: BorderSide(color: employeeLine)),
+    ),
+    child: Column(
+      children: [
+        Text(
+          label,
+          maxLines: 2,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: employeeMuted, fontSize: 10),
         ),
-        child: Column(children: [
-          Text(label,
-              maxLines: 2,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: employeeMuted, fontSize: 10)),
-          const SizedBox(height: 5),
-          Text(value,
-              style: TextStyle(
-                  color: color, fontSize: 25, fontWeight: FontWeight.w800)),
-        ]),
-      );
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 25,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RecentAttendanceCard extends StatelessWidget {
@@ -629,14 +742,23 @@ class _RecentAttendanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasSession = session != null && session!['clock_in'] != null;
-    final status = hasSession ? (session!['status'] == 'L' ? 'Late' : 'Present') : 'None';
-    final color = hasSession ? (session!['status'] == 'L' ? employeeOrange : employeeBlue) : employeeMuted;
+    final status = hasSession
+        ? (session!['status'] == 'L' ? 'Late' : 'Present')
+        : 'None';
+    final color = hasSession
+        ? (session!['status'] == 'L' ? employeeOrange : employeeBlue)
+        : employeeMuted;
 
     String timeStr = '—';
     if (hasSession && session!['clock_in'] != null) {
       try {
-        final safeClockIn = session!['clock_in'].toString().replaceFirst(' ', 'T');
-        timeStr = DateFormat('hh:mm a').format(DateTime.parse(safeClockIn).toLocal());
+        final safeClockIn = session!['clock_in'].toString().replaceFirst(
+          ' ',
+          'T',
+        );
+        timeStr = DateFormat(
+          'hh:mm a',
+        ).format(DateTime.parse(safeClockIn).toLocal());
       } catch (_) {
         timeStr = session!['clock_in'];
       }
@@ -644,15 +766,21 @@ class _RecentAttendanceCard extends StatelessWidget {
 
     return EmployeeCard(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Recent Attendance',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recent Attendance',
             style: TextStyle(
-                color: employeeBlue,
-                fontSize: 20,
-                fontWeight: FontWeight.w800)),
-        const SizedBox(height: 10),
-        _RecentAttendanceRow('Today', status, timeStr, color),
-      ]),
+              color: employeeBlue,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _RecentAttendanceRow('Today', status, timeStr, color),
+        ],
+      ),
     );
   }
 }
@@ -666,27 +794,37 @@ class _RecentAttendanceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.calendar_today_outlined,
-                color: employeeBlue, size: 18),
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Text(date,
-                  style: const TextStyle(
-                      color: employeeNavy, fontWeight: FontWeight.w700))),
-          CircleAvatar(radius: 4, backgroundColor: color),
-          const SizedBox(width: 6),
-          Text(status, style: TextStyle(color: color)),
-          const SizedBox(width: 14),
-          Text(time, style: const TextStyle(color: employeeMuted)),
-        ]),
-      );
+          child: const Icon(
+            Icons.calendar_today_outlined,
+            color: employeeBlue,
+            size: 18,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            date,
+            style: const TextStyle(
+              color: employeeNavy,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        CircleAvatar(radius: 4, backgroundColor: color),
+        const SizedBox(width: 6),
+        Text(status, style: TextStyle(color: color)),
+        const SizedBox(width: 14),
+        Text(time, style: const TextStyle(color: employeeMuted)),
+      ],
+    ),
+  );
 }

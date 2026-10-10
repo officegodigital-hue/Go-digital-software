@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const calendar = require('../lib/calendarWorkingDays');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -206,6 +207,7 @@ async function computeRows(year, month, today) {
   // preceding month (for example 26 Aug–25 Sep).
   const queryStart = ymd(previous.year, previous.month, 1);
   const queryEnd = ymd(year, month, daysInMonth(year, month));
+  const calendarOverrides = await calendar.overridesForPeriod(queryStart, queryEnd);
 
   const [profiles] = await db.query(`
     SELECT p.* FROM hrms_employee_profiles p JOIN employee_users u ON u.id = p.employee_user_id
@@ -296,7 +298,8 @@ async function computeRows(year, month, today) {
   return profiles.map(function (profile) {
     const period = payrollPeriod(profile, year, month, overrideMap.get(Number(profile.id)));
     const cutoff = period.end < today ? period.end : today;
-    let workingDays = 0;
+    let elapsedWorkingDays = 0;
+    let earnedDays = 0;
     let present = 0;
     let late = 0;
     let leaveDays = 0;
@@ -307,8 +310,8 @@ async function computeRows(year, month, today) {
 
     for (let date = period.start; date <= cutoff; date = nextDate(date)) {
       const dateParts = date.split('-').map(Number);
-      if (weeklyOff.has(utcWeekday(dateParts[0], dateParts[1], dateParts[2]))) continue;
-      workingDays += 1;
+      if (!calendar.isWorkingDay(date, weeklyOff, calendarOverrides)) continue;
+      elapsedWorkingDays += 1;
       const userId = profile.employee_user_id;
       const key = userId ? userId + '|' + date : '';
       const record = key ? recordMap.get(key) : null;
@@ -319,6 +322,7 @@ async function computeRows(year, month, today) {
       if (attStatus === 'half_leave') {
         unpaidHalfDays += 0.5;
         absentEntries.push({ date: date, days: 0.5 });
+        earnedDays += 0.5;
       } else if (attStatus === 'absent') {
         // An explicit absence is visible in the summary even when the policy
         // treats it as paid time.
@@ -331,9 +335,11 @@ async function computeRows(year, month, today) {
         const lateMinutes = Math.max(0, Math.floor((attendanceTimeSeconds(record.check_in_at) - timeSeconds(schedule.lateAfter)) / 60));
         if (lateMinutes > 0) lateEntries.push({ date: date, minutes: lateMinutes });
         else present += 1;
+        earnedDays += 1;
       } else if (key && leaveSet.has(key)) {
         // Approved leave
         leaveDays += 1;
+        earnedDays += 1;
       } else if (configuredPolicy.missingAttendanceIsAbsent) {
         // Do not silently turn a missing record into an absence unless the
         // administrator has chosen that policy.
@@ -348,22 +354,20 @@ async function computeRows(year, month, today) {
     // A payroll day is a fixed policy divisor (normally 26), not the number
     // of days elapsed when the payroll is generated. This makes a three-day
     // absence from a Rs. 50,000 salary deduct Rs. 5,770 consistently.
-    const periodWorkingDays = Math.max(1, countWorkingDays(period.start, period.end, weeklyOff));
+    const periodWorkingDays = Math.max(1, calendar.countWorkingDays(period.start, period.end, weeklyOff, calendarOverrides));
     const dailyRate = salaryNumber / periodWorkingDays;
     const schedule = String(profile.gender).toLowerCase() === 'female' ? timeSettings.female : timeSettings.male;
     let shiftMinutes = Math.round((timeSeconds(schedule.shiftEnd) - timeSeconds(schedule.shiftStart)) / 60);
     if (shiftMinutes <= 0) shiftMinutes += 24 * 60;
     const hourlyRate = dailyRate / Math.max(1, shiftMinutes / 60);
     const lateDeductions = lateEntries.reduce((sum, item) => sum + (hourlyRate * item.minutes / 60), 0);
-    const unpaidLeaveDays = configuredPolicy.deductApprovedLeave ? leaveDays : 0;
-    const unpaidAbsenceDays = configuredPolicy.deductExplicitAbsence ? absent : 0;
-    const lopDays = Math.min(workingDays, unpaidLeaveDays + unpaidAbsenceDays + unpaidHalfDays);
-    const paidDays = Math.max(0, workingDays - lopDays);
-    const absentDeductions = salaryNumber ? (unpaidLeaveDays + unpaidAbsenceDays + unpaidHalfDays) * dailyRate : 0;
-    const deductions = salaryNumber ? Math.min(salaryNumber, Math.round((lateDeductions + absentDeductions) * 100) / 100) : 0;
-
-    // Dynamic Net Pay
-    const netPay = Math.max(0, salaryNumber - deductions);
+    const workingDays = periodWorkingDays;
+    const paidDays = Math.min(workingDays, earnedDays);
+    const lopDays = Math.max(0, elapsedWorkingDays - paidDays);
+    const absentDeductions = 0;
+    const deductions = salaryNumber ? Math.round(lateDeductions * 100) / 100 : 0;
+    // Salary is accrued from paid days; an absence never removes pay already earned.
+    const netPay = Math.max(0, Math.round((paidDays * dailyRate - deductions) * 100) / 100);
 
     const saved = savedMap.get(Number(profile.id));
     if (saved && (Number(saved.employee_user_id) !== Number(profile.employee_user_id) ||
@@ -453,6 +457,7 @@ function toKpis(items) {
     paid: paid,
     pending: pending,
     draft: draft,
+    totalWorkingDays: items.length === 0 ? 0 : Math.max(...items.map(function (item) { return Number(item.workingDays || 0); })),
   };
 }
 
@@ -460,7 +465,8 @@ async function list(req, res) {
   try {
     const parsed = parseMonth(req);
     if (parsed.error) return fail(res, 400, parsed.error);
-    await runAutomaticPayroll();
+    // Refreshing the Payroll page always regenerates unpaid rows for the selected month.
+    await generatePayrollRun(parsed.year, parsed.month, parsed.today);
     const employee = String(req.query.employee || '').trim();
     const status = String(req.query.status || '').trim();
     const allItems = await computeRows(parsed.year, parsed.month, parsed.today);

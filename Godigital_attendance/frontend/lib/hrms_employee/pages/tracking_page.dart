@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/tracking_comments_section.dart';
@@ -44,6 +46,8 @@ class _TrackingViewState extends State<_TrackingView> {
   bool trackingActive = false;
   Timer? _locationTimer;
   Timer? _waitingAlertTimer;
+  Timer? _waitingPromptSoundTimer;
+  final AudioPlayer _waitingPromptPlayer = AudioPlayer();
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
@@ -88,6 +92,31 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    _waitingAlertTimer?.cancel();
+    _stopWaitingPrompt();
+    _waitingPromptPlayer.dispose();
+    super.dispose();
+  }
+
+  void _startWaitingPrompt() {
+    _stopWaitingPrompt();
+    void notify() {
+      _waitingPromptPlayer.play(AssetSource('sounds/notification.mp3'), volume: 0.8);
+      HapticFeedback.heavyImpact();
+    }
+    notify();
+    _waitingPromptSoundTimer = Timer.periodic(const Duration(seconds: 5), (_) => notify());
+  }
+
+  void _stopWaitingPrompt() {
+    _waitingPromptSoundTimer?.cancel();
+    _waitingPromptSoundTimer = null;
+    _waitingPromptPlayer.stop();
+  }
+
   Future<void> _loadTrackingPermissions() async {
     try {
       final permissions = await HrmsTrackingApi.trackingPermissions();
@@ -108,13 +137,6 @@ class _TrackingViewState extends State<_TrackingView> {
     } catch (_) {
       // Field tracking remains unavailable unless the admin permission loads.
     }
-  }
-
-  @override
-  void dispose() {
-    _locationTimer?.cancel();
-    _waitingAlertTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadOfficeSettings() async {
@@ -679,8 +701,10 @@ class _TrackingViewState extends State<_TrackingView> {
     final controller = TextEditingController();
     var isSubmitting = false;
     String? submitError;
+    _startWaitingPrompt();
 
-    await showDialog<void>(
+    try {
+      await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -770,8 +794,11 @@ class _TrackingViewState extends State<_TrackingView> {
           },
         );
       },
-    );
-    controller.dispose();
+      );
+    } finally {
+      _stopWaitingPrompt();
+      controller.dispose();
+    }
   }
 }
 

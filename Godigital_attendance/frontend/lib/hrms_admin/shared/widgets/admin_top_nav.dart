@@ -641,8 +641,10 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
         onMarkAllRead: () async {
           await HrmsNotificationsApi.markAllRead();
           if (!mounted) return;
-          setState(() => _unreadCount = 0);
-          if (dialogContext.mounted) Navigator.pop(dialogContext);
+          setState(() {
+            _unreadCount = 0;
+            _items = const [];
+          });
         },
         onViewApprovals: () {
           Navigator.pop(dialogContext);
@@ -689,7 +691,7 @@ class _AdminNotificationBellState extends State<AdminNotificationBell> {
   );
 }
 
-class _NotificationsDialog extends StatelessWidget {
+class _NotificationsDialog extends StatefulWidget {
   const _NotificationsDialog({
     required this.items,
     required this.unreadCount,
@@ -707,6 +709,37 @@ class _NotificationsDialog extends StatelessWidget {
   final Future<void> Function() onSettings;
 
   @override
+  State<_NotificationsDialog> createState() => _NotificationsDialogState();
+}
+
+class _NotificationsDialogState extends State<_NotificationsDialog> {
+  late List<Map<String, dynamic>> _items;
+  late int _unreadCount;
+  bool _markingAllRead = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List<Map<String, dynamic>>.from(widget.items);
+    _unreadCount = widget.unreadCount;
+  }
+
+  Future<void> _markAllRead() async {
+    if (_markingAllRead || _items.isEmpty) return;
+    setState(() => _markingAllRead = true);
+    try {
+      await widget.onMarkAllRead();
+      if (!mounted) return;
+      setState(() {
+        _unreadCount = 0;
+        _items = const [];
+      });
+    } finally {
+      if (mounted) setState(() => _markingAllRead = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => AlertDialog(
     title: Row(
       children: [
@@ -714,25 +747,25 @@ class _NotificationsDialog extends StatelessWidget {
         const SizedBox(width: 9),
         Expanded(
           child: Text(
-            unreadCount == 0
+            _unreadCount == 0
                 ? 'Notifications'
-                : 'Notifications ($unreadCount new)',
+                : 'Notifications ($_unreadCount new)',
           ),
         ),
         IconButton(
-          onPressed: onSettings,
-          icon: const Icon(Icons.tune_rounded),
+          onPressed: widget.onSettings,
+          icon: const Icon(Icons.settings_outlined),
           tooltip: 'Notification settings',
         ),
         TextButton(
-          onPressed: unreadCount == 0 ? null : onMarkAllRead,
-          child: const Text('Mark all as read'),
+          onPressed: _items.isEmpty || _markingAllRead ? null : _markAllRead,
+          child: Text(_markingAllRead ? 'Marking…' : 'Mark all as read'),
         ),
       ],
     ),
     content: SizedBox(
       width: 420,
-      child: items.isEmpty
+      child: _items.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Center(child: Text('No notifications yet.')),
@@ -741,10 +774,10 @@ class _NotificationsDialog extends StatelessWidget {
               constraints: const BoxConstraints(maxHeight: 300),
               child: ListView.separated(
                 shrinkWrap: true,
-                itemCount: items.length,
+                itemCount: _items.length,
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (_, index) {
-                  final item = items[index];
+                  final item = _items[index];
                   final unread = item['isRead'] != true;
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -779,12 +812,12 @@ class _NotificationsDialog extends StatelessWidget {
     ),
     actions: [
       OutlinedButton.icon(
-        onPressed: onViewTracking,
+        onPressed: widget.onViewTracking,
         icon: const Icon(Icons.location_on_outlined, size: 18),
         label: const Text('View Tracking'),
       ),
       OutlinedButton.icon(
-        onPressed: onViewApprovals,
+        onPressed: widget.onViewApprovals,
         icon: const Icon(Icons.open_in_new_rounded, size: 18),
         label: const Text('View Approvals'),
       ),
