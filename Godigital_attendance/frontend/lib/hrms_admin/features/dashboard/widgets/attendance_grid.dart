@@ -22,6 +22,7 @@ class AttendanceDayMark {
       case 'U':
         return HrmsColors.accentPurple;
       case 'HL':
+      case 'EL':
       case 'LV':
         return HrmsColors.accentPurple;
       default:

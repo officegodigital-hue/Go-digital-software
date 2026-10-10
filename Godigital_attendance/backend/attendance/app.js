@@ -327,16 +327,18 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
           }
         }
 
-        await pool.execute(`CREATE TABLE IF NOT EXISTS hrms_leave_type_policies (
-          leave_type VARCHAR(64) NOT NULL PRIMARY KEY,
-          yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 0
+        await pool.execute(`CREATE TABLE IF NOT EXISTS hrms_leave_policies (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, leave_type VARCHAR(80) NOT NULL,
+          annual_allowance DECIMAL(8,2) NOT NULL DEFAULT 0, carry_forward TINYINT(1) NOT NULL DEFAULT 0,
+          effective_year INT NOT NULL, active TINYINT(1) NOT NULL DEFAULT 1,
+          UNIQUE KEY uniq_leave_policy_year (leave_type, effective_year)
         )`);
-        const defaultLimits = [['Casual Leave', 12], ['Sick Leave', 8], ['Earned Leave', 12], ['Optional Holiday', 3]];
-        for (const [type, limit] of defaultLimits) {
-          await pool.execute('INSERT IGNORE INTO hrms_leave_type_policies (leave_type, yearly_limit) VALUES (?, ?)', [type, limit]);
-        }
-        const [policyRows] = await pool.execute('SELECT leave_type, yearly_limit FROM hrms_leave_type_policies');
-        const quotas = Object.fromEntries(policyRows.map((row) => [row.leave_type, Number(row.yearly_limit)]));
+        const currentYear = new Date().getFullYear();
+        const [policyRows] = await pool.execute(
+          'SELECT leave_type, annual_allowance FROM hrms_leave_policies WHERE effective_year = ? AND active = 1',
+          [currentYear]
+        );
+        const quotas = Object.fromEntries(policyRows.map((row) => [row.leave_type, Number(row.annual_allowance)]));
         // A zero limit means this leave type is disabled for employees.  Do
         // not expose it in the employee balance cards or leave form.
         const balances = Object.keys(quotas).filter((type) => quotas[type] > 0).map((type) => ({
@@ -365,15 +367,17 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         if (!leave_type || !from_date || !to_date) {
           return res.status(400).json({ success: false, message: 'All fields are required.' });
         }
-        await pool.execute(`CREATE TABLE IF NOT EXISTS hrms_leave_type_policies (
-          leave_type VARCHAR(64) NOT NULL PRIMARY KEY,
-          yearly_limit DECIMAL(5,2) NOT NULL DEFAULT 0
+        await pool.execute(`CREATE TABLE IF NOT EXISTS hrms_leave_policies (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, leave_type VARCHAR(80) NOT NULL,
+          annual_allowance DECIMAL(8,2) NOT NULL DEFAULT 0, carry_forward TINYINT(1) NOT NULL DEFAULT 0,
+          effective_year INT NOT NULL, active TINYINT(1) NOT NULL DEFAULT 1,
+          UNIQUE KEY uniq_leave_policy_year (leave_type, effective_year)
         )`);
         const [leavePolicyRows] = await pool.execute(
-          'SELECT yearly_limit FROM hrms_leave_type_policies WHERE leave_type = ?',
-          [leave_type]
+          'SELECT annual_allowance FROM hrms_leave_policies WHERE leave_type = ? AND effective_year = ? AND active = 1',
+          [leave_type, new Date().getFullYear()]
         );
-        if (!leavePolicyRows.length || Number(leavePolicyRows[0].yearly_limit) <= 0) {
+        if (!leavePolicyRows.length || Number(leavePolicyRows[0].annual_allowance) <= 0) {
           return res.status(400).json({
             success: false,
             message: 'This leave type is not available under the current leave policy.',

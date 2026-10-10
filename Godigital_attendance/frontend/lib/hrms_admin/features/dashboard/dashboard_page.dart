@@ -65,6 +65,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _kpiPresent = 0;
   int _kpiAbsent = 0;
   int _kpiLate = 0;
+  List<String> _enabledLeaveTypes = const [];
   bool _loading = true;
   String? _error;
 
@@ -134,6 +135,9 @@ class _DashboardPageState extends State<DashboardPage> {
         _kpiPresent = _asInt(kpis['present']);
         _kpiAbsent = _asInt(kpis['absent']);
         _kpiLate = _asInt(kpis['late']);
+        _enabledLeaveTypes = (data['enabledLeaveTypes'] as List? ?? [])
+            .map((item) => item.toString())
+            .toList();
         _loading = false;
       });
     } catch (err) {
@@ -428,7 +432,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(width: 24),
-                const _AttendanceLegend(),
+                _AttendanceLegend(enabledLeaveTypes: _enabledLeaveTypes),
                 const SizedBox(width: 24),
                 if (_monthly) ...[
                   Tooltip(
@@ -2093,23 +2097,35 @@ class _KpiCard extends StatelessWidget {
 }
 
 class _AttendanceLegend extends StatelessWidget {
-  const _AttendanceLegend();
+  const _AttendanceLegend({required this.enabledLeaveTypes});
+  final List<String> enabledLeaveTypes;
 
   static const items = <(String, String, Color)>[
     ('P', 'Present', _green),
     ('A', 'Absent', Color(0xFFB0000B)),
     ('L', 'Late', _orange),
     ('H', 'Holiday', _purple),
-    ('L', 'Leave', _purple),
-    ('HL', 'Half Leave', _purple),
     ('OFF', 'Weekly Off (Sunday)', Color(0xFF8C9AB8)),
   ];
+
+  static const leaveCodes = <String, String>{
+    'Casual Leave': 'CL',
+    'Sick Leave': 'SL',
+    'Earned Leave': 'EL',
+    'Optional Holiday': 'OH',
+  };
 
   @override
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      for (final item in items) ...[
+      for (final item in [
+        ...items.take(4),
+        for (final type in enabledLeaveTypes)
+          (leaveCodes[type] ?? 'LV', type, _purple),
+        if (enabledLeaveTypes.isNotEmpty) ('HL', 'Half Leave', _purple),
+        items.last,
+      ]) ...[
         Container(
           width: item.$1.length > 2 ? 25 : 20,
           height: 20,

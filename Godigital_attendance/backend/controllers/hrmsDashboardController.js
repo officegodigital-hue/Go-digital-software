@@ -191,6 +191,12 @@ async function monthView(req, res) {
         AND profile.employment_status <> 'Inactive'
       ORDER BY profile.full_name ASC
     `);
+    const [leavePolicyRows] = await db.query(
+      `SELECT leave_type FROM hrms_leave_policies
+       WHERE effective_year = ? AND active = 1 AND annual_allowance > 0`,
+      [year]
+    ).catch(() => [[]]);
+    const enabledLeaveTypes = leavePolicyRows.map(function (row) { return String(row.leave_type); });
 
     const userIds = profiles
       .map(function (row) { return row.employee_user_id; })
@@ -230,7 +236,9 @@ async function monthView(req, res) {
     const leaveMap = new Map();
     leaves.forEach(function (row) {
       let date = row.from_date;
-      const code = row.duration_type === 'Half Day' ? 'HL' : 'LV';
+      const code = row.duration_type === 'Half Day'
+        ? 'HL'
+        : (row.leave_type === 'Earned Leave' ? 'EL' : 'LV');
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
         leaveMap.set(key, { code: code, leaveType: row.leave_type });
@@ -391,6 +399,7 @@ async function monthView(req, res) {
       month: month,
       daysInMonth: totalDays,
       totalWorkingDays: totalWorkingDays,
+      enabledLeaveTypes: enabledLeaveTypes,
       timezone: policy.TIME_ZONE,
       payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {
