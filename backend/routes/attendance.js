@@ -28,6 +28,7 @@ router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions)
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
 
 router.get('/me', attendance.myHistory);
+router.get('/me/day', attendance.dayDetail);
 router.get('/calendar-notifications', calendarNotifications.mine);
 router.patch('/calendar-notifications/:id/read', calendarNotifications.markRead);
 router.get('/me/export', attendance.myExport);

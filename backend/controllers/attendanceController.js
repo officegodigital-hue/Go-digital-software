@@ -1387,12 +1387,65 @@ async function rejectCorrectionRequest(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
+async function dayDetail(req, res) {
+  try {
+    const date = parseDateParam(req.query.date);
+    if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
+    const employeeId = req.user.id;
+
+    const [rows] = await db.query(
+      'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date = ? LIMIT 1',
+      [employeeId, date]
+    );
+    if (!rows.length) {
+      return ok(res, { date: date, status: 'A', checkInAt: null, checkOutAt: null, workingMinutes: 0, totalBreakMinutes: 0, break: null, remarks: null });
+    }
+
+    const row = rows[0];
+    const totalBreak = await breakMinutes(row.id);
+
+    const [breakRows] = await db.query(
+      "SELECT started_at, ended_at, duration_minutes FROM attendance_breaks WHERE attendance_id = ? AND status IN ('completed','auto_closed') ORDER BY started_at LIMIT 1",
+      [row.id]
+    );
+    const singleBreak = breakRows[0] ? {
+      start: sqlDateTime(breakRows[0].started_at),
+      end: sqlDateTime(breakRows[0].ended_at),
+      duration_minutes: Number(breakRows[0].duration_minutes || 0)
+    } : null;
+
+    const worked = Number(row.working_minutes || 0);
+    const statusLabel = policy.displayStatus({
+      status: row.attendance_status,
+      isLate: Number(row.is_late),
+      checkInAt: row.check_in_at,
+      checkOutAt: row.check_out_at
+    });
+
+    return ok(res, {
+      date: sqlDate(row.attendance_date),
+      status: row.is_late ? 'LT' : (row.check_in_at ? 'P' : 'A'),
+      statusLabel: statusLabel,
+      checkInAt: sqlDateTime(row.check_in_at),
+      checkOutAt: sqlDateTime(row.check_out_at),
+      workingMinutes: worked,
+      totalBreakMinutes: totalBreak,
+      break: singleBreak,
+      remarks: row.remarks || row.notes || null
+    });
+  } catch (error) {
+    console.error('GET /attendance/me/day', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin: requireAdmin,
   dashboard: dashboard,
   clockLogs: clockLogs,
   employeeDashboard: employeeDashboard,
   myHistory: myHistory,
+  dayDetail: dayDetail,
   checkInPolicy: checkInPolicy,
   checkIn: checkIn,
   checkOut: checkOut,

@@ -343,47 +343,208 @@ class _DashboardPageState extends State<DashboardPage> {
         onRetry: _loadDashboard,
       );
     }
+    final hpad = width < 1100 ? 20.0 : 32.0;
     return Scaffold(
       backgroundColor: Colors.white,
+      bottomNavigationBar: _monthly ? _monthBarFixed() : null,
       body: Column(
         children: [
           const AdminTopNav(activeRoute: '/admin/dashboard'),
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                width < 1100 ? 20 : 32,
-                14,
-                width < 1100 ? 20 : 32,
-                14,
+          Expanded(child: _desktopScrollBody(hpad)),
+        ],
+      ),
+    );
+  }
+
+  // ── Month bar fixed to bottom of screen ─────────────────────────────────────
+  Widget _monthBarFixed() => Container(
+    height: 46,
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(top: BorderSide(color: _line)),
+      boxShadow: [BoxShadow(color: Color(0x12000000), blurRadius: 8, offset: Offset(0, -2))],
+    ),
+    child: _monthSelector(),
+  );
+
+  // ── Desktop body (handles loading / error / view modes) ──────────────────────
+  Widget _desktopScrollBody(double hpad) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(_error!, textAlign: TextAlign.center),
+            ),
+            FilledButton(onPressed: _loadDashboard, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    // Full-page scroll with sticky header for the main monthly+summary week view.
+    if (_monthly && _showSummary) return _desktopFullPageScroll(hpad);
+    // Fall back to original fixed-height panel layout for other views.
+    return Padding(
+      padding: EdgeInsets.fromLTRB(hpad, 14, hpad, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageHeading(),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 90,
+            child: _KpiRow(
+              monthly: _monthly,
+              total: _kpiTotal,
+              present: _kpiPresent,
+              absent: _kpiAbsent,
+              late: _kpiLate,
+              workingDays: _kpiWorkingDays,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(child: _attendancePanel()),
+        ],
+      ),
+    );
+  }
+
+  // ── Full-page scroll layout ───────────────────────────────────────────────────
+  Widget _desktopFullPageScroll(double hpad) {
+    final monthNum = _monthCodes.indexOf(_month) + 1;
+    const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final dayLabels = [
+      for (final day in _weekDays)
+        weekdayNames[DateTime(_year, monthNum, day).weekday - 1],
+    ];
+    final today = DateTime.now();
+    final todayKey =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    int? todayIndex;
+    for (var i = 0; i < _weekDays.length; i++) {
+      final dk =
+          '$_year-${monthNum.toString().padLeft(2, '0')}-${_weekDays[i].toString().padLeft(2, '0')}';
+      if (dk == todayKey) {
+        todayIndex = i;
+        break;
+      }
+    }
+
+    return CustomScrollView(
+      slivers: [
+        // ── Heading + KPIs + panel toolbar + legend ──
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(hpad, 14, hpad, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _pageHeading(),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 90,
+                  child: _KpiRow(
+                    monthly: _monthly,
+                    total: _kpiTotal,
+                    present: _kpiPresent,
+                    absent: _kpiAbsent,
+                    late: _kpiLate,
+                    workingDays: _kpiWorkingDays,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Panel top: toolbar + legend (scrolls away)
+                Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(color: Color(0xFFBFD2F2)),
+                      left: BorderSide(color: Color(0xFFBFD2F2)),
+                      right: BorderSide(color: Color(0xFFBFD2F2)),
+                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(13)),
+                    boxShadow: [
+                      BoxShadow(color: Color(0x09193B75), blurRadius: 24, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      _panelToolbar(),
+                      const Divider(height: 1, color: _line),
+                      _panelLegend(),
+                      const Divider(height: 1, color: _line),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // ── Sticky column header ──
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: AttendanceHeaderDelegate(
+            days: _weekDays,
+            dayLabels: dayLabels,
+            showSummary: true,
+            todayIndex: todayIndex,
+            horizontalPadding: hpad,
+          ),
+        ),
+
+        // ── Employee rows ──
+        SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: hpad),
+          sliver: _filteredEmployees.isEmpty
+              ? const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(child: Text('No employees to show.')),
+                  ),
+                )
+              : SliverToBoxAdapter(
+                  child: _AttendanceTable(
+                    horizontalController: _tableScrollController,
+                    year: _year,
+                    month: monthNum,
+                    weekDays: _weekDays,
+                    weeklyOffDay: _weeklyOffDay,
+                    employees: _filteredEmployees,
+                    showSummary: true,
+                    showHeader: false,
+                  ),
+                ),
+        ),
+
+        // ── Panel bottom border + footer ──
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(hpad, 0, hpad, 14),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFBFD2F2)),
+                  left: BorderSide(color: Color(0xFFBFD2F2)),
+                  right: BorderSide(color: Color(0xFFBFD2F2)),
+                ),
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(13)),
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _pageHeading(),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 90,
-                    child: _KpiRow(
-                      monthly: _monthly,
-                      total: _kpiTotal,
-                      present: _kpiPresent,
-                      absent: _kpiAbsent,
-                      late: _kpiLate,
-                      workingDays: _kpiWorkingDays,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Expanded(child: _attendancePanel()),
-                  if (_monthly) ...[
-                    const SizedBox(height: 6),
-                    SizedBox(height: 38, child: _monthSelector()),
-                  ],
+                  const Divider(height: 1, color: _line),
+                  _panelFooter(),
                 ],
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -543,15 +704,6 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(width: 8),
         ],
         _panelBtn(Icons.file_download_outlined, 'Export', _exportAttendanceCsv),
-        const SizedBox(width: 8),
-        _panelBtn(Icons.schedule_rounded, 'Manage Time', _openManageTime),
-        const SizedBox(width: 8),
-        _panelBtn(
-          Icons.edit_calendar_outlined,
-          'Manage Calendar',
-          _openManageCalendar,
-          accent: true,
-        ),
       ],
     ),
   );
@@ -1114,6 +1266,7 @@ class _AttendanceTable extends StatelessWidget {
     required this.weeklyOffDay,
     required this.employees,
     required this.showSummary,
+    this.showHeader = true,
     this.onCellTap,
   });
 
@@ -1124,6 +1277,7 @@ class _AttendanceTable extends StatelessWidget {
   final int weeklyOffDay;
   final List<_EmployeeAttendance> employees;
   final bool showSummary;
+  final bool showHeader;
   final void Function(
     _EmployeeAttendance,
     int dayIndex,
@@ -1154,6 +1308,7 @@ class _AttendanceTable extends StatelessWidget {
     }
     return AttendanceGrid(
       showSummary: showSummary,
+      showHeader: showHeader,
       days: weekDays,
       dayLabels: [
         for (final day in weekDays)

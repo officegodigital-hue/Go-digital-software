@@ -173,7 +173,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             _PageHeader(
                               onAdd: () => _showEmployeeForm(),
                               onExport: _exportEmployees,
-                              onLeavePolicy: _showLeavePolicies,
                             ),
                             const SizedBox(height: 18),
                             _EmployeeKpis(
@@ -823,26 +822,12 @@ class _PageHeader extends StatelessWidget {
   const _PageHeader({
     required this.onAdd,
     required this.onExport,
-    required this.onLeavePolicy,
   });
 
-  final VoidCallback onAdd, onExport, onLeavePolicy;
+  final VoidCallback onAdd, onExport;
 
   static const _btnShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(9)),
-  );
-
-  Widget _leavePolicyBtn() => OutlinedButton.icon(
-    onPressed: onLeavePolicy,
-    icon: const Icon(Icons.event_available_outlined, size: 20),
-    label: const Text('Leave Policy'),
-    style: OutlinedButton.styleFrom(
-      foregroundColor: HrmsColors.navy,
-      backgroundColor: const Color(0xFFF0F4FF),
-      side: const BorderSide(color: Color(0xFFBDCEFF)),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      shape: _btnShape,
-    ),
   );
 
   Widget _addEmployeeBtn() => FilledButton.icon(
@@ -876,29 +861,19 @@ class _PageHeader extends StatelessWidget {
     trailing: LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 480) {
-          // Mobile: two primary buttons on top, Export alone below
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Expanded(child: _leavePolicyBtn()),
-                  const SizedBox(width: 10),
-                  Expanded(child: _addEmployeeBtn()),
-                ],
-              ),
+              _addEmployeeBtn(),
               const SizedBox(height: 8),
               _exportBtn(),
             ],
           );
         }
-        // Desktop: all three inline
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _leavePolicyBtn(),
-            const SizedBox(width: 12),
             _addEmployeeBtn(),
             const SizedBox(width: 12),
             _exportBtn(),

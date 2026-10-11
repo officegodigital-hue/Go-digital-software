@@ -21,6 +21,7 @@ class AdminTopNav extends StatelessWidget {
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
+    ('Settings', '/admin/settings'),
     // ('Announcements', '/admin/announcements'), // TODO: uncomment when announcements feature is complete
   ];
 
@@ -387,9 +388,15 @@ class AdminMobileBottomNav extends StatelessWidget {
             ),
             _dockItem(
               context,
-              icon: Icons.location_on_rounded,
+              icon: Icons.near_me_rounded,
               label: 'Tracking',
               route: '/admin/tracking',
+            ),
+            _dockItem(
+              context,
+              icon: Icons.settings_rounded,
+              label: 'Settings',
+              route: '/admin/settings',
             ),
           ],
         ),
