@@ -12,27 +12,21 @@ const _navy = Color(0xFF061457);
 
 /// Opens the same notification preferences dialog used by the notification bell.
 Future<void> showAdminNotificationSettings(BuildContext context) async {
-  final player = AudioPlayer();
-  try {
-    final data = await HrmsNotificationsApi.list();
-    final settings = data['settings'] is Map
-        ? Map<String, dynamic>.from(data['settings'] as Map)
-        : const <String, dynamic>{};
-    await showDialog<bool>(
-      context: context,
-      builder: (_) => _NotificationSettingsDialog(
-        settings: settings,
-        onPreview: (name, volume, customUrl) {
-          final source = name == 'custom' && customUrl != null && customUrl.isNotEmpty
-              ? UrlSource(ApiConfig.mediaUrl(customUrl))
-              : AssetSource('sounds/$name');
-          return player.play(source, volume: volume.clamp(0.0, 1.0).toDouble());
-        },
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Notification settings'),
+      content: const Text(
+        'Notification preferences are managed from the Settings page.',
       ),
-    );
-  } finally {
-    await player.dispose();
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }
 
 class AdminTopNav extends StatelessWidget {

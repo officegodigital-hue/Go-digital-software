@@ -511,7 +511,6 @@ class _TrackingViewState extends State<_TrackingView> {
     // Only Field and Hybrid employees receive field-tracking permission. The
     // backend performs the same authorization before saving a comment.
     final comments = const TrackingCommentsSection();
-    final commentHistory = const TrackingCommentsHistoryButton();
 
     if (widget.mobile) {
       return Column(
@@ -545,8 +544,6 @@ class _TrackingViewState extends State<_TrackingView> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(updated, style: const TextStyle(color: employeeMuted)),
-                  const SizedBox(height: 6),
-                  commentHistory,
                 ],
               ),
             ],
@@ -597,8 +594,6 @@ class _TrackingViewState extends State<_TrackingView> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(updated, style: const TextStyle(color: employeeMuted)),
-                const SizedBox(height: 6),
-                commentHistory,
               ],
             ),
           ],
