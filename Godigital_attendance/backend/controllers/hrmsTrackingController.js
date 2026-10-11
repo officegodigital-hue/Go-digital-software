@@ -549,8 +549,8 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
 
   if (elapsedMinutes < waitingMinutes) return;
 
-const eventKey =
-  '${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}';
+  const eventKey =
+    `${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}`;
 
 await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (
