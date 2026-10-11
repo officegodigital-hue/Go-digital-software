@@ -172,7 +172,6 @@ class _PayrollPageState extends State<PayrollPage> {
                                 _PayrollHeader(
                                   generating: generating,
                                   onGenerate: _generate,
-                                  onPolicy: _editPolicy,
                                 ),
                                 const SizedBox(height: 17),
                                 _PayrollKpis(
@@ -231,7 +230,7 @@ class _PayrollPageState extends State<PayrollPage> {
 
   Future<void> _editPolicy() async {
     try {
-      final saved = await showDialog<bool>(context: context, builder: (_) => const _PayrollPolicyDialog());
+      final saved = await showDialog<bool>(context: context, builder: (_) => const PayrollPolicyDialog());
       if (saved == true) _load();
     } catch (err) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))));
@@ -239,12 +238,12 @@ class _PayrollPageState extends State<PayrollPage> {
   }
 }
 
-class _PayrollPolicyDialog extends StatefulWidget {
-  const _PayrollPolicyDialog();
-  @override State<_PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
+class PayrollPolicyDialog extends StatefulWidget {
+  const PayrollPolicyDialog();
+  @override State<PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
 }
 
-class _PayrollPolicyDialogState extends State<_PayrollPolicyDialog> {
+class _PayrollPolicyDialogState extends State<PayrollPolicyDialog> {
   Set<int> offDays = {0};
   bool explicitAbsence = true;
   bool missingAttendance = false;
@@ -298,26 +297,15 @@ class _MonthOption {
 }
 
 class _PayrollHeader extends StatelessWidget {
-  const _PayrollHeader({required this.generating, required this.onGenerate, required this.onPolicy});
+  const _PayrollHeader({required this.generating, required this.onGenerate});
   final bool generating;
   final VoidCallback onGenerate;
-  final VoidCallback onPolicy;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         const Expanded(child: AdminPageHeader(title: 'Payroll')),
-        OutlinedButton(
-          onPressed: onPolicy,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: _PayrollColors.navy,
-            side: const BorderSide(color: _PayrollColors.navy),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-          child: const Text('Payroll Policy', style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        const SizedBox(width: 8),
         Tooltip(
           message: 'Generate the month-end draft after attendance and leave are final. Live salary previews update automatically every day.',
           child: FilledButton.icon(

@@ -277,6 +277,20 @@ class _AttendanceViewState extends State<_AttendanceView> {
     return {'status': '', 'clock_in': null};
   }
 
+  void _showDayPopup(int day) {
+    final date = DateTime(year, month, day);
+    final existing = _monthDays[day] ?? {};
+    showDialog(
+      context: context,
+      builder: (_) => _AttendanceDayPopup(
+        date: date,
+        status: existing['status']?.toString() ?? '',
+        clockIn: existing['clock_in']?.toString(),
+        token: _token ?? '',
+      ),
+    );
+  }
+
   Future<void> _pickCorrectionTime(TextEditingController controller) async {
     final parts = controller.text.trim().split(':');
     final initial = TimeOfDay(
@@ -409,6 +423,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
       dataFor: dataFor,
       onPrevious: () => changeMonth(-1),
       onNext: () => changeMonth(1),
+      onDayTap: _showDayPopup,
     );
 
     final details = Column(children: [
@@ -469,6 +484,7 @@ class _CalendarCard extends StatelessWidget {
     required this.dataFor,
     required this.onPrevious,
     required this.onNext,
+    this.onDayTap,
   });
 
   final int year;
@@ -478,6 +494,7 @@ class _CalendarCard extends StatelessWidget {
   final Map<String, dynamic> Function(int day) dataFor;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+  final void Function(int day)? onDayTap;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
@@ -501,7 +518,8 @@ class _CalendarCard extends StatelessWidget {
           const Divider(height: 1, color: employeeLine),
           const SizedBox(height: 8),
           _AttendanceCalendar(
-              year: year, month: month, mobile: mobile, dataFor: dataFor),
+              year: year, month: month, mobile: mobile, dataFor: dataFor,
+              onDayTap: onDayTap),
           const SizedBox(height: 14),
           const Wrap(
               alignment: WrapAlignment.center,
@@ -525,12 +543,14 @@ class _AttendanceCalendar extends StatelessWidget {
     required this.month,
     required this.mobile,
     required this.dataFor,
+    this.onDayTap,
   });
 
   final int year;
   final int month;
   final bool mobile;
   final Map<String, dynamic> Function(int day) dataFor;
+  final void Function(int day)? onDayTap;
 
   @override
   Widget build(BuildContext context) {
@@ -548,6 +568,7 @@ class _AttendanceCalendar extends StatelessWidget {
           day: day,
           status: info['status']?.toString() ?? '',
           clockIn: info['clock_in']?.toString(),
+          onTap: onDayTap != null ? () => onDayTap!(day) : null,
         );
       }),
       ...List.generate(trailing, (_) => const _EmptyCalendarDay()),
@@ -598,11 +619,13 @@ class _CalendarDay extends StatelessWidget {
     required this.day,
     required this.status,
     this.clockIn,
+    this.onTap,
   });
 
   final int day;
   final String status;
   final String? clockIn;
+  final VoidCallback? onTap;
 
   static const _systemCodes = {'P', 'A', 'LT', 'H', 'HL', 'OFF', 'LV', 'L'};
 
@@ -634,7 +657,9 @@ class _CalendarDay extends StatelessWidget {
     final hasStatus = status.isNotEmpty;
     final timeStr = formattedTime;
 
-    return Container(
+    return InkWell(
+      onTap: status.isNotEmpty ? onTap : null,
+      child: Container(
       decoration: BoxDecoration(
         color: status == 'OFF' ? const Color(0xFFF6F9FD) : Colors.white,
         border: Border.all(color: employeeLine, width: .7),
@@ -682,7 +707,7 @@ class _CalendarDay extends StatelessWidget {
           ],
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -1019,4 +1044,353 @@ class _TimeStepper extends StatelessWidget {
           ]),
         ),
       ]);
+}
+
+// ── Attendance Day Popup ───────────────────────────────────────────────────────
+
+class _AttendanceDayPopup extends StatefulWidget {
+  const _AttendanceDayPopup({
+    required this.date,
+    required this.status,
+    required this.token,
+    this.clockIn,
+  });
+
+  final DateTime date;
+  final String status;
+  final String? clockIn;
+  final String token;
+
+  @override
+  State<_AttendanceDayPopup> createState() => _AttendanceDayPopupState();
+}
+
+class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
+  bool _loading = true;
+  Map<String, dynamic>? _detail;
+
+  static const _weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  static const _months   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDetail();
+  }
+
+  Future<void> _fetchDetail() async {
+    final dateStr = '${widget.date.year}-${widget.date.month.toString().padLeft(2,'0')}-${widget.date.day.toString().padLeft(2,'0')}';
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/attendance/me/day?date=$dateStr');
+      final res = await http.get(url, headers: {
+        'Authorization': 'Bearer ${widget.token}',
+        'Accept': 'application/json',
+      }).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        if (body['success'] == true && body['data'] != null) {
+          if (mounted) setState(() { _detail = Map<String, dynamic>.from(body['data']); _loading = false; });
+          return;
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  String _fmt(String? raw) {
+    if (raw == null || raw.isEmpty) return '—';
+    try { return DateFormat('hh:mm a').format(DateTime.parse(raw.replaceFirst(' ','T')).toLocal()); }
+    catch (_) { return raw; }
+  }
+
+  String _fmtMins(dynamic mins) {
+    if (mins == null) return '—';
+    final m = (mins is num) ? mins.toInt() : int.tryParse(mins.toString()) ?? 0;
+    if (m == 0) return '—';
+    return m >= 60 ? '${m ~/ 60}h ${m % 60}m' : '${m}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.date;
+    final weekday = _weekdays[d.weekday - 1];
+    final dateLabel = '$weekday, ${d.day} ${_months[d.month - 1]} ${d.year}';
+
+    final status = _detail?['status']?.toString() ?? widget.status;
+    final clockIn  = _detail?['checkInAt']  ?? widget.clockIn;
+    final clockOut = _detail?['checkOutAt'];
+    final rawBreakMins = _detail?['totalBreakMinutes'];
+    final breakDur = _fmtMins(rawBreakMins);
+    final singleBreak = _detail?['break'] as Map?;
+
+    // working hours (returned as workingMinutes from the new endpoint)
+    String workHours = '—';
+    final rawWorkMins = _detail?['workingMinutes'];
+    if (rawWorkMins is num && rawWorkMins > 0) {
+      final m = rawWorkMins.toInt();
+      workHours = '${m ~/ 60}h ${m % 60}m';
+    }
+
+    final remarks = _detail?['remarks']?.toString();
+
+    Color statusColor;
+    String statusLabel;
+    switch (status) {
+      case 'P':   statusColor = const Color(0xFF078C42); statusLabel = 'Present'; break;
+      case 'A':   statusColor = const Color(0xFFD62545); statusLabel = 'Absent';  break;
+      case 'LT':  statusColor = employeeOrange;          statusLabel = 'Late';    break;
+      case 'OFF': statusColor = const Color(0xFF7D8FAA); statusLabel = 'Weekly Off'; break;
+      case 'H':   statusColor = employeePurple;          statusLabel = 'Holiday'; break;
+      default:    statusColor = employeePurple;          statusLabel = status.isNotEmpty ? status : 'Leave'; break;
+    }
+
+    final isLeave  = !{'P','A','LT','OFF','H',''}.contains(status);
+    final hasClockIn = clockIn != null && clockIn.toString().isNotEmpty;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Header ──────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 14, 16),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF07186F), Color(0xFF0767F2)],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 46, height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(.18),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(.25)),
+                    ),
+                    child: const Icon(Icons.calendar_today_outlined, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        '${_months[d.month-1]} ${d.day}, ${d.year}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(weekday, style: TextStyle(color: Colors.white.withOpacity(.72), fontSize: 12)),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.15),
+                          border: Border.all(color: Colors.white.withOpacity(.2)),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Container(
+                            width: 22, height: 22,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(6)),
+                            child: Text(
+                              status.length > 2 ? status.substring(0,2) : status,
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(statusLabel, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(.15),
+                      shape: const CircleBorder(),
+                      padding: const EdgeInsets.all(6),
+                    ),
+                  ),
+                ]),
+              ),
+
+              // ── Body ────────────────────────────────────────
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(40),
+                  child: CircularProgressIndicator(color: employeeBlue),
+                )
+              else
+                SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (!isLeave) ...[
+                      _popupSectionTitle('Attendance Record'),
+                      // 2×2 grid: check-in, check-out, working hours, break time
+                      Row(children: [
+                        Expanded(child: _DetailCard(label: 'Check In',  value: _fmt(clockIn?.toString()),  valueColor: hasClockIn ? (status == 'LT' ? employeeOrange : const Color(0xFF078C42)) : employeeMuted)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _DetailCard(label: 'Check Out', value: _fmt(clockOut?.toString()), valueColor: employeeNavy)),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(child: _DetailCard(label: 'Working Hours', value: workHours, valueColor: employeeBlue)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _DetailCard(label: 'Break Time',    value: breakDur, valueColor: employeeOrange)),
+                      ]),
+                      const SizedBox(height: 14),
+                    ] else ...[
+                      _popupSectionTitle('Leave Information'),
+                      _DetailCard(label: 'Leave Type', value: statusLabel, valueColor: employeePurple, fullWidth: true),
+                      const SizedBox(height: 14),
+                    ],
+
+                    if (remarks != null && remarks.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF8F0),
+                          border: Border.all(color: const Color(0xFFFFE0BA)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Icon(Icons.warning_amber_rounded, color: employeeOrange, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(remarks, style: const TextStyle(fontSize: 12, color: Color(0xFF7A4A00), height: 1.5))),
+                        ]),
+                      ),
+                    ],
+
+                    if (!isLeave) ...[
+                      _popupSectionTitle('Break Record'),
+                      if (singleBreak != null) ...[
+                        // Total break time
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF0E0),
+                            border: Border.all(color: const Color(0xFFFFD8A8)),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(children: [
+                            Expanded(child: Text('Total Break Time', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF7A4A00)))),
+                            Text(breakDur, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: employeeOrange)),
+                          ]),
+                        ),
+                        // Column headers
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 10, 4),
+                          child: Row(children: const [
+                            Expanded(child: Text('START TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: employeeMuted, letterSpacing: .5))),
+                            Expanded(child: Text('END TIME',   style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: employeeMuted, letterSpacing: .5))),
+                            SizedBox(width: 80, child: Text('DURATION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: employeeMuted, letterSpacing: .5))),
+                          ]),
+                        ),
+                        // Single break row
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F7FF),
+                            border: Border.all(color: employeeLine),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(children: [
+                            Expanded(child: Text(_fmt(singleBreak['start']?.toString()), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: employeeNavy))),
+                            Expanded(child: Text(_fmt(singleBreak['end']?.toString()),   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: employeeNavy))),
+                            SizedBox(
+                              width: 80,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: const Color(0xFFFFF0E0), borderRadius: BorderRadius.circular(20)),
+                                child: Text(
+                                  _fmtMins(singleBreak['duration_minutes']),
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: employeeOrange),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ] else
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F7FF),
+                            border: Border.all(color: employeeLine, style: BorderStyle.solid),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('No break recorded for this day', style: TextStyle(fontSize: 12, color: employeeMuted)),
+                        ),
+                      const SizedBox(height: 4),
+                    ],
+
+                    const SizedBox(height: 4),
+                  ]),
+                ),
+
+              // ── Footer ──────────────────────────────────────
+              const Divider(height: 1, color: employeeLine),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: employeeLine),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    ),
+                    child: const Text('Close', style: TextStyle(color: employeeNavy, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _popupSectionTitle(String title) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(title.toUpperCase(),
+        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: employeeMuted, letterSpacing: .7)),
+  );
+}
+
+class _DetailCard extends StatelessWidget {
+  const _DetailCard({required this.label, required this.value, required this.valueColor, this.fullWidth = false});
+  final String label;
+  final String value;
+  final Color valueColor;
+  final bool fullWidth;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: fullWidth ? double.infinity : null,
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F7FF),
+      border: Border.all(color: employeeLine),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontSize: 10, color: employeeMuted, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 3),
+      Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: valueColor)),
+    ]),
+  );
 }

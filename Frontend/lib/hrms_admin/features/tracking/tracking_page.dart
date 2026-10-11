@@ -20,6 +20,29 @@ abstract final class HrmsColors {
   static const page = Color(0xFFFCFDFF);
 }
 
+Future<void> showOfficeLocationDialog(BuildContext context) async {
+  await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const _OfficeLocationDialog(),
+  );
+}
+
+Future<void> showHybridSettingsDialog(BuildContext context) async {
+  await showDialog<void>(
+    context: context,
+    builder: (_) => const _FieldWaitingSettingsDialog(),
+  );
+}
+
+Future<void> showHomeApprovalsDialog(BuildContext context) async {
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const HomeLocationsDialog(),
+  );
+}
+
 class TrackingPage extends StatefulWidget {
   const TrackingPage({super.key});
 
@@ -232,10 +255,7 @@ class _TrackingPageState extends State<TrackingPage> {
                         children: [
                           _TrackingHeader(
                             onRefresh: _load,
-                            onManageWaiting: _openFieldWaitingSettings,
                             onViewReasons: _openFieldWaitingReasons,
-                            onHomeApprovals: _openHomeApprovals,
-                            onOfficeLocation: _openOfficeLocation,
                           ),
                           const SizedBox(height: 14),
                           if (loading && employees.isEmpty)
@@ -289,12 +309,8 @@ class _TrackingPageState extends State<TrackingPage> {
 
 class _TrackingMobileActions extends StatelessWidget {
   const _TrackingMobileActions({
-    required this.onOfficeLocation,
-    required this.onManageWaiting,
-    required this.onHomeApprovals,
     required this.onRefresh,
   });
-  final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
   final Future<void> Function() onRefresh;
 
   @override
@@ -308,9 +324,6 @@ class _TrackingMobileActions extends StatelessWidget {
     ),
     child: Row(
       children: [
-        _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
-        _tool(Icons.timer_outlined, 'Hybrid', onManageWaiting),
-        _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
         _tool(Icons.refresh, 'Refresh', () => onRefresh()),
       ],
     ),
@@ -342,17 +355,11 @@ class _TrackingMobileActions extends StatelessWidget {
 class _TrackingHeader extends StatelessWidget {
   const _TrackingHeader({
     required this.onRefresh,
-    required this.onManageWaiting,
     required this.onViewReasons,
-    required this.onHomeApprovals,
-    required this.onOfficeLocation,
   });
 
   final Future<void> Function() onRefresh;
-  final VoidCallback onManageWaiting;
   final VoidCallback onViewReasons;
-  final VoidCallback onHomeApprovals;
-  final VoidCallback onOfficeLocation;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -360,9 +367,6 @@ class _TrackingHeader extends StatelessWidget {
       final mobile = constraints.maxWidth < 700;
       final toolbar = _TrackingActionToolbar(
         mobile: mobile,
-        onOfficeLocation: onOfficeLocation,
-        onManageWaiting: onManageWaiting,
-        onHomeApprovals: onHomeApprovals,
         onViewReasons: onViewReasons,
         onRefresh: onRefresh,
       );
@@ -390,17 +394,11 @@ class _TrackingHeader extends StatelessWidget {
 
 class _TrackingActionToolbar extends StatefulWidget {
   const _TrackingActionToolbar({
-    required this.onOfficeLocation,
-    required this.onManageWaiting,
-    required this.onHomeApprovals,
     required this.onViewReasons,
     required this.onRefresh,
     this.mobile = false,
   });
 
-  final VoidCallback onOfficeLocation;
-  final VoidCallback onManageWaiting;
-  final VoidCallback onHomeApprovals;
   final VoidCallback onViewReasons;
   final Future<void> Function() onRefresh;
   final bool mobile;
@@ -443,30 +441,9 @@ class _TrackingActionToolbarState extends State<_TrackingActionToolbar> {
         const SizedBox(width: 6),
         _tab(
           0,
-          Icons.gps_fixed_rounded,
-          'Office Location',
-          () => _tap(0, widget.onOfficeLocation),
-        ),
-        const SizedBox(width: 2),
-        _tab(
-          1,
-          Icons.tune_rounded,
-          'Hybrid Settings',
-          () => _tap(1, widget.onManageWaiting),
-        ),
-        const SizedBox(width: 2),
-        _tab(
-          2,
-          Icons.home_outlined,
-          'Home Approvals',
-          () => _tap(2, widget.onHomeApprovals),
-        ),
-        const SizedBox(width: 2),
-        _tab(
-          3,
           Icons.fact_check_outlined,
           'Waiting Reasons',
-          () => _tap(3, widget.onViewReasons),
+          () => _tap(0, widget.onViewReasons),
         ),
         const SizedBox(width: 6),
         const _ToolbarDivider(),
@@ -494,36 +471,9 @@ class _TrackingActionToolbarState extends State<_TrackingActionToolbar> {
         Expanded(
           child: _mobTab(
             0,
-            Icons.gps_fixed_rounded,
-            'Office',
-            () => _tap(0, widget.onOfficeLocation),
-          ),
-        ),
-        _mobDivider(),
-        Expanded(
-          child: _mobTab(
-            1,
-            Icons.tune_rounded,
-            'Hybrid',
-            () => _tap(1, widget.onManageWaiting),
-          ),
-        ),
-        _mobDivider(),
-        Expanded(
-          child: _mobTab(
-            2,
-            Icons.home_outlined,
-            'Home',
-            () => _tap(2, widget.onHomeApprovals),
-          ),
-        ),
-        _mobDivider(),
-        Expanded(
-          child: _mobTab(
-            3,
             Icons.fact_check_outlined,
             'Waiting',
-            () => _tap(3, widget.onViewReasons),
+            () => _tap(0, widget.onViewReasons),
           ),
         ),
         _mobDivider(),
