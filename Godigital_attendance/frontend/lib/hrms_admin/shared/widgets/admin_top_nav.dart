@@ -10,6 +10,31 @@ import '../../../screens/login_screen.dart';
 const _blue = Color(0xFF075EF7);
 const _navy = Color(0xFF061457);
 
+/// Opens the same notification preferences dialog used by the notification bell.
+Future<void> showAdminNotificationSettings(BuildContext context) async {
+  final player = AudioPlayer();
+  try {
+    final data = await HrmsNotificationsApi.list();
+    final settings = data['settings'] is Map
+        ? Map<String, dynamic>.from(data['settings'] as Map)
+        : const <String, dynamic>{};
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => _NotificationSettingsDialog(
+        settings: settings,
+        onPreview: (name, volume, customUrl) {
+          final source = name == 'custom' && customUrl != null && customUrl.isNotEmpty
+              ? UrlSource(ApiConfig.mediaUrl(customUrl))
+              : AssetSource('sounds/$name');
+          return player.play(source, volume: volume.clamp(0.0, 1.0).toDouble());
+        },
+      ),
+    );
+  } finally {
+    await player.dispose();
+  }
+}
+
 class AdminTopNav extends StatelessWidget {
   const AdminTopNav({super.key, required this.activeRoute});
 
@@ -22,6 +47,7 @@ class AdminTopNav extends StatelessWidget {
     ('Approvals', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
     ('Tracking', '/admin/tracking'),
+    ('Settings', '/admin/settings'),
   ];
 
   void _open(BuildContext context, String route) {
@@ -36,7 +62,7 @@ class AdminTopNav extends StatelessWidget {
     // The full navigation pill needs considerably more room than the page
     // content. Switch to a compact menu before Windows display scaling can
     // squeeze the trailing actions outside the viewport.
-    final compact = screenWidth < 1180;
+    final compact = screenWidth < 1320;
     return Container(
       height: mobile ? 68 : 90,
       padding: EdgeInsets.symmetric(
@@ -405,6 +431,12 @@ class AdminMobileBottomNav extends StatelessWidget {
               label: 'Tracking',
               route: '/admin/tracking',
             ),
+            _dockItem(
+              context,
+              icon: Icons.settings_rounded,
+              label: 'Settings',
+              route: '/admin/settings',
+            ),
           ],
         ),
       ),
@@ -539,13 +571,18 @@ class _DesktopNav extends StatelessWidget {
               color: active ? _blue : Colors.transparent,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Text(
-              item.$1,
-              style: TextStyle(
-                color: active ? Colors.white : _navy,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.$1,
+                  style: TextStyle(
+                    color: active ? Colors.white : _navy,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
             ),
           ),
         );

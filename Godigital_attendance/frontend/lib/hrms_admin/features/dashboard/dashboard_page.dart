@@ -51,6 +51,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  bool _openedSettingsAction = false;
   final ScrollController _tableScrollController = ScrollController();
   bool _monthly = true;
   bool _showSummary = true;
@@ -89,6 +90,18 @@ class _DashboardPageState extends State<DashboardPage> {
     _year = today.year;
     _month = _monthCodes[today.month - 1];
     _boot();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    if (_openedSettingsAction || action == null) return;
+    _openedSettingsAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (action == 'manageTime') _openManageTime();
+      if (action == 'manageCalendar') _openManageCalendar();
+    });
   }
 
   Future<void> _boot() async {
@@ -228,7 +241,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <th style="color:${_hex(_purple)}">Half Leave</th>
           <th style="color:${_hex(_blue)}">Earned Leave</th>
           <th>Salary Per Month</th>
-          <th>Absent Deduction</th>
+          <th style="color:${_hex(_red)}">Absent Deduction</th>
           <th>Updated Salary</th>
         </tr>
     ''');
@@ -250,7 +263,7 @@ class _DashboardPageState extends State<DashboardPage> {
           <td style="color:${_hex(_purple)}; font-weight:700;">${employee.halfLeave}</td>
           <td style="color:${_hex(_blue)}; font-weight:700;">${employee.earnedLeave}</td>
           <td>${employee.salary}</td>
-          <td>${employee.daysPaid} ${employee.afterLeaves}</td>
+          <td style="color:${_hex(_red)}; font-weight:700;">${employee.absent} ${employee.absentDeduction}</td>
           <td>${employee.updatedSalary}</td>
         </tr>
       ''');
@@ -294,8 +307,6 @@ class _DashboardPageState extends State<DashboardPage> {
           setState(() => _year = value);
           _loadDashboard();
         },
-        onManageTime: _openManageTime,
-        onManageCalendar: _openManageCalendar,
         onExport: _exportAttendanceCsv,
         month: _month,
         employees: _employees,
@@ -481,45 +492,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _openManageTime,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _navy,
-                    side: const BorderSide(color: Color(0xFFBFD2F2)),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  icon: const Icon(Icons.schedule_rounded, size: 20),
-                  label: const Text(
-                    'Manage Time',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _openManageCalendar,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _blue,
-                    side: const BorderSide(color: _blue),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  icon: const Icon(Icons.edit_calendar_outlined, size: 20),
-                  label: const Text(
-                    'Manage Calendar',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                ),
               ],
             ),
           ),
@@ -748,6 +720,8 @@ class _AttendanceTable extends StatelessWidget {
                 ),
             ],
             present: employee.present,
+            absent: employee.absent,
+            absentDeduction: employee.absentDeduction,
             late: employee.late,
             excused: employee.excused,
             unexcused: employee.unexcused,
@@ -824,6 +798,8 @@ class _EmployeeAttendance {
     required this.name,
     required this.designation,
     required this.present,
+    required this.absent,
+    required this.absentDeduction,
     required this.late,
     required this.halfLeave,
     required this.earnedLeave,
@@ -840,6 +816,8 @@ class _EmployeeAttendance {
   final String name;
   final String designation;
   final int present;
+  final int absent;
+  final String absentDeduction;
   final int late;
   final int halfLeave;
   final int earnedLeave;
@@ -859,6 +837,8 @@ class _EmployeeAttendance {
       name: (json['name'] ?? '').toString(),
       designation: (json['designation'] ?? '').toString(),
       present: asInt(json['present']),
+      absent: asInt(json['absent']),
+      absentDeduction: (json['absentDeduction'] ?? '–').toString(),
       late: asInt(json['late']),
       halfLeave: asInt(json['halfLeave']),
       earnedLeave: asInt(json['earnedLeave']),
@@ -882,8 +862,6 @@ class _MobileDashboard extends StatelessWidget {
     required this.onMonthlyChanged,
     required this.year,
     required this.onYearChanged,
-    required this.onManageTime,
-    required this.onManageCalendar,
     required this.onExport,
     required this.month,
     required this.employees,
@@ -899,8 +877,6 @@ class _MobileDashboard extends StatelessWidget {
   final ValueChanged<bool> onMonthlyChanged;
   final int year;
   final ValueChanged<int> onYearChanged;
-  final VoidCallback onManageTime;
-  final VoidCallback onManageCalendar;
   final VoidCallback onExport;
   final String month;
   final List<_EmployeeAttendance> employees;
@@ -1053,8 +1029,6 @@ class _MobileDashboard extends StatelessWidget {
                   month: month,
                   year: year,
                   employees: employees,
-                  onManageTime: onManageTime,
-                  onManageCalendar: onManageCalendar,
                   onExport: onExport,
                 ),
               ],
@@ -1227,8 +1201,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
     required this.month,
     required this.year,
     required this.employees,
-    required this.onManageTime,
-    required this.onManageCalendar,
     required this.onExport,
   });
 
@@ -1236,8 +1208,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
   final String month;
   final int year;
   final List<_EmployeeAttendance> employees;
-  final VoidCallback onManageTime;
-  final VoidCallback onManageCalendar;
   final VoidCallback onExport;
 
   @override
@@ -1272,16 +1242,6 @@ class _MobileAttendanceRecords extends StatelessWidget {
               onPressed: onExport,
               icon: const Icon(Icons.file_download_outlined, color: _navy),
               tooltip: 'Export',
-            ),
-            IconButton(
-              onPressed: onManageTime,
-              icon: const Icon(Icons.schedule_rounded, color: _navy),
-              tooltip: 'Manage Time',
-            ),
-            IconButton(
-              onPressed: onManageCalendar,
-              icon: const Icon(Icons.edit_calendar_outlined, color: _blue),
-              tooltip: 'Manage Calendar',
             ),
           ],
         ),
@@ -2182,7 +2142,7 @@ class _YearlyEmployeeRow extends StatelessWidget {
           ),
         ),
         _YearStatCell('${employee.present}', _green, 11),
-        _YearStatCell('${employee.unexcused}', _red, 11),
+        _YearStatCell('${employee.absent}', _red, 11),
         _YearStatCell('${employee.late}', _orange, 11),
         _YearStatCell('${employee.approvedLeave}', _purple, 11),
         _YearStatCell('${employee.halfLeave}', _purple, 11),

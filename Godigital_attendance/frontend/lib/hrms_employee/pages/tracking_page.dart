@@ -3,7 +3,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../services/attendance_api.dart';
 import '../../services/hrms_tracking_api.dart';
 import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
@@ -14,26 +13,16 @@ class EmployeeTrackingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final arguments = ModalRoute.of(context)?.settings.arguments;
-    final routeHistory = arguments == 'history';
-    final clockInAfterTracking =
-        arguments is Map && arguments['clockInAfterTracking'] == true;
+    final routeHistory =
+        ModalRoute.of(context)?.settings.arguments == 'history';
     return EmployeeScaffold(
       route: '/employee/tracking',
       title: routeHistory ? 'Route History' : 'Live Tracking',
       subtitle: routeHistory
           ? 'Your recent travel routes'
-          : 'Live employee location and today’s hybrid activity',
-      desktop: _TrackingView(
-        mobile: false,
-        routeHistory: routeHistory,
-        clockInAfterTracking: clockInAfterTracking,
-      ),
-      mobile: _TrackingView(
-        mobile: true,
-        routeHistory: routeHistory,
-        clockInAfterTracking: clockInAfterTracking,
-      ),
+          : 'Live employee location and today’s field activity',
+      desktop: _TrackingView(mobile: false, routeHistory: routeHistory),
+      mobile: _TrackingView(mobile: true, routeHistory: routeHistory),
     );
   }
 }
@@ -41,14 +30,9 @@ class EmployeeTrackingPage extends StatelessWidget {
 enum _WorkMode { office, home, field }
 
 class _TrackingView extends StatefulWidget {
-  const _TrackingView({
-    required this.mobile,
-    required this.routeHistory,
-    required this.clockInAfterTracking,
-  });
+  const _TrackingView({required this.mobile, required this.routeHistory});
   final bool mobile;
   final bool routeHistory;
-  final bool clockInAfterTracking;
 
   @override
   State<_TrackingView> createState() => _TrackingViewState();
@@ -58,16 +42,14 @@ class _TrackingViewState extends State<_TrackingView> {
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
-  bool _clockInPromptShown = false;
   Timer? _locationTimer;
-  Timer? _waitingAlertTimer;
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
-  bool _waitingDialogOpen = false;
+  bool _trackingActionInProgress = false;
   bool _fieldTrackingEnabled = false;
   bool _homeLocationEnabled = true;
   String? _homeError;
@@ -90,18 +72,18 @@ class _TrackingViewState extends State<_TrackingView> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadHybridSession();
+      _loadFieldSession();
       _loadTripSummary();
       _loadTrackingPermissions();
-      _checkWaitingAlert();
       _loadHomeLocation();
       _loadOfficeSettings();
     });
+  }
 
-    _waitingAlertTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => _checkWaitingAlert(),
-    );
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadTrackingPermissions() async {
@@ -124,13 +106,6 @@ class _TrackingViewState extends State<_TrackingView> {
     } catch (_) {
       // Field tracking remains unavailable unless the admin permission loads.
     }
-  }
-
-  @override
-  void dispose() {
-    _locationTimer?.cancel();
-    _waitingAlertTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadOfficeSettings() async {
@@ -219,9 +194,9 @@ class _TrackingViewState extends State<_TrackingView> {
     }
   }
 
-  Future<void> _loadHybridSession() async {
+  Future<void> _loadFieldSession() async {
     try {
-      final session = await HrmsTrackingApi.hybridSession();
+      final session = await HrmsTrackingApi.fieldSession();
 
       final active =
           session['is_active'] == 1 ||
@@ -242,10 +217,6 @@ class _TrackingViewState extends State<_TrackingView> {
       if (active) {
         _startLocationTimer();
         await _sendLocationPing(showMessage: false);
-        if (widget.clockInAfterTracking && !_clockInPromptShown && mounted) {
-          _clockInPromptShown = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) => _showClockInPrompt());
-        }
       }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
@@ -292,11 +263,25 @@ class _TrackingViewState extends State<_TrackingView> {
     try {
       final position = await _getCurrentPosition();
 
-      await HrmsTrackingApi.ping(
+      final pingResult = await HrmsTrackingApi.ping(
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
       );
+
+      if (pingResult['locationIgnored'] == true) {
+        if (showMessage && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Location ignored because GPS accuracy is too low. '
+                'Move outdoors or enable precise location.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
 
       if (!mounted) return;
 
@@ -331,11 +316,14 @@ class _TrackingViewState extends State<_TrackingView> {
   }
 
   Future<void> toggleTracking() async {
+    if (_trackingActionInProgress) return;
+
+    setState(() => _trackingActionInProgress = true);
     try {
       final position = await _getCurrentPosition();
 
       if (!trackingActive) {
-        await HrmsTrackingApi.startHybridSession(
+        await HrmsTrackingApi.startFieldSession(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
@@ -351,7 +339,7 @@ class _TrackingViewState extends State<_TrackingView> {
           activities = [
             {
               'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Started live Hybrid tracking',
+              'activity_text': 'Started live Field tracking',
             },
           ];
         });
@@ -359,16 +347,11 @@ class _TrackingViewState extends State<_TrackingView> {
         _startLocationTimer();
         await _loadTripSummary();
 
-        if (widget.clockInAfterTracking) {
-          _clockInPromptShown = true;
-          await _showClockInPrompt();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Live tracking started.')),
-          );
-        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
       } else {
-        await HrmsTrackingApi.stopHybridSession(
+        await HrmsTrackingApi.stopFieldSession(
           latitude: position.latitude,
           longitude: position.longitude,
           accuracy: position.accuracy,
@@ -385,7 +368,7 @@ class _TrackingViewState extends State<_TrackingView> {
           activities = [
             {
               'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Stopped live Hybrid tracking',
+              'activity_text': 'Stopped live Field tracking',
             },
             ...activities,
           ];
@@ -405,50 +388,10 @@ class _TrackingViewState extends State<_TrackingView> {
           content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
-    }
-  }
-
-  Future<void> _showClockInPrompt() async {
-    if (!mounted || !trackingActive) return;
-    final shouldClockIn = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Live tracking started'),
-        content: const Text(
-          'Your current location is being tracked. You can now clock in from this location.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Later'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clock In now'),
-          ),
-        ],
-      ),
-    );
-    if (shouldClockIn == true) await _clockInAfterTracking();
-  }
-
-  Future<void> _clockInAfterTracking() async {
-    try {
-      final position = await _getCurrentPosition();
-      await AttendanceApi.checkIn(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        capturedAt: position.timestamp,
-      );
-      if (!mounted) return;
-      Navigator.pop(context, true);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
-      );
+    } finally {
+      if (mounted) {
+        setState(() => _trackingActionInProgress = false);
+      }
     }
   }
 
@@ -459,7 +402,7 @@ class _TrackingViewState extends State<_TrackingView> {
   String get modeLabel => switch (mode) {
     _WorkMode.office => 'Office',
     _WorkMode.home => 'Home',
-    _WorkMode.field => 'Hybrid',
+    _WorkMode.field => 'Field',
   };
 
   String get address {
@@ -501,7 +444,7 @@ class _TrackingViewState extends State<_TrackingView> {
           '${_lastPosition!.longitude.toStringAsFixed(6)}';
     }
 
-    return 'Hybrid location will appear after live tracking starts';
+    return 'Field location will appear after live tracking starts';
   }
 
   Color get activeColor =>
@@ -561,12 +504,14 @@ class _TrackingViewState extends State<_TrackingView> {
 
     final live = _LiveTrackingControl(
       active: trackingActive,
+      busy: _trackingActionInProgress,
       onToggle: toggleTracking,
     );
 
     // Only Field and Hybrid employees receive field-tracking permission. The
     // backend performs the same authorization before saving a comment.
     final comments = const TrackingCommentsSection();
+    final commentHistory = const TrackingCommentsHistoryButton();
 
     if (widget.mobile) {
       return Column(
@@ -596,7 +541,14 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                 ),
               ),
-              Text(updated, style: const TextStyle(color: employeeMuted)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(updated, style: const TextStyle(color: employeeMuted)),
+                  const SizedBox(height: 6),
+                  commentHistory,
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -641,7 +593,14 @@ class _TrackingViewState extends State<_TrackingView> {
                 ),
               ),
             ),
-            Text(updated, style: const TextStyle(color: employeeMuted)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(updated, style: const TextStyle(color: employeeMuted)),
+                const SizedBox(height: 6),
+                commentHistory,
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -659,6 +618,10 @@ class _TrackingViewState extends State<_TrackingView> {
               flex: 4,
               child: Column(
                 children: [
+                  if (_fieldTrackingEnabled) ...[
+                    comments,
+                    const SizedBox(height: 18),
+                  ],
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -672,10 +635,6 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                   const SizedBox(height: 12),
                   timeline,
-                  if (_fieldTrackingEnabled) ...[
-                    const SizedBox(height: 18),
-                    comments,
-                  ],
                   const SizedBox(height: 18),
                   if (_fieldTrackingEnabled) live,
                 ],
@@ -687,139 +646,6 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
-  Future<void> _checkWaitingAlert() async {
-    if (_homeDialogOpen || _waitingDialogOpen) return;
-    try {
-      final alert = await HrmsTrackingApi.waitingAlert();
-
-      debugPrint('Waiting alert response: $alert');
-
-      if (!mounted || _homeDialogOpen || _waitingDialogOpen || alert == null) {
-        return;
-      }
-
-      final reasonId = int.tryParse('${alert['id']}');
-
-      if (reasonId == null) {
-        debugPrint('Waiting alert has no valid ID');
-        return;
-      }
-
-      _waitingDialogOpen = true;
-      try {
-        await _showWaitingReasonDialog(
-          reasonId: reasonId,
-          waitingMinutes: alert['waiting_minutes'] ?? 0,
-        );
-      } finally {
-        _waitingDialogOpen = false;
-      }
-    } catch (error) {
-      debugPrint('Waiting alert check failed: $error');
-    }
-  }
-
-  Future<void> _showWaitingReasonDialog({
-    required int reasonId,
-    required dynamic waitingMinutes,
-  }) async {
-    final controller = TextEditingController();
-    var isSubmitting = false;
-    String? submitError;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('Field waiting reason'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'You have been at this location for $waitingMinutes minutes. '
-                    'Please enter the reason for waiting.',
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Reason for waiting',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (submitError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      submitError!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final reason = controller.text.trim();
-
-                          if (reason.isEmpty) {
-                            setDialogState(
-                              () => submitError = 'Please enter a reason.',
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            isSubmitting = true;
-                            submitError = null;
-                          });
-
-                          try {
-                            await HrmsTrackingApi.submitWaitingReason(
-                              reasonId: reasonId,
-                              reason: reason,
-                            );
-
-                            if (dialogContext.mounted) {
-                              Navigator.of(
-                                dialogContext,
-                                rootNavigator: true,
-                              ).pop();
-                            }
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Waiting reason submitted'),
-                                ),
-                              );
-                            }
-                          } catch (error) {
-                            debugPrint('Waiting reason submit failed: $error');
-                            if (dialogContext.mounted) {
-                              setDialogState(() {
-                                isSubmitting = false;
-                                submitError =
-                                    'Could not submit the reason. '
-                                    'Please try again.';
-                              });
-                            }
-                          }
-                        },
-                  child: Text(isSubmitting ? 'Submitting…' : 'Submit'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    controller.dispose();
-  }
 }
 
 class _RouteHistoryView extends StatelessWidget {
@@ -971,7 +797,7 @@ class _ModeTabs extends StatelessWidget {
         const SizedBox(width: 8),
         _ModeTab(
           icon: Icons.person_outline_rounded,
-          label: 'Hybrid',
+          label: 'Field',
           active: selected == _WorkMode.field,
           onTap: () => onChanged(_WorkMode.field),
         ),
@@ -1346,8 +1172,13 @@ class _TimelineRow extends StatelessWidget {
 }
 
 class _LiveTrackingControl extends StatelessWidget {
-  const _LiveTrackingControl({required this.active, required this.onToggle});
+  const _LiveTrackingControl({
+    required this.active,
+    required this.busy,
+    required this.onToggle,
+  });
   final bool active;
+  final bool busy;
   final VoidCallback onToggle;
 
   @override
@@ -1373,11 +1204,15 @@ class _LiveTrackingControl extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         FilledButton.icon(
-          onPressed: onToggle,
+          onPressed: busy ? null : onToggle,
           icon: Icon(
             active ? Icons.stop_circle_outlined : Icons.play_circle_outline,
           ),
-          label: Text(active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          label: Text(
+            busy
+                ? (active ? 'Stopping…' : 'Starting…')
+                : (active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: active ? const Color(0xFFD84343) : employeeGreen,
             foregroundColor: Colors.white,

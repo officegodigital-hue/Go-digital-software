@@ -11,6 +11,10 @@ import 'package:godigital_portal/hrms_employee/pages/permission_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/extra_hours_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
+import 'package:godigital_portal/hrms_employee/pages/profile_page.dart';
+import 'package:godigital_portal/hrms_employee/shared/field_waiting_prompt_host.dart';
+
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,8 +27,13 @@ class AttendanceApp extends StatelessWidget {
   Widget build(BuildContext context) => ChangeNotifierProvider(
     create: (_) => AuthService(),
     child: MaterialApp(
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'GoDigital Attendance',
+      builder: (context, child) => FieldWaitingPromptHost(
+        child: child ?? const SizedBox.shrink(),
+        navigatorKey: appNavigatorKey,
+      ),
       initialRoute: '/',
       routes: {
         '/': (_) => const AuthGate(),
@@ -38,6 +47,7 @@ class AttendanceApp extends StatelessWidget {
         '/employee/extra-hours': (_) => const EmployeeExtraHoursPage(),
         '/employee/salary': (_) => const EmployeeSalaryPage(),
         '/employee/tracking': (_) => const EmployeeTrackingPage(),
+        '/employee/profile': (_) => const EmployeeProfilePage(),
       },
       // The admin portal is a nested MaterialApp. Register its deep links in
       // the root app too, so a browser refresh or Flutter hot restart while
@@ -61,8 +71,11 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Consumer<AuthService>(
     builder: (_, auth, _) {
-      if (!auth.isInitialized) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      return auth.isAuthenticated ? const AttendanceEntry() : const LoginScreen();
+      if (!auth.isInitialized)
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return auth.isAuthenticated
+          ? const AttendanceEntry()
+          : const LoginScreen();
     },
   );
 }
@@ -74,8 +87,8 @@ class AttendanceEntry extends StatelessWidget {
     builder: (_, auth, _) {
       if (!auth.isAuthenticated) return const LoginScreen();
       return auth.userType?.toLowerCase().trim() == 'admin'
-        ? hrms_admin.AdminPortalApp()
-        : const EmployeeDashboardPage();
+          ? hrms_admin.AdminPortalApp()
+          : const EmployeeDashboardPage();
     },
   );
 }

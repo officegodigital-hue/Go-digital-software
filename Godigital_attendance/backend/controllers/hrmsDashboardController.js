@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const calendar = require('../lib/calendarWorkingDays');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -65,14 +66,7 @@ function nextDate(date) {
 }
 
 async function ensureCalendarOverridesTable() {
-  await db.query(`CREATE TABLE IF NOT EXISTS hrms_calendar_overrides (
-    calendar_date DATE NOT NULL PRIMARY KEY,
-    status ENUM('Working Day', 'Weekly Off', 'Holiday') NOT NULL,
-    scope VARCHAR(40) NOT NULL DEFAULT 'All Employees',
-    reason VARCHAR(255) NOT NULL,
-    updated_by INT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  )`);
+  await calendar.ensureCalendarTables();
 }
 
 async function calendarOverrides(req, res) {
@@ -104,6 +98,17 @@ async function saveCalendarOverride(req, res) {
       ON DUPLICATE KEY UPDATE status = VALUES(status), scope = VALUES(scope),
         reason = VALUES(reason), updated_by = VALUES(updated_by)`,
       [date, status, scope, reason, req.user.id]);
+    await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_calendar_notifications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      employee_user_id BIGINT UNSIGNED NOT NULL,
+      calendar_date DATE NOT NULL, status VARCHAR(20) NOT NULL, reason VARCHAR(255) NOT NULL,
+      is_dismissed TINYINT(1) NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY employee_unread (employee_user_id, is_dismissed, created_at)
+    )`);
+    if (scope === 'All Employees') {
+      await db.query(`INSERT INTO hrms_employee_calendar_notifications (employee_user_id, calendar_date, status, reason)
+        SELECT employee_user_id, ?, ?, ? FROM hrms_employee_profiles WHERE employment_status <> 'Inactive'`, [date, status, reason]);
+    }
     return ok(res, { date: date, status: status, scope: scope, reason: reason }, 'Calendar override saved');
   } catch (error) {
     return fail(res, 400, error.message);
@@ -165,6 +170,8 @@ async function monthView(req, res) {
     const totalDays = daysInMonth(year, month);
     const start = ymd(year, month, 1);
     const end = ymd(year, month, totalDays);
+    const calendarOverrides = await calendar.overridesForPeriod(start, end);
+    const totalWorkingDays = calendar.countWorkingDays(start, end, weeklyOff, calendarOverrides);
     const today = policy.todayIstDate();
 
     // Use the same HRMS profile source as the Employee Management page so
@@ -184,6 +191,12 @@ async function monthView(req, res) {
         AND profile.employment_status <> 'Inactive'
       ORDER BY profile.full_name ASC
     `);
+    const [leavePolicyRows] = await db.query(
+      `SELECT leave_type FROM hrms_leave_policies
+       WHERE effective_year = ? AND active = 1 AND annual_allowance > 0`,
+      [year]
+    ).catch(() => [[]]);
+    const enabledLeaveTypes = leavePolicyRows.map(function (row) { return String(row.leave_type); });
 
     const userIds = profiles
       .map(function (row) { return row.employee_user_id; })
@@ -223,7 +236,9 @@ async function monthView(req, res) {
     const leaveMap = new Map();
     leaves.forEach(function (row) {
       let date = row.from_date;
-      const code = row.duration_type === 'Half Day' ? 'HL' : 'LV';
+      const code = row.duration_type === 'Half Day'
+        ? 'HL'
+        : (row.leave_type === 'Earned Leave' ? 'EL' : 'LV');
       while (date <= row.to_date) {
         const key = row.employee_id + '|' + date;
         leaveMap.set(key, { code: code, leaveType: row.leave_type });
@@ -242,13 +257,14 @@ async function monthView(req, res) {
       let halfLeave = 0;
       let earnedLeave = 0;
       let approvedLeave = 0;
+      let absent = 0;
       let unexcused = 0;
-      let workingDays = 0;
+      let accruedPaidDays = 0;
 
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
         const weekday = utcWeekday(year, month, day);
-        if (weeklyOff.has(weekday)) {
+        if (!calendar.isWorkingDay(date, weeklyOff, calendarOverrides)) {
           days.push('OFF');
           continue;
         }
@@ -264,40 +280,51 @@ async function monthView(req, res) {
           continue;
         }
 
-        workingDays += 1;
-
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
-        if (record && record.check_in_at) {
+        // An explicit absence is always shown as an absence. Whether it is
+        // an LOP day is a separate payroll-policy decision.
+        if (record && String(record.attendance_status).toLowerCase() === 'absent') {
+          days.push('A');
+          absent += 1;
+          absentDays += 1;
+          if (payrollRules.deductAbsence) unexcused += 1;
+        } else if (record && record.check_in_at) {
           if (String(record.attendance_status) === 'half_leave') {
             days.push('HL');
             halfLeave += 1;
             unexcused += 0.5;
-          } else if (String(record.attendance_status) === 'absent' && payrollRules.deductAbsence) {
-            days.push('A');
-            unexcused += 1;
-            absentDays += 1;
+            accruedPaidDays += 0.5;
           } else if (Number(record.is_late)) {
             days.push('L');
             late += 1;
             lateDays += 1;
+            accruedPaidDays += 1;
           } else {
             days.push('P');
             present += 1;
             presentDays += 1;
+            accruedPaidDays += 1;
           }
         } else if (leaveType) {
           days.push(leaveType);
           approvedLeave += 1;
           if (leaveType === 'HL') halfLeave += 1;
-          if (leaveInfo.leaveType === 'Earned Leave') earnedLeave += 1;
+          if (leaveInfo.leaveType === 'Earned Leave') {
+            earnedLeave += 1;
+            // Earned Leave is the approved paid-leave type.
+            accruedPaidDays += leaveType === 'HL' ? 0.5 : 1;
+          }
           if (date <= today && payrollRules.deductLeave) unexcused += leaveType === 'HL' ? 0.5 : 1;
         } else {
           // A missing clock-in for today is still pending. It becomes an
           // absence only after the calendar date has finished (tomorrow).
-          if (date < today && payrollRules.missingIsAbsent) {
+          // A completed working day without attendance is always absent.
+          // Today remains pending until the day has finished.
+          if (date < today) {
             days.push('A');
             unexcused += 1;
+            absent += 1;
             absentDays += 1;
           } else {
             days.push('–');
@@ -306,10 +333,16 @@ async function monthView(req, res) {
       }
 
       const salaryNumber = Number(profile.monthly_salary || 0);
-      const lopDays = Math.min(workingDays, unexcused);
-      const paidDays = Math.max(0, workingDays - lopDays);
-      const deduction = salaryNumber ? Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber / payrollRules.salaryDayDivisor))) : 0;
-      const afterLeaves = Math.max(0, salaryNumber - deduction);
+      // Daily pay is always based on the full selected month's working days.
+      // Using only days elapsed so far inflates absence values mid-month.
+      const salaryWorkingDays = Math.max(1, totalWorkingDays);
+      const lopDays = Math.min(salaryWorkingDays, unexcused);
+      const dailyRate = salaryNumber / salaryWorkingDays;
+      const absentDeduction = Math.round(absent * dailyRate * 100) / 100;
+      // The dashboard is an earned-to-date view: pay starts at zero and
+      // grows only for check-ins and approved paid leave.  Absence never
+      // removes money already accrued.
+      const accruedSalary = Math.round(Math.min(salaryWorkingDays, accruedPaidDays) * dailyRate * 100) / 100;
 
       return {
         id: profile.id,
@@ -324,10 +357,12 @@ async function monthView(req, res) {
         halfLeave: halfLeave,
         earnedLeave: earnedLeave,
         approvedLeave: approvedLeave,
+        absent: absent,
+        absentDeduction: salaryNumber ? formatSalary(absentDeduction) : '–',
         salary: formatSalary(profile.monthly_salary),
-        daysPaid: String(lopDays),
-        afterLeaves: salaryNumber ? formatSalary(deduction) : '–',
-        updatedSalary: salaryNumber ? formatSalary(afterLeaves) : '–',
+        daysPaid: String(accruedPaidDays),
+        afterLeaves: salaryNumber ? formatSalary(absentDeduction) : '–',
+        updatedSalary: salaryNumber ? formatSalary(accruedSalary) : '–',
       };
     });
 
@@ -373,6 +408,8 @@ async function monthView(req, res) {
       year: year,
       month: month,
       daysInMonth: totalDays,
+      totalWorkingDays: totalWorkingDays,
+      enabledLeaveTypes: enabledLeaveTypes,
       timezone: policy.TIME_ZONE,
       payrollPolicy: { weeklyOffDays: [...payrollRules.weeklyOffDays], deductApprovedLeave: payrollRules.deductLeave, deductExplicitAbsence: payrollRules.deductAbsence, missingAttendanceIsAbsent: payrollRules.missingIsAbsent, salaryDayDivisor: payrollRules.salaryDayDivisor },
       kpis: {
