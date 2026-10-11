@@ -511,7 +511,7 @@ class _TrackingViewState extends State<_TrackingView> {
     // Only Field and Hybrid employees receive field-tracking permission. The
     // backend performs the same authorization before saving a comment.
     final comments = const TrackingCommentsSection();
-    final commentHistory = const TrackingCommentsHistoryButton();
+    final commentHistory = TrackingCommentsHistoryButton();
 
     if (widget.mobile) {
       return Column(
@@ -645,7 +645,6 @@ class _TrackingViewState extends State<_TrackingView> {
       ],
     );
   }
-
 }
 
 class _RouteHistoryView extends StatelessWidget {

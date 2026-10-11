@@ -66,6 +66,14 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> detail(int id) async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id/detail'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> create(Map<String, dynamic> body) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees'),

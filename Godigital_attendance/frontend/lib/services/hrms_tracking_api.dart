@@ -171,6 +171,17 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> employeeTrackingDetails({
+    required int employeeUserId,
+    required String date,
+  }) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/hrms/tracking/employee/$employeeUserId/details',
+    ).replace(queryParameters: {'date': date});
+    final response = await http.get(uri, headers: await _headers());
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> myRoute({required String date}) async {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/hrms/tracking/route/my',
@@ -197,7 +208,7 @@ class HrmsTrackingApi {
     _decode(response);
   }
 
-  static Future<void> ping({
+  static Future<Map<String, dynamic>> ping({
     required double latitude,
     required double longitude,
     double? accuracy,
@@ -212,7 +223,7 @@ class HrmsTrackingApi {
       }),
     );
 
-    _decode(response);
+    return _decode(response);
   }
 
   static Future<Map<String, dynamic>> fieldSession() async {
