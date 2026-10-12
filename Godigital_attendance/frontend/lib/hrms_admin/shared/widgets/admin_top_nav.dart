@@ -11,8 +11,9 @@ import '../../../services/hrms_notifications_api.dart';
 import '../../../services/auth_service.dart';
 import '../../../screens/login_screen.dart';
 
-const _blue = Color(0xFF075EF7);
+const _blue = Color(0xFFE3162A);
 const _navy = Color(0xFF061457);
+const _redHeader = Color(0xFFE3162A);
 
 /// Opens the same notification preferences dialog used by the notification bell.
 Future<void> showAdminNotificationSettings(BuildContext context) async {
@@ -41,9 +42,14 @@ Future<void> showAdminNotificationSettings(BuildContext context) async {
 }
 
 class AdminTopNav extends StatelessWidget {
-  const AdminTopNav({super.key, required this.activeRoute});
+  const AdminTopNav({
+    super.key,
+    required this.activeRoute,
+    this.redHeader = false,
+  });
 
   final String activeRoute;
+  final bool redHeader;
 
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
@@ -69,16 +75,18 @@ class AdminTopNav extends StatelessWidget {
     // squeeze the trailing actions outside the viewport.
     final compact = screenWidth < 1320;
     return Container(
-      height: mobile ? 68 : 90,
+      // Compact desktop height keeps the attendance sheet above the fold on
+      // Windows displays using common browser scaling.
+      height: mobile ? 68 : 52,
       padding: EdgeInsets.symmetric(
         horizontal: mobile
             ? 14
             : compact
             ? 16
-            : 32,
+            : 20,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: redHeader ? _redHeader : Colors.white,
         boxShadow: [
           BoxShadow(
             color: Color(0x12071A72),
@@ -89,16 +97,27 @@ class AdminTopNav extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Image.asset(
-            'assets/images/godigital_logo.png',
-            width: mobile
-                ? 116
-                : compact
-                ? 142
-                : 174,
-            fit: BoxFit.contain,
+          Container(
+            padding: redHeader
+                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
+                : EdgeInsets.zero,
+            decoration: redHeader
+                ? BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                  )
+                : null,
+            child: Image.asset(
+              'assets/images/godigital_logo.png',
+              width: mobile
+                  ? 116
+                  : compact
+                  ? 132
+                  : 150,
+              fit: BoxFit.contain,
+            ),
           ),
-          SizedBox(width: mobile ? 8 : 20),
+          SizedBox(width: mobile ? 8 : 14),
           if (!compact)
             Expanded(
               child: Center(
@@ -106,6 +125,7 @@ class AdminTopNav extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   child: _DesktopNav(
                     activeRoute: activeRoute,
+                    light: redHeader,
                     onOpen: (route) => _open(context, route),
                   ),
                 ),
@@ -483,11 +503,13 @@ class AdminPageHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.breadcrumb,
+    this.subtitle,
     this.trailing,
   });
 
   final String title;
   final String? breadcrumb;
+  final String? subtitle;
   final Widget? trailing;
 
   @override
@@ -507,21 +529,32 @@ class AdminPageHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Home', style: TextStyle(color: _blue, fontSize: 15)),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(Icons.chevron_right, color: _blue, size: 18),
-              ),
-              Text(
-                breadcrumb ?? title,
-                style: const TextStyle(color: _blue, fontSize: 15),
-              ),
-            ],
-          ),
+          const SizedBox(height: 8),
+          subtitle != null
+              ? Text(
+                  subtitle!,
+                  style: const TextStyle(
+                    color: Color(0xFF647697),
+                    fontSize: 15,
+                  ),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Home',
+                      style: TextStyle(color: _blue, fontSize: 15),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Icon(Icons.chevron_right, color: _blue, size: 18),
+                    ),
+                    Text(
+                      breadcrumb ?? title,
+                      style: const TextStyle(color: _blue, fontSize: 15),
+                    ),
+                  ],
+                ),
         ],
       );
       if (trailing == null) return heading;
@@ -543,56 +576,69 @@ class AdminPageHeader extends StatelessWidget {
 }
 
 class _DesktopNav extends StatelessWidget {
-  const _DesktopNav({required this.activeRoute, required this.onOpen});
+  const _DesktopNav({
+    required this.activeRoute,
+    required this.onOpen,
+    this.light = false,
+  });
   final String activeRoute;
   final ValueChanged<String> onOpen;
+  final bool light;
+
+  IconData _iconFor(String route) => switch (route) {
+    '/admin/dashboard' => Icons.grid_view_rounded,
+    '/admin/employees' => Icons.groups_2_outlined,
+    '/admin/clock-logs' => Icons.calendar_month_outlined,
+    '/admin/approvals' => Icons.fact_check_outlined,
+    '/admin/payroll' => Icons.account_balance_wallet_outlined,
+    '/admin/tracking' => Icons.location_on_outlined,
+    _ => Icons.settings_outlined,
+  };
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 60,
-    padding: const EdgeInsets.all(7),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      border: Border.all(color: const Color(0xFFE2E7F1)),
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x0C071A72),
-          blurRadius: 8,
-          offset: Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Row(
-      children: AdminTopNav.items.map((item) {
-        final active = item.$2 == activeRoute;
-        return InkWell(
-          onTap: () => onOpen(item.$2),
-          borderRadius: BorderRadius.circular(13),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 19, vertical: 12),
-            decoration: BoxDecoration(
-              color: active ? _blue : Colors.transparent,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  item.$1,
-                  style: TextStyle(
-                    color: active ? Colors.white : _navy,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
+  Widget build(BuildContext context) => Row(
+    children: AdminTopNav.items.map((item) {
+      final active = item.$2 == activeRoute;
+      return InkWell(
+        onTap: () => onOpen(item.$2),
+        borderRadius: BorderRadius.circular(9),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 11),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            border: Border(
+              bottom: BorderSide(
+                color: light
+                    ? Colors.white
+                    : (active ? _blue : Colors.transparent),
+                width: 3,
+              ),
             ),
           ),
-        );
-      }).toList(),
-    ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _iconFor(item.$2),
+                size: 18,
+                color: light ? Colors.white : (active ? _blue : _navy),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                item.$1,
+                style: TextStyle(
+                  color: light ? Colors.white : (active ? _blue : _navy),
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList(),
   );
 }
 

@@ -163,10 +163,15 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    String? reason;
+    if (clockOut) {
+      reason = await _clockOutReason();
+      if (reason == null || !mounted) return;
+    }
     setState(() => _punching = true);
     String message;
     try {
-      final payload = clockOut ? <String, dynamic>{}
+      final payload = clockOut ? <String, dynamic>{'reason': reason}
           : await AttendanceLocation.checkInPayload(client: _client, token: token);
       if (!mounted || token != _token) return;
       await _call(clockOut ? 'clock-out' : 'clock-in', token, post: true, payload: payload);
@@ -180,6 +185,36 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     if (!mounted || token != _token) return;
     setState(() => _punching = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<String?> _clockOutReason() async {
+    final controller = TextEditingController();
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
+          title: const Text('Clock Out reason'),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 5,
+            maxLength: 1000,
+            decoration: InputDecoration(labelText: 'Reason', errorText: error, border: const OutlineInputBorder()),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () {
+              final value = controller.text.trim();
+              if (value.length < 3) { setDialogState(() => error = 'Enter at least 3 characters.'); return; }
+              Navigator.pop(dialogContext, value);
+            }, child: const Text('Clock Out')),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   String _formatPunchTime(dynamic rawTimestamp) {

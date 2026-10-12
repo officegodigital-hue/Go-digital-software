@@ -10,7 +10,9 @@ import '../../services/api_config.dart';
 import '../../services/attendance_location.dart';
 import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
+import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
+import '../shared/live_tracking_coordinator.dart';
 
 /// Attendance on the employee home screen. Other modules retain their own state.
 class AttendanceDashboardSection extends StatefulWidget {
@@ -33,6 +35,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
   bool _loading = true;
   bool _punching = false;
   bool _breakCommentDialogOpen = false;
+  bool _trackingBusy = false;
+  bool _fieldTrackingEnabled = false;
+  bool _trackingActive = false;
   int _request = 0;
   int _ticks = 0;
 
@@ -156,6 +161,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         _data = null;
         _error = 'Please sign in to view attendance.';
       });
+      await _loadTrackingState();
       return;
     }
     setState(() => _loading = true);
@@ -169,6 +175,11 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           ..reset()
           ..start();
       });
+      // Load the tracking permission/session alongside the dashboard data on
+      // every normal employee login. Previously this only ran after a tracking
+      // action (or when no token existed), so Field/Hybrid users saw a plain
+      // Check In button and could not see Start Live Tracking on first load.
+      await _loadTrackingState();
       final activeBreak = data['active_break'];
       if (activeBreak is Map && activeBreak['comment_required'] == true) {
         WidgetsBinding.instance.addPostFrameCallback(
@@ -182,6 +193,99 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       if (mounted && request == _request && token == _token) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _loadTrackingState() async {
+    try {
+      await context.read<LiveTrackingCoordinator>().restore();
+      final results = await Future.wait([
+        HrmsTrackingApi.trackingPermissions(),
+      ]);
+      if (!mounted) return;
+      final permissions = results[0];
+      setState(() {
+        _fieldTrackingEnabled =
+            permissions['fieldTrackingEnabled'] == true ||
+            permissions['field_tracking_enabled'] == true;
+        _trackingActive = context.read<LiveTrackingCoordinator>().active;
+      });
+    } catch (_) {}
+  }
+
+  Future<String?> _trackingStopReason() async {
+    final controller = TextEditingController();
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
+          title: const Text('Stop live tracking'),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 5,
+            maxLength: 1000,
+            decoration: InputDecoration(
+              labelText: 'Reason',
+              errorText: error,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Stop tracking'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _toggleLiveTracking() async {
+    if (_trackingBusy) return;
+    setState(() => _trackingBusy = true);
+    try {
+      final coordinator = context.read<LiveTrackingCoordinator>();
+      if (_trackingActive) {
+        final reason = await _trackingStopReason();
+        if (reason == null) return;
+        await coordinator.stop(reason);
+      } else {
+        await coordinator.start();
+      }
+      await _loadTrackingState();
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _trackingActive
+                  ? 'Live tracking started. You can now Check In.'
+                  : 'Live tracking stopped.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_message(error))));
+    } finally {
+      if (mounted) setState(() => _trackingBusy = false);
     }
   }
 
@@ -211,11 +315,16 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       ),
     );
     if (confirmed != true || !mounted) return;
+    String? clockOutReason;
+    if (clockOut) {
+      clockOutReason = await _clockOutReason();
+      if (clockOutReason == null || !mounted) return;
+    }
     setState(() => _punching = true);
     String message;
     try {
       final payload = clockOut
-          ? <String, dynamic>{}
+          ? <String, dynamic>{'reason': clockOutReason}
           : await AttendanceLocation.checkInPayload(
               client: _client,
               token: token,
@@ -227,6 +336,11 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         post: true,
         payload: payload,
       );
+      // Clock out may stop the field session server-side with the same reason.
+      // Refresh the app-level owner so its Android service/timer also stops.
+      if (clockOut) {
+        await context.read<LiveTrackingCoordinator>().refreshFromServer();
+      }
       message = clockOut
           ? 'You have been clocked out.'
           : 'You are now checked in.';
@@ -241,6 +355,49 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<String?> _clockOutReason() async {
+    final controller = TextEditingController();
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
+          title: const Text('Clock Out reason'),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 5,
+            maxLength: 1000,
+            decoration: InputDecoration(
+              labelText: 'Reason',
+              errorText: error,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Clock Out'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   Future<void> _requestAnotherClockIn({
@@ -747,6 +904,58 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           ),
         ],
         if (_loading) const LinearProgressIndicator(),
+        if (_fieldTrackingEnabled) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _trackingActive
+                  ? const Color(0xFFE8F8F1)
+                  : const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _trackingActive
+                    ? const Color(0xFF9BDDBA)
+                    : const Color(0xFFB8D1FF),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _trackingActive
+                      ? Icons.gps_fixed_rounded
+                      : Icons.location_on_outlined,
+                  color: _trackingActive
+                      ? const Color(0xFF088A4B)
+                      : employeeBlue,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _trackingActive
+                        ? 'Live tracking is active. Check In is available.'
+                        : 'Start live tracking to unlock Check In.',
+                    style: const TextStyle(
+                      color: employeeNavy,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                FilledButton(
+                  onPressed: _trackingBusy ? null : _toggleLiveTracking,
+                  child: Text(
+                    _trackingBusy
+                        ? 'Saving…'
+                        : _trackingActive
+                        ? 'Stop Live Tracking'
+                        : 'Start Live Tracking',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -838,6 +1047,9 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                     _loading ||
                         _punching ||
                         _error != null ||
+                        (!_trackingActive &&
+                            _fieldTrackingEnabled &&
+                            !checkedIn) ||
                         !(actions['can_clock_in'] == true ||
                             actions['can_clock_out'] == true)
                     ? null

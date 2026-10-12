@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
 
 import '../../services/hrms_tracking_api.dart';
 import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
+import '../shared/live_tracking_coordinator.dart';
 import 'home_location_dialog.dart';
 
 class EmployeeTrackingPage extends StatelessWidget {
@@ -42,8 +44,8 @@ class _TrackingViewState extends State<_TrackingView> {
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
-  Timer? _locationTimer;
   Position? _lastPosition;
+  List<LatLng> _routePoints = const [];
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
@@ -58,7 +60,6 @@ class _TrackingViewState extends State<_TrackingView> {
   String duration = '—';
   String avgSpeed = '—';
 
-  int _fieldPingIntervalMinutes = 15;
 
   List<dynamic> activities = [
     {
@@ -70,10 +71,10 @@ class _TrackingViewState extends State<_TrackingView> {
   @override
   void initState() {
     super.initState();
+    employeeRouteSignal.revision.addListener(_reloadSavedSession);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadFieldSession();
-      _loadTripSummary();
       _loadTrackingPermissions();
       _loadHomeLocation();
       _loadOfficeSettings();
@@ -82,8 +83,14 @@ class _TrackingViewState extends State<_TrackingView> {
 
   @override
   void dispose() {
-    _locationTimer?.cancel();
+    employeeRouteSignal.revision.removeListener(_reloadSavedSession);
     super.dispose();
+  }
+
+  void _reloadSavedSession() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadFieldSession();
+    });
   }
 
   Future<void> _loadTrackingPermissions() async {
@@ -114,51 +121,13 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
       setState(() {
         _officeSettings = settings;
-        _fieldPingIntervalMinutes = _readPositiveMinutes(
-          settings['field_ping_interval_minutes'] ??
-              settings['fieldPingIntervalMinutes'],
-          fallback: 15,
-        );
         _officeLoading = false;
       });
 
-      // A session may load before the settings request. Restart the timer so
-      // it always uses the latest interval configured by the admin.
-      if (trackingActive) _startLocationTimer();
     } catch (_) {
       if (!mounted) return;
       setState(() => _officeLoading = false);
     }
-  }
-
-  int _readPositiveMinutes(dynamic value, {required int fallback}) {
-    final minutes = value is num
-        ? value.toInt()
-        : int.tryParse(value?.toString() ?? '');
-    return minutes != null && minutes > 0 ? minutes : fallback;
-  }
-
-  Future<Position> _getCurrentPosition() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!enabled) {
-      throw Exception('Please turn on device location services.');
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission is required for live tracking.');
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
   }
 
   Future<void> _loadHomeLocation() async {
@@ -196,28 +165,17 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> _loadFieldSession() async {
     try {
-      final session = await HrmsTrackingApi.fieldSession();
-
-      final active =
-          session['is_active'] == 1 ||
-          session['is_active'] == true ||
-          session['isActive'] == true;
-
+      await context.read<LiveTrackingCoordinator>().restore();
+      final timeline = await HrmsTrackingApi.fieldSessionTimeline();
       if (!mounted) return;
-
       setState(() {
-        trackingActive = active;
-
-        if (active) {
+        trackingActive = timeline['isActive'] == true;
+        if (trackingActive) {
           mode = _WorkMode.field;
           updated = 'Live tracking active';
         }
+        _applyTimeline(timeline);
       });
-
-      if (active) {
-        _startLocationTimer();
-        await _sendLocationPing(showMessage: false);
-      }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
     }
@@ -225,8 +183,13 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> _loadTripSummary() async {
     try {
-      final summary = await HrmsTrackingApi.fieldSessionSummary();
+      final summary = await HrmsTrackingApi.fieldSessionTimeline();
       if (!mounted || summary['hasSession'] != true) return;
+      setState(() => _applyTimeline(summary));
+    } catch (_) {}
+  }
+
+  void _applyTimeline(Map<String, dynamic> summary) {
       final seconds = (summary['durationSeconds'] as num?)?.toInt() ?? 0;
       final minutes = seconds ~/ 60;
       final hours = minutes ~/ 60;
@@ -234,70 +197,37 @@ class _TrackingViewState extends State<_TrackingView> {
       final distanceKm = (summary['distanceKm'] as num?)?.toDouble() ?? 0;
       final averageSpeed =
           (summary['averageSpeedKmph'] as num?)?.toDouble() ?? 0;
-      setState(() {
-        duration = hours > 0
+      duration = hours > 0
             ? '${hours}h ${remainingMinutes}m'
             : '$minutes min';
-        distance = '${distanceKm.toStringAsFixed(2)} km';
-        avgSpeed = '${averageSpeed.toStringAsFixed(1)} km/h';
-      });
-    } catch (_) {
-      // Keep placeholders when no field session has been recorded yet.
-    }
+      distance = '${distanceKm.toStringAsFixed(2)} km';
+      avgSpeed = '${averageSpeed.toStringAsFixed(1)} km/h';
+      final savedPoints = (summary['points'] as List? ?? []).whereType<Map>().map((point) {
+        final lat = double.tryParse('${point['latitude']}');
+        final lng = double.tryParse('${point['longitude']}');
+        return lat == null || lng == null ? null : LatLng(lat, lng);
+      }).whereType<LatLng>().toList();
+      _routePoints = savedPoints;
+      final items = (summary['events'] as List? ?? []).whereType<Map>().map((event) => {
+        'activity_time': _eventTime(event['recordedAt']),
+        'activity_text': '${event['text'] ?? 'Live location updated'}${event['address'] == null || '${event['address']}'.trim().isEmpty ? '' : ' — ${event['address']}'}${event['latitude'] == null ? '' : '\nGPS: ${event['latitude']}, ${event['longitude']}'}',
+      }).toList().reversed.toList();
+      activities = items.isEmpty ? [{'activity_time': '--:--', 'activity_text': 'No live tracking activity yet'}] : items;
   }
 
-  void _startLocationTimer() {
-    _locationTimer?.cancel();
-
-    _locationTimer = Timer.periodic(
-      Duration(minutes: _fieldPingIntervalMinutes),
-      (_) {
-        _sendLocationPing(showMessage: false);
-      },
-    );
+  String _eventTime(dynamic raw) {
+    final date = DateTime.tryParse('${raw ?? ''}');
+    return date == null ? '--:--' : TimeOfDay.fromDateTime(date.toLocal()).format(context);
   }
 
   Future<void> _sendLocationPing({required bool showMessage}) async {
     if (!trackingActive) return;
 
     try {
-      final position = await _getCurrentPosition();
-
-      final pingResult = await HrmsTrackingApi.ping(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-      );
-
-      if (pingResult['locationIgnored'] == true) {
-        if (showMessage && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Location ignored because GPS accuracy is too low. '
-                'Move outdoors or enable precise location.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      await context.read<LiveTrackingCoordinator>().sendPing();
 
       if (!mounted) return;
-
-      setState(() {
-        _lastPosition = position;
-        updated = 'Updated just now';
-        activities = [
-          {
-            'activity_time': TimeOfDay.now().format(context),
-            'activity_text': 'Live location updated',
-          },
-          ...activities.where(
-            (item) => item['activity_text'] != 'No live tracking activity yet',
-          ),
-        ];
-      });
+      await _loadTripSummary();
 
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -315,63 +245,83 @@ class _TrackingViewState extends State<_TrackingView> {
     }
   }
 
+  Future<String?> _askStopReason() async {
+    final controller = TextEditingController();
+    String? error;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
+          title: const Text('Stop live tracking'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Enter the reason for stopping live tracking.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                minLines: 3,
+                maxLines: 5,
+                maxLength: 1000,
+                decoration: InputDecoration(
+                  labelText: 'Reason',
+                  errorText: error,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Stop tracking'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return reason;
+  }
+
   Future<void> toggleTracking() async {
     if (_trackingActionInProgress) return;
 
     setState(() => _trackingActionInProgress = true);
     try {
-      final position = await _getCurrentPosition();
-
       if (!trackingActive) {
-        await HrmsTrackingApi.startFieldSession(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-        );
+        await context.read<LiveTrackingCoordinator>().start();
 
         if (!mounted) return;
 
         setState(() {
           trackingActive = true;
           mode = _WorkMode.field;
-          _lastPosition = position;
           updated = 'Updated just now';
-          activities = [
-            {
-              'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Started live Field tracking',
-            },
-          ];
         });
-
-        _startLocationTimer();
         await _loadTripSummary();
 
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
       } else {
-        await HrmsTrackingApi.stopFieldSession(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-        );
-
-        _locationTimer?.cancel();
+        final reason = await _askStopReason();
+        if (reason == null || !mounted) return;
+        await context.read<LiveTrackingCoordinator>().stop(reason);
 
         if (!mounted) return;
 
         setState(() {
           trackingActive = false;
-          _lastPosition = position;
           updated = 'Live tracking stopped';
-          activities = [
-            {
-              'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Stopped live Field tracking',
-            },
-            ...activities,
-          ];
         });
 
         await _loadTripSummary();
@@ -477,6 +427,7 @@ class _TrackingViewState extends State<_TrackingView> {
     final map = _RouteMap(
       mode: mode,
       position: _lastPosition,
+      routePoints: _routePoints,
       homeLocation: _homeLocation,
       officeSettings: _officeSettings,
     );
@@ -942,16 +893,20 @@ class _RouteMap extends StatelessWidget {
     required this.position,
     this.homeLocation,
     this.officeSettings,
+    this.routePoints = const [],
   });
 
   final _WorkMode mode;
   final Position? position;
   final Map<String, dynamic>? homeLocation;
   final Map<String, dynamic>? officeSettings;
+  final List<LatLng> routePoints;
 
   @override
   Widget build(BuildContext context) {
-    final livePoint = position == null
+    final livePoint = routePoints.isNotEmpty
+        ? routePoints.last
+        : position == null
         ? null
         : LatLng(position!.latitude, position!.longitude);
 
@@ -1021,6 +976,16 @@ class _RouteMap extends StatelessWidget {
                 icon: BitmapDescriptor.defaultMarkerWithHue(markerColor),
               ),
           },
+          polylines: mode == _WorkMode.field && routePoints.length > 1
+              ? {
+                  Polyline(
+                    polylineId: const PolylineId('saved-field-route'),
+                    points: routePoints,
+                    color: employeeBlue,
+                    width: 5,
+                  ),
+                }
+              : const {},
         ),
       ),
     );

@@ -97,20 +97,24 @@ class AttendanceGrid extends StatefulWidget {
 
 class _AttendanceGridState extends State<AttendanceGrid> {
   static const int _daysPerWindow = 7;
-  static const double _rowHeight = 52;
-  static const double _headerHeight = 60;
-  static const double _dayColWidth = 58;
-  static const double _dayColWidthMax = 96;
-  static const double _frozenWidth = 280;
+  // The dashboard is intentionally dense. These logical dimensions are
+  // calibrated for common 125% desktop scaling while retaining readable rows.
+  static const double _rowHeight = 34;
+  static const double _headerHeight = 48;
+  static const double _dayColWidth = 50;
+  static const double _dayColWidthMax = 82;
+  // Match the compact three-column lead-in used by the attendance sheet:
+  // row number, employee, then designation. The calendar remains the focus.
+  static const double _frozenWidth = 346;
   static const _summaryWidths = [
-    78.0,
-    78.0,
-    78.0,
-    78.0,
-    78.0,
-    78.0,
-    78.0,
-    78.0,
+    64.0,
+    64.0,
+    64.0,
+    64.0,
+    64.0,
+    64.0,
+    64.0,
+    64.0,
   ];
   final _calendarController = ScrollController();
   int _windowStart = 0;
@@ -321,7 +325,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
               ),
               label: Text(widget.expanded ? 'Collapse list' : 'Expand list'),
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF0767F2),
+                foregroundColor: const Color(0xFFE3162A),
                 textStyle: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -337,8 +341,9 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     width: _frozenWidth,
     child: Row(
       children: [
-        _HeaderCell(text: 'Employee Name', width: 170),
-        _HeaderCell(text: 'Designation', width: 110),
+        _HeaderCell(text: '#', width: 40),
+        _HeaderCell(text: 'Employee Name', width: 142),
+        _HeaderCell(text: 'Designation', width: 164),
       ],
     ),
   );
@@ -347,17 +352,28 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final row in widget.rows)
+        for (final entry in widget.rows.indexed)
           SizedBox(
             height: _rowHeight,
             width: _frozenWidth,
             child: Row(
               children: [
                 _BodyCell(
-                  width: 170,
+                  width: 40,
                   child: Text(
-                    row.name,
-                    maxLines: 2,
+                    '${entry.$1 + 1}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF53688F),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                _BodyCell(
+                  width: 142,
+                  child: Text(
+                    entry.$2.name,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
@@ -367,10 +383,10 @@ class _AttendanceGridState extends State<AttendanceGrid> {
                   ),
                 ),
                 _BodyCell(
-                  width: 110,
+                  width: 164,
                   child: Text(
-                    row.designation,
-                    maxLines: 2,
+                    entry.$2.designation,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Color(0xFF53688F),
@@ -449,7 +465,7 @@ class _AttendanceGridState extends State<AttendanceGrid> {
     HrmsColors.danger,
     Color(0xFF07186F),
   ];
-  static const _summaryPanelWidth = 624.0;
+  static const _summaryPanelWidth = 512.0;
 
   Widget _summaryHeaderRow() => SizedBox(
     width: _summaryPanelWidth,
@@ -628,21 +644,33 @@ class _MarkChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (mark.code == 'OFF') {
-      return const Center(
-        child: Text(
-          'OFF',
-          style: TextStyle(color: HrmsColors.textMuted, fontSize: 8),
-        ),
-      );
-    }
+    final code = mark.code;
+    final label = switch (code) {
+      'LV' => 'L',
+      'OFF' => 'WO',
+      _ => code,
+    };
+    final baseColor = mark.color;
+    final hasMark = code.isNotEmpty;
+
     return Center(
-      child: Text(
-        mark.code == 'LV' ? 'L' : mark.code,
-        style: TextStyle(
-          color: mark.color,
-          fontWeight: FontWeight.w800,
-          fontSize: 10,
+      child: Container(
+        height: 26,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: hasMark
+              ? baseColor.withValues(alpha: code == 'OFF' ? .16 : .18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: hasMark ? baseColor : Colors.transparent,
+            fontWeight: FontWeight.w800,
+            fontSize: code == 'OFF' ? 9 : 10,
+          ),
         ),
       ),
     );

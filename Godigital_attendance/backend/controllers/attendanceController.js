@@ -2,6 +2,7 @@ const db = require('../config/db');
 const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
+const autoClockoutService = require('../lib/autoClockout');
 
 function ok(res, data, message) {
   message = message || 'OK';
@@ -247,6 +248,8 @@ function serializeRecord(row, person) {
     checkOut: policy.formatDisplayTime(sqlDateTime(row.check_out_at)),
     checkInAt: sqlDateTime(row.check_in_at),
     checkOutAt: sqlDateTime(row.check_out_at),
+    clockOutReason: row.clock_out_reason || null,
+    trackingStopReason: row.tracking_stop_reason || null,
     method: row.check_in_method,
     isLate: Boolean(Number(row.is_late)),
     workingMinutes: worked,
@@ -569,6 +572,7 @@ async function employeeDashboard(req, res) {
       return String(item.id) === String(employeeId);
     });
     if (!person) return fail(res, 403, 'Employee account is not active');
+    const [profileRows] = await db.query('SELECT work_mode FROM hrms_employee_profiles WHERE employee_user_id = ?', [employeeId]);
 
     const record = await getRecord(employeeId, date);
     const checkedIn = Boolean(record && record.check_in_at && !record.check_out_at);
@@ -687,6 +691,7 @@ async function employeeDashboard(req, res) {
 
     return ok(res, {
       employee: { id: person.id, name: person.full_name, staff_id: person.staff_id },
+      work_mode: profileRows[0] && profileRows[0].work_mode || null,
       date: date,
       status: checkedIn ? 'checked_in' : (checkedOut ? 'checked_out' : 'not_checked_in'),
       session: record && record.check_in_at ? {
@@ -784,24 +789,16 @@ async function checkIn(req, res) {
     connection = await db.getConnection();
     await connection.beginTransaction();
     const rules = await locationPolicy.getCheckInPolicy(connection, employeeId, true);
-    let hybridTrackingActive = false;
-    if (rules.workMode === 'Hybrid') {
-      const [tracking] = await connection.query(
-        'SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1',
-        [employeeId]
-      );
-      hybridTrackingActive = tracking.length > 0;
-    }
-    if (rules.workMode === 'Field') {
+    if (rules.workMode === 'Hybrid' || rules.workMode === 'Field') {
       const [tracking] = await connection.query(
         'SELECT id FROM hrms_field_tracking_sessions WHERE employee_user_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1',
         [employeeId]
       );
       if (!tracking.length) {
-        throw new locationPolicy.LocationPolicyError(403, 'Start live tracking before clocking in as a Field employee.');
+        throw new locationPolicy.LocationPolicyError(403, 'Start live tracking before clocking in as a Field or Hybrid employee.');
       }
     }
-    if (!(rules.workMode === 'Hybrid' && hybridTrackingActive)) {
+    if (!['Hybrid', 'Field'].includes(rules.workMode)) {
       locationPolicy.validateCheckIn(rules, req.body || {});
     }
     const existing = await getRecord(employeeId, date, connection, true);
@@ -890,6 +887,10 @@ async function checkOut(req, res) {
     const employeeId = req.user.id;
     const date = policy.todayIstDate();
     const at = policy.nowIstDateTime();
+    const reason = String((req.body && req.body.reason) || '').trim();
+    if (reason.length < 3 || reason.length > 1000) {
+      return fail(res, 400, 'Enter a clock out reason between 3 and 1000 characters.');
+    }
     const record = await getRecord(employeeId, date);
     if (!record || !record.check_in_at) return fail(res, 409, 'Check in before checking out');
     if (record.check_out_at) return fail(res, 409, 'Already checked out today');
@@ -912,18 +913,19 @@ async function checkOut(req, res) {
     });
 
     await db.query(
-      "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ?",
-      [at, workingMinutes, status, record.id]
+      "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed', clock_out_reason = ?, tracking_stop_reason = ? WHERE id = ?",
+      [at, workingMinutes, status, reason, reason, record.id]
     );
     await recordAutomaticOvertime(employeeId, record.id, date, workingMinutes);
 
     await db.query(
       `UPDATE hrms_field_tracking_sessions
        SET is_active = 0,
-           stopped_at = ?
+           stopped_at = ?,
+           stop_reason = ?
        WHERE employee_user_id = ?
          AND is_active = 1`,
-      [at, employeeId]
+      [at, reason, employeeId]
     );
 
     const updated = await getRecord(employeeId, date);
@@ -1034,10 +1036,31 @@ async function heartbeat(req, res) {
       "UPDATE attendance_records SET working_minutes = ? WHERE id = ? AND check_out_at IS NULL",
       [workingMinutes, record.id]
     );
-    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes });
+    let autoClockout = null;
+    if (req.body && req.body.latitude != null) {
+      try {
+        autoClockout = await autoClockoutService.evaluate(db, employeeId, req.body);
+      } catch (error) {
+        console.error('Auto clock-out check paused:', error.message);
+        autoClockout = { unavailable: true, message: 'Auto clock-out verification is temporarily unavailable.' };
+      }
+    }
+    return ok(res, { attendance_id: record.id, working_minutes: workingMinutes, autoClockout });
   } catch (error) {
     console.error('POST /attendance/heartbeat', error);
     return fail(res, 500, 'Unable to save current work time.');
+  }
+}
+
+async function autoClockoutResponse(req, res) {
+  try {
+    const action = String(req.body && req.body.action || '').trim();
+    const result = await autoClockoutService.respond(db, req.user.id, action);
+    if (!result.ok) return fail(res, 409, result.message);
+    return ok(res, result, 'Auto clock-out warning updated.');
+  } catch (error) {
+    console.error('POST /attendance/auto-clockout-response', error);
+    return fail(res, 500, 'Unable to update auto clock-out warning.');
   }
 }
 
@@ -1283,6 +1306,7 @@ module.exports = {
   endBreak: endBreak,
   submitExceededBreakComment: submitExceededBreakComment,
   heartbeat: heartbeat,
+  autoClockoutResponse: autoClockoutResponse,
   myPermissions: myPermissions,
   createPermission: createPermission,
   createReclockInRequest: createReclockInRequest,

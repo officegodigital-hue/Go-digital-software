@@ -10,7 +10,7 @@ import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
 import '../../screens/login_screen.dart';
 
-const employeeBlue = Color(0xFF0767F2);
+const employeeBlue = Color(0xFFE3162A);
 const employeeNavy = Color(0xFF07143F);
 const employeeMuted = Color(0xFF66738F);
 const employeeLine = Color(0xFFDCE4F0);
@@ -101,23 +101,71 @@ class EmployeeMobileBottomNav extends StatelessWidget {
   const EmployeeMobileBottomNav({super.key, required this.route});
   final String route;
 
-  static const _items = <_NavItem>[
+  static const _primaryItems = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
     _NavItem(
       '/employee/attendance',
       'Attendance',
       Icons.calendar_month_outlined,
     ),
-    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
-    _NavItem(
-      '/employee/permission',
-      'Permission',
-      Icons.verified_user_outlined,
-    ),
-    _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
-    _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
     _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
   ];
+
+  static const _moreItems = <_NavItem>[
+    _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
+    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
+    _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
+    _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
+  ];
+
+  bool get _moreActive => _moreItems.any((item) => item.route == route);
+
+  Future<void> _showMore(BuildContext context) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('More', style: TextStyle(
+              color: employeeNavy, fontSize: 20, fontWeight: FontWeight.w800,
+            )),
+            const SizedBox(height: 12),
+            ..._moreItems.map((item) => ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE8EB),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(item.icon, color: employeeBlue),
+              ),
+              title: Text(item.label, style: const TextStyle(
+                color: employeeNavy, fontWeight: FontWeight.w700,
+              )),
+              trailing: const Icon(Icons.chevron_right_rounded, color: employeeMuted),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                if (item.route != route) {
+                  Navigator.of(context).pushReplacementNamed(item.route);
+                }
+              },
+            )),
+          ],
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -138,7 +186,8 @@ class EmployeeMobileBottomNav extends StatelessWidget {
         ],
       ),
       child: Row(
-        children: _items.map((item) {
+        children: [
+          ..._primaryItems.map((item) {
           final active = item.route == route;
           return Expanded(
             child: Tooltip(
@@ -156,7 +205,7 @@ class EmployeeMobileBottomNav extends StatelessWidget {
                     height: 50,
                     decoration: BoxDecoration(
                       color: active
-                          ? const Color(0xFF2563EB)
+                          ? employeeBlue
                           : Colors.transparent,
                       shape: BoxShape.circle,
                     ),
@@ -166,7 +215,29 @@ class EmployeeMobileBottomNav extends StatelessWidget {
               ),
             ),
           );
-        }).toList(),
+          }),
+          Expanded(
+            child: Tooltip(
+              message: 'More',
+              child: InkWell(
+                onTap: () => _showMore(context),
+                borderRadius: BorderRadius.circular(25),
+                child: Center(
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: _moreActive ? employeeBlue : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.more_horiz_rounded,
+                        color: Colors.white, size: 25),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
