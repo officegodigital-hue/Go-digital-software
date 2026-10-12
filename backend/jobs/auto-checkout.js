@@ -95,24 +95,27 @@ async function runAutoCheckout() {
     );
     if (activeBreak) continue;
 
+    // Only consider pings received AFTER today's check-in — never historical ones
     const [[lastPing]] = await db.query(
       `SELECT recorded_at FROM hrms_location_pings
        WHERE employee_user_id = ?
+         AND recorded_at >= ?
        ORDER BY recorded_at DESC
        LIMIT 1`,
-      [session.employee_id]
+      [session.employee_id, sqlDateTime(session.check_in_at)]
     );
-    if (lastPing) {
-      const minsSincePing = attendancePolicy.minutesBetween(sqlDateTime(lastPing.recorded_at), now);
-      if (minsSincePing >= noGpsMins) {
-        await _doCheckout(
-          session,
-          sqlDateTime(lastPing.recorded_at), // checkout at last known ping time
-          'no_gps_auto_checkout',
-          `No GPS update for ${Math.round(minsSincePing)} minutes (threshold: ${noGpsMins} min)`
-        );
-        checked++;
-      }
+    // No ping since check-in yet — employee just started, skip (do not penalise)
+    if (!lastPing) continue;
+
+    const minsSincePing = attendancePolicy.minutesBetween(sqlDateTime(lastPing.recorded_at), now);
+    if (minsSincePing >= noGpsMins) {
+      await _doCheckout(
+        session,
+        sqlDateTime(lastPing.recorded_at), // checkout at last known ping time
+        'no_gps_auto_checkout',
+        `No GPS update for ${Math.round(minsSincePing)} minutes (threshold: ${noGpsMins} min)`
+      );
+      checked++;
     }
   }
 
