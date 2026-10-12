@@ -126,9 +126,17 @@ class HrmsTrackingApi {
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body);
+    dynamic decoded;
+    try {
+      decoded = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body);
+    } catch (_) {
+      throw Exception(
+        'Attendance server returned an invalid response '
+        '(HTTP ${response.statusCode}).',
+      );
+    }
 
     if (decoded is! Map) {
       throw Exception('Unexpected response');
@@ -137,7 +145,10 @@ class HrmsTrackingApi {
     final map = Map<String, dynamic>.from(decoded);
 
     if (response.statusCode >= 400 || map['success'] == false) {
-      throw Exception(map['message']?.toString() ?? 'Request failed');
+      throw Exception(
+        map['message']?.toString() ??
+            'Attendance request failed (HTTP ${response.statusCode}).',
+      );
     }
 
     final data = map['data'];
@@ -213,7 +224,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        'accuracy': ?accuracy,
+        'accuracy': accuracy,
       }),
     );
 
@@ -274,7 +285,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        'accuracy': ?accuracy,
+        'accuracy': accuracy,
       }),
     );
 
@@ -292,7 +303,7 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        'accuracy': ?accuracy,
+        'accuracy': accuracy,
       }),
     );
     return _decode(response);
@@ -309,9 +320,9 @@ class HrmsTrackingApi {
       headers: await _headers(),
       body: jsonEncode({
         'reason': reason,
-        'latitude': ?latitude,
-        'longitude': ?longitude,
-        'accuracy': ?accuracy,
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
       }),
     );
 
@@ -327,9 +338,9 @@ class HrmsTrackingApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session/stop'),
       headers: await _headers(),
       body: jsonEncode({
-        'latitude': ?latitude,
-        'longitude': ?longitude,
-        'accuracy': ?accuracy,
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
       }),
     );
     return _decode(response);
