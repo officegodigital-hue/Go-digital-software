@@ -583,7 +583,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
 
   Widget _table() => LayoutBuilder(
     builder: (_, constraints) {
-      final tableWidth = constraints.maxWidth < 1100 ? 1100.0 : constraints.maxWidth;
+      final tableWidth = constraints.maxWidth < 1300 ? 1300.0 : constraints.maxWidth;
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: _line), borderRadius: BorderRadius.circular(14)),
@@ -594,7 +594,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             width: tableWidth,
             child: Column(
               children: [
-                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Extra Hours', 'Status', 'Method'], header: true),
+                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Extra Hours', 'Status', 'Method', 'Reasons'], header: true),
                 if (_visibleLogs.isEmpty) const Padding(padding: EdgeInsets.all(40), child: Text('No clock logs found for the selected period.')),
                 ..._visibleLogs.map(_logRow),
               ],
@@ -608,7 +608,11 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Widget _logRow(Map<String, dynamic> item) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
-    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _overtimeButton(item), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-']);
+    final reasons = [
+      if (item['clockOutReason']?.toString().trim().isNotEmpty == true) 'Clock out: ${item['clockOutReason']}',
+      if (item['trackingStopReason']?.toString().trim().isNotEmpty == true) 'Tracking: ${item['trackingStopReason']}',
+    ].join('\n');
+    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _overtimeButton(item), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-', reasons.isEmpty ? '—' : reasons]);
   }
 
   Widget _overtimeButton(Map<String, dynamic> item) {
@@ -628,7 +632,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
     child: Row(
       children: List.generate(values.length, (i) => Expanded(
-        flex: const [24, 13, 13, 13, 12, 13, 15, 13][i],
+        flex: const [22, 12, 12, 12, 11, 12, 13, 11, 22][i],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(

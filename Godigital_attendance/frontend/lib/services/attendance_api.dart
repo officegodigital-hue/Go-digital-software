@@ -91,6 +91,24 @@ class AttendanceApi {
     return _post('/attendance/check-out');
   }
 
+  static Future<Map<String, dynamic>> heartbeat({
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    DateTime? capturedAt,
+  }) {
+    return _post('/attendance/heartbeat', {
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (accuracy != null) 'accuracy': accuracy,
+      if (capturedAt != null) 'capturedAt': capturedAt.toUtc().toIso8601String(),
+    });
+  }
+
+  static Future<void> autoClockoutResponse({required String action}) async {
+    await _post('/attendance/auto-clockout-response', {'action': action});
+  }
+
   static Future<void> createRequest({
     required String type,
     required DateTime date,

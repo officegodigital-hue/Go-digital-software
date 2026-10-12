@@ -245,7 +245,9 @@ async function detail(req, res) {
                    WHEN a.attendance_status = 'half_leave' THEN 'Half leave'
                    WHEN a.is_late = 1 THEN 'Late' ELSE 'Present' END AS status,
               CASE WHEN a.attendance_status = 'absent' THEN 'Yes' ELSE 'No' END AS lop,
-              COALESCE(a.check_in_method, '-') AS method
+              COALESCE(a.check_in_method, '-') AS method,
+              a.clock_out_reason,
+              a.tracking_stop_reason
        FROM attendance_records a
        LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
          AND b.status IN ('completed', 'auto_closed')

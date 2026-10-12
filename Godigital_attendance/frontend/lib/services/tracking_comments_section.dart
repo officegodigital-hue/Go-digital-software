@@ -13,24 +13,7 @@ class TrackingCommentsSection extends StatefulWidget {
 
 class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
   final controller = TextEditingController();
-  List<Map<String, dynamic>> comments = [];
-  bool loading = true, saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final token = await AuthStorage.getString('auth_token');
-    if (token != null && token.isNotEmpty) {
-      try {
-        comments = await TrackingCommentsApi.myComments(token);
-      } catch (_) {}
-    }
-    if (mounted) setState(() => loading = false);
-  }
+  bool saving = false;
 
   Future<void> _save() async {
     final text = controller.text.trim();
@@ -63,7 +46,6 @@ class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
         longitude: position.longitude,
       );
       controller.clear();
-      await _load();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -93,6 +75,11 @@ class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Align(
+              alignment: Alignment.centerRight,
+              child: TrackingCommentsHistoryButton(),
+            ),
+            const SizedBox(height: 12),
             const Text(
               'Employee Comments',
               style: TextStyle(
@@ -136,33 +123,6 @@ class _TrackingCommentsSectionState extends State<TrackingCommentsSection> {
                 child: Text(saving ? 'Saving…' : 'Submit Comment'),
               ),
             ),
-            const Divider(),
-            const Text(
-              'My last 30 days',
-              style: TextStyle(
-                color: Color(0xFF061457),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (loading)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator(),
-              ),
-            if (!loading && comments.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('No comments yet.'),
-              ),
-            ...comments.map(
-              (item) => ListTile(
-                dense: true,
-                title: Text('${item['comment'] ?? ''}'),
-                subtitle: Text(
-                  '${item['createdAt'] ?? ''}\n${item['address'] ?? ((item['latitude'] != null && item['longitude'] != null) ? 'GPS: ${item['latitude']}, ${item['longitude']}' : 'Location not recorded')}',
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -180,7 +140,7 @@ class TrackingCommentsHistoryButton extends StatelessWidget {
       builder: (_) => const _TrackingCommentsHistoryDialog(),
     ),
     icon: const Icon(Icons.history_rounded, size: 18),
-    label: const Text('Comment Section History'),
+    label: const Text('Comment History'),
   );
 }
 
@@ -194,10 +154,12 @@ class _TrackingCommentsHistoryDialog extends StatefulWidget {
 class _TrackingCommentsHistoryDialogState
     extends State<_TrackingCommentsHistoryDialog> {
   late Future<List<Map<String, dynamic>>> _history;
+  late Future<List<Map<String, dynamic>>> _popupHistory;
   @override
   void initState() {
     super.initState();
     _history = _loadHistory();
+    _popupHistory = _loadPopupHistory();
   }
 
   Future<List<Map<String, dynamic>>> _loadHistory() async {
@@ -207,41 +169,126 @@ class _TrackingCommentsHistoryDialogState
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Comment Section History'),
-    content: SizedBox(
-      width: 480,
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _history,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done)
-            return const Center(child: CircularProgressIndicator());
-          final comments = snapshot.data ?? const [];
-          if (comments.isEmpty)
-            return const Center(child: Text('No comments yet.'));
-          return ListView.separated(
-            shrinkWrap: true,
-            itemCount: comments.length,
-            separatorBuilder: (_, __) => const Divider(),
-            itemBuilder: (_, index) {
-              final item = comments[index];
-              return ListTile(
-                dense: true,
-                title: Text('${item['comment'] ?? ''}'),
-                subtitle: Text(
-                  '${item['createdAt'] ?? ''}\n${item['address'] ?? ((item['latitude'] != null && item['longitude'] != null) ? 'GPS: ${item['latitude']}, ${item['longitude']}' : 'Location not recorded')}',
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 2,
+    child: AlertDialog(
+      insetPadding: const EdgeInsets.all(20),
+      title: const Text('Comment History'),
+      content: SizedBox(
+        width: 620,
+        height: 440,
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _history,
+          builder: (context, permanentSnapshot) {
+            if (permanentSnapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (permanentSnapshot.hasError) {
+              return const Center(child: Text('Unable to load comment history.'));
+            }
+            return Column(
+              children: [
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Permanent comments'),
+                    Tab(text: 'Popup comments'),
+                  ],
                 ),
-              );
-            },
-          );
-        },
+                const SizedBox(height: 12),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _CommentHistoryList(
+                        items: permanentSnapshot.data ?? const [],
+                        emptyText: 'No permanent comments yet.',
+                        popupComments: false,
+                      ),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _popupHistory,
+                        builder: (context, popupSnapshot) {
+                          if (popupSnapshot.connectionState != ConnectionState.done) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          if (popupSnapshot.hasError) {
+                            return const Center(
+                              child: Text('Unable to load popup comments.'),
+                            );
+                          }
+                          return _CommentHistoryList(
+                            items: popupSnapshot.data ?? const [],
+                            emptyText: 'No popup comments yet.',
+                            popupComments: true,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Close'),
-      ),
-    ],
   );
+
+  Future<List<Map<String, dynamic>>> _loadPopupHistory() async {
+    final token = await AuthStorage.getString('auth_token');
+    if (token == null || token.isEmpty) return const [];
+    return TrackingCommentsApi.myPopupComments(token);
+  }
+}
+
+class _CommentHistoryList extends StatelessWidget {
+  const _CommentHistoryList({
+    required this.items,
+    required this.emptyText,
+    required this.popupComments,
+  });
+
+  final List<Map<String, dynamic>> items;
+  final String emptyText;
+  final bool popupComments;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return Center(child: Text(emptyText));
+
+    return ListView.separated(
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const Divider(height: 20),
+      itemBuilder: (_, index) {
+        final item = items[index];
+        final timestamp = popupComments
+            ? item['reasonSubmittedAt'] ?? item['waitingDetectedAt']
+            : item['createdAt'];
+        final location = item['address'] ??
+            ((item['latitude'] != null && item['longitude'] != null)
+                ? 'GPS: ${item['latitude']}, ${item['longitude']}'
+                : 'Location not recorded');
+        final title = popupComments
+            ? 'Waiting reason: ${item['reason'] ?? ''}'
+            : '${item['comment'] ?? ''}';
+        final waitingTime = popupComments && item['waitingMinutes'] != null
+            ? '\nWaiting time: ${item['waitingMinutes']} min'
+            : '';
+
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            popupComments ? Icons.notifications_active_outlined : Icons.chat_bubble_outline,
+            color: const Color(0xFF075EF7),
+          ),
+          title: Text(title),
+          subtitle: Text('$timestamp$waitingTime\n$location'),
+        );
+      },
+    );
+  }
 }

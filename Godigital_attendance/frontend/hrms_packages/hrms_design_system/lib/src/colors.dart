@@ -8,14 +8,14 @@ class HrmsColors {
   HrmsColors._();
 
   // Brand
-  static const Color primary = Color(0xFF2F6BFF);       // active nav pill, primary buttons
-  static const Color primaryDark = Color(0xFF14213D);    // employee-app dark header / navy blocks
+  static const Color primary = Color(0xFFE3162A);       // A1 Blowers red: active navigation and primary actions
+  static const Color primaryDark = Color(0xFF081B3C);   // engineering navy for data hierarchy
   static const Color accentPurple = Color(0xFF7C3AED);   // Leave section header
   static const Color accentOrange = Color(0xFFF97316);   // Extra Hours section header
   static const Color accentTeal = Color(0xFF0D9488);     // Tracking section header
 
   // Surfaces
-  static const Color pageBackground = Color(0xFFF4F6FA);
+  static const Color pageBackground = Color(0xFFF5F7FB);
   static const Color surface = Colors.white;
   static const Color border = Color(0xFFE5E9F0);
 

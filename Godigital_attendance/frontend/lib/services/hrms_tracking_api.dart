@@ -255,6 +255,14 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> fieldSessionTimeline() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/timeline'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> startFieldSession({
     required double latitude,
     required double longitude,
@@ -291,6 +299,7 @@ class HrmsTrackingApi {
   }
 
   static Future<Map<String, dynamic>> stopFieldSession({
+    required String reason,
     double? latitude,
     double? longitude,
     double? accuracy,
@@ -299,6 +308,7 @@ class HrmsTrackingApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/stop'),
       headers: await _headers(),
       body: jsonEncode({
+        'reason': reason,
         'latitude': ?latitude,
         'longitude': ?longitude,
         'accuracy': ?accuracy,
@@ -369,7 +379,13 @@ class HrmsTrackingApi {
     required int fieldWaitingMinutes,
     required int stationaryRadiusMeters,
     required int fieldPingIntervalMinutes,
+    required int popupAlertRepeatSeconds,
     required bool homeTrackingEnabled,
+    bool autoClockOutEnabled = false,
+    int autoClockOutConfirmationMinutes = 3,
+    int autoClockOutWarningSeconds = 60,
+    int autoClockOutBoundaryBufferMeters = 50,
+    int autoClockOutSnoozeMinutes = 15,
   }) async {
     final response = await http.put(
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
@@ -378,7 +394,13 @@ class HrmsTrackingApi {
         'fieldWaitingMinutes': fieldWaitingMinutes,
         'stationaryRadiusMeters': stationaryRadiusMeters,
         'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
+        'popupAlertRepeatSeconds': popupAlertRepeatSeconds,
         'homeTrackingEnabled': homeTrackingEnabled,
+        'autoClockOutEnabled': autoClockOutEnabled,
+        'autoClockOutConfirmationMinutes': autoClockOutConfirmationMinutes,
+        'autoClockOutWarningSeconds': autoClockOutWarningSeconds,
+        'autoClockOutBoundaryBufferMeters': autoClockOutBoundaryBufferMeters,
+        'autoClockOutSnoozeMinutes': autoClockOutSnoozeMinutes,
       }),
     );
 

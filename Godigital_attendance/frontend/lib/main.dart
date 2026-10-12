@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
@@ -13,26 +14,36 @@ import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/profile_page.dart';
 import 'package:godigital_portal/hrms_employee/shared/field_waiting_prompt_host.dart';
+import 'package:godigital_portal/hrms_employee/shared/live_tracking_coordinator.dart';
+import 'package:godigital_portal/hrms_employee/shared/android_live_tracking_service.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    await AndroidLiveTrackingService.configure();
+  }
   runApp(const AttendanceApp());
 }
 
 class AttendanceApp extends StatelessWidget {
   const AttendanceApp({super.key});
   @override
-  Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (_) => AuthService(),
+  Widget build(BuildContext context) => MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (_) => AuthService()),
+      ChangeNotifierProvider(create: (_) => LiveTrackingCoordinator()),
+    ],
     child: MaterialApp(
       navigatorKey: appNavigatorKey,
+      navigatorObservers: [employeeRouteSignal],
       debugShowCheckedModeBanner: false,
       title: 'GoDigital Attendance',
       builder: (context, child) => FieldWaitingPromptHost(
         child: child ?? const SizedBox.shrink(),
         navigatorKey: appNavigatorKey,
+        routeRevision: employeeRouteSignal.revision,
       ),
       initialRoute: '/',
       routes: {

@@ -32,6 +32,7 @@ router.post('/break-in', attendance.startBreak);
 router.post('/break-out', attendance.endBreak);
 router.post('/break-exceeded-comment', attendance.submitExceededBreakComment);
 router.post('/heartbeat', attendance.heartbeat);
+router.post('/auto-clockout-response', attendance.autoClockoutResponse);
 // Compatibility with the employee module's original API contract.
 router.post('/clock-in', attendance.checkIn);
 router.post('/clock-out', attendance.checkOut);
