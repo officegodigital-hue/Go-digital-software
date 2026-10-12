@@ -1334,7 +1334,7 @@ async function listCorrectionRequests(req, res) {
       SELECT r.id, r.attendance_id, r.request_type, r.reason, r.status, r.created_at,
              r.requested_check_in_at, r.requested_check_out_at, r.admin_note,
              e.full_name, e.staff_id,
-             a.check_in_at, a.check_out_at
+             a.check_in_at, a.check_out_at, a.attendance_date
       FROM hrms_attendance_correction_requests r
       JOIN employee_users e ON e.id = r.employee_id
       JOIN attendance_records a ON a.id = r.attendance_id

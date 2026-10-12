@@ -1422,6 +1422,15 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
     } catch (_) { return '--'; }
   }
 
+  String _fmtDate(dynamic raw) {
+    if (raw == null) return '--';
+    try {
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+    } catch (_) { return '--'; }
+  }
+
   String _typeLabel(dynamic raw) {
     switch (raw?.toString()) {
       case 'missed_check_in': return 'Missed check-in';
@@ -1565,7 +1574,26 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
                 ),
               ]),
               const SizedBox(height: 10),
-              Text(_typeLabel(c['request_type']), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ApprovalsColors.blue)),
+              Row(children: [
+                Text(_typeLabel(c['request_type']), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ApprovalsColors.blue)),
+                const Spacer(),
+                if (c['created_at'] != null)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.access_time_rounded, size: 13, color: Color(0xFF8A94A6)),
+                    const SizedBox(width: 4),
+                    Text('Requested ${_fmtDate(c['created_at'])}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
+                  ]),
+              ]),
+              if (c['attendance_date'] != null) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.calendar_today_outlined, size: 13, color: Color(0xFF8A94A6)),
+                  const SizedBox(width: 4),
+                  Text('Attendance date: ${_fmtDate(c['attendance_date'])}',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
+                ]),
+              ],
               const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 6, children: [
                 _CorrChip('Recorded in', _fmt(c['check_in_at'])),
