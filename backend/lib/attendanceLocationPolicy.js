@@ -70,7 +70,10 @@ async function profileFor(db, employeeId, lock = false) {
 
 async function settingsFor(db, lock = false) {
   const [rows] = await db.query(
-    `SELECT office_latitude, office_longitude, office_radius_meters, outside_radius_grace_minutes
+    `SELECT office_latitude, office_longitude, office_radius_meters, outside_radius_grace_minutes,
+            office_outside_radius_grace_minutes, home_outside_radius_grace_minutes,
+            office_no_gps_timeout_minutes, home_no_gps_timeout_minutes,
+            home_radius_meters, home_tracking_enabled
      FROM hrms_tracking_settings WHERE id = 1${lock ? ' FOR UPDATE' : ''}`);
   if (rows.length !== 1) {
     throw new LocationPolicyError(503, 'Office and Home location settings are unavailable. Contact admin.');
@@ -79,13 +82,26 @@ async function settingsFor(db, lock = false) {
   if (!Number.isSafeInteger(radiusMeters) || radiusMeters < 1) {
     throw new LocationPolicyError(503, 'Admin must configure a valid Office/Home radius.');
   }
-  const outsideRadiusGraceMinutes = number(rows[0].outside_radius_grace_minutes);
+  const sharedGrace = number(rows[0].outside_radius_grace_minutes);
+  const officeGrace = number(rows[0].office_outside_radius_grace_minutes);
+  const homeGrace = number(rows[0].home_outside_radius_grace_minutes);
+  const officeNoGps = number(rows[0].office_no_gps_timeout_minutes);
+  const homeNoGps = number(rows[0].home_no_gps_timeout_minutes);
+  const homeRadius = number(rows[0].home_radius_meters);
   return {
     ...rows[0],
     radiusMeters,
-    outsideRadiusGraceMinutes: Number.isFinite(outsideRadiusGraceMinutes) && outsideRadiusGraceMinutes > 0
-      ? Number(outsideRadiusGraceMinutes)
-      : 2
+    // shared legacy field (kept for backward compat)
+    outsideRadiusGraceMinutes: Number.isFinite(sharedGrace) && sharedGrace > 0 ? Number(sharedGrace) : 2,
+    // per-mode grace (falls back to shared value if not set)
+    officeOutsideRadiusGraceMinutes: Number.isFinite(officeGrace) && officeGrace > 0 ? Number(officeGrace) : 5,
+    homeOutsideRadiusGraceMinutes: Number.isFinite(homeGrace) && homeGrace > 0 ? Number(homeGrace) : 5,
+    // no-gps timeout
+    officeNoGpsTimeoutMinutes: Number.isFinite(officeNoGps) && officeNoGps > 0 ? Number(officeNoGps) : 30,
+    homeNoGpsTimeoutMinutes: Number.isFinite(homeNoGps) && homeNoGps > 0 ? Number(homeNoGps) : 30,
+    // home-specific
+    homeRadiusMeters: Number.isFinite(homeRadius) && homeRadius > 0 ? Number(homeRadius) : 200,
+    homeTrackingEnabled: rows[0].home_tracking_enabled !== 0,
   };
 }
 

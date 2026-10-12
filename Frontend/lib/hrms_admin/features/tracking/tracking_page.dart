@@ -4276,6 +4276,7 @@ class _FieldWaitingSettingsDialogState
   final _stationaryCtrl = TextEditingController();
   final _pingCtrl = TextEditingController();
   final _officeGraceCtrl = TextEditingController();
+  final _officeNoGpsCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
@@ -4305,6 +4306,7 @@ class _FieldWaitingSettingsDialogState
     _stationaryCtrl.dispose();
     _pingCtrl.dispose();
     _officeGraceCtrl.dispose();
+    _officeNoGpsCtrl.dispose();
     super.dispose();
   }
 
@@ -4322,6 +4324,8 @@ class _FieldWaitingSettingsDialogState
         _pingCtrl.text = '${data['field_ping_interval_minutes'] ?? 15}';
         _officeGraceCtrl.text =
             '${data['office_outside_radius_grace_minutes'] ?? 5}';
+        _officeNoGpsCtrl.text =
+            '${data['office_no_gps_timeout_minutes'] ?? 30}';
         final updated = data['updated_at'];
         _lastUpdated = updated != null ? DateTime.tryParse('$updated') : null;
         _loading = false;
@@ -4341,6 +4345,7 @@ class _FieldWaitingSettingsDialogState
     final stationary = int.tryParse(_stationaryCtrl.text.trim());
     final ping = int.tryParse(_pingCtrl.text.trim());
     final officeGrace = int.tryParse(_officeGraceCtrl.text.trim());
+    final officeNoGps = int.tryParse(_officeNoGpsCtrl.text.trim());
 
     if (waiting == null ||
         waiting < 1 ||
@@ -4349,7 +4354,9 @@ class _FieldWaitingSettingsDialogState
         ping == null ||
         ping < 1 ||
         officeGrace == null ||
-        officeGrace < 1) {
+        officeGrace < 1 ||
+        officeNoGps == null ||
+        officeNoGps < 1) {
       setState(
         () => _error = 'All fields must be whole numbers greater than zero.',
       );
@@ -4365,6 +4372,7 @@ class _FieldWaitingSettingsDialogState
         stationaryRadiusMeters: stationary,
         fieldPingIntervalMinutes: ping,
         officeOutsideRadiusGraceMinutes: officeGrace,
+        officeNoGpsTimeoutMinutes: officeNoGps,
       );
       if (!mounted) return;
       setState(() {
@@ -4708,8 +4716,17 @@ class _FieldWaitingSettingsDialogState
                               icon: Icons.update_rounded,
                               title: 'Office / Hybrid Checkout Grace',
                               desc:
-                                  'Allowed time after the scheduled checkout for Office and Hybrid.',
+                                  'Allowed time outside the radius before auto-checkout for Office and Hybrid.',
                               ctrl: _officeGraceCtrl,
+                              unit: 'minutes',
+                            ),
+                            const SizedBox(height: 12),
+                            _settingCard(
+                              icon: Icons.signal_wifi_off_rounded,
+                              title: 'Office No-GPS Timeout',
+                              desc:
+                                  'Auto-checkout Office/Hybrid employees if no GPS ping is received for this long.',
+                              ctrl: _officeNoGpsCtrl,
                               unit: 'minutes',
                             ),
                           ] else ...[
@@ -4759,11 +4776,29 @@ class _FieldWaitingSettingsDialogState
                                     icon: Icons.update_rounded,
                                     title: 'Office / Hybrid Checkout Grace',
                                     desc:
-                                        'Allowed time after the scheduled checkout for Office and Hybrid.',
+                                        'Allowed time outside the radius before auto-checkout for Office and Hybrid.',
                                     ctrl: _officeGraceCtrl,
                                     unit: 'minutes',
                                   ),
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.signal_wifi_off_rounded,
+                                    title: 'Office No-GPS Timeout',
+                                    desc:
+                                        'Auto-checkout Office/Hybrid employees if no GPS ping is received for this long.',
+                                    ctrl: _officeNoGpsCtrl,
+                                    unit: 'minutes',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(child: SizedBox()),
                               ],
                             ),
                           ],

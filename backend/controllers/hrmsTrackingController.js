@@ -1305,6 +1305,82 @@ async function monthlyReport(req, res) {
   }
 }
 
+async function updateHomeSettings(req, res) {
+  try {
+    const [rows] = await db.query('SELECT * FROM hrms_tracking_settings WHERE id = 1');
+    if (!rows.length) return fail(res, 404, 'Tracking settings not found');
+    const current = rows[0];
+
+    const homeRadiusMeters = req.body.homeRadiusMeters != null
+      ? Number(req.body.homeRadiusMeters) : Number(current.home_radius_meters || 200);
+    const homeOutsideRadiusGraceMinutes = req.body.homeOutsideRadiusGraceMinutes != null
+      ? Number(req.body.homeOutsideRadiusGraceMinutes) : Number(current.home_outside_radius_grace_minutes || 5);
+    const homeNoGpsTimeoutMinutes = req.body.homeNoGpsTimeoutMinutes != null
+      ? Number(req.body.homeNoGpsTimeoutMinutes) : Number(current.home_no_gps_timeout_minutes || 30);
+    const homeTrackingEnabled = req.body.homeTrackingEnabled != null
+      ? (req.body.homeTrackingEnabled ? 1 : 0) : Number(current.home_tracking_enabled !== 0 ? 1 : 0);
+
+    if (homeRadiusMeters < 1 || homeOutsideRadiusGraceMinutes < 1 || homeNoGpsTimeoutMinutes < 1) {
+      return fail(res, 400, 'Invalid home settings');
+    }
+
+    await db.query(
+      `UPDATE hrms_tracking_settings
+       SET home_radius_meters = ?,
+           home_outside_radius_grace_minutes = ?,
+           home_no_gps_timeout_minutes = ?,
+           home_tracking_enabled = ?,
+           updated_by = ?
+       WHERE id = 1`,
+      [homeRadiusMeters, homeOutsideRadiusGraceMinutes, homeNoGpsTimeoutMinutes, homeTrackingEnabled, req.user.id]
+    );
+
+    return getTrackingSettings(req, res);
+  } catch (error) {
+    console.error('PUT /hrms/tracking/home-settings', error);
+    return fail(res, 500, error.message);
+  }
+}
+
+async function updateHybridSettings(req, res) {
+  try {
+    const [rows] = await db.query('SELECT * FROM hrms_tracking_settings WHERE id = 1');
+    if (!rows.length) return fail(res, 404, 'Tracking settings not found');
+    const current = rows[0];
+
+    const fieldWaitingMinutes = Number(req.body.fieldWaitingMinutes ?? current.field_waiting_minutes);
+    const stationaryRadiusMeters = Number(req.body.stationaryRadiusMeters ?? current.stationary_radius_meters);
+    const fieldPingIntervalMinutes = Number(req.body.fieldPingIntervalMinutes ?? current.field_ping_interval_minutes);
+    const officeOutsideRadiusGraceMinutes = req.body.officeOutsideRadiusGraceMinutes != null
+      ? Number(req.body.officeOutsideRadiusGraceMinutes) : Number(current.office_outside_radius_grace_minutes || 5);
+    const officeNoGpsTimeoutMinutes = req.body.officeNoGpsTimeoutMinutes != null
+      ? Number(req.body.officeNoGpsTimeoutMinutes) : Number(current.office_no_gps_timeout_minutes || 30);
+
+    if (fieldWaitingMinutes < 1 || stationaryRadiusMeters < 1 || fieldPingIntervalMinutes < 1 ||
+        officeOutsideRadiusGraceMinutes < 1 || officeNoGpsTimeoutMinutes < 1) {
+      return fail(res, 400, 'Invalid hybrid settings');
+    }
+
+    await db.query(
+      `UPDATE hrms_tracking_settings
+       SET field_waiting_minutes = ?,
+           stationary_radius_meters = ?,
+           field_ping_interval_minutes = ?,
+           office_outside_radius_grace_minutes = ?,
+           office_no_gps_timeout_minutes = ?,
+           updated_by = ?
+       WHERE id = 1`,
+      [fieldWaitingMinutes, stationaryRadiusMeters, fieldPingIntervalMinutes,
+       officeOutsideRadiusGraceMinutes, officeNoGpsTimeoutMinutes, req.user.id]
+    );
+
+    return getTrackingSettings(req, res);
+  } catch (error) {
+    console.error('PUT /hrms/tracking/hybrid-settings', error);
+    return fail(res, 500, error.message);
+  }
+}
+
 module.exports = {
   requireAdmin,
   list,
@@ -1315,6 +1391,8 @@ module.exports = {
   myRouteHistory,
   getTrackingSettings,
   updateTrackingSettings,
+  updateHomeSettings,
+  updateHybridSettings,
   getMyHomeLocation,
   submitHomeLocation,
   listHomeLocations,

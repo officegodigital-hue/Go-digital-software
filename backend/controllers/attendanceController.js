@@ -1107,12 +1107,10 @@ async function heartbeat(req, res) {
           const now = policy.nowIstDateTime();
           await db.query(`INSERT INTO hrms_attendance_radius_departures (attendance_id,employee_id,location_type,left_at,last_seen_at,latitude,longitude,distance_meters) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE left_at=IF(status='cancelled',VALUES(left_at),left_at),last_seen_at=VALUES(last_seen_at),latitude=VALUES(latitude),longitude=VALUES(longitude),distance_meters=VALUES(distance_meters),status=IF(status='cancelled','pending',status)`, [record.id, employeeId, mode, now, now, latitude, longitude, distance]);
           const [[departure]] = await db.query('SELECT left_at FROM hrms_attendance_radius_departures WHERE attendance_id=? AND status=?', [record.id, 'pending']);
-          const [[tracking]] = await db.query(
-            'SELECT office_outside_radius_grace_minutes, home_outside_radius_grace_minutes FROM hrms_tracking_settings WHERE id=1'
-          );
-          const grace = Number(mode === 'Home'
-            ? tracking && tracking.home_outside_radius_grace_minutes
-            : tracking && tracking.office_outside_radius_grace_minutes);
+          const trackingSettings = await locationPolicy.settingsFor(db);
+          const grace = mode === 'Home'
+            ? trackingSettings.homeOutsideRadiusGraceMinutes
+            : trackingSettings.officeOutsideRadiusGraceMinutes;
           if (departure && policy.minutesBetween(sqlDateTime(departure.left_at), now) >= grace) {
             const status = computeStatus({
               check_in_at: record.check_in_at,

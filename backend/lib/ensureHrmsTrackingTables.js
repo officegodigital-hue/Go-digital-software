@@ -29,8 +29,27 @@ async function ensureHrmsTrackingTables(db) {
     `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'hrms_tracking_settings'`
   );
-  if (!settingsColumns.some((column) => column.COLUMN_NAME === 'outside_radius_grace_minutes')) {
+  const hasCol = (name) => settingsColumns.some((c) => c.COLUMN_NAME === name);
+  if (!hasCol('outside_radius_grace_minutes')) {
     await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN outside_radius_grace_minutes INT NOT NULL DEFAULT 2');
+  }
+  if (!hasCol('office_outside_radius_grace_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_outside_radius_grace_minutes INT NOT NULL DEFAULT 5');
+  }
+  if (!hasCol('home_outside_radius_grace_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_outside_radius_grace_minutes INT NOT NULL DEFAULT 5');
+  }
+  if (!hasCol('office_no_gps_timeout_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_no_gps_timeout_minutes INT NOT NULL DEFAULT 30');
+  }
+  if (!hasCol('home_no_gps_timeout_minutes')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_no_gps_timeout_minutes INT NOT NULL DEFAULT 30');
+  }
+  if (!hasCol('home_radius_meters')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_radius_meters INT NOT NULL DEFAULT 200');
+  }
+  if (!hasCol('home_tracking_enabled')) {
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_tracking_enabled TINYINT NOT NULL DEFAULT 1');
   }
 
   await db.query(`

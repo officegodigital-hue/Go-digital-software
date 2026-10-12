@@ -13,6 +13,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   // ── controllers ──────────────────────────────────────────────────────────
   final _radiusCtrl = TextEditingController();
   final _graceCtrl = TextEditingController();
+  final _noGpsCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
 
   // ── state ─────────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   bool _loadingHomes = true;
   bool _savingRadius = false;
   bool _savingGrace = false;
+  bool _savingNoGps = false;
   bool _savingToggle = false;
   bool _homeTrackingEnabled = true;
   int? _reviewingId;
@@ -39,7 +41,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   static const _green = Color(0xFF16A34A);
   static const _greenBg = Color(0xFFDCFCE7);
 
-  bool get _busy => _savingRadius || _savingGrace || _savingToggle || _reviewingId != null;
+  bool get _busy => _savingRadius || _savingGrace || _savingNoGps || _savingToggle || _reviewingId != null;
 
   @override
   void initState() {
@@ -52,6 +54,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   void dispose() {
     _radiusCtrl.dispose();
     _graceCtrl.dispose();
+    _noGpsCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -66,6 +69,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
       setState(() {
         _radiusCtrl.text = '${s['home_radius_meters'] ?? 200}';
         _graceCtrl.text = '${s['home_outside_radius_grace_minutes'] ?? 5}';
+        _noGpsCtrl.text = '${s['home_no_gps_timeout_minutes'] ?? 30}';
         _homeTrackingEnabled = (s['home_tracking_enabled'] ?? 1) != 0;
         _loadingSettings = false;
       });
@@ -119,6 +123,21 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
       if (mounted) setState(() => _settingsError = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _savingGrace = false);
+    }
+  }
+
+  Future<void> _saveNoGps() async {
+    if (_busy) return;
+    final noGps = int.tryParse(_noGpsCtrl.text.trim());
+    if (noGps == null || noGps < 1) return;
+    setState(() => _savingNoGps = true);
+    try {
+      await HrmsTrackingApi.updateHomeSettings(homeNoGpsTimeoutMinutes: noGps);
+      if (mounted) _showSnack('Home no-GPS timeout saved.');
+    } catch (e) {
+      if (mounted) setState(() => _settingsError = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _savingNoGps = false);
     }
   }
 
@@ -289,7 +308,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
     icon: Icons.schedule_rounded,
     iconColor: _iconColor, iconBg: _iconBg,
     title: 'Home Checkout Grace Time',
-    desc: 'Allowed time after the scheduled home checkout.',
+    desc: 'Allowed time outside the radius before auto-checkout for Home employees.',
     child: _loadingSettings
         ? const LinearProgressIndicator()
         : Row(children: [
@@ -303,6 +322,27 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
             const SizedBox(width: 10),
             _saveBtn(_savingGrace ? 'Saving...' : 'Save Grace Time',
                 onTap: _busy ? null : _saveGrace, loading: _savingGrace),
+          ]),
+  );
+
+  Widget _noGpsCard() => _sectionCard(
+    icon: Icons.signal_wifi_off_rounded,
+    iconColor: _iconColor, iconBg: _iconBg,
+    title: 'Home No-GPS Timeout',
+    desc: 'Auto-checkout Home employees if no GPS ping is received for this long.',
+    child: _loadingSettings
+        ? const LinearProgressIndicator()
+        : Row(children: [
+            Expanded(child: TextField(
+              controller: _noGpsCtrl,
+              enabled: !_busy,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: _navy, fontWeight: FontWeight.w600, fontSize: 15),
+              decoration: _inputDec(suffix: 'minutes'),
+            )),
+            const SizedBox(width: 10),
+            _saveBtn(_savingNoGps ? 'Saving...' : 'Save Timeout',
+                onTap: _busy ? null : _saveNoGps, loading: _savingNoGps),
           ]),
   );
 
@@ -577,11 +617,21 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
                     _radiusCard(),
                     const SizedBox(height: 12),
                     _graceCard(),
-                  ] else Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(child: _radiusCard()),
-                    const SizedBox(width: 12),
-                    Expanded(child: _graceCard()),
-                  ]),
+                    const SizedBox(height: 12),
+                    _noGpsCard(),
+                  ] else ...[
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(child: _radiusCard()),
+                      const SizedBox(width: 12),
+                      Expanded(child: _graceCard()),
+                    ]),
+                    const SizedBox(height: 12),
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(child: _noGpsCard()),
+                      const SizedBox(width: 12),
+                      const Expanded(child: SizedBox()),
+                    ]),
+                  ],
                   const SizedBox(height: 12),
                   _registrationsCard(),
                   const SizedBox(height: 12),
