@@ -1375,7 +1375,7 @@ class _MainTabBtn extends StatelessWidget {
 }
 
 // ── Correction requests panel (admin) ─────────────────────────────────────────
-class _CorrectionRequestsPanel extends StatelessWidget {
+class _CorrectionRequestsPanel extends StatefulWidget {
   const _CorrectionRequestsPanel({
     required this.corrections,
     required this.loading,
@@ -1385,6 +1385,31 @@ class _CorrectionRequestsPanel extends StatelessWidget {
   final List<Map<String, dynamic>> corrections;
   final bool loading;
   final ValueChanged<int> onApprove, onReject;
+
+  @override
+  State<_CorrectionRequestsPanel> createState() => _CorrectionRequestsPanelState();
+}
+
+class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
+  String _searchQuery = '';
+  String _statusFilter = 'All Status';
+
+  static const _statuses = ['All Status', 'Pending', 'Approved', 'Rejected'];
+
+  List<Map<String, dynamic>> get _filtered {
+    return widget.corrections.where((c) {
+      final name = (c['full_name'] ?? '').toString().toLowerCase();
+      final staffId = (c['staff_id'] ?? '').toString().toLowerCase();
+      final q = _searchQuery.trim().toLowerCase();
+      final matchSearch = q.isEmpty || name.contains(q) || staffId.contains(q);
+      final status = (c['status'] ?? '').toString();
+      final matchStatus = _statusFilter == 'All Status' ||
+          status.toLowerCase() == _statusFilter.toLowerCase();
+      return matchSearch && matchStatus;
+    }).toList();
+  }
+
+  void _resetFilters() => setState(() { _searchQuery = ''; _statusFilter = 'All Status'; });
 
   String _fmt(dynamic raw) {
     if (raw == null) return '--';
@@ -1408,23 +1433,107 @@ class _CorrectionRequestsPanel extends StatelessWidget {
     }
   }
 
+  Widget _filterBar(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    if (mobile) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          onChanged: (v) => setState(() => _searchQuery = v),
+          decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(
+            hintText: 'Search by name or ID',
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _statusFilter,
+              onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
+              decoration: _fieldDecoration(),
+              items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.outlined(
+            onPressed: _resetFilters,
+            icon: const Icon(Icons.restart_alt_rounded),
+            color: _ApprovalsColors.blue,
+            tooltip: 'Reset filters',
+          ),
+        ]),
+        const SizedBox(height: 16),
+      ]);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          _FilterField(
+            label: 'Search',
+            width: 260,
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(
+                hintText: 'Name or employee ID',
+                contentPadding: const EdgeInsets.symmetric(vertical: 15),
+              ),
+            ),
+          ),
+          _FilterField(
+            label: 'Status',
+            width: 200,
+            child: DropdownButtonFormField<String>(
+              value: _statusFilter,
+              onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
+              decoration: _fieldDecoration(),
+              items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: _resetFilters,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Reset'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _ApprovalsColors.blue,
+              side: const BorderSide(color: Color(0xFFD6DDEA)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
-    if (corrections.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(40),
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14)),
-        child: const Center(child: Text('No attendance correction requests.', style: TextStyle(color: Color(0xFF596176)))),
-      );
-    }
+    if (widget.loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+    final filtered = _filtered;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14),
         boxShadow: const [BoxShadow(color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: corrections.map((c) {
+        children: [
+          _filterBar(context),
+          if (filtered.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              alignment: Alignment.center,
+              child: Text(
+                widget.corrections.isEmpty
+                    ? 'No attendance correction requests.'
+                    : 'No requests match the current filters.',
+                style: const TextStyle(color: Color(0xFF596176)),
+              ),
+            )
+          else
+            ...filtered.map((c) {
           final status = c['status']?.toString() ?? 'pending';
           final isPending = status == 'pending';
           final statusColor = status == 'approved' ? const Color(0xFF188226) : status == 'rejected' ? const Color(0xFFF0182A) : const Color(0xFFD97706);
@@ -1477,7 +1586,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                   OutlinedButton(
-                    onPressed: () => onReject(c['id'] as int),
+                    onPressed: () => widget.onReject(c['id'] as int),
                     style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF0182A),
                       side: const BorderSide(color: Color(0xFFF0182A)),
                       visualDensity: VisualDensity.compact,
@@ -1488,7 +1597,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: () => onApprove(c['id'] as int),
+                    onPressed: () => widget.onApprove(c['id'] as int),
                     style: FilledButton.styleFrom(backgroundColor: _ApprovalsColors.blue,
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1500,7 +1609,16 @@ class _CorrectionRequestsPanel extends StatelessWidget {
               ],
             ]),
           );
-        }).toList(),
+        }),
+          // footer count
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Showing ${filtered.length} of ${widget.corrections.length} requests',
+              style: const TextStyle(color: Color(0xFF596176), fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }
