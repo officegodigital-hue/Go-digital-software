@@ -51,10 +51,12 @@ class AdminTopNav extends StatelessWidget {
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
     ('Employees', '/admin/employees'),
-    ('Attendance', '/admin/attendance'),
-    ('Leave', '/admin/leave'),
+    // Keep the reference labels, but use the existing production routes that
+    // are already used by the mobile navigation and live deployment.
+    ('Clock Logs', '/admin/clock-logs'),
+    ('Leave', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
-    ('Performance', '/admin/performance'),
+    ('Performance', '/admin/tracking'),
     ('Settings', '/admin/settings'),
   ];
 
@@ -585,10 +587,10 @@ class _DesktopNav extends StatelessWidget {
   IconData _iconFor(String route) => switch (route) {
     '/admin/dashboard' => Icons.grid_view_rounded,
     '/admin/employees' => Icons.groups_2_outlined,
-    '/admin/attendance' => Icons.calendar_month_outlined,
-    '/admin/leave' => Icons.flight_takeoff_outlined,
+    '/admin/clock-logs' => Icons.calendar_month_outlined,
+    '/admin/approvals' => Icons.flight_takeoff_outlined,
     '/admin/payroll' => Icons.account_balance_wallet_outlined,
-    '/admin/performance' => Icons.insights_outlined,
+    '/admin/tracking' => Icons.insights_outlined,
     _ => Icons.settings_outlined,
   };
 
