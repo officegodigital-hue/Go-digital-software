@@ -488,12 +488,14 @@ async function remove(req, res) {
     const [profiles] = await connection.query('SELECT employee_user_id FROM hrms_employee_profiles WHERE id = ? FOR UPDATE', [id]);
     if (!profiles.length) { await connection.rollback(); return fail(res, 404, 'Employee not found'); }
     const userId = profiles[0].employee_user_id;
-    // Keep related attendance/payroll rows for audit history, while making
-    // this employee disappear from the active employee and dashboard lists.
-    await connection.query("UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE id = ?", [id]);
-    if (userId) await connection.query('UPDATE employee_users SET is_active = 0 WHERE id = ?', [userId]);
+    // This is an intentional hard delete: remove the employee profile and
+    // login account rather than merely hiding/deactivating the employee.
+    // The transaction prevents a half-deleted employee if either statement
+    // fails.
+    await connection.query('DELETE FROM hrms_employee_profiles WHERE id = ?', [id]);
+    if (userId) await connection.query('DELETE FROM employee_users WHERE id = ?', [userId]);
     await connection.commit();
-    return ok(res, { id: id }, 'Employee deleted from active lists');
+    return ok(res, { id: id }, 'Employee permanently deleted');
   } catch (error) {
     await connection.rollback();
     return fail(res, 500, error.message);
