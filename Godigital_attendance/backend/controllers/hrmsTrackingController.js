@@ -520,13 +520,32 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
 
   if (existingAlerts.length) return;
 
+  // A submitted reason closes the current waiting cycle.  Any subsequent
+  // stationary period must be measured from the submission time so that an
+  // employee who remains in the same place receives a fresh prompt only after
+  // the configured waiting duration has elapsed again.
+  const [submittedAlerts] = await db.query(
+    `SELECT reason_submitted_at
+     FROM hrms_field_waiting_reasons
+     WHERE field_session_id = ?
+       AND reason IS NOT NULL
+       AND reason_submitted_at IS NOT NULL
+     ORDER BY reason_submitted_at DESC
+     LIMIT 1`,
+    [session.id]
+  );
+
+  const cycleStartedAt = submittedAlerts.length
+    ? submittedAlerts[0].reason_submitted_at
+    : session.started_at;
+
   const [pings] = await db.query(
     `SELECT latitude, longitude, recorded_at
      FROM hrms_location_pings
      WHERE employee_user_id = ?
        AND recorded_at >= ?
      ORDER BY recorded_at ASC`,
-    [employeeUserId, session.started_at]
+    [employeeUserId, cycleStartedAt]
   );
 
   if (pings.length < 2) return;
@@ -557,7 +576,8 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   if (elapsedMinutes < waitingMinutes) return;
 
   const eventKey =
-    `${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}`;
+    `${session.id}:${new Date(cycleStartedAt).toISOString()}:` +
+    `${new Date(firstStillPing.recorded_at).toISOString()}`;
 
 await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (

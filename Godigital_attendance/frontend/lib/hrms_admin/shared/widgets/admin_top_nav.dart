@@ -19,10 +19,7 @@ const _redHeader = Color(0xFFE3162A);
 Future<void> showAdminNotificationSettings(BuildContext context) async {
   final player = AudioPlayer();
   try {
-    final data = await HrmsNotificationsApi.list();
-    final settings = data['settings'] is Map
-        ? Map<String, dynamic>.from(data['settings'] as Map)
-        : const <String, dynamic>{};
+    final settings = await HrmsNotificationsApi.settings();
     await showDialog<bool>(
       context: context,
       builder: (_) => _NotificationSettingsDialog(
@@ -54,10 +51,10 @@ class AdminTopNav extends StatelessWidget {
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
     ('Employees', '/admin/employees'),
-    ('Clock Logs', '/admin/clock-logs'),
-    ('Approvals', '/admin/approvals'),
+    ('Attendance', '/admin/attendance'),
+    ('Leave', '/admin/leave'),
     ('Payroll', '/admin/payroll'),
-    ('Tracking', '/admin/tracking'),
+    ('Performance', '/admin/performance'),
     ('Settings', '/admin/settings'),
   ];
 
@@ -588,17 +585,20 @@ class _DesktopNav extends StatelessWidget {
   IconData _iconFor(String route) => switch (route) {
     '/admin/dashboard' => Icons.grid_view_rounded,
     '/admin/employees' => Icons.groups_2_outlined,
-    '/admin/clock-logs' => Icons.calendar_month_outlined,
-    '/admin/approvals' => Icons.fact_check_outlined,
+    '/admin/attendance' => Icons.calendar_month_outlined,
+    '/admin/leave' => Icons.flight_takeoff_outlined,
     '/admin/payroll' => Icons.account_balance_wallet_outlined,
-    '/admin/tracking' => Icons.location_on_outlined,
+    '/admin/performance' => Icons.insights_outlined,
     _ => Icons.settings_outlined,
   };
 
   @override
   Widget build(BuildContext context) => Row(
     children: AdminTopNav.items.map((item) {
-      final active = item.$2 == activeRoute;
+      final active = item.$2 == activeRoute ||
+          (item.$2 == '/admin/attendance' && activeRoute == '/admin/clock-logs') ||
+          (item.$2 == '/admin/leave' && activeRoute == '/admin/approvals') ||
+          (item.$2 == '/admin/performance' && activeRoute == '/admin/tracking');
       return InkWell(
         onTap: () => onOpen(item.$2),
         borderRadius: BorderRadius.circular(9),
@@ -855,9 +855,8 @@ class _NotificationSettingsDialogState
               ? 'custom'
               : _sounds.first);
     _customSoundUrl = widget.settings['customSoundUrl']?.toString();
-    _customSoundLabel = _customSoundUrl == null
-        ? null
-        : 'Custom uploaded sound';
+    _customSoundLabel = widget.settings['customSoundName']?.toString() ??
+        (_customSoundUrl == null ? null : 'Custom uploaded sound');
     final requestedVolume =
         (widget.settings['soundVolume'] as num?)?.toDouble() ?? 70;
     _volume = requestedVolume < 0

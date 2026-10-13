@@ -18,6 +18,97 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+async function ensureNotificationSettings() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hrms_notification_settings (
+      admin_user_id BIGINT UNSIGNED NOT NULL,
+      sound_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      sound_name VARCHAR(120) NOT NULL DEFAULT 'notification.mp3',
+      sound_volume TINYINT UNSIGNED NOT NULL DEFAULT 70,
+      custom_sound_url VARCHAR(500) NULL,
+      custom_sound_name VARCHAR(255) NULL,
+      comment_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      waiting_reason_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (admin_user_id)
+    )
+  `);
+  await db.query(
+    'ALTER TABLE hrms_notification_settings ADD COLUMN IF NOT EXISTS custom_sound_name VARCHAR(255) NULL'
+  );
+}
+
+async function notificationSettings(req, res) {
+  try {
+    await ensureNotificationSettings();
+    let [rows] = await db.query(
+      'SELECT * FROM hrms_notification_settings WHERE admin_user_id = ?',
+      [req.user.id]
+    );
+    if (!rows.length) {
+      [rows] = await db.query(
+        'SELECT * FROM hrms_notification_settings WHERE custom_sound_url IS NOT NULL ORDER BY updated_at DESC LIMIT 1'
+      );
+    }
+    const row = rows[0] || {};
+    return ok(res, {
+      soundEnabled: row.sound_enabled !== 0,
+      soundName: row.sound_name || 'notification.mp3',
+      soundVolume: Number(row.sound_volume ?? 70),
+      customSoundUrl: row.custom_sound_url || null,
+      customSoundName: row.custom_sound_name || null,
+      commentNotificationsEnabled: row.comment_notifications_enabled !== 0,
+      waitingReasonNotificationsEnabled: row.waiting_reason_notifications_enabled !== 0,
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function updateNotificationSettings(req, res) {
+  try {
+    await ensureNotificationSettings();
+    const body = req.body || {};
+    await db.query(
+      `INSERT INTO hrms_notification_settings
+       (admin_user_id, sound_enabled, sound_name, sound_volume,
+        comment_notifications_enabled, waiting_reason_notifications_enabled)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        sound_enabled = VALUES(sound_enabled), sound_name = VALUES(sound_name),
+        sound_volume = VALUES(sound_volume), comment_notifications_enabled = VALUES(comment_notifications_enabled),
+        waiting_reason_notifications_enabled = VALUES(waiting_reason_notifications_enabled)`,
+      [req.user.id, body.soundEnabled === false ? 0 : 1,
+        String(body.soundName || 'notification.mp3'),
+        Math.max(0, Math.min(100, Number(body.soundVolume ?? 70))),
+        body.commentNotificationsEnabled === false ? 0 : 1,
+        body.waitingReasonNotificationsEnabled === false ? 0 : 1]
+    );
+    return notificationSettings(req, res);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function uploadNotificationSound(req, res) {
+  try {
+    if (!req.file) return fail(res, 400, 'An audio file is required');
+    await ensureNotificationSettings();
+    const url = '/uploads/notification-sounds/' + req.file.filename;
+    await db.query(
+      `INSERT INTO hrms_notification_settings
+       (admin_user_id, sound_name, custom_sound_url, custom_sound_name)
+       VALUES (?, 'custom', ?, ?)
+       ON DUPLICATE KEY UPDATE sound_name = 'custom', custom_sound_url = VALUES(custom_sound_url),
+       custom_sound_name = VALUES(custom_sound_name)`,
+      [req.user.id, url, req.file.originalname]
+    );
+    return notificationSettings(req, res);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
 const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
 const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit', 'reclock_in'];
 
@@ -317,5 +408,8 @@ module.exports = {
   review,
   notifications,
   markAllNotificationsRead,
+  notificationSettings,
+  updateNotificationSettings,
+  uploadNotificationSound,
   LEAVE_TYPES,
 };

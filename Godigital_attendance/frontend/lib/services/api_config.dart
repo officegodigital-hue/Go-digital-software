@@ -43,6 +43,12 @@ class ApiConfig {
     }
 
     if (kIsWeb) {
+      // In local Flutter web development, API/uploads are served by the
+      // Node backend on port 3000 rather than by the Flutter dev server.
+      // Deployed web builds use the same-origin reverse proxy.
+      if (Uri.base.host == 'localhost' || Uri.base.host == '127.0.0.1') {
+        return 'http://localhost:3000$path';
+      }
       return '${Uri.base.origin}$path';
     }
 
