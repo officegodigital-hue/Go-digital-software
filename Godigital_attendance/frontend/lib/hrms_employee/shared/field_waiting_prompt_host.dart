@@ -9,6 +9,8 @@ import 'package:vibration/vibration.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/hrms_tracking_api.dart';
+import '../../services/hrms_notifications_api.dart';
+import '../../services/api_config.dart';
 import 'live_tracking_coordinator.dart';
 
 /// Keeps the mandatory field-waiting comment prompt active while an employee
@@ -34,6 +36,7 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
   Timer? _soundTimer;
   Timer? _feedbackSessionTimer;
   final AudioPlayer _soundPlayer = AudioPlayer();
+  String? _customSoundUrl;
   bool _checking = false;
   bool _dialogOpen = false;
   AuthService? _auth;
@@ -44,6 +47,7 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<LiveTrackingCoordinator>().restore();
+      _loadNotificationSound();
       _check();
       _coordinator = context.read<LiveTrackingCoordinator>()..addListener(_onCoordinatorChanged);
     });
@@ -133,10 +137,10 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
     _stopPromptFeedback();
     Future<void> play() async {
       try {
-        await _soundPlayer.play(
-          AssetSource('sounds/notification.mp3'),
-          volume: 0.8,
-        );
+        final source = _customSoundUrl == null
+            ? AssetSource('sounds/notification.mp3')
+            : UrlSource(ApiConfig.mediaUrl(_customSoundUrl!));
+        await _soundPlayer.play(source, volume: 0.8);
       } catch (_) {
         // The mandatory prompt remains usable if a device cannot play audio.
       }
@@ -163,6 +167,16 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
       const Duration(seconds: 15),
       (_) => _stopFeedbackForInactiveSession(),
     );
+  }
+
+  Future<void> _loadNotificationSound() async {
+    try {
+      final settings = await HrmsNotificationsApi.settings();
+      final url = settings['customSoundUrl']?.toString();
+      if (mounted) setState(() => _customSoundUrl = url?.isNotEmpty == true ? url : null);
+    } catch (_) {
+      // Keep the bundled sound when notification settings are unavailable.
+    }
   }
 
   Future<void> _stopFeedbackForInactiveSession() async {

@@ -289,6 +289,36 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     }
   }
 
+  void _showTrackingInfo() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded),
+            SizedBox(width: 8),
+            Text('Live tracking requirements'),
+          ],
+        ),
+        content: const Text(
+          'For Android live tracking to continue when the app is minimized or the screen is locked:\n\n'
+          '• Allow Location → Allow all the time\n'
+          '• Enable Precise location\n'
+          '• Allow notifications\n'
+          '• Set the app battery usage to Unrestricted\n'
+          '• Keep mobile data or Wi-Fi enabled\n\n'
+          'The app shows a persistent tracking notification while live tracking is active.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _punch() async {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
@@ -940,6 +970,11 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Live tracking information',
+                  onPressed: _showTrackingInfo,
+                  icon: const Icon(Icons.info_outline_rounded),
                 ),
                 FilledButton(
                   onPressed: _trackingBusy ? null : _toggleLiveTracking,

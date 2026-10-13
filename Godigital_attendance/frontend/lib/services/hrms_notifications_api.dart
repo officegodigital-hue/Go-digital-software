@@ -58,6 +58,14 @@ class HrmsNotificationsApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> settings() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/approvals/notifications/settings'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> uploadCustomSound(
     Uint8List bytes,
     String filename,
