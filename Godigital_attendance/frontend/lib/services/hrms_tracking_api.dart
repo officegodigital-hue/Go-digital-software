@@ -362,6 +362,11 @@ class HrmsTrackingApi {
     return data;
   }
 
+  static Future<Map<String, dynamic>> clockOutReminderStatus() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/attendance/clock-out-reminder/status'), headers: await _headers());
+    return _decode(response);
+  }
+
   static Future<void> submitWaitingReason({
     required int reasonId,
     required String reason,

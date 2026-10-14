@@ -46,12 +46,15 @@ class _EmployeesPageState extends State<EmployeesPage> {
   List<_Employee> employees = [];
   _Employee? _selectedEmployee;
   List<String> departmentOptions = const [];
+  List<String> employeeTypeOptions = const ['Employee', 'Labour'];
+  List<Map<String, dynamic>> workingDayTemplates = const [];
   int filteredTotal = 0;
   int totalPages = 1;
   int kpiTotal = 0;
   int kpiActive = 0;
   int kpiOnLeave = 0;
   int kpiInactive = 0;
+  String nextEmployeeCode = 'EMP1001';
   bool loading = true;
   String? error;
 
@@ -71,6 +74,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (action == 'deviceRequests') _showDeviceRequests();
       if (action == 'leavePolicy') _showLeavePolicies();
+      if (action == 'workingDaysTemplates') _showWorkingDaysTemplates();
       if (action == 'addEmployee') _showEmployeeForm();
     });
   }
@@ -108,6 +112,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
               .toSet()
               .toList()
             ..sort();
+      final employeeTypes =
+          (data['employeeTypes'] as List? ?? const ['Employee', 'Labour'])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+      final templates = await HrmsEmployeesApi.workingDayTemplates();
       if (!mounted) return;
       setState(() {
         employees = items;
@@ -115,6 +127,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
           _selectedEmployee = items.first;
         }
         departmentOptions = departments;
+        employeeTypeOptions = employeeTypes.isEmpty
+            ? ['Employee', 'Labour']
+            : employeeTypes;
+        workingDayTemplates = templates;
         filteredTotal = data['total'] is int
             ? data['total'] as int
             : int.tryParse('${data['total']}') ?? items.length;
@@ -128,6 +144,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
         kpiActive = _asInt(kpis['active']);
         kpiOnLeave = _asInt(kpis['onLeave']);
         kpiInactive = _asInt(kpis['inactive']);
+        nextEmployeeCode = (data['nextEmployeeCode'] ?? 'EMP1001').toString();
         loading = false;
       });
     } catch (err) {
@@ -165,7 +182,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
           : null,
       body: Column(
         children: [
-          const AdminTopNav(activeRoute: '/admin/employees'),
+          const AdminTopNav(
+            activeRoute: '/admin/employees',
+            redHeader: true,
+          ),
           Expanded(
             child: loading && employees.isEmpty
                 ? const Center(child: CircularProgressIndicator())
@@ -188,17 +208,21 @@ class _EmployeesPageState extends State<EmployeesPage> {
                   )
                 : SingleChildScrollView(
                     padding: EdgeInsets.fromLTRB(
-                      mobile ? 16 : 38,
-                      24,
-                      mobile ? 16 : 38,
-                      36,
+                      mobile ? 16 : 34,
+                      20,
+                      mobile ? 16 : 34,
+                      28,
                     ),
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1860),
-                        child: Column(
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
                             _PageHeader(
                               onExport: _exportEmployees,
                               onAdd: _showEmployeeForm,
@@ -287,10 +311,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
                                       onDelete: _confirmDelete,
                                     ),
                                   ),
-                                  if (_selectedEmployee != null) ...[
+                                  if (false && _selectedEmployee != null) ...[
                                     const SizedBox(width: 16),
                                     SizedBox(
-                                      width: 390,
+                                      width: 410,
                                       child: _EmployeeSidePanel(
                                         employee: _selectedEmployee!,
                                         onClose: () => setState(
@@ -305,6 +329,25 @@ class _EmployeesPageState extends State<EmployeesPage> {
                                   ],
                                 ],
                               ),
+                                ],
+                              ),
+                            ),
+            if (!mobile && _selectedEmployee != null) ...[
+                              const SizedBox(width: 16),
+                              SizedBox(
+                width: 350,
+                                child: _EmployeeSidePanel(
+                                  employee: _selectedEmployee!,
+                                  onClose: () => setState(
+                                    () => _selectedEmployee = null,
+                                  ),
+                                  onOpenDetails: () =>
+                                      _openFullEmployeeDetails(
+                                        _selectedEmployee!,
+                                      ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -526,7 +569,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   Future<void> _showEmployeeForm({_Employee? employee}) async {
     final name = TextEditingController(text: employee?.name ?? '');
     final id = TextEditingController(
-      text: employee?.id ?? 'EMP${1001 + kpiTotal}',
+      text: employee?.id ?? nextEmployeeCode,
     );
     final salary = TextEditingController(
       text: employee?.salary == 'Not Set'
@@ -571,6 +614,15 @@ class _EmployeesPageState extends State<EmployeesPage> {
             : 'Engineering');
     var selectedMode = employee?.workMode ?? 'Office';
     var selectedEmployeeType = employee?.employeeType ?? 'Employee';
+    final availableEmployeeTypes = <String>{
+      ...employeeTypeOptions,
+      if (employee?.employeeType != null) employee!.employeeType,
+    }.toList()..sort();
+    final availableWorkingDays = <String>[
+      'Standard Working Days',
+      ...workingDayTemplates.map((template) => '${template['name']}'),
+    ];
+    var selectedWorkingDays = employee?.workingDaysType ?? 'Standard Working Days';
     var overtimeEligible = employee?.overtimeEligible ?? false;
     var selectedGender = employee?.gender ?? 'Male';
     var selectedStatus = employee?.status ?? 'Active';
@@ -692,9 +744,61 @@ class _EmployeesPageState extends State<EmployeesPage> {
                     _formDropdown(
                       'Employee type',
                       selectedEmployeeType,
-                      const ['Employee', 'Labour'],
+                      availableEmployeeTypes,
                       (value) =>
                           setDialogState(() => selectedEmployeeType = value!),
+                      onAddRole: () async {
+                        final role = await _showAddRoleDialog(dialogContext);
+                        if (role == null || !mounted) return;
+                        try {
+                          await HrmsEmployeesApi.createRole(role);
+                          if (!mounted) return;
+                          setState(() {
+                            employeeTypeOptions = {
+                              ...employeeTypeOptions,
+                              role,
+                            }.toList()..sort();
+                          });
+                          setDialogState(() {
+                            if (!availableEmployeeTypes.contains(role)) {
+                              availableEmployeeTypes.add(role);
+                              availableEmployeeTypes.sort();
+                            }
+                            selectedEmployeeType = role;
+                          });
+                        } catch (err) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                err.toString().replaceFirst('Exception: ', ''),
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _formDropdown(
+                      'Working Days Type',
+                      availableWorkingDays.contains(selectedWorkingDays) ? selectedWorkingDays : 'Standard Working Days',
+                      availableWorkingDays,
+                      (value) => setDialogState(() => selectedWorkingDays = value!),
+                      onAddRole: () async {
+                        final template = await _showWorkingDaysTemplateDialog(dialogContext);
+                        if (template == null || !mounted) return;
+                        try {
+                          final created = await HrmsEmployeesApi.createWorkingDayTemplate(template);
+                          final item = Map<String, dynamic>.from(created['template'] as Map? ?? created);
+                          setState(() => workingDayTemplates = [...workingDayTemplates, item]);
+                          setDialogState(() {
+                            availableWorkingDays.add('${item['name']}');
+                            selectedWorkingDays = '${item['name']}';
+                          });
+                        } catch (err) {
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))));
+                        }
+                      },
                     ),
                     const SizedBox(height: 12),
                     SwitchListTile(
@@ -799,6 +903,13 @@ class _EmployeesPageState extends State<EmployeesPage> {
       'department': selectedDepartment,
       'workMode': selectedMode,
       'employeeType': selectedEmployeeType,
+      'workingDaysType': selectedWorkingDays == 'Standard Working Days' ? 'standard' : 'template',
+      // New employees start on the selected template today. Existing
+      // employees switch tomorrow so today's attendance/payroll is stable.
+      'effectiveFrom': (employee == null ? DateTime.now() : DateTime.now().add(const Duration(days: 1)))
+          .toIso8601String().substring(0, 10),
+      if (selectedWorkingDays != 'Standard Working Days')
+        'workingDaysTemplateId': workingDayTemplates.firstWhere((template) => '${template['name']}' == selectedWorkingDays)['id'],
       'overtimeEligible': overtimeEligible,
       'gender': selectedGender,
       'status': selectedStatus,
@@ -880,6 +991,82 @@ class _EmployeesPageState extends State<EmployeesPage> {
               if (role.isNotEmpty) Navigator.pop(dialogContext, role);
             },
             child: const Text('Add role'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showWorkingDaysTemplateDialog(BuildContext context) async {
+    final name = TextEditingController();
+    final start = TextEditingController(text: '09:30:00');
+    final end = TextEditingController(text: '18:30:00');
+    final selected = <int>{1, 2, 3, 4, 5, 6};
+    final days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Add working days template'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TextField(controller: name, decoration: const InputDecoration(labelText: 'Template name', border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                const Text('Working days'),
+                Wrap(spacing: 4, children: List.generate(7, (day) => FilterChip(label: Text(days[day]), selected: selected.contains(day), onSelected: (value) => setState(() { value ? selected.add(day) : selected.remove(day); })))),
+                const SizedBox(height: 12),
+                Row(children: [Expanded(child: TextField(controller: start, decoration: const InputDecoration(labelText: 'Shift start (HH:mm:ss)', border: OutlineInputBorder()))), const SizedBox(width: 8), Expanded(child: TextField(controller: end, decoration: const InputDecoration(labelText: 'Shift end (HH:mm:ss)', border: OutlineInputBorder())))]),
+                const SizedBox(height: 8),
+                const Text('Break times can be added later when editing the template.', style: TextStyle(fontSize: 12)),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () { if (name.text.trim().isEmpty || selected.isEmpty) return; Navigator.pop(dialogContext, {'name': name.text.trim(), 'days': List.generate(7, (day) => {'weekday': day, 'isWorking': selected.contains(day), 'shiftStart': selected.contains(day) ? start.text.trim() : null, 'shiftEnd': selected.contains(day) ? end.text.trim() : null})}); }, child: const Text('Save template')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showWorkingDaysTemplates() async {
+    if (!mounted) return;
+    try {
+      final loaded = await HrmsEmployeesApi.workingDayTemplates();
+      if (mounted) setState(() => workingDayTemplates = loaded);
+    } catch (_) {}
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Working Days Templates'),
+        content: SizedBox(
+          width: 440,
+          child: workingDayTemplates.isEmpty
+              ? const Text('No custom templates yet. Create one to use it for employees.')
+              : ListView(shrinkWrap: true, children: workingDayTemplates.map((item) => ListTile(
+                    title: Text('${item['name']}'),
+                    subtitle: Text('Version ${item['version'] ?? 1}'),
+                  )).toList()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          FilledButton(
+            onPressed: () async {
+              final template = await _showWorkingDaysTemplateDialog(dialogContext);
+              if (template == null || !mounted) return;
+              try {
+                final created = await HrmsEmployeesApi.createWorkingDayTemplate(template);
+                final item = Map<String, dynamic>.from(created['template'] as Map? ?? created);
+                setState(() => workingDayTemplates = [...workingDayTemplates, item]);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              } catch (error) {
+                if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+              }
+            },
+            child: const Text('Add template'),
           ),
         ],
       ),
@@ -1167,7 +1354,7 @@ class _EmployeeKpis extends StatelessWidget {
             ? 4
             : constraints.maxWidth < 650
             ? 2
-            : constraints.maxWidth < 1100
+            : constraints.maxWidth < 800
             ? 2
             : 4;
         final spacing = mobile ? 8.0 : 20.0;
@@ -1239,12 +1426,14 @@ class _EmployeeKpi extends StatelessWidget {
       builder: (_, constraints) {
         final compact = constraints.maxWidth < 220;
         return Container(
-          height: 116,
+          // Keep enough vertical room for the label, value, caption, and
+          // accent rule at normal browser text scaling.
+          height: 104,
           padding: EdgeInsets.fromLTRB(
             compact ? 12 : 16,
-            14,
+            10,
             compact ? 12 : 16,
-            9,
+            8,
           ),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1263,15 +1452,15 @@ class _EmployeeKpi extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: compact ? 42 : 54,
-                    height: compact ? 42 : 54,
+                    width: compact ? 40 : 48,
+                    height: compact ? 40 : 48,
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: .08),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, color: color, size: compact ? 23 : 29),
+                    child: Icon(icon, color: color, size: compact ? 21 : 25),
                   ),
-                  SizedBox(width: compact ? 10 : 16),
+                  SizedBox(width: compact ? 9 : 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1350,7 +1539,7 @@ class _Filters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 0 : 20),
+    padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 0 : 8),
     decoration: BoxDecoration(
       color: MediaQuery.sizeOf(context).width < 600
           ? Colors.transparent
@@ -1390,7 +1579,9 @@ class _Filters extends StatelessWidget {
           onChanged: onStatus,
         );
         final modeField = _FilterDropdown(
-          label: 'Work Mode',
+          // Keep the existing work-mode query parameter/API behavior while
+          // presenting the source-of-truth label in the admin UI.
+          label: 'Employment Type',
           value: workMode,
           values: const ['All Work Modes', 'Office', 'Field', 'Hybrid'],
           onChanged: onMode,
@@ -1607,7 +1798,7 @@ InputDecoration _inputDecoration(String hint, IconData icon) => InputDecoration(
   prefixIcon: Icon(icon, color: HrmsColors.navy),
   filled: true,
   fillColor: Colors.white,
-  contentPadding: const EdgeInsets.symmetric(vertical: 18),
+  contentPadding: const EdgeInsets.symmetric(vertical: 12),
   enabledBorder: OutlineInputBorder(
     borderRadius: BorderRadius.circular(8),
     borderSide: const BorderSide(color: HrmsColors.line),
@@ -1649,7 +1840,7 @@ class _FilterDropdown extends StatelessWidget {
             prefixIcon: null,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 15,
-              vertical: 17,
+              vertical: 10,
             ),
           ),
           items: values
@@ -1708,8 +1899,12 @@ class _EmployeeTable extends StatelessWidget {
             children: [
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                // Keep the desktop table wide enough for every declared
+                // column. The previous 1380px constraint was narrower than
+                // the 1550px row/header layout, so the rightmost Actions
+                // column was clipped instead of being horizontally scrollable.
                 child: SizedBox(
-                  width: 1580,
+                  width: 1550,
                   child: Column(
                     children: [
                       const _TableHeader(),
@@ -2094,28 +2289,15 @@ class _TableHeader extends StatelessWidget {
     height: 42,
     child: Row(
       children: [
-        _TableCell(width: 350, child: Text('Employee', style: _tableHead)),
-        _TableCell(width: 240, child: Text('Department', style: _tableHead)),
-        _TableCell(width: 210, child: Text('Work Mode', style: _tableHead)),
-        _TableCell(
-          width: 260,
-          child: Row(
-            children: [
-              Text('Monthly Salary', style: _tableHead),
-              SizedBox(width: 10),
-              Icon(
-                Icons.lock_outline_rounded,
-                color: HrmsColors.navy,
-                size: 17,
-              ),
-            ],
-          ),
-        ),
-        _TableCell(
-          width: 310,
-          child: Text('Employment Status', style: _tableHead),
-        ),
-        _TableCell(width: 210, child: Text('Actions', style: _tableHead)),
+        _TableCell(width: 300, child: Text('Employee', style: _tableHead)),
+        _TableCell(width: 130, child: Text('Employee ID', style: _tableHead)),
+        _TableCell(width: 170, child: Text('Department', style: _tableHead)),
+        _TableCell(width: 170, child: Text('Working Days Type', style: _tableHead)),
+        _TableCell(width: 190, child: Text('Designation', style: _tableHead)),
+        _TableCell(width: 140, child: Text('Location', style: _tableHead)),
+        _TableCell(width: 150, child: Text('Joining Date', style: _tableHead)),
+        _TableCell(width: 130, child: Text('Status', style: _tableHead)),
+        _TableCell(width: 170, child: Text('Actions', style: _tableHead)),
       ],
     ),
   );
@@ -2141,152 +2323,84 @@ class _EmployeeRow extends StatelessWidget {
     child: Row(
       children: [
         _TableCell(
-          width: 350,
+          width: 300,
           child: Row(
             children: [
               CircleAvatar(
-                radius: 22,
+                radius: 20,
                 backgroundColor: const Color(0xFFEAF0FA),
                 child: Text(
-                  employee.name.substring(0, 1),
-                  style: const TextStyle(
-                    color: HrmsColors.navy,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  employee.name.isEmpty ? '?' : employee.name.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(color: HrmsColors.navy, fontWeight: FontWeight.bold),
                 ),
               ),
-              const SizedBox(width: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  InkWell(
-                    onTap: onView,
-                    child: Text(
-                      employee.name,
-                      style: const TextStyle(
-                        color: HrmsColors.blue,
-                        fontWeight: FontWeight.w700,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    InkWell(
+                      onTap: onView,
+                      child: Text(
+                        employee.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: HrmsColors.navy, fontWeight: FontWeight.w700),
                       ),
                     ),
-                  ),
-                  Text(
-                    employee.id,
-                    style: const TextStyle(
-                      color: Color(0xFF50649E),
-                      fontSize: 13,
-                    ),
-                  ),
-                  if (employee.username.isNotEmpty)
-                    Text(
-                      employee.username,
-                      style: const TextStyle(
-                        color: Color(0xFF657087),
-                        fontSize: 11,
+                    if (employee.username.isNotEmpty)
+                      Text(
+                        employee.username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Color(0xFF657087), fontSize: 11),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
         ),
+        _TableCell(width: 130, child: Text(_safeDisplayValue(employee.id), style: _cellStyle)),
+        _TableCell(width: 170, child: Text(_safeDisplayValue(employee.department), maxLines: 1, overflow: TextOverflow.ellipsis, style: _cellStyle)),
+        _TableCell(width: 170, child: Text(_safeDisplayValue(employee.workingDaysType), maxLines: 1, overflow: TextOverflow.ellipsis, style: _cellStyle)),
+        _TableCell(width: 190, child: Text(_safeDisplayValue(employee.designation), maxLines: 1, overflow: TextOverflow.ellipsis, style: _cellStyle)),
+        _TableCell(width: 140, child: Text(_safeDisplayValue(employee.location), maxLines: 1, overflow: TextOverflow.ellipsis, style: _cellStyle)),
+        _TableCell(width: 150, child: Text(_safeDisplayValue(employee.joiningDate), maxLines: 1, overflow: TextOverflow.ellipsis, style: _cellStyle)),
+        _TableCell(width: 130, child: _StatusBadge(status: employee.status)),
         _TableCell(
-          width: 240,
-          child: Text(employee.department, style: _cellStyle),
-        ),
-        _TableCell(
-          width: 210,
-          child: Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: Color(employee.modeColor),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(employee.workMode, style: _cellStyle),
-            ],
-          ),
-        ),
-        _TableCell(
-          width: 260,
-          child: Text(
-            employee.salary,
-            style: TextStyle(
-              color: employee.salary == 'Not Set'
-                  ? const Color(0xFF8A90A3)
-                  : HrmsColors.navy,
-              fontSize: 16,
-            ),
-          ),
-        ),
-        _TableCell(width: 310, child: _StatusBadge(status: employee.status)),
-        _TableCell(
-          width: 210,
+          width: 170,
           child: Row(
             children: [
               IconButton(
                 tooltip: 'View',
                 onPressed: onView,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 34,
-                ),
+                constraints: const BoxConstraints.tightFor(width: 32, height: 32),
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(
-                  Icons.remove_red_eye_outlined,
-                  color: HrmsColors.blue,
-                  size: 21,
-                ),
+                icon: const Icon(Icons.remove_red_eye_outlined, color: HrmsColors.blue, size: 20),
               ),
               IconButton(
                 tooltip: 'Edit',
                 onPressed: onEdit,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 34,
-                ),
+                constraints: const BoxConstraints.tightFor(width: 32, height: 32),
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(
-                  Icons.edit_outlined,
-                  color: HrmsColors.blue,
-                  size: 20,
-                ),
+                icon: const Icon(Icons.edit_outlined, color: HrmsColors.blue, size: 19),
               ),
-              IconButton(
-                tooltip: 'Reset password',
-                onPressed: () => _resetEmployeePassword(context, employee),
+              PopupMenuButton<String>(
+                tooltip: 'More actions',
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 34,
-                ),
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(
-                  Icons.lock_reset_rounded,
-                  color: HrmsColors.blue,
-                  size: 20,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Delete from active lists',
-                onPressed: onDelete,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 34,
-                ),
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(
-                  Icons.delete_outline_rounded,
-                  color: Color(0xFFD92929),
-                  size: 21,
-                ),
+                icon: const Icon(Icons.more_horiz, color: HrmsColors.navy, size: 20),
+                onSelected: (value) {
+                  if (value == 'toggle') onToggle();
+                  if (value == 'delete') onDelete();
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'toggle', child: Text(employee.status == 'Inactive' ? 'Reactivate' : 'Deactivate')),
+                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                ],
               ),
             ],
           ),
@@ -2295,7 +2409,6 @@ class _EmployeeRow extends StatelessWidget {
     ),
   );
 }
-
 class _TableCell extends StatelessWidget {
   const _TableCell({required this.width, required this.child});
   final double width;
@@ -2458,14 +2571,19 @@ class _EmployeeSidePanel extends StatelessWidget {
     final initials = employee.name.trim().isEmpty
         ? '?'
         : employee.name.trim().substring(0, 1).toUpperCase();
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0xFFE1E6EF)),
-        borderRadius: BorderRadius.circular(10),
+        border: const Border(
+          left: BorderSide(color: Color(0xFFE1E7F0)),
+          top: BorderSide(color: Color(0xFFE1E7F0)),
+          right: BorderSide(color: Color(0xFFE1E7F0)),
+          bottom: BorderSide(color: Color(0xFFE1E7F0)),
+        ),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2473,14 +2591,16 @@ class _EmployeeSidePanel extends StatelessWidget {
               alignment: Alignment.topRight,
               child: IconButton(
                 onPressed: onClose,
-                tooltip: 'Close employee details',
                 icon: const Icon(Icons.close, color: HrmsColors.navy),
               ),
             ),
+
+            // Profile card at the top
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
-                  radius: 40,
+                  radius: 42,
                   backgroundColor: const Color(0xFFE8EEF7),
                   child: Text(
                     initials,
@@ -2507,30 +2627,41 @@ class _EmployeeSidePanel extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         employee.id,
-                        style: const TextStyle(color: Color(0xFF687A98)),
+                        style: const TextStyle(
+                          color: Color(0xFF687A98),
+                        ),
                       ),
                       Text(
                         employee.department,
-                        style: const TextStyle(color: Color(0xFF687A98)),
+                        style: const TextStyle(
+                          color: Color(0xFF687A98),
+                        ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       _StatusBadge(status: employee.status),
                     ],
                   ),
                 ),
               ],
             ),
+
             const SizedBox(height: 18),
             const Divider(height: 1),
-            const SizedBox(height: 14),
-            const Text(
-              'Overview',
-              style: TextStyle(
-                color: HrmsColors.blue,
-                fontWeight: FontWeight.w800,
-              ),
+            const SizedBox(height: 12),
+
+            // Profile tabs
+            Row(
+              children: [
+                _tab('Overview', active: true),
+                _tab('Personal'),
+                _tab('Employment'),
+                _tab('Payroll'),
+                _tab('Documents'),
+              ],
             ),
-            const SizedBox(height: 10),
+
+            const SizedBox(height: 18),
+
             _EmployeeDetailSection(
               title: 'Contact Information',
               children: [
@@ -2542,17 +2673,22 @@ class _EmployeeSidePanel extends StatelessWidget {
                 _EmployeeDetailLine('Employee type', employee.employeeType),
               ],
             ),
-            const SizedBox(height: 12),
+
+            const SizedBox(height: 14),
+
             _EmployeeDetailSection(
               title: 'Employment Details',
               children: [
                 _EmployeeDetailLine('Employee ID', employee.id),
                 _EmployeeDetailLine('Department', employee.department),
+        _EmployeeDetailLine('Working days type', employee.workingDaysType),
                 _EmployeeDetailLine('Salary', employee.salary),
                 _EmployeeDetailLine('Salary type', employee.salaryType),
               ],
             ),
-            const SizedBox(height: 12),
+
+            const SizedBox(height: 14),
+
             _EmployeeDetailSection(
               title: 'Quick Actions',
               children: [
@@ -2565,16 +2701,19 @@ class _EmployeeSidePanel extends StatelessWidget {
                         label: const Text('View full profile'),
                         style: FilledButton.styleFrom(
                           backgroundColor: HrmsColors.blue,
+                          foregroundColor: Colors.white,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pushReplacementNamed(
-                          context,
-                          '/admin/clock-logs',
-                        ),
+                        onPressed: () {
+                          Navigator.pushReplacementNamed(
+                            context,
+                            '/admin/clock-logs',
+                          );
+                        },
                         icon: const Icon(
                           Icons.calendar_month_outlined,
                           size: 17,
@@ -2589,10 +2728,12 @@ class _EmployeeSidePanel extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pushReplacementNamed(
-                          context,
-                          '/admin/approvals',
-                        ),
+                        onPressed: () {
+                          Navigator.pushReplacementNamed(
+                            context,
+                            '/admin/approvals',
+                          );
+                        },
                         icon: const Icon(
                           Icons.flight_takeoff_outlined,
                           size: 17,
@@ -2614,6 +2755,29 @@ class _EmployeeSidePanel extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _tab(String label, {bool active = false}) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: active ? HrmsColors.blue : HrmsColors.navy,
+              fontSize: 11,
+              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 2,
+            color: active ? HrmsColors.blue : Colors.transparent,
+          ),
+        ],
       ),
     );
   }
@@ -3202,7 +3366,7 @@ class _EmployeeDetailLine extends StatelessWidget {
           child: Text(label, style: const TextStyle(color: Color(0xFF657087))),
         ),
         Text(
-          value,
+          _safeDisplayValue(value),
           style: const TextStyle(
             color: HrmsColors.navy,
             fontWeight: FontWeight.w700,
@@ -3211,6 +3375,14 @@ class _EmployeeDetailLine extends StatelessWidget {
       ],
     ),
   );
+}
+
+String _safeDisplayValue(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty || normalized == '-' || normalized == 'Not Set') {
+    return '—';
+  }
+  return normalized;
 }
 
 class _Employee {
@@ -3234,6 +3406,7 @@ class _Employee {
     this.flexibleCycleStartDay,
     this.flexibleCycleEndDay,
     this.passwordLastChangedAt,
+    this.workingDaysType,
   );
   final int profileId;
   final String name,
@@ -3254,6 +3427,7 @@ class _Employee {
   final int? flexibleCycleStartDay;
   final int? flexibleCycleEndDay;
   final String? passwordLastChangedAt;
+  final String workingDaysType;
 
   factory _Employee.fromApi(Map<String, dynamic> json) {
     final profileId = json['id'] is int
@@ -3286,6 +3460,7 @@ class _Employee {
           ? (json['flexibleCycleEndDay'] as num).toInt()
           : int.tryParse('${json['flexibleCycleEndDay'] ?? ''}'),
       json['passwordLastChangedAt']?.toString(),
+      (json['workingDaysType'] ?? 'Standard Working Days').toString(),
     );
   }
 }
@@ -3302,3 +3477,4 @@ const _tableHead = TextStyle(
   fontWeight: FontWeight.w600,
 );
 const _cellStyle = TextStyle(color: HrmsColors.navy, fontSize: 14);
+

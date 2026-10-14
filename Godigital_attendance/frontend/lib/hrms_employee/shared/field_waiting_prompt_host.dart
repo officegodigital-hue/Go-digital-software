@@ -146,10 +146,12 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
       }
     }
 
-    Future<void> vibrate() async {
+    Future<void> vibrateContinuously() async {
       try {
         if (await Vibration.hasVibrator() == true) {
-          await Vibration.vibrate(pattern: [0, 120, 80, 120]);
+          // Repeat the vibration pattern natively until the dialog is
+          // submitted/dismissed. _stopPromptFeedback() calls cancel().
+          await Vibration.vibrate(pattern: [0, 450, 180, 450], repeat: 0);
         }
       } catch (_) {
         // Unsupported platforms and blocked browser/device vibration are safe.
@@ -158,10 +160,10 @@ class _FieldWaitingPromptHostState extends State<FieldWaitingPromptHost> with Wi
 
     void notify() {
       play();
-      vibrate();
     }
 
     notify();
+    vibrateContinuously();
     _soundTimer = Timer.periodic(repeatInterval, (_) => notify());
     _feedbackSessionTimer = Timer.periodic(
       const Duration(seconds: 15),

@@ -66,6 +66,25 @@ class HrmsNotificationsApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> clockOutReminderPolicy() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/attendance/clock-out-reminder-policy'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> updateClockOutReminderPolicy(
+    Map<String, dynamic> policy,
+  ) async {
+    final response = await http.put(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/attendance/clock-out-reminder-policy'),
+      headers: await _headers(),
+      body: jsonEncode(policy),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> uploadCustomSound(
     Uint8List bytes,
     String filename,

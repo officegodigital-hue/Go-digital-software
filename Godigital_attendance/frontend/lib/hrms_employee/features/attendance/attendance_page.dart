@@ -91,6 +91,24 @@ class _AttendanceViewState extends State<_AttendanceView> {
 
           final Map<int, Map<String, dynamic>> daysMap = {};
 
+          final calendar = data['calendarData'] as Map?;
+          if (calendar != null) {
+            calendar.forEach((key, value) {
+              final dateKey = key.toString();
+              final parts = dateKey.split('-');
+              if (parts.length == 3 && int.tryParse(parts[0]) == year &&
+                  int.tryParse(parts[1]) == month && value is Map) {
+                daysMap[int.parse(parts[2])] = {
+                  ...Map<String, dynamic>.from(value),
+                  'status': _statusCode(value),
+                  'date': dateKey,
+                  'clickable': value['clickable'] != false &&
+                      _statusCode(value).isNotEmpty && _statusCode(value) != 'OFF',
+                };
+              }
+            });
+          }
+
           final currentSession = data['session'] as Map?;
           if (currentSession != null && currentSession['work_date'] != null) {
             final parts = (currentSession['work_date'] as String).split('-');
@@ -138,11 +156,51 @@ class _AttendanceViewState extends State<_AttendanceView> {
     if (_monthDays.containsKey(day)) {
       return _monthDays[day]!;
     }
-    final isSunday = DateTime(year, month, day).weekday == DateTime.sunday;
-    if (isSunday) {
-      return {'status': 'OFF', 'clock_in': null};
-    }
     return {'status': '', 'clock_in': null};
+  }
+
+  String _statusCode(Map value) {
+    final status = (value['status'] ?? value['attendance_status'] ?? '').toString().toLowerCase();
+    if (status == 'paid_leave') return 'PL';
+    if (status == 'holiday') return 'HOL';
+    if (status == 'weekly_off' || status == 'off') return 'OFF';
+    if (status == 'absent' || status == 'a') return 'A';
+    if (status == 'late' || value['is_late'] == true) return 'L';
+    if (status == 'present' || status == 'p') return 'P';
+    return '';
+  }
+
+  void _showDateDetail(BuildContext context, Map<String, dynamic> info, int day) {
+    final status = info['status']?.toString() ?? '';
+    if (status.isEmpty || status == 'OFF' || status == 'HOL') return;
+    final date = DateTime(year, month, day);
+    final title = DateFormat('EEEE, dd MMMM yyyy').format(date);
+    final paidLeave = status == 'PL' || info['paid_leave'] == true;
+    final rows = <MapEntry<String, String>>[];
+    String value(dynamic v) => v == null || v.toString().isEmpty ? '' : v.toString();
+    if (!paidLeave) {
+      final checkIn = value(info['clock_in_at'] ?? info['check_in'] ?? info['clock_in']);
+      final checkOut = value(info['clock_out_at'] ?? info['check_out']);
+      if (checkIn.isNotEmpty) rows.add(MapEntry('Check-in', checkIn));
+      if (checkOut.isNotEmpty) rows.add(MapEntry('Check-out', checkOut));
+      final minutes = (info['working_minutes'] ?? info['workingMinutes'] ?? 0) as num;
+      if (minutes > 0) rows.add(MapEntry('Working hours', '${minutes ~/ 60}h ${minutes % 60}m'));
+      final late = (info['late_minutes'] ?? 0) as num;
+      if (late > 0) rows.add(MapEntry('Late', '${late} minutes'));
+      final overtime = (info['overtime_minutes'] ?? 0) as num;
+      if (overtime > 0) rows.add(MapEntry('Extra hours', '${overtime ~/ 60}h ${overtime % 60}m'));
+      final permission = (info['permission_minutes'] ?? 0) as num;
+      if (permission > 0) rows.add(MapEntry('Permission', '${permission ~/ 60}h ${permission % 60}m'));
+      if (status == 'A') rows.add(MapEntry('Reason', value(info['absent_reason']).isEmpty ? 'No reason provided' : value(info['absent_reason'])));
+    }
+    showDialog<void>(context: context, builder: (context) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Chip(label: Text(paidLeave ? 'Paid Leave' : status == 'L' ? 'Late' : status == 'A' ? 'Absent' : 'Present')),
+        ...rows.map((row) => Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(row.key), const SizedBox(width: 20), Flexible(child: Text(row.value, textAlign: TextAlign.right))]))),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+    ));
   }
 
   @override
@@ -155,6 +213,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
       dataFor: dataFor,
       onPrevious: () => changeMonth(-1),
       onNext: () => changeMonth(1),
+      onDateTap: (day, info) => _showDateDetail(context, info, day),
     );
 
     final details = Column(children: [
@@ -212,6 +271,7 @@ class _CalendarCard extends StatelessWidget {
     required this.dataFor,
     required this.onPrevious,
     required this.onNext,
+    required this.onDateTap,
   });
 
   final int year;
@@ -221,6 +281,7 @@ class _CalendarCard extends StatelessWidget {
   final Map<String, dynamic> Function(int day) dataFor;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+  final void Function(int day, Map<String, dynamic> info) onDateTap;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
@@ -244,7 +305,7 @@ class _CalendarCard extends StatelessWidget {
           const Divider(height: 1, color: employeeLine),
           const SizedBox(height: 8),
           _AttendanceCalendar(
-              year: year, month: month, mobile: mobile, dataFor: dataFor),
+              year: year, month: month, mobile: mobile, dataFor: dataFor, onDateTap: onDateTap),
           const SizedBox(height: 14),
           const Wrap(
               alignment: WrapAlignment.center,
@@ -267,12 +328,14 @@ class _AttendanceCalendar extends StatelessWidget {
     required this.month,
     required this.mobile,
     required this.dataFor,
+    required this.onDateTap,
   });
 
   final int year;
   final int month;
   final bool mobile;
   final Map<String, dynamic> Function(int day) dataFor;
+  final void Function(int day, Map<String, dynamic> info) onDateTap;
 
   @override
   Widget build(BuildContext context) {
@@ -289,7 +352,8 @@ class _AttendanceCalendar extends StatelessWidget {
         return _CalendarDay(
           day: day,
           status: info['status']?.toString() ?? '',
-          clockIn: info['clock_in']?.toString(),
+          clockIn: (info['clock_in'] ?? info['clock_in_at'])?.toString(),
+          onTap: info['clickable'] == true ? () => onDateTap(day, info) : null,
         );
       }),
       ...List.generate(trailing, (_) => const _EmptyCalendarDay()),
@@ -340,11 +404,13 @@ class _CalendarDay extends StatelessWidget {
     required this.day,
     required this.status,
     this.clockIn,
+    this.onTap,
   });
 
   final int day;
   final String status;
   final String? clockIn;
+  final VoidCallback? onTap;
 
   Color get color => switch (status) {
         'A' => const Color(0xFFF2212F),
@@ -369,7 +435,9 @@ class _CalendarDay extends StatelessWidget {
     final hasStatus = status.isNotEmpty;
     final timeStr = formattedTime;
 
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      child: Container(
       decoration: BoxDecoration(
         color: status == 'OFF' ? const Color(0xFFF6F9FD) : Colors.white,
         border: Border.all(color: employeeLine, width: .7),
@@ -413,6 +481,7 @@ class _CalendarDay extends StatelessWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

@@ -35,6 +35,7 @@ class SettingsPage extends StatelessWidget {
                   _SettingsCategory(width: width, title: 'Employees', icon: Icons.groups_outlined, items: [
                     _SettingsAction('Device Requests', Icons.phonelink_lock_outlined, () => _open(context, '/admin/employees', 'deviceRequests')),
                     _SettingsAction('Leave Policy', Icons.event_available_outlined, () => _open(context, '/admin/employees', 'leavePolicy')),
+                    _SettingsAction('Working Days Templates', Icons.view_week_outlined, () => _open(context, '/admin/employees', 'workingDaysTemplates')),
                     _SettingsAction('Add Employee', Icons.person_add_alt_1_outlined, () => _open(context, '/admin/employees', 'addEmployee'), primary: true),
                   ]),
                   _SettingsCategory(width: width, title: 'Payroll', icon: Icons.account_balance_wallet_outlined, items: [

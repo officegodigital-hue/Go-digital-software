@@ -41,6 +41,7 @@ class _TrackingView extends StatefulWidget {
 }
 
 class _TrackingViewState extends State<_TrackingView> {
+  Timer? _timelineRefreshTimer;
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
@@ -79,10 +80,23 @@ class _TrackingViewState extends State<_TrackingView> {
       _loadHomeLocation();
       _loadOfficeSettings();
     });
+    _timelineRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        if (!mounted) return;
+        // Refresh the server timeline even when the page was opened before
+        // tracking started or the app restored a background session. Previously
+        // this was gated by the stale local trackingActive flag, so APK users
+        // only saw new GPS pings after a manual refresh.
+        _loadFieldSession();
+        if (trackingActive) _loadTripSummary();
+      },
+    );
   }
 
   @override
   void dispose() {
+    _timelineRefreshTimer?.cancel();
     employeeRouteSignal.revision.removeListener(_reloadSavedSession);
     super.dispose();
   }

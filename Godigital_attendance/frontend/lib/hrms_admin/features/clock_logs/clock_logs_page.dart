@@ -372,6 +372,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   int? _employeeId;
   List<Map<String, dynamic>> _employees = const [];
   List<Map<String, dynamic>> _logs = const [];
+  Map<String, dynamic>? _selectedLog;
   bool _loading = true;
   String? _error;
 
@@ -447,10 +448,10 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             constraints: const BoxConstraints(maxWidth: 1900),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (!narrow) ...[
-                const AdminPageHeader(title: 'Employee Clock Logs', breadcrumb: 'Clock Logs'),
+                const AdminPageHeader(title: 'Clock Logs', breadcrumb: 'Clock Logs'),
                 const SizedBox(height: 8),
               ],
-              const Text('Review employee check-in and check-out records from attendance data.', style: TextStyle(color: Color(0xFF52638E), fontSize: 15)),
+              const Text('Track attendance, locations and clock events across all employees.', style: TextStyle(color: Color(0xFF52638E), fontSize: 15)),
               const SizedBox(height: 18),
               _summary(),
               const SizedBox(height: 18),
@@ -458,7 +459,16 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
               const SizedBox(height: 23),
               if (_loading) const Center(child: Padding(padding: EdgeInsets.all(42), child: CircularProgressIndicator()))
               else if (_error != null) _message(_error!, retry: _load)
-              else _table(),
+              else Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _table()),
+                  if (_selectedLog != null) ...[
+                    const SizedBox(width: 14),
+                    SizedBox(width: 360, child: _detailPanel(_selectedLog!)),
+                  ],
+                ],
+              ),
             ]),
           )),
         )),
@@ -499,7 +509,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
           ),
         ),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('View', style: TextStyle(color: _navy, fontSize: 13)), const SizedBox(height: 7), _toggle()]),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Date', style: TextStyle(color: _navy, fontSize: 13)), const SizedBox(height: 7), OutlinedButton.icon(onPressed: _pickDate, icon: const Icon(Icons.calendar_month_outlined), label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)), style: _fieldStyle())]),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Date range', style: TextStyle(color: _navy, fontSize: 13)), const SizedBox(height: 7), Row(mainAxisSize: MainAxisSize.min, children: [OutlinedButton.icon(onPressed: _pickDate, icon: const Icon(Icons.calendar_month_outlined), label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)), style: _fieldStyle()), const SizedBox(width: 8), OutlinedButton(onPressed: () { setState(() => _date = DateTime.now()); _load(); }, style: _fieldStyle(), child: const Text('Today'))])]),
     ]),
   );
 
@@ -510,20 +520,36 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final absent = logs.where((item) => item['status']?.toString().toLowerCase().contains('absent') == true).length;
     
     return LayoutBuilder(builder: (_, constraints) {
-      final columns = 4;
+      final columns = constraints.maxWidth >= 1150 ? 5 : 4;
       final spacing = constraints.maxWidth < 700 ? 8.0 : 16.0;
       final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
       return Wrap(
         spacing: spacing,
         runSpacing: 8,
         children: [
-          SizedBox(width: width, child: _compactMetric('Records', logs.length, _blue)),
-          SizedBox(width: width, child: _compactMetric('Present', present, const Color(0xFF149B2B))),
-          SizedBox(width: width, child: _compactMetric('Late', late, const Color(0xFFFF6A00))),
-          SizedBox(width: width, child: _compactMetric('Absent', absent, const Color(0xFFF0182A))),
+          SizedBox(width: width, child: _compactMetric('Total Clock Events', logs.length, _blue)),
+          SizedBox(width: width, child: _compactMetric('On Time', present, const Color(0xFF149B2B))),
+          SizedBox(width: width, child: _compactMetric('Exceptions', late, const Color(0xFFFFA000))),
+          SizedBox(width: width, child: _compactMetric('Missing Clock-Out', absent, const Color(0xFFF0182A))),
+          SizedBox(width: width, child: _commonExceptions(logs)),
         ],
       );
     });
+  }
+
+  Widget _commonExceptions(List<Map<String, dynamic>> logs) {
+    final missing = logs.where((item) => item['checkOut'] == null || item['checkOut'].toString().trim().isEmpty).length;
+    final late = logs.where((item) => item['status']?.toString().toLowerCase().contains('late') == true).length;
+    return Container(
+      height: 80,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 8),
+      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: _line), borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [const Expanded(child: Text('Common Exceptions', style: TextStyle(color: _navy, fontWeight: FontWeight.w700, fontSize: 12))), TextButton(onPressed: () {}, child: const Text('View All', style: TextStyle(fontSize: 11)))]),
+        Text('$missing  Missing clock-out', style: const TextStyle(color: Color(0xFF52638E), fontSize: 11)),
+        Text('$late  Late arrival', style: const TextStyle(color: Color(0xFF52638E), fontSize: 11)),
+      ]),
+    );
   }
 
   Widget _compactMetric(String label, int value, Color color) => Container(
@@ -594,7 +620,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             width: tableWidth,
             child: Column(
               children: [
-                _row(const ['Employee', 'Date', 'Check In', 'Check Out', 'Worked', 'Extra Hours', 'Status', 'Method', 'Reasons'], header: true),
+                _row(const ['Employee', 'Check-In', 'Check-Out', 'Work Duration', 'Location', 'Tracking Stop Reason', 'Clock-Out Reason', 'Status', 'Actions'], header: true),
                 if (_visibleLogs.isEmpty) const Padding(padding: EdgeInsets.all(40), child: Text('No clock logs found for the selected period.')),
                 ..._visibleLogs.map(_logRow),
               ],
@@ -608,11 +634,19 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Widget _logRow(Map<String, dynamic> item) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
-    final reasons = [
-      if (item['clockOutReason']?.toString().trim().isNotEmpty == true) 'Clock out: ${item['clockOutReason']}',
-      if (item['trackingStopReason']?.toString().trim().isNotEmpty == true) 'Tracking: ${item['trackingStopReason']}',
-    ].join('\n');
-    return _row([_employeeCell(name, staffId), item['date']?.toString() ?? '-', item['checkIn']?.toString() ?? '-', item['checkOut']?.toString() ?? '-', _worked(item['workingMinutes']), _overtimeButton(item), _status(item['status']?.toString() ?? 'Absent'), item['method']?.toString() ?? '-', reasons.isEmpty ? '—' : reasons]);
+    final trackingReason = item['trackingStopReason']?.toString().trim();
+    final clockOutReason = item['clockOutReason']?.toString().trim();
+    return _row([
+      _employeeCell(name, staffId),
+      item['checkIn']?.toString() ?? '—',
+      item['checkOut']?.toString() ?? '—',
+      _worked(item['workingMinutes']),
+      item['location']?.toString() ?? item['workLocation']?.toString() ?? '—',
+      trackingReason == null || trackingReason.isEmpty ? '—' : trackingReason,
+      clockOutReason == null || clockOutReason.isEmpty ? '—' : clockOutReason,
+      _status(item['status']?.toString() ?? 'Absent'),
+      _overtimeButton(item),
+    ], onTap: () => setState(() => _selectedLog = item));
   }
 
   Widget _overtimeButton(Map<String, dynamic> item) {
@@ -627,7 +661,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     }, child: Text(_worked(minutes)));
   }
 
-  Widget _row(List<dynamic> values, {bool header = false}) => Container(
+  Widget _row(List<dynamic> values, {bool header = false, VoidCallback? onTap}) => InkWell(
+    onTap: onTap,
+    child: Container(
     height: header ? 58 : 80,
     decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
     child: Row(
@@ -650,6 +686,50 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ),
       )),
     ),
+    ),
+  );
+
+  Widget _detailPanel(Map<String, dynamic> item) {
+    final name = item['employeeName']?.toString() ?? 'Former employee';
+    final id = item['staffId']?.toString() ?? item['employeeId']?.toString() ?? 'Unassigned';
+    final status = item['status']?.toString() ?? 'Absent';
+    String value(String key) => item[key]?.toString().trim().isNotEmpty == true ? item[key].toString() : '—';
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: _line)),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name, style: const TextStyle(color: _navy, fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(id, style: const TextStyle(color: Color(0xFF52638E))),
+          ])),
+          IconButton(onPressed: () => setState(() => _selectedLog = null), icon: const Icon(Icons.close, color: _navy)),
+        ]),
+        const SizedBox(height: 12),
+        _status(status),
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 12),
+        const Text('Details', style: TextStyle(color: _blue, fontWeight: FontWeight.w800, fontSize: 16)),
+        const SizedBox(height: 12),
+        _detailLine('Check-In', value('checkIn')),
+        _detailLine('Check-Out', value('checkOut')),
+        _detailLine('Work Duration', _worked(item['workingMinutes'])),
+        _detailLine('Location', value('location')),
+        _detailLine('Tracking Stop Reason', value('trackingStopReason')),
+        _detailLine('Clock-Out Reason', value('clockOutReason')),
+        _detailLine('Clock Method', value('method')),
+      ]),
+    );
+  }
+
+  Widget _detailLine(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 7),
+    child: Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF657087), fontSize: 12))),
+      Flexible(child: Text(value, textAlign: TextAlign.right, style: const TextStyle(color: _navy, fontWeight: FontWeight.w700, fontSize: 12))),
+    ]),
   );
   
   Widget _employeeCell(String name, String id) {

@@ -20,10 +20,12 @@ Future<void> showAdminNotificationSettings(BuildContext context) async {
   final player = AudioPlayer();
   try {
     final settings = await HrmsNotificationsApi.settings();
+    final reminderPolicy = await HrmsNotificationsApi.clockOutReminderPolicy();
     await showDialog<bool>(
       context: context,
       builder: (_) => _NotificationSettingsDialog(
         settings: settings,
+        reminderPolicy: reminderPolicy,
         onPreview: (name, volume, customUrl) {
           final source =
               name == 'custom' && customUrl != null && customUrl.isNotEmpty
@@ -809,9 +811,11 @@ class _NotificationsDialog extends StatelessWidget {
 class _NotificationSettingsDialog extends StatefulWidget {
   const _NotificationSettingsDialog({
     required this.settings,
+    required this.reminderPolicy,
     required this.onPreview,
   });
   final Map<String, dynamic> settings;
+  final Map<String, dynamic> reminderPolicy;
   final Future<void> Function(
     String soundName,
     double volume,
@@ -833,6 +837,9 @@ class _NotificationSettingsDialogState
   String? _customSoundUrl;
   String? _customSoundLabel;
   late double _volume;
+  late bool _reminderEnabled;
+  late double _reminderThresholdHours;
+  late double _reminderRepeatHours;
   bool _saving = false;
   bool _uploading = false;
 
@@ -864,6 +871,9 @@ class _NotificationSettingsDialogState
     _volume = requestedVolume < 0
         ? 0
         : (requestedVolume > 100 ? 100 : requestedVolume);
+    _reminderEnabled = widget.reminderPolicy['enabled'] != false;
+    _reminderThresholdHours = ((widget.reminderPolicy['thresholdMinutes'] as num?)?.toDouble() ?? 540) / 60;
+    _reminderRepeatHours = ((widget.reminderPolicy['repeatMinutes'] as num?)?.toDouble() ?? 60) / 60;
   }
 
   List<String> get _soundOptions => <String>[
@@ -938,6 +948,12 @@ class _NotificationSettingsDialogState
         'commentNotificationsEnabled': _commentsEnabled,
         'waitingReasonNotificationsEnabled': _waitingEnabled,
       });
+      await HrmsNotificationsApi.updateClockOutReminderPolicy({
+        'enabled': _reminderEnabled,
+        'thresholdMinutes': (_reminderThresholdHours * 60).round(),
+        'repeatMinutes': (_reminderRepeatHours * 60).round(),
+        'soundName': _soundName == 'custom' ? (_customSoundLabel ?? 'custom') : _soundName,
+      });
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {
@@ -955,9 +971,14 @@ class _NotificationSettingsDialogState
     title: const Text('Notification settings'),
     content: SizedBox(
       width: 390,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      // The reminder controls make this dialog taller than small laptop and
+      // tablet viewports. Keep the actions fixed while allowing the settings
+      // body to scroll instead of overlapping the lower switches.
+      height: (MediaQuery.sizeOf(context).height * 0.68).clamp(360.0, 650.0),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Play a sound for new alerts'),
@@ -1035,6 +1056,45 @@ class _NotificationSettingsDialogState
               label: const Text('Preview sound'),
             ),
           ),
+          const Divider(height: 24),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Clock-out reminder'),
+            subtitle: const Text('Remind employees after they stay clocked in too long'),
+            value: _reminderEnabled,
+            onChanged: (value) => setState(() => _reminderEnabled = value),
+          ),
+          if (_reminderEnabled) ...[
+            Row(
+              children: [
+                const Expanded(child: Text('Reminder starts after')),
+                SizedBox(
+                  width: 110,
+                  child: DropdownButtonFormField<double>(
+                    initialValue: _reminderThresholdHours,
+                    items: [8, 9, 10, 11, 12].map((value) => DropdownMenuItem(value: value.toDouble(), child: Text('$value hours'))).toList(),
+                    onChanged: (value) => setState(() => _reminderThresholdHours = value ?? 9),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Repeat reminder every')),
+                SizedBox(
+                  width: 110,
+                  child: DropdownButtonFormField<double>(
+                    initialValue: _reminderRepeatHours,
+                    items: [1, 2, 3, 4].map((value) => DropdownMenuItem(value: value.toDouble(), child: Text('$value hour${value == 1 ? '' : 's'}'))).toList(),
+                    onChanged: (value) => setState(() => _reminderRepeatHours = value ?? 1),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Align(alignment: Alignment.centerLeft, child: Text('Reminder sound: ${_soundName == 'custom' ? (_customSoundLabel ?? 'Custom sound') : _soundName}', style: const TextStyle(fontSize: 12, color: Color(0xFF63718F))),),
+          ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Employee comments'),
@@ -1047,7 +1107,8 @@ class _NotificationSettingsDialogState
             value: _waitingEnabled,
             onChanged: (value) => setState(() => _waitingEnabled = value),
           ),
-        ],
+          ],
+        ),
       ),
     ),
     actions: [

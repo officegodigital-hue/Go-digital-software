@@ -58,6 +58,13 @@ class AndroidLiveTrackingService {
         if (alert != null) {
           await MobileWaitingNotification.showWaitingAlert(alert);
         }
+        // The server is authoritative for the 9-hour/hourly reminder slots.
+        // Polling here gives the Android app a local high-priority fallback;
+        // duplicate slots are prevented by the backend event key.
+        final reminder = await HrmsTrackingApi.clockOutReminderStatus();
+        if (reminder['thresholdReached'] == true) {
+          await MobileWaitingNotification.showClockoutReminder(reminder);
+        }
       } catch (_) {
         // The next foreground-service interval retries automatically.
       }
