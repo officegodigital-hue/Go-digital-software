@@ -84,6 +84,12 @@ async function updateNotificationSettings(req, res) {
         body.commentNotificationsEnabled === false ? 0 : 1,
         body.waitingReasonNotificationsEnabled === false ? 0 : 1]
     );
+    // Keep the clock-out reminder channel in sync with the admin-selected
+    // notification sound. The reminder tables may not exist on an older
+    // installation, so this remains non-fatal until its migration runs.
+    try {
+      await db.query('UPDATE hrms_clockout_reminder_policy SET sound_name = ? WHERE id = 1', [String(body.soundName || 'notification.mp3')]);
+    } catch (_) {}
     return notificationSettings(req, res);
   } catch (error) {
     return fail(res, 500, error.message);
@@ -103,6 +109,9 @@ async function uploadNotificationSound(req, res) {
        custom_sound_name = VALUES(custom_sound_name)`,
       [req.user.id, url, req.file.originalname]
     );
+    try {
+      await db.query('UPDATE hrms_clockout_reminder_policy SET sound_name = ? WHERE id = 1', [req.file.originalname]);
+    } catch (_) {}
     return notificationSettings(req, res);
   } catch (error) {
     return fail(res, 500, error.message);

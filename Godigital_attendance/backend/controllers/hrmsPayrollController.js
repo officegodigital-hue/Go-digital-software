@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
 const calendar = require('../lib/calendarWorkingDays');
+const workingDays = require('../lib/workingDaysTemplates');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -214,6 +215,12 @@ async function computeRows(year, month, today) {
     WHERE p.employment_status <> 'Inactive' AND u.is_active = 1
     ORDER BY p.full_name ASC
   `);
+  const workingDayMaps = new Map();
+  for (const profile of profiles) {
+    workingDayMaps.set(Number(profile.id), await workingDays.workingDaysForPeriod(
+      profile.id, queryStart, queryEnd, weeklyOff, calendarOverrides,
+    ));
+  }
 
   // Compensation is versioned by immutable profile/user IDs. A name is display-only.
   await db.query(`CREATE TABLE IF NOT EXISTS hrms_employee_compensation (
@@ -310,7 +317,8 @@ async function computeRows(year, month, today) {
 
     for (let date = period.start; date <= cutoff; date = nextDate(date)) {
       const dateParts = date.split('-').map(Number);
-      if (!calendar.isWorkingDay(date, weeklyOff, calendarOverrides)) continue;
+      const employeeWorkingDays = workingDayMaps.get(Number(profile.id));
+      if (employeeWorkingDays && !employeeWorkingDays.get(date)) continue;
       elapsedWorkingDays += 1;
       const userId = profile.employee_user_id;
       const key = userId ? userId + '|' + date : '';
@@ -355,7 +363,11 @@ async function computeRows(year, month, today) {
     // A payroll day is a fixed policy divisor (normally 26), not the number
     // of days elapsed when the payroll is generated. This makes a three-day
     // absence from a Rs. 50,000 salary deduct Rs. 5,770 consistently.
-    const periodWorkingDays = Math.max(1, calendar.countWorkingDays(period.start, period.end, weeklyOff, calendarOverrides));
+    let periodWorkingDays = 0;
+    for (let date = period.start; date <= period.end; date = nextDate(date)) {
+      if (workingDayMaps.get(Number(profile.id))?.get(date)) periodWorkingDays += 1;
+    }
+    periodWorkingDays = Math.max(1, periodWorkingDays);
     const dailyRate = salaryNumber / periodWorkingDays;
     const schedule = String(profile.gender).toLowerCase() === 'female' ? timeSettings.female : timeSettings.male;
     let shiftMinutes = Math.round((timeSeconds(schedule.shiftEnd) - timeSeconds(schedule.shiftStart)) / 60);

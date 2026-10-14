@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
+const workingDays = require('../lib/workingDaysTemplates');
 
 function ok(res, data, message) {
   return res.json({ success: true, message: message || 'OK', data: data });
@@ -81,6 +82,7 @@ function toUi(row) {
     department: row.department,
     workMode: row.work_mode,
     employeeType: row.employee_type || 'Employee',
+    workingDaysType: row.working_days_type || 'Standard Working Days',
     overtimeEligible: Boolean(Number(row.overtime_eligible || 0)),
     gender: row.gender || 'Male',
     salary: formatSalary(row.monthly_salary),
@@ -159,7 +161,7 @@ async function list(req, res) {
     const offset = (safePage - 1) * limit;
 
     const [rows] = await db.query(
-      'SELECT p.*, u.username AS username, (SELECT MAX(changed_at) FROM hrms_password_change_log l WHERE l.employee_user_id = p.employee_user_id) AS password_last_changed_at FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id ' + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
+      "SELECT p.*, u.username AS username, COALESCE((SELECT t.name FROM hrms_employee_working_day_assignments a JOIN hrms_working_day_templates t ON t.id = a.template_id WHERE a.profile_id = p.id AND a.effective_from <= CURDATE() AND (a.effective_to IS NULL OR a.effective_to >= CURDATE()) ORDER BY a.effective_from DESC, a.id DESC LIMIT 1), 'Standard Working Days') AS working_days_type, (SELECT MAX(changed_at) FROM hrms_password_change_log l WHERE l.employee_user_id = p.employee_user_id) AS password_last_changed_at FROM hrms_employee_profiles p LEFT JOIN employee_users u ON u.id = p.employee_user_id " + clause.replace(/\b(full_name|employee_code|email|department|employment_status|work_mode)\b/g, 'p.$1') + ' ORDER BY p.full_name ASC LIMIT ? OFFSET ?',
       params.concat([limit, offset])
     );
     const [allRows] = await db.query("SELECT p.employment_status FROM hrms_employee_profiles p INNER JOIN employee_users u ON u.id = p.employee_user_id WHERE u.user_type = 'employee' AND u.is_active = 1");
@@ -177,6 +179,12 @@ async function list(req, res) {
   "FROM hrms_employee_profiles WHERE TRIM(COALESCE(department, '')) <> '' " +
   "ORDER BY name ASC"
 );
+    const [employeeTypeRows] = await db.query(
+      "SELECT DISTINCT employee_type AS name FROM hrms_employee_profiles WHERE TRIM(COALESCE(employee_type, '')) <> '' ORDER BY name ASC"
+    );
+    const [[codeRow]] = await db.query(
+      "SELECT COALESCE(MAX(CAST(SUBSTRING(employee_code, 4) AS UNSIGNED)), 1000) AS max_code FROM hrms_employee_profiles WHERE employee_code REGEXP '^EMP[0-9]+$'"
+    );
 
     return ok(res, {
       items: rows.map(toUi),
@@ -185,6 +193,8 @@ async function list(req, res) {
       total: total,
       totalPages: totalPages,
       departments: departmentRows.map(function (row) { return row.name; }),
+      employeeTypes: Array.from(new Set(['Employee', 'Labour'].concat(employeeTypeRows.map(function (row) { return row.name; })))),
+      nextEmployeeCode: 'EMP' + String(Number(codeRow && codeRow.max_code || 1000) + 1).padStart(4, '0'),
       kpis: {
         total: allRows.length,
         active: allRows.filter(function (r) { return r.employment_status === 'Active'; }).length,
@@ -201,7 +211,13 @@ async function detail(req, res) {
   try {
     const id = Number(req.params.id);
     const [[profile]] = await db.query(
-      `SELECT p.*, u.username FROM hrms_employee_profiles p
+      `SELECT p.*, u.username,
+       COALESCE((SELECT t.name FROM hrms_employee_working_day_assignments a
+         JOIN hrms_working_day_templates t ON t.id = a.template_id
+         WHERE a.profile_id = p.id AND a.effective_from <= CURDATE()
+           AND (a.effective_to IS NULL OR a.effective_to >= CURDATE())
+         ORDER BY a.effective_from DESC, a.id DESC LIMIT 1), 'Standard Working Days') AS working_days_type
+       FROM hrms_employee_profiles p
        LEFT JOIN employee_users u ON u.id = p.employee_user_id WHERE p.id = ?`,
       [id]
     );
@@ -325,6 +341,9 @@ async function detail(req, res) {
 }
 
 async function create(req, res) {
+  let connection;
+  let createdUserId = null;
+  let createdProfileId = null;
   try {
     const body = req.body || {};
     const name = String(body.name || body.full_name || '').trim();
@@ -333,7 +352,7 @@ async function create(req, res) {
     const workMode = String(body.workMode || body.work_mode || 'Office').trim();
     const employeeType = String(body.employeeType || body.employee_type || 'Employee').trim();
     const overtimeEligible = body.overtimeEligible || body.overtime_eligible ? 1 : 0;
-    if (!['Employee', 'Labour'].includes(employeeType)) return fail(res, 400, 'Employee type must be Employee or Labour');
+    if (!employeeType || employeeType.length > 100) return fail(res, 400, 'Employee type is required and must be 100 characters or fewer');
     const gender = String(body.gender || 'Male').trim();
     if (!['Male', 'Female'].includes(gender)) return fail(res, 400, 'Gender must be Male or Female');
     const status = String(body.status || body.employment_status || 'Active').trim();
@@ -346,19 +365,64 @@ async function create(req, res) {
     if (!name || !code) return fail(res, 400, 'name and employeeCode are required');
     if (!username || !email || password.length < 8) return fail(res, 400, 'username, email and a password of at least 8 characters are required');
 
+    // Reject duplicates before writing anything. This prevents the old
+    // behaviour where the login row was created before profile validation.
+    const [duplicates] = await db.query(`
+      SELECT
+        EXISTS(SELECT 1 FROM employee_users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AS login_duplicate,
+        EXISTS(SELECT 1 FROM hrms_employee_profiles WHERE employee_code = ?) AS code_duplicate,
+        EXISTS(SELECT 1 FROM employee_users WHERE staff_id = ?) AS staff_duplicate`,
+      [username, email, code, code]);
+    if (duplicates[0] && Number(duplicates[0].login_duplicate)) {
+      const [existing] = await db.query('SELECT username, email FROM employee_users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1', [username, email]);
+      if (existing[0] && String(existing[0].username).toLowerCase() === username.toLowerCase()) return fail(res, 409, 'Username already exists');
+      return fail(res, 409, 'Email already exists');
+    }
+    if (duplicates[0] && (Number(duplicates[0].code_duplicate) || Number(duplicates[0].staff_duplicate))) return fail(res, 409, 'Employee ID already exists');
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const [userResult] = await db.query(
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [userResult] = await connection.query(
       'INSERT INTO employee_users (first_name, last_name, full_name, email, username, password, role, user_type, is_active, staff_id, initials) VALUES (?, ?, ?, ?, ?, ?, ?, \'employee\', 1, ?, ?)',
       [name.split(/\s+/)[0], name.split(/\s+/).slice(1).join(' '), name, email, username, hashedPassword, department, code, name.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 3).toUpperCase()]
     );
-    const [result] = await db.query(
+    createdUserId = userResult.insertId;
+    const [result] = await connection.query(
       'INSERT INTO hrms_employee_profiles (employee_user_id, employee_code, full_name, email, department, work_mode, employee_type, overtime_eligible, gender, employment_status, monthly_salary, salary_type, flexible_cycle_start_day, flexible_cycle_end_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [userResult.insertId, code, name, email, department, workMode, employeeType, overtimeEligible, gender, status, salary, cycle.salaryType, cycle.cycleStartDay, cycle.cycleEndDay]
     );
-    const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [result.insertId]);
+    createdProfileId = result.insertId;
+    const [rows] = await connection.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [result.insertId]);
+    // Keep user/profile creation atomic. Working-day assignment is retained
+    // after commit because its helper owns its own connection; any failure is
+    // surfaced to the caller and can be safely retried without another login.
+    await connection.commit();
+    connection.release();
+    connection = null;
+    // A template selected while creating a new employee is effective
+    // immediately. Future-dated assignments remain supported for edits.
+    const creationWorkingDays = Object.assign({}, body, {
+      effectiveFrom: body.effectiveFrom || new Date().toISOString().slice(0, 10)
+    });
+    await workingDays.assign(result.insertId, creationWorkingDays, req.user && req.user.id);
     await recordCompensation(rows[0], salary, req.user && req.user.id);
     return ok(res, { employee: toUi(rows[0]), credentials: { username: username, email: email, password: password } }, 'Employee added');
   } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch (_) {}
+      connection.release();
+    }
+    // The working-days helper currently uses the pool directly. If it fails
+    // after the user/profile transaction committed, remove only the rows just
+    // created by this request so the API still has all-or-nothing semantics.
+    if (!connection && createdUserId && createdProfileId) {
+      try {
+        await db.query('DELETE FROM hrms_employee_working_day_assignments WHERE profile_id = ?', [createdProfileId]);
+        await db.query('DELETE FROM hrms_employee_profiles WHERE id = ? AND employee_user_id = ?', [createdProfileId, createdUserId]);
+        await db.query('DELETE FROM employee_users WHERE id = ?', [createdUserId]);
+      } catch (_) {}
+    }
     if (error.code === 'ER_DUP_ENTRY') {
       const message = String(error.sqlMessage || error.message || '').toLowerCase();
       if (message.includes('username')) return fail(res, 409, 'Username already exists');
@@ -379,6 +443,47 @@ async function resetPassword(req, res) {
     await db.query('UPDATE employee_users SET password = ? WHERE id = ?', [await bcrypt.hash(password, 10), rows[0].employee_user_id]);
     return ok(res, { password: password }, 'Password reset');
   } catch (error) { return fail(res, 500, error.message); }
+}
+
+// Repairs login accounts left without an HRMS profile by an interrupted
+// employee creation. It deliberately reuses the existing user ID and never
+// creates a second login account.
+async function repairProfiles(req, res) {
+  let connection;
+  try {
+    const requestedId = Number(req.body && (req.body.employeeUserId || req.body.employee_user_id));
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const params = requestedId ? [requestedId] : [];
+    const [users] = await connection.query(`
+      SELECT u.id, u.full_name, u.first_name, u.last_name, u.email, u.staff_id,
+             u.role, u.is_active
+      FROM employee_users u
+      LEFT JOIN hrms_employee_profiles p ON p.employee_user_id = u.id
+      WHERE LOWER(u.user_type) = 'employee' AND p.id IS NULL
+        ${requestedId ? 'AND u.id = ?' : ''}
+      FOR UPDATE`, params);
+    const repaired = [];
+    for (const user of users) {
+      const code = String(user.staff_id || `EMP${String(user.id).padStart(4, '0')}`).trim();
+      const [codeRows] = await connection.query('SELECT id FROM hrms_employee_profiles WHERE employee_code = ? LIMIT 1', [code]);
+      if (codeRows.length) throw Object.assign(new Error(`Employee code ${code} is already used`), { code: 'ER_DUP_ENTRY' });
+      const name = String(user.full_name || `${user.first_name || ''} ${user.last_name || ''}`).trim();
+      const [result] = await connection.query(`INSERT INTO hrms_employee_profiles
+        (employee_user_id, employee_code, full_name, email, department, work_mode, employee_type, employment_status)
+        VALUES (?, ?, ?, ?, ?, 'Office', 'Employee', ?)` ,
+        [user.id, code, name, user.email || null, user.role || 'Engineering', Number(user.is_active) ? 'Active' : 'Inactive']);
+      repaired.push({ userId: user.id, profileId: result.insertId, employeeCode: code });
+    }
+    await connection.commit();
+    connection.release();
+    connection = null;
+    return ok(res, { repaired: repaired, count: repaired.length }, repaired.length ? 'Employee profiles repaired' : 'No orphan employee profiles found');
+  } catch (error) {
+    if (connection) { try { await connection.rollback(); } catch (_) {} connection.release(); }
+    if (error.code === 'ER_DUP_ENTRY') return fail(res, 409, error.message);
+    return fail(res, 500, error.message);
+  }
 }
 
 async function deviceRequests(req, res) {
@@ -428,7 +533,7 @@ async function update(req, res) {
     const workMode = String(body.workMode || body.work_mode || '').trim();
     const employeeType = String(body.employeeType || body.employee_type || 'Employee').trim();
     const overtimeEligible = body.overtimeEligible || body.overtime_eligible ? 1 : 0;
-    if (!['Employee', 'Labour'].includes(employeeType)) return fail(res, 400, 'Employee type must be Employee or Labour');
+    if (!employeeType || employeeType.length > 100) return fail(res, 400, 'Employee type is required and must be 100 characters or fewer');
     const gender = String(body.gender || 'Male').trim();
     if (!['Male', 'Female'].includes(gender)) return fail(res, 400, 'Gender must be Male or Female');
     const status = String(body.status || body.employment_status || '').trim();
@@ -456,6 +561,12 @@ async function update(req, res) {
       await db.query('UPDATE employee_users SET ' + updates.join(', ') + ' WHERE id = ?', values);
     }
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);
+    const updateWorkingDays = Object.assign({}, body, {
+      // Existing employee changes become effective tomorrow by default so
+      // today's attendance/payroll results are never rewritten.
+      effectiveFrom: body.effectiveFrom || new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    });
+    await workingDays.assign(id, updateWorkingDays, req.user && req.user.id);
     await recordCompensation(rows[0], salary, req.user && req.user.id);
     return ok(res, toUi(rows[0]), 'Employee updated');
   } catch (error) {
@@ -529,6 +640,7 @@ module.exports = {
   detail: detail,
   list: list,
   create: create,
+  repairProfiles: repairProfiles,
   resetPassword: resetPassword,
   deviceRequests: deviceRequests,
   reviewDeviceRequest: reviewDeviceRequest,

@@ -9,6 +9,7 @@ class MobileWaitingNotification {
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
   static int? _lastAlertId;
+  static String? _lastClockoutReminder;
 
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
     'field_waiting_alerts',
@@ -58,5 +59,29 @@ class MobileWaitingNotification {
       details,
       payload: 'field-waiting:$id',
     );
+  }
+
+  static Future<void> showClockoutReminder(Map<String, dynamic> reminder) async {
+    await initialize();
+    final attendanceId = int.tryParse('${reminder['attendanceId']}');
+    if (attendanceId == null) return;
+    final slot = int.tryParse('${reminder['reminderSlot'] ?? 0}') ?? 0;
+    final key = '$attendanceId:$slot';
+    if (_lastClockoutReminder == key) return;
+    _lastClockoutReminder = key;
+    final notificationId = 72000 + (attendanceId % 1000);
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'clockout_reminders',
+        'Clock-out reminders',
+        channelDescription: 'Reminders to clock out after the scheduled work duration.',
+        importance: Importance.max,
+        priority: Priority.max,
+        playSound: true,
+        enableVibration: true,
+        category: AndroidNotificationCategory.reminder,
+      ),
+    );
+    await _plugin.show(notificationId, 'Please clock out', 'Your work session has reached the reminder time. Tap to clock out.', details, payload: 'clock-out:$attendanceId:$slot');
   }
 }
