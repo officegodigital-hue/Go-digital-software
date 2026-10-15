@@ -43,6 +43,9 @@ import 'package:godigital_portal/screens/admin_dashboard/time_management_screen.
 import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
+import 'package:godigital_portal/screens/admin_dashboard/task_deadline_rules_screen.dart';
+import 'package:godigital_portal/screens/employee_dashboard/employee_workspace_page.dart'
+    show AdminWorkspaceScreen;
 
 /// Global navigator key — used by WaitingAlertService to show dialogs from
 /// outside the widget tree (e.g. background timers).
@@ -153,6 +156,13 @@ class MyApp extends StatelessWidget {
           '/settings': (context) => const AdminGuard(child: SettingsPage()),
 
           '/emergency-broadcast': (context) => const AdminGuard(child: EmergencyBroadcastPage()),
+
+          // Admin → Employee Workspace (all clients, all employees, live) and
+          // Task Deadline Rules (start / complete / weekly pace per task).
+          '/admin-workspace': (context) =>
+              const AdminGuard(child: AdminWorkspaceScreen()),
+          '/task-deadline-rules': (context) =>
+              const AdminGuard(child: TaskDeadlineRulesScreen()),
 
           '/attendance': (context) => const HrmsAttendanceEntry(),
           '/employee/dashboard': (context) => const EmployeeDashboardPage(),

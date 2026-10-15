@@ -25,7 +25,7 @@ class TaskActions {
     return switch (status) {
       'IDLE' => ['start'],
       'IN PROGRESS' => ['hold', 'complete'],
-      'ON HOLD' || 'REWORK' => ['restart'],
+      'ON HOLD' || 'REWORK' || 'REJECTED' => ['restart'],
       _ => const [],
     };
   }
@@ -287,7 +287,8 @@ class _TaskActionButtonsState extends State<TaskActionButtons> {
               onPressed: _busy || locked ? null : () => _go(a),
               icon: Icon(locked ? Icons.lock_outline_rounded : _style[a]!.$2, size: 14),
               label: Text(
-                  a == 'restart' && '${widget.item['status']}'.toUpperCase() == 'REWORK'
+                  a == 'restart' &&
+                          ['REWORK', 'REJECTED'].contains('${widget.item['status']}'.toUpperCase())
                       ? 'REWORK'
                       : _style[a]!.$1,
                   style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),

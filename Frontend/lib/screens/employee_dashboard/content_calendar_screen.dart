@@ -128,6 +128,9 @@ class ContentCalendarScreen extends StatefulWidget {
   final Map<String, dynamic>? initialClient;
   final bool myTasksMode;
 
+  /// Main admin view: everything is visible, nothing can be changed.
+  final bool readOnly;
+
   const ContentCalendarScreen({
     Key? key,
     required this.apiBaseUrl,
@@ -137,6 +140,7 @@ class ContentCalendarScreen extends StatefulWidget {
     required this.currentUserRole,
     this.initialClient,
     this.myTasksMode = false,
+    this.readOnly = false,
   }) : super(key: key);
 
   @override
@@ -145,6 +149,18 @@ class ContentCalendarScreen extends StatefulWidget {
 
 class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   String get _baseUrl => widget.apiBaseUrl;
+
+  /// Read-only (main admin): show a short note instead of changing anything.
+  bool _blockedReadOnly() {
+    if (!widget.readOnly) return false;
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('View only — the Content Calendar cannot be changed from the admin view.')),
+      );
+    }
+    return true;
+  }
 
   String get _normalizedRole => widget.currentUserRole
       .trim()
@@ -413,6 +429,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
 
   /// Add this category (or manual row) to today's Day Planner without starting.
   Future<void> _addCalendarToPlanner(List<Map<String, dynamic>> rows) async {
+    if (_blockedReadOnly()) return;
     if (rows.isEmpty) return;
     final ids = rows.map((r) => _asInt(r['id'])).toSet();
     if (ids.any(_busyRows.contains)) return;
@@ -491,6 +508,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   void _onFieldChanged(Map<String, dynamic> row, String field, dynamic value) {
+    if (_blockedReadOnly()) return;
     final id = _asInt(row['id']);
     row[field] = value;
     (_pendingEdits[id] ??= {})[field] = value;
@@ -581,6 +599,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     List<Map<String, dynamic>> rows,
     String action,
   ) async {
+    if (_blockedReadOnly()) return;
     if (rows.isEmpty) return;
     final firstRow = rows.first;
     final rowIds = rows.map((row) => _asInt(row['id'])).toSet();
@@ -683,6 +702,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     required String nextCcStatus,
     required String errorMessage,
   }) async {
+    if (_blockedReadOnly()) return false;
     final id = _asInt(row['id']);
     if (_busyRows.contains(id)) return false;
     setState(() => _busyRows.add(id));
@@ -754,6 +774,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleCalendarStart(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     if (!await _confirmAddToDayPlanner(row) || !mounted) return;
     await _runAction(
       row,
@@ -765,6 +786,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleCalendarHold(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     final reason = await showDialog<String>(
       context: context,
       barrierDismissible: false,
@@ -785,6 +807,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleCalendarComplete(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     await _runAction(
       row,
       path: '/tasks/content-calendar/complete',
@@ -794,6 +817,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleAssignAll(List<Map<String, dynamic>> rows) async {
+    if (_blockedReadOnly()) return;
     final unassignedCompleted = rows
         .where((r) => !_isAssigned(r) && _ccStatusOf(r) == 'COMPLETED')
         .toList();
@@ -908,6 +932,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleEmergency(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     final id = _asInt(row['id']);
     if (_busyRows.contains(id) || _isApproved(row)) return;
     setState(() => _busyRows.add(id));
@@ -990,6 +1015,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _importSheet(String deliverable) async {
+    if (_blockedReadOnly()) return;
     final picked = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv'],
@@ -2863,6 +2889,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   /// "Add content": choose a deliverable (from the client's assigned work),
   /// how many rows, and the submit date → blank rows in the same card format.
   Future<void> _handleAddContent() async {
+    if (_blockedReadOnly()) return;
     final client = _str(_selectedClient?['client_name']);
     if (client.isEmpty) return;
     List<Map<String, dynamic>> options = [];
@@ -3024,6 +3051,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _deleteManualRow(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -3270,6 +3298,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Future<void> _handleCorrectContent(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     final id = _asInt(row['id']);
     final website = _isWebsiteRow(row);
     final controllers = {
@@ -3419,6 +3448,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   /// Move an assigned row to another employee (normal, or emergency
   /// with a reason).
   Future<void> _handleReassign(Map<String, dynamic> row) async {
+    if (_blockedReadOnly()) return;
     final id = _asInt(row['id']);
     if (_busyRows.contains(id)) return;
     List<Map<String, dynamic>> team = [];
@@ -3571,7 +3601,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       child: TextFormField(
         key: ValueKey('cc-${row['id']}-$field-$_sheetRev'),
         initialValue: _str(row[field]),
-        readOnly: _isAssigned(row),
+        readOnly: widget.readOnly || _isAssigned(row),
         minLines: 1,
         maxLines: 4,
         style: const TextStyle(
