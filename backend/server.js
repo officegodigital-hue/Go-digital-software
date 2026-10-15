@@ -131,10 +131,15 @@ const taskMasterRoutes = require('./routes/task-master');
 const taskRolesRoutes = require('./routes/task-roles');
 const taskListRoutes = require('./routes/task-list');
 const trackingItemsRoutes = require('./routes/tracking-items');
+const contentCalendarWorkspaceRoutes = require('./routes/contentCalendarWorkspace');
+const contentCalendarRoutes = require('./routes/contentCalendarRoutes');
+const { ensureContentCalendarWorkspaceSchema } = require('./lib/ensureContentCalendarWorkspaceSchema');
 const dashboardRoutes = require('./routes/dashboard');
 const adminEmployeeStatusRoutes = require('./routes/admin-employee-status');
 const notificationsRoutes = require('./routes/notifications');
 const chatRoutes = require('./routes/chat');
+const workspaceTaskRoutes = require('./routes/workspaceTasks');
+   const { ensureWorkspaceTaskSchema } = require('./lib/ensureWorkspaceTaskSchema');
 
 const DayPlannerRoutes = require('./routes/day-planner');
 const performanceRoutes = require('./routes/performance');
@@ -196,6 +201,7 @@ io.on('connection', (socket) => {
   });
 });
 
+   
 // ── CORS middleware ──────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin',  '*');
@@ -229,6 +235,7 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/invoices', invoiceRoutes); 
 app.use('/api/tasks', taskRoutes);
+app.use('/api/tasks', contentCalendarWorkspaceRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/client-repository', clientRepositoryRoutes);
 app.use('/api/employee-tasks', employeeTaskRoutes); 
@@ -245,11 +252,13 @@ app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/workspace-tasks', workspaceTaskRoutes);
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
 
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/content-calendar', contentCalendarRoutes);
 // Keep every attendance feature on the main API server. Existing clock and
 // calendar routes above remain authoritative; this app supplies the employee
 // leave, break, extra-hours, permission dashboard, header, and tracking routes.
@@ -288,7 +297,11 @@ server.listen(PORT, async () => {
   console.log(`GoDigital API running at http://localhost:${PORT}`);
   console.log(`✅ Socket.io server is active and running`);
   try {
+    await ensureContentCalendarWorkspaceSchema(db);
+    console.log('Content Calendar workspace schema is ready');
     await ensureAttendanceTables(db);
+       await ensureWorkspaceTaskSchema(db);
+   console.log('Workspace task schema is ready');
     await ensureAuthSchema(db);
     console.log('Login schema is ready');
     console.log('Attendance tables are ready');

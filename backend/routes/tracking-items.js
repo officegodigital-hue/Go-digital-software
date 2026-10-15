@@ -5,22 +5,28 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
+const { autoHoldForEmployee } = require('../lib/autoHold');
+const { syncDayPlanForItem } = require('../lib/dayPlanSync');
 
 // Helper to broadcast task updates via Socket.io
+// Broadcast task updates via Socket.io — after the Day Planner status for
+// that employee/client has been brought up to date, so every page that
+// refreshes on 'task_updated' sees the same state.
 const emitTaskUpdate = (req, trackingItemId, action) => {
-  try {
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('task_updated', {
-        type: 'TRACKING_ITEM_UPDATE',
-        trackingItemId: trackingItemId,
-        action: action
-      });
-      console.log('📡 Broadcasted task_updated for tracking item:', trackingItemId);
+  syncDayPlanForItem(trackingItemId).finally(() => {
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('task_updated', {
+          type: 'TRACKING_ITEM_UPDATE',
+          trackingItemId: trackingItemId,
+          action: action
+        });
+      }
+    } catch (socketErr) {
+      console.error('Socket emit error:', socketErr);
     }
-  } catch (socketErr) {
-    console.error('Socket emit error:', socketErr);
-  }
+  });
 };
 
 async function logLiveTrackingHistory(db, trackingItemId, actionStatus) {
@@ -144,6 +150,153 @@ function calculateWorkingDuration(row, customEndTime = null) {
   }
 
   return totalSeconds;
+}
+
+
+function timingToMinutes(timing) {
+  const parts = String(timing || '').trim().split(/\s+/);
+  if (parts.length < 2) return 0;
+  const value = parseInt(parts[0], 10) || 0;
+  const unit = parts[1].toLowerCase();
+  if (unit.startsWith('min')) return value;
+  if (unit.startsWith('hr') || unit.startsWith('hour')) return value * 60;
+  if (unit.startsWith('day')) return value * 1440;
+  return 0;
+}
+
+async function computePerformance(taskListId, durationSecs) {
+  try {
+    const [[list]] = await db.query(
+      `SELECT tl.deliverables, tt.timing
+       FROM task_list tl
+       LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
+       WHERE tl.id = ?`,
+      [taskListId]
+    );
+    if (!list) return 'N/A';
+    let timing = list.timing;
+    if (!timing) {
+      const [[match]] = await db.query(
+        `SELECT timing FROM task_timings WHERE LOWER(TRIM(task_name)) = LOWER(TRIM(?)) LIMIT 1`,
+        [list.deliverables]
+      );
+      timing = match?.timing;
+    }
+    const expected = timingToMinutes(timing);
+    if (!expected) return 'N/A';
+    const actual = Math.floor((Number(durationSecs) || 0) / 60);
+    if (actual === expected) return 'Achieved';
+    return actual < expected ? 'Before In' : 'Delay Out';
+  } catch (err) {
+    console.error('computePerformance:', err.message);
+    return 'N/A';
+  }
+}
+
+// ── Day Planner: one row per task row ───────────────────────────────────────
+// A task can only start once it is in today's Day Planner. If it isn't, the
+// client is told (409 DAY_PLAN_CONFIRM_REQUIRED) and asks the employee; when
+// they confirm, the row "[Task Row #id] …" is added and the task starts.
+async function ensureTaskInDayPlan(connection, target, confirmed) {
+  const employeeName = String(target.employee_name || '').trim();
+  if (!employeeName) return;
+  const marker = `[Task Row #${target.id}]`;
+  const [existing] = await connection.query(
+    `SELECT id FROM day_plan_rows
+     WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND plan_date = CURDATE()
+       AND today_plan LIKE ? LIMIT 1`,
+    [employeeName, `%${marker}%`],
+  );
+  if (existing.length) return;
+
+  const [[info]] = await connection.query(
+    `SELECT tl.client_name, tl.deliverables, tti.s_no, tti.sub_no, tti.hook_headline,
+            COALESCE(ta.deadline, ta.maintenance_date, tl.submission_date, tti.submit_date) AS due
+     FROM time_tracking_task_items tti
+     JOIN task_list tl ON tl.id = tti.task_list_id
+     LEFT JOIN task_assignments ta ON ta.id = tl.task_assignment_id
+     WHERE tti.id = ?`,
+    [target.id],
+  );
+  const rowNo = Number(info?.sub_no) > 0 ? `${info.s_no}.${info.sub_no}` : `${info?.s_no ?? ''}`;
+  const title = `${info?.deliverables || 'Task'} · Row ${rowNo}`;
+  if (!confirmed) {
+    const error = new Error(`"${title}" (${info?.client_name || ''}) is not in today's Day Planner. Add it and start?`);
+    error.statusCode = 409;
+    error.code = 'DAY_PLAN_CONFIRM_REQUIRED';
+    error.task = { title, client: info?.client_name || '' };
+    throw error;
+  }
+  const [[role]] = await connection.query(
+    `SELECT role FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1`,
+    [employeeName],
+  );
+  const [[submitted]] = await connection.query(
+    `SELECT MAX(is_submitted) AS s FROM day_plan_rows
+     WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND plan_date = CURDATE()`,
+    [employeeName],
+  );
+  const headline = String(info?.hook_headline || '').trim();
+  await connection.query(
+    `INSERT INTO day_plan_rows
+       (employee_name, employee_role, plan_date, report_type, client_name,
+        maintenance_date, today_plan, status, is_submitted)
+     VALUES (?, ?, CURDATE(), 'Morning', ?, ?, ?, 'PROCESSING', ?)`,
+    [
+      employeeName,
+      role?.role || null,
+      info?.client_name || null,
+      info?.due || null,
+      `${marker} ${title}${headline ? ` — ${headline}` : ''}`,
+      Number(submitted?.s) === 1 ? 1 : 0,
+    ],
+  );
+}
+
+async function requireCalendarSheetHandoff(connection, trackingItemId) {
+  const [rows] = await connection.query(
+    `SELECT cc.cc_handoff_at, cc.source_active, cc.is_emergency
+     FROM content_calendar cc
+     WHERE cc.task_item_id = ? AND cc.source_assignment_id IS NOT NULL
+     ORDER BY cc.id DESC`,
+    [trackingItemId],
+  );
+  const blocked = rows.some(
+    (row) => Number(row.source_active) === 1 &&
+      !row.cc_handoff_at &&
+      Number(row.is_emergency) !== 1,
+  );
+  if (blocked) {
+    const error = new Error('The Page/Ads Handler must finish and share this content sheet before work can start');
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+async function autoHoldOtherEmployeeTasks(connection, target, targetId, reason = '') {
+  const employeeId = Number(target.employee_id) || null;
+  const employeeName = String(target.employee_name || '').trim();
+  if (!employeeId && !employeeName) {
+    const error = new Error('The assigned employee could not be identified for exclusive task timing');
+    error.statusCode = 409;
+    throw error;
+  }
+  // Serialise starts for the same employee.
+  if (employeeId) {
+    await connection.query(`SELECT id FROM employee_users WHERE id = ? FOR UPDATE`, [employeeId]);
+  } else {
+    await connection.query(
+      `SELECT id FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1 FOR UPDATE`,
+      [employeeName],
+    );
+  }
+  // Holds any other running task AND any running Content Calendar category,
+  // after the employee gives a reason (409 AUTO_HOLD_REASON_REQUIRED otherwise).
+  return autoHoldForEmployee(
+    connection,
+    { employeeId, employeeName, excludeTaskId: targetId },
+    reason,
+  );
 }
 
 // function calculateWorkingDuration(row, customEndTime = null) {
@@ -285,7 +438,9 @@ async function updateDayPlannerDeliverables(taskListId) {
 router.get('/by-task-list/:taskListId', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT * FROM time_tracking_task_items WHERE task_list_id = ? ORDER BY s_no ASC`,
+      `SELECT * FROM time_tracking_task_items
+       WHERE task_list_id = ? AND parent_item_id IS NULL
+       ORDER BY s_no ASC`,
       [req.params.taskListId]
     );
     return res.json({ success: true, data: rows });
@@ -389,7 +544,7 @@ if (submitDate) {
     const [existing] = await db.query(
       `SELECT id
        FROM time_tracking_task_items
-       WHERE task_list_id = ? AND s_no = ?`,
+       WHERE task_list_id = ? AND s_no = ? AND parent_item_id IS NULL`,
       [taskListId, sNo]
     );
 
@@ -417,10 +572,10 @@ if (submitDate) {
            task_timing_id = ?,
            submit_date = COALESCE(?, submit_date),
            task_description = ?,
-           duration_secs = ?,
+           duration_secs = IF(status IN ('REWORK', 'COMPLETED') OR review_status IN ('REWORK', 'APPROVED', 'PENDING'), duration_secs, ?),
            comment = ?,
            performance = ?,
-           status = ?
+           status = IF(status IN ('REWORK', 'COMPLETED') OR review_status IN ('REWORK', 'APPROVED', 'PENDING'), status, ?)
          WHERE id = ?`,
         params
       );
@@ -505,28 +660,71 @@ if (submitDate) {
 // POST /api/tracking-items/:id/start
 router.post('/:id/start', async (req, res) => {
   const { id } = req.params;
+  let connection;
+  let autoHeldIds = [];
   try {
-    const [result] = await db.query(
-      // `UPDATE time_tracking_task_items SET start_time = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
-      `UPDATE time_tracking_task_items
-SET
-start_time = IFNULL(start_time, NOW()),
-status='IN PROGRESS'
-WHERE id=?`,
-      [id]
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [targetRows] = await connection.query(
+      `SELECT tti.*, tl.employee_id, tl.employee_name
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tti.id = ? FOR UPDATE`,
+      [id],
     );
-    if (result.affectedRows === 0)
+    if (!targetRows.length) {
+      await connection.rollback();
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
+    }
+    const target = targetRows[0];
+    if (['COMPLETED', 'REJECTED'].includes(String(target.status).toUpperCase())) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'A finished task cannot be started' });
+    }
+    if (String(target.review_status || '').toUpperCase() === 'APPROVED') {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'This task is approved and locked' });
+    }
+    if (['ON HOLD', 'REWORK'].includes(String(target.status).toUpperCase()) ||
+        (String(target.review_status || '').toUpperCase() === 'REWORK' && target.start_time)) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'Use RESTART for a held or rework task so the timer continues' });
+    }
 
-// 🟢 Auto-save to live tracking history
+    await requireCalendarSheetHandoff(connection, target.id);
+    await ensureTaskInDayPlan(connection, target, req.body?.day_planner_confirmed === true);
+    autoHeldIds = await autoHoldOtherEmployeeTasks(connection, target, id, req.body?.auto_hold_reason);
+
+    await connection.query(
+      `UPDATE time_tracking_task_items
+       SET start_time = IFNULL(start_time, NOW()), status = 'IN PROGRESS'
+       WHERE id = ?`,
+      [id],
+    );
+    await connection.commit();
+
+    for (const autoHeldId of autoHeldIds) {
+      await logLiveTrackingHistory(db, autoHeldId, 'ON HOLD');
+      emitTaskUpdate(req, autoHeldId, 'ON HOLD');
+    }
     await logLiveTrackingHistory(db, id, 'IN PROGRESS');
 
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
     emitTaskUpdate(req, id, 'IN PROGRESS');
-    return res.json({ success: true, message: 'Task started', data: rows[0] });
+    return res.json({
+      success: true,
+      message: 'Task started',
+      autoHeldTrackingItemIds: autoHeldIds,
+      data: rows[0],
+    });
   } catch (err) {
+    if (connection) await connection.rollback();
     console.error('POST /tracking-items/:id/start ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(err.statusCode || 500).json({
+      success: false, message: err.message, code: err.code, running: err.running, task: err.task,
+    });
+  } finally {
+    connection?.release();
   }
 });
 
@@ -564,12 +762,19 @@ WHERE id=?`,
 // POST /api/tracking-items/:id/hold
 router.post('/:id/hold', async (req, res) => {
   const { id } = req.params;
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) {
+    return res.status(400).json({ success: false, message: 'Hold reason is required' });
+  }
   try {
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
     if (rows.length === 0)
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
 
     const row = rows[0];
+    if (String(row.status).toUpperCase() !== 'IN PROGRESS') {
+      return res.status(409).json({ success: false, message: 'Only an in-progress task can be put on hold' });
+    }
     let slot = null;
     for (let i = 1; i <= 10; i++) {
       if (row[`hold_time_${i}`] === null) { slot = i; break; }
@@ -580,8 +785,16 @@ router.post('/:id/hold', async (req, res) => {
 
     // 1. Update hold time and status
     await db.query(
-      `UPDATE time_tracking_task_items SET hold_time_${slot} = NOW(), status = 'ON HOLD' WHERE id = ?`,
-      [id]
+      `UPDATE time_tracking_task_items
+       SET hold_time_${slot} = NOW(), status = 'ON HOLD',
+           comment = IF(
+             ? = '',
+             comment,
+             CONCAT(COALESCE(comment, ''), IF(COALESCE(comment, '') = '', '', '\\n'),
+                    'Hold reason: ', ?)
+           )
+       WHERE id = ?`,
+      [reason, reason, id]
     );
 
     // 2. Fetch updated row and calculate working duration so far
@@ -621,47 +834,80 @@ const [[task]] = await db.query(
 });
 
 // POST /api/tracking-items/:id/complete
+// Completing sends the row to Task Review (review_status = PENDING).
+// It only counts as finished once a manager approves it.
 router.post('/:id/complete', async (req, res) => {
   const { id } = req.params;
-  const { performance } = req.body;
 
   try {
-    const [result] = await db.query(
+    const [[current]] = await db.query(
+      `SELECT id, status, review_status FROM time_tracking_task_items WHERE id = ?`,
+      [id]
+    );
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Tracking item not found' });
+    }
+    if (String(current.review_status || '').toUpperCase() === 'APPROVED') {
+      return res.status(409).json({ success: false, message: 'This task is approved and locked' });
+    }
+    if (String(current.status).toUpperCase() !== 'IN PROGRESS') {
+      return res.status(409).json({ success: false, message: 'Only an in-progress task can be completed' });
+    }
+
+    await db.query(
       `UPDATE time_tracking_task_items
        SET complete_time = IFNULL(complete_time, NOW()),
            status = 'COMPLETED',
-           performance = ?
+           review_status = 'PENDING'
        WHERE id = ?`,
-      [performance || 'N/A', id]
+      [id]
     );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Tracking item not found' });
-    }
 
     const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
     const row = rows[0];
     const durationSecs = calculateWorkingDuration(row, row.complete_time);
+    const performance = req.body.performance || await computePerformance(row.task_list_id, durationSecs);
 
     await db.query(
-      `UPDATE time_tracking_task_items SET duration_secs = ? WHERE id = ?`,
-      [durationSecs, id]
+      `UPDATE time_tracking_task_items SET duration_secs = ?, performance = ? WHERE id = ?`,
+      [durationSecs, performance, id]
     );
+
+    // Put (or put back) the row in the manager's review queue.
+    const [review] = await db.query(
+      `SELECT id FROM manager_review WHERE tracking_item_id = ?`,
+      [id]
+    );
+    if (review.length) {
+      await db.query(
+        `UPDATE manager_review SET manager_action = 'ACTION', reviewed_at = NOW() WHERE id = ?`,
+        [review[0].id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO manager_review (tracking_item_id, manager_action, reviewed_at)
+         VALUES (?, 'ACTION', NOW())`,
+        [id]
+      );
+    }
+
     const [[task]] = await db.query(
-  `SELECT employee_name
-   FROM task_list
-   WHERE id=?`,
-  [row.task_list_id]
-);
+      `SELECT employee_name FROM task_list WHERE id = ?`,
+      [row.task_list_id]
+    );
+    if (task) {
+      await updateDayPlannerWorkingHours(task.employee_name);
+      await updateDayPlannerDeliverables(row.task_list_id);
+    }
 
-await updateDayPlannerWorkingHours(task.employee_name);
-await updateDayPlannerDeliverables(row.task_list_id);
-
-    // 🟢 Auto-save to live tracking history
     await logLiveTrackingHistory(db, id, 'COMPLETED');
 
     emitTaskUpdate(req, id, 'COMPLETED');
-    return res.json({ success: true, message: 'Task completed', data: { ...row, durationSecs } });
+    return res.json({
+      success: true,
+      message: 'Task completed and sent for review',
+      data: { ...row, durationSecs, performance, review_status: 'PENDING' },
+    });
   } catch (err) {
     console.error('POST /tracking-items/:id/complete ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -709,47 +955,84 @@ await updateDayPlannerDeliverables(row.task_list_id);
 // POST /api/tracking-items/:id/restart — fills the next empty restart_time_N (1-10)
 router.post('/:id/restart', async (req, res) => {
   const { id } = req.params;
+  let connection;
+  let autoHeldIds = [];
   try {
-    const [rows] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
-    if (rows.length === 0)
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT tti.*, tl.employee_id, tl.employee_name
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tti.id = ? FOR UPDATE`,
+      [id],
+    );
+    if (!rows.length) {
+      await connection.rollback();
       return res.status(404).json({ success: false, message: 'Tracking item not found' });
+    }
 
     const row = rows[0];
+    const currentStatus = String(row.status || '').toUpperCase();
+    const isRework = currentStatus === 'REWORK' ||
+      (String(row.review_status || '').toUpperCase() === 'REWORK' && currentStatus !== 'IN PROGRESS');
+    if (currentStatus !== 'ON HOLD' && !isRework) {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'Only a held or rework task can be restarted' });
+    }
+    if (String(row.review_status || '').toUpperCase() === 'APPROVED') {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'This task is approved and locked' });
+    }
+    await requireCalendarSheetHandoff(connection, row.id);
+    await ensureTaskInDayPlan(connection, row, req.body?.day_planner_confirmed === true);
+    autoHeldIds = await autoHoldOtherEmployeeTasks(connection, row, id, req.body?.auto_hold_reason);
+
     let slot = null;
     for (let i = 1; i <= 10; i++) {
       if (row[`restart_time_${i}`] === null) { slot = i; break; }
     }
     if (!slot) {
+      await connection.rollback();
       return res.status(400).json({ success: false, message: 'Maximum 10 restarts reached' });
     }
 
-    await db.query(
-      `UPDATE time_tracking_task_items SET restart_time_${slot} = NOW(), status = 'IN PROGRESS' WHERE id = ?`,
+    await connection.query(
+      `UPDATE time_tracking_task_items
+       SET restart_time_${slot} = NOW(), status = 'IN PROGRESS',
+           start_time = IFNULL(start_time, NOW()), complete_time = NULL
+       WHERE id = ?`,
       [id]
     );
 
-    const [updated] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [id]);
-const updatedRow = updatedRows[0];
-
-const [[task]] = await db.query(
-  `SELECT employee_name
-   FROM task_list
-   WHERE id=?`,
-  [updatedRow.task_list_id]
-);
-
-await updateDayPlannerWorkingHours(task.employee_name);
-await updateDayPlannerDeliverables(updated.task_list_id);
-
-// 🟢 Auto-save to live tracking history
+    await connection.commit();
+    for (const autoHeldId of autoHeldIds) {
+      await logLiveTrackingHistory(db, autoHeldId, 'ON HOLD');
+      emitTaskUpdate(req, autoHeldId, 'ON HOLD');
+    }
+    const [updated] = await db.query(
+      `SELECT * FROM time_tracking_task_items WHERE id = ?`,
+      [id],
+    );
+    await updateDayPlannerWorkingHours(row.employee_name);
+    await updateDayPlannerDeliverables(row.task_list_id);
     await logLiveTrackingHistory(db, id, 'IN PROGRESS');
-    
     emitTaskUpdate(req, id, 'IN PROGRESS');
-    return res.json({ success: true, message: `Task restarted (slot ${slot})`, data: updated[0] });
+    return res.json({
+      success: true,
+      message: `Task restarted (slot ${slot})`,
+      autoHeldTrackingItemIds: autoHeldIds,
+      data: updated[0],
+    });
   } catch (err) {
+    if (connection) await connection.rollback();
     console.error('POST /tracking-items/:id/restart ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
-  } 
+    return res.status(err.statusCode || 500).json({
+      success: false, message: err.message, code: err.code, running: err.running, task: err.task,
+    });
+  } finally {
+    connection?.release();
+  }
 });
 
 // POST /api/tracking-items/:id/complete
@@ -1021,3 +1304,4 @@ router.get('/history/:employeeName', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.ensureTaskInDayPlan = ensureTaskInDayPlan;

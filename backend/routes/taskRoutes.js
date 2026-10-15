@@ -22,7 +22,6 @@ router.post('/save-task-progress', (req, res) => {
     return res.status(400).json({ success: false, message: 'task_key is required' });
   }
 
-  // ✅ Use task_tracking_details table - SIMPLIFIED (no CASE WHEN with placeholders)
   const sql = `
     INSERT INTO task_tracking_details 
     (task_id, task_key, employee_name, client_name, task_name, submit_date, task_description, comment, row_count, created_at, updated_at)
@@ -89,7 +88,6 @@ router.post('/log-action', (req, res) => {
     });
   }
 
-  // ✅ Create immutable action log entry
   const sql = `
     INSERT INTO task_action_logs 
     (task_id, task_key, employee_name, client_name, task_name, action_type, action_timestamp, duration_so_far, current_session_duration, created_at)
@@ -199,7 +197,6 @@ router.post('/batch-update-tasks', (req, res) => {
         console.log(`✅ Updated task tracking: ${task_key}`);
       }
 
-      // When all queries are done, send response
       if (completedQueries === updates.length) {
         res.status(200).json({
           success: true,
@@ -239,7 +236,65 @@ router.get('/task-progress/:task_key', (req, res) => {
   });
 });
 
-// ✅ ENDPOINT 5: Get all actions for a task
+// ✅ ENDPOINT 5: Assigned client cards
+router.get('/assigned-client-cards', async (req, res) => {
+  try {
+    const employeeName = (req.user?.full_name || req.query.employeeName || '').trim();
+    const contentCalendarScope = (req.query.scope || '').toString() === 'content-calendar';
+    const isAdmin = (req.user?.user_type || '').toLowerCase() === 'admin';
+
+    const [assignments] = await db.query(
+      `SELECT ta.*, c.id AS client_db_id
+       FROM task_assignments ta
+       JOIN clients c ON UPPER(c.company_name) = UPPER(ta.client_name)
+       WHERE ta.is_assigned = 1 AND (c.is_active = 1 OR c.is_active = true)
+       ORDER BY ta.id DESC`
+    );
+
+    const same = (v, name) => (v || '').toString().trim().toUpperCase().includes(name.toUpperCase());
+
+    const clientMap = {};
+    for (const a of assignments) {
+      const cName = (a.client_name || '').trim();
+      if (!cName || cName === 'PENDING_SELECTION') continue;
+
+      const empUpper = employeeName.toUpperCase();
+      let isHandler = false;
+      if (empUpper.length === 0) {
+        isHandler = !contentCalendarScope;
+      } else if (contentCalendarScope) {
+        isHandler = same(a.page_handling, empUpper) || same(a.ads_handling, empUpper);
+      } else {
+        isHandler =
+          same(a.page_handling, empUpper) ||
+          same(a.ads_handling, empUpper) ||
+          same(a.designer, empUpper) ||
+          same(a.video_editor, empUpper) ||
+          same(a.videographer, empUpper);
+      }
+      if (!isHandler && !isAdmin) continue;
+
+      if (!clientMap[cName]) {
+        clientMap[cName] = {
+          client_id: a.client_db_id || a.id,
+          client_name: cName,
+          assignments: [],
+          deliverables_summary: [],
+          pending_deliverables: 0,
+          completed_deliverables: 0,
+        };
+      }
+      clientMap[cName].assignments.push(a);
+    }
+
+    return res.json({ success: true, data: Object.values(clientMap) });
+  } catch (err) {
+    console.error('GET /assigned-client-cards ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✅ ENDPOINT 6: Get all actions for a task
 router.get('/task-actions/:task_key', (req, res) => {
   const { task_key } = req.params;
 
@@ -264,7 +319,7 @@ router.get('/task-actions/:task_key', (req, res) => {
   });
 });
 
-// ✅ ENDPOINT 6: Get all tasks for an employee
+// ✅ ENDPOINT 7: Get all tasks for an employee
 router.get('/employee-tasks/:employee_name', (req, res) => {
   const { employee_name } = req.params;
 
@@ -289,7 +344,7 @@ router.get('/employee-tasks/:employee_name', (req, res) => {
   });
 });
 
-// ✅ ENDPOINT 7: Get analytics for a task
+// ✅ ENDPOINT 8: Get analytics for a task
 router.get('/task-analytics/:task_key', (req, res) => {
   const { task_key } = req.params;
 
@@ -312,7 +367,6 @@ router.get('/task-analytics/:task_key', (req, res) => {
       });
     }
 
-    // Calculate analytics
     let totalDuration = 0;
     let holdCount = 0;
     let restartCount = 0;

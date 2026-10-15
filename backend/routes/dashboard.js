@@ -843,7 +843,29 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
         tl.client_name,
         tl.deliverables AS task,
 
-        tti.duration_secs,
+        CASE
+          WHEN tti.status = 'IN PROGRESS'
+            AND COALESCE(
+              tti.restart_time_10, tti.restart_time_9, tti.restart_time_8,
+              tti.restart_time_7, tti.restart_time_6, tti.restart_time_5,
+              tti.restart_time_4, tti.restart_time_3, tti.restart_time_2,
+              tti.restart_time_1, tti.start_time
+            ) IS NOT NULL THEN
+            tti.duration_secs + GREATEST(
+              TIMESTAMPDIFF(
+                SECOND,
+                COALESCE(
+                  tti.restart_time_10, tti.restart_time_9, tti.restart_time_8,
+                  tti.restart_time_7, tti.restart_time_6, tti.restart_time_5,
+                  tti.restart_time_4, tti.restart_time_3, tti.restart_time_2,
+                  tti.restart_time_1, tti.start_time
+                ),
+                NOW()
+              ),
+              0
+            )
+          ELSE tti.duration_secs
+        END AS current_duration_secs,
         tti.task_description,
         
 
@@ -853,6 +875,17 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
         tti.status,
         
         tti.comment,
+        tti.start_time,
+        tti.restart_time_1,
+        tti.restart_time_2,
+        tti.restart_time_3,
+        tti.restart_time_4,
+        tti.restart_time_5,
+        tti.restart_time_6,
+        tti.restart_time_7,
+        tti.restart_time_8,
+        tti.restart_time_9,
+        tti.restart_time_10,
         tti.updated_at,
 
         COALESCE(mr.manager_action, 'ACTION') AS manager_action,
@@ -882,7 +915,7 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
     let totalWorkingSecs = 0;
 
     const data = rows.map((r) => {
-      const durationSecs = Number(r.duration_secs) || 0;
+      const durationSecs = Number(r.current_duration_secs) || 0;
 
       totalWorkingSecs += durationSecs;
 
@@ -903,6 +936,7 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
 
       return {
         trackingItemId: r.tracking_item_id,
+        taskType: 'ASSIGNED TASK',
 
         client_name: r.client_name,
 
@@ -916,6 +950,7 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
 
         // Actual tracking duration
         duration: durationStr,
+        duration_secs: durationSecs,
 
         status: r.status || 'IDLE',
 
@@ -927,6 +962,78 @@ router.get('/live-tracking-tasks/:employeeName', async (req, res) => {
          
         updated_at: r.updated_at
       };
+    });
+
+    const [calendarRows] = await db.query(
+      `SELECT
+         id,
+         client_name,
+         deliverable,
+         hook_headline,
+         description,
+         cc_status,
+         cc_duration_secs,
+         CASE
+           WHEN cc_status = 'IN PROGRESS' AND cc_started_at IS NOT NULL
+           THEN cc_duration_secs +
+             GREATEST(TIMESTAMPDIFF(SECOND, cc_started_at, NOW()), 0)
+           ELSE cc_duration_secs
+         END AS current_duration_secs,
+         cc_last_activity_at
+       FROM content_calendar cc
+       WHERE LOWER(TRIM(cc.cc_prepared_by_name)) = LOWER(TRIM(?))
+         AND cc.cc_status IN ('IN PROGRESS', 'ON HOLD', 'COMPLETED')
+         AND cc.source_active = 1
+         AND (
+           cc.source_assignment_id IS NULL
+           OR NOT EXISTS (
+             SELECT 1
+             FROM content_calendar earlier
+             WHERE earlier.source_assignment_id = cc.source_assignment_id
+               AND earlier.source_role = cc.source_role
+               AND earlier.source_task_index = cc.source_task_index
+               AND earlier.source_active = 1
+               AND earlier.source_row_number < cc.source_row_number
+           )
+         )
+         AND (? IS NULL OR DATE(cc.cc_last_activity_at) = ?)
+       ORDER BY cc.cc_last_activity_at DESC`,
+      [employeeName, targetDate, targetDate],
+    );
+
+    for (const row of calendarRows) {
+      const durationSecs = Number(row.current_duration_secs) || 0;
+      totalWorkingSecs += durationSecs;
+      const hrs = Math.floor(durationSecs / 3600);
+      const mins = Math.floor((durationSecs % 3600) / 60);
+      const secs = durationSecs % 60;
+      const description = [row.hook_headline, row.description]
+        .filter((value) => value && String(value).trim())
+        .join(' — ');
+
+      data.push({
+        trackingItemId: null,
+        calendarId: row.id,
+        taskType: 'CONTENT CALENDAR PREPARATION',
+        client_name: row.client_name,
+        employee_name: employeeName,
+        task: `Preparation: ${row.deliverable || 'Content Calendar'}`,
+        task_description: description,
+        duration: `${hrs} hrs ${mins} mins ${secs} secs`,
+        duration_secs: durationSecs,
+        status: row.cc_status || 'IDLE',
+        manager_action: 'ACTION',
+        manager_comment: '',
+        comment: '',
+        updated_at: row.cc_last_activity_at,
+      });
+    }
+
+    data.sort((a, b) => {
+      const aRunning = String(a.status).toUpperCase() === 'IN PROGRESS';
+      const bRunning = String(b.status).toUpperCase() === 'IN PROGRESS';
+      if (aRunning !== bRunning) return aRunning ? -1 : 1;
+      return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
     });
 
     return res.json({

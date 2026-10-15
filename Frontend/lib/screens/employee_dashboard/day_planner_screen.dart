@@ -7,7 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../services/api_config.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-
+import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
 class DayPlannerScreen extends StatefulWidget {
   const DayPlannerScreen({super.key});
@@ -22,7 +22,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 
   final ScrollController _horizontalController = ScrollController();
 
-   int get totalClients => filteredRows.length;
+  int get totalClients => filteredRows.length;
 
   int get completeCount =>
       filteredRows.where((e) => (e['status'] ?? '') == 'COMPLETE').length;
@@ -33,12 +33,12 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   int get processingCount =>
       filteredRows.where((e) => (e['status'] ?? '') == 'PROCESSING').length;
 
-  int get holdCount =>
-      filteredRows.where((e) => (e['status'] ?? '') == 'HOLD').length;
+  int get holdCount => filteredRows
+      .where((e) => (e['status'] ?? '') == 'HOLD' || (e['status'] ?? '') == 'REWORK')
+      .length;
 
   int get notStartCount =>
       filteredRows.where((e) => (e['status'] ?? '') == 'NOT START').length;
-
 
   DateTime selectedDate = DateTime.now();
   String employeeName = '';
@@ -47,260 +47,275 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   late IO.Socket socket;
 
   // Unique clients opened in planner rows vs Total unique assigned clients to this employee
-int get openedUniqueClientsCount => dayPlanRows.map((e) => e['client']).where((c) => c.toString().isNotEmpty).toSet().length;
-int get totalAssignedClientsCount => assignedClients.length;
-
+  int get openedUniqueClientsCount => dayPlanRows
+      .map((e) => e['client'])
+      .where((c) => c.toString().isNotEmpty)
+      .toSet()
+      .length;
+  int get totalAssignedClientsCount => assignedClients.length;
 
   final TextEditingController _searchController = TextEditingController();
 
   double get completionPercentage {
-  if (dayPlanRows.isEmpty) return 0;
+    if (dayPlanRows.isEmpty) return 0;
 
-  return completeCount / dayPlanRows.length;
-}
+    return completeCount / dayPlanRows.length;
+  }
 
-String _searchText = '';
+  String _searchText = '';
 
   bool _hasAdsColumn() {
-  for (final client in assignedClients) {
-    final temp = <String, dynamic>{};
+    for (final client in assignedClients) {
+      final temp = <String, dynamic>{};
 
-    _prefillRoleFieldsForClient(temp, client);
+      _prefillRoleFieldsForClient(temp, client);
 
-    if ((temp['ads'] ?? '').toString().trim().isNotEmpty) {
-      return true;
+      if ((temp['ads'] ?? '').toString().trim().isNotEmpty) {
+        return true;
+      }
     }
-  }
-  return false;
-}
-
-bool _hasDeliverable(int no) {
-  final field = 'deliverables_$no';
-
-  for (final client in assignedClients) {
-    final temp = <String, dynamic>{};
-
-    _prefillRoleFieldsForClient(temp, client);
-
-    if ((temp[field] ?? '').toString().trim().isNotEmpty) {
-      return true;
-    }
+    return false;
   }
 
-  return false;
-}
+  bool _hasDeliverable(int no) {
+    final field = 'deliverables_$no';
+
+    for (final client in assignedClients) {
+      final temp = <String, dynamic>{};
+
+      _prefillRoleFieldsForClient(temp, client);
+
+      if ((temp[field] ?? '').toString().trim().isNotEmpty) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 
   List<Map<String, dynamic>> assignedTasks = [];
   List<String> assignedClients = [];
   Map<String, String> clientMaintenanceDates = {};
-List<Map<String, dynamic>> additionalTasks = [];
+  List<Map<String, dynamic>> additionalTasks = [];
 
-  static const List<String> statusOptions = ['NOT START', 'PENDING', 'COMPLETE', 'HOLD', 'PROCESSING'];
+  static const List<String> statusOptions = [
+    'NOT START',
+    'PENDING',
+    'COMPLETE',
+    'HOLD',
+    'PROCESSING',
+  ];
   static const List<String> yesNoOptions = ['YES', 'NO'];
 
-  String _deadlineLevel = 'none'; // 'none' | 'warning' | 'urgent' | 'admin_notified'
-
+  String _deadlineLevel =
+      'none'; // 'none' | 'warning' | 'urgent' | 'admin_notified'
 
   List<Map<String, dynamic>> dayPlanRows = [];
 
+  // Rows added from My Tasks / Content Calendar carry a marker in Today Plan:
+  //   "[Task Row #21] …"  or  "[Calendar Row #45] …"
+  // _planItems maps 'task:21' / 'cc:45' → live item (status, actions).
+  Map<String, Map<String, dynamic>> _planItems = {};
+  static final RegExp _taskMarker = RegExp(r'\[Task Row #(\d+)\]');
+  static final RegExp _calMarker = RegExp(r'\[Calendar Row #(\d+)\]');
 
-// ============================================================
-// CLIENT ROW LIMIT / SELECTION CONTROL
-// ============================================================
+  String? _refFor(Map<String, dynamic> row) {
+    final plan = (row['today_plan'] ?? '').toString();
+    final t = _taskMarker.firstMatch(plan);
+    if (t != null) return 'task:${t.group(1)}';
+    final c = _calMarker.firstMatch(plan);
+    if (c != null) return 'cc:${c.group(1)}';
+    return null;
+  }
 
-int _getMaxAllowedRowsForClient(String clientName) {
-  int count = 0;
+  String _planText(String value) =>
+      value.replaceAll(_taskMarker, '').replaceAll(_calMarker, '').trim();
 
-  final auth = Provider.of<AuthService>(
-    context,
-    listen: false,
-  );
+  Future<void> _loadPlanItems() async {
+    final refs = dayPlanRows.map(_refFor).whereType<String>().toSet();
+    if (refs.isEmpty) {
+      if (mounted) setState(() => _planItems = {});
+      return;
+    }
+    try {
+      final res = await http.get(Uri.parse('$_baseUrl/workspace-tasks/items-by-ref').replace(
+        queryParameters: {'employee': employeeName, 'refs': refs.join(',')},
+      ));
+      if (res.statusCode != 200 || !mounted) return;
+      final data = jsonDecode(res.body)['data'];
+      if (data is! Map) return;
+      setState(() {
+        _planItems = {
+          for (final e in data.entries)
+            if (e.value is Map) '${e.key}': Map<String, dynamic>.from(e.value as Map),
+        };
+      });
+    } catch (e) {
+      debugPrint('Planner items load error: $e');
+    }
+  }
 
-  final myName =
-      (auth.user?['fullName'] as String? ?? '')
+  // ============================================================
+  // CLIENT ROW LIMIT / SELECTION CONTROL
+  // ============================================================
+
+  int _getMaxAllowedRowsForClient(String clientName) {
+    int count = 0;
+
+    final auth = Provider.of<AuthService>(context, listen: false);
+
+    final myName = (auth.user?['fullName'] as String? ?? '')
+        .trim()
+        .toUpperCase();
+
+    // Safety fallback
+    if (myName.isEmpty) {
+      return 1;
+    }
+
+    // ------------------------------------------------------------
+    // 1. NORMAL ASSIGNED TASKS
+    // ------------------------------------------------------------
+
+    final clientTasks = assignedTasks.where(
+      (task) =>
+          (task['client_name'] ?? '').toString().trim() == clientName.trim(),
+    );
+
+    for (final task in clientTasks) {
+      // ----------------------------------------------------------
+      // ADS
+      // ----------------------------------------------------------
+
+      final adsEmployee = (task['ads_handling'] ?? '')
+          .toString()
           .trim()
           .toUpperCase();
 
-  // Safety fallback
-  if (myName.isEmpty) {
-    return 1;
-  }
+      final adsPlatform = (task['ads_platform'] ?? '').toString().trim();
 
-  // ------------------------------------------------------------
-  // 1. NORMAL ASSIGNED TASKS
-  // ------------------------------------------------------------
+      if (adsEmployee == myName && adsPlatform.isNotEmpty) {
+        count++;
+      }
 
-  final clientTasks = assignedTasks.where(
-    (task) =>
-        (task['client_name'] ?? '').toString().trim() ==
-        clientName.trim(),
-  );
+      // ----------------------------------------------------------
+      // OTHER ROLE BASED TASKS
+      // ----------------------------------------------------------
 
-  for (final task in clientTasks) {
-    // ----------------------------------------------------------
-    // ADS
-    // ----------------------------------------------------------
+      const roleColumns = [
+        'page_handling',
+        'designer',
+        'videographer',
+        'video_editor',
+        'developer',
+        'ui_ux_designer',
+        'website_designer',
+      ];
 
-    final adsEmployee =
-        (task['ads_handling'] ?? '')
+      for (final roleColumn in roleColumns) {
+        final String taskField = roleColumn == 'page_handling'
+            ? 'pages_platform'
+            : roleColumn == 'website_designer'
+            ? 'website_designer_tasks'
+            : '${roleColumn}_tasks';
+
+        final taskValues = (task[taskField] ?? '').toString().trim();
+
+        final roleEmployee = (task[roleColumn] ?? '')
             .toString()
             .trim()
             .toUpperCase();
 
-    final adsPlatform =
-        (task['ads_platform'] ?? '')
-            .toString()
-            .trim();
+        if (roleEmployee == myName && taskValues.isNotEmpty) {
+          final taskCount = taskValues
+              .split(',')
+              .where((value) => value.trim().isNotEmpty)
+              .length;
 
-    if (adsEmployee == myName && adsPlatform.isNotEmpty) {
+          count += taskCount > 0 ? taskCount : 1;
+        }
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 2. ADDITIONAL TASKS
+    // ------------------------------------------------------------
+
+    final clientAdditionalTasks = additionalTasks.where(
+      (task) =>
+          (task['client_name'] ?? '').toString().trim() == clientName.trim(),
+    );
+
+    for (final _ in clientAdditionalTasks) {
       count++;
     }
 
-    // ----------------------------------------------------------
-    // OTHER ROLE BASED TASKS
-    // ----------------------------------------------------------
+    // ------------------------------------------------------------
+    // SAFETY
+    // ------------------------------------------------------------
 
-    const roleColumns = [
-      'page_handling',
-      'designer',
-      'videographer',
-      'video_editor',
-      'developer',
-      'ui_ux_designer',
-      'website_designer',
-    ];
+    return count > 0 ? count : 1;
+  }
 
-    for (final roleColumn in roleColumns) {
-      final String taskField =
-          roleColumn == 'page_handling'
-              ? 'pages_platform'
-              : roleColumn == 'website_designer'
-                  ? 'website_designer_tasks'
-              : '${roleColumn}_tasks';
+  // ============================================================
+  // CHECK WHETHER CLIENT CAN BE SELECTED
+  // ============================================================
 
-      final taskValues =
-          (task[taskField] ?? '')
-              .toString()
-              .trim();
+  bool _isClientSelectionAllowed(String clientName, String? currentRowId) {
+    final maxAllowed = _getMaxAllowedRowsForClient(clientName);
 
-      final roleEmployee =
-          (task[roleColumn] ?? '')
-              .toString()
-              .trim()
-              .toUpperCase();
-
-      if (roleEmployee == myName && taskValues.isNotEmpty) {
-        final taskCount = taskValues
-            .split(',')
-            .where(
-              (value) => value.trim().isNotEmpty,
-            )
-            .length;
-
-        count += taskCount > 0 ? taskCount : 1;
+    // Count how many planner rows already use
+    // this client for the selected date.
+    final currentSelectedCount = filteredRows.where((row) {
+      // While editing an existing row,
+      // don't count the same row again.
+      if (currentRowId != null &&
+          row['id'].toString() == currentRowId.toString()) {
+        return false;
       }
-    }
+
+      final rowClient = (row['client'] ?? '').toString().trim();
+
+      return rowClient == clientName.trim();
+    }).length;
+
+    return currentSelectedCount < maxAllowed;
   }
 
-  // ------------------------------------------------------------
-  // 2. ADDITIONAL TASKS
-  // ------------------------------------------------------------
+  bool _didInitialLoad = false;
 
-  final clientAdditionalTasks =
-      additionalTasks.where(
-    (task) =>
-        (task['client_name'] ?? '')
-            .toString()
-            .trim() ==
-        clientName.trim(),
-  );
+  bool _validateRows() {
+    for (final row in filteredRows) {
+      // if ((row['client'] ?? '').toString().trim().isEmpty) {
+      //   _showValidationMessage("Please select a client.");
+      //   return false;
+      // }
 
-  for (final task in clientAdditionalTasks) {
-    count++;
+      if ((row['today_plan'] ?? '').toString().trim().isEmpty) {
+        _showValidationMessage("Please enter today's plan.");
+        return false;
+      }
+
+      // Status is automatic (from My Tasks / Content Calendar) — no check.
+    }
+
+    return true;
   }
 
-  // ------------------------------------------------------------
-  // SAFETY
-  // ------------------------------------------------------------
-
-  return count > 0 ? count : 1;
-}
-
-
-// ============================================================
-// CHECK WHETHER CLIENT CAN BE SELECTED
-// ============================================================
-
-bool _isClientSelectionAllowed(
-  String clientName,
-  String? currentRowId,
-) {
-  final maxAllowed =
-      _getMaxAllowedRowsForClient(clientName);
-
-  // Count how many planner rows already use
-  // this client for the selected date.
-  final currentSelectedCount =
-      filteredRows.where((row) {
-
-    // While editing an existing row,
-    // don't count the same row again.
-    if (currentRowId != null &&
-        row['id'].toString() ==
-            currentRowId.toString()) {
-      return false;
-    }
-
-    final rowClient =
-        (row['client'] ?? '')
-            .toString()
-            .trim();
-
-    return rowClient == clientName.trim();
-
-  }).length;
-
-  return currentSelectedCount < maxAllowed;
-}
-
-bool _didInitialLoad = false;
-
-bool _validateRows() {
-  for (final row in filteredRows) {
-    // if ((row['client'] ?? '').toString().trim().isEmpty) {
-    //   _showValidationMessage("Please select a client.");
-    //   return false;
-    // }
-
-    if ((row['today_plan'] ?? '').toString().trim().isEmpty) {
-      _showValidationMessage("Please enter today's plan.");
-      return false;
-    }
-
-    if ((row['status'] ?? '').toString().trim().isEmpty) {
-      _showValidationMessage("Please select status.");
-      return false;
-    }
+  void _showValidationMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.orange),
+    );
   }
 
-  return true;
-}
-void _showValidationMessage(String message) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      backgroundColor: Colors.orange,
-    ),
-  );
-}
   @override
   void initState() {
     super.initState();
     // FIX: removed loadAssignedClients()/loadTodayDayPlan() from here —
     // employeeName is still '' at this point, so both calls were hitting
     // the backend with a blank name.
-  _checkDeadlineStatus();
-  _initSocketListener();
+    _checkDeadlineStatus();
+    _initSocketListener();
   }
 
   // void _initSocketListener() {
@@ -325,46 +340,46 @@ void _showValidationMessage(String message) {
   // }
 
   void _initSocketListener() {
-  socket = IO.io(
-    ApiConfig.socketUrl,
-    IO.OptionBuilder()
-        .setTransports(['websocket'])
-        .enableForceNew()
-        .disableAutoConnect()
-        .build(),
-  );
+    socket = IO.io(
+      ApiConfig.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
+    );
 
-  socket.connect();
+    socket.connect();
 
-  socket.off('task_updated');
+    socket.off('task_updated');
 
-  socket.on('task_updated', (data) async {
-    print("🔥 Day Planner Live Update: $data");
+    socket.on('task_updated', (data) async {
+      print("🔥 Day Planner Live Update: $data");
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    try {
-      // Reload latest day planner data
-      await loadTodayDayPlan();
+      try {
+        // Reload latest day planner data
+        await loadTodayDayPlan();
 
-      // Refresh completed / balanced deliverables
-      for (final row in dayPlanRows) {
-        if ((row['client'] ?? '').toString().trim().isNotEmpty) {
-          await loadProgress(row);
+        // Refresh completed / balanced deliverables
+        for (final row in dayPlanRows) {
+          if ((row['client'] ?? '').toString().trim().isNotEmpty) {
+            await loadProgress(row);
+          }
         }
-      }
 
-      // Refresh working hours
-      await _fetchTotalWorkingHours();
+        // Refresh working hours
+        await _fetchTotalWorkingHours();
 
-      if (mounted) {
-        setState(() {});
+        if (mounted) {
+          setState(() {});
+        }
+      } catch (e) {
+        debugPrint("Socket refresh error: $e");
       }
-    } catch (e) {
-      debugPrint("Socket refresh error: $e");
-    }
-  });
-}
+    });
+  }
 
   @override
   void dispose() {
@@ -389,32 +404,27 @@ void _showValidationMessage(String message) {
       loadAssignedClients();
       loadTodayDayPlan();
 
-  _checkDeadlineStatus();
+      _checkDeadlineStatus();
     }
   }
 
-void _scheduleAutoSave(Map<String, dynamic> row) {
-  _autoSaveTimer?.cancel();
+  void _scheduleAutoSave(Map<String, dynamic> row) {
+    _autoSaveTimer?.cancel();
 
-  _autoSaveTimer = Timer(
-    const Duration(seconds: 2),
-    () async {
+    _autoSaveTimer = Timer(const Duration(seconds: 2), () async {
       if (row['id'] != null) {
-  await _saveRow(
-    row,
-    lockRow: false,
-    showMessage: false,
-  );
-}
-    },
-  );
-}
+        await _saveRow(row, lockRow: false, showMessage: false);
+      }
+    });
+  }
 
-Future<void> _checkDeadlineStatus() async {
+  Future<void> _checkDeadlineStatus() async {
     if (employeeName.isEmpty) return;
     try {
       final r = await http.get(
-        Uri.parse('$_baseUrl/day-planner/status/${Uri.encodeComponent(employeeName)}'),
+        Uri.parse(
+          '$_baseUrl/day-planner/status/${Uri.encodeComponent(employeeName)}',
+        ),
       );
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
@@ -429,327 +439,348 @@ Future<void> _checkDeadlineStatus() async {
 
   Widget? _buildDeadlineBanner() {
     if (_deadlineLevel == 'none') return null;
- 
+
     late Color bgColor;
     late Color textColor;
     late IconData icon;
     late String message;
- 
+
     switch (_deadlineLevel) {
       case 'warning':
         bgColor = const Color(0xFFFEF3C7);
         textColor = const Color(0xFF92400E);
         icon = Icons.warning_amber_rounded;
-        message = 'Your Day Plan has not been submitted yet. Please submit before 9:30 AM.';
+        message =
+            'Your Day Plan has not been submitted yet. Please submit before 9:30 AM.';
         break;
       case 'urgent':
         bgColor = const Color(0xFFFFEDD5);
         textColor = const Color(0xFF9A3412);
         icon = Icons.error_outline_rounded;
-        message = 'URGENT: Day Plan still not submitted. Submit now to avoid being reported to Admin.';
+        message =
+            'URGENT: Day Plan still not submitted. Submit now to avoid being reported to Admin.';
         break;
       case 'admin_notified':
         bgColor = const Color(0xFFFEE2E2);
         textColor = const Color(0xFFB91C1C);
         icon = Icons.report_gmailerrorred_rounded;
-        message = 'Deadline passed - Admin has been notified that your Day Plan is not submitted.';
+        message =
+            'Deadline passed - Admin has been notified that your Day Plan is not submitted.';
         break;
       default:
         return null;
     }
- 
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(6)),
-      child: Row(children: [
-        Icon(icon, size: 18, color: textColor),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(message, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textColor)),
-        ),
-      ]),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: textColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  
+  void _prefillRoleFieldsForClient(
+    Map<String, dynamic> row,
+    String clientName,
+  ) {
+    final auth = Provider.of<AuthService>(context, listen: false);
 
-void _prefillRoleFieldsForClient(
-  Map<String, dynamic> row,
-  String clientName,
-) {
-  final auth = Provider.of<AuthService>(context, listen: false);
+    final myName = (auth.user?['fullName'] as String? ?? '')
+        .trim()
+        .toUpperCase();
 
-  final myName =
-      (auth.user?['fullName'] as String? ?? '').trim().toUpperCase();
+    if (myName.isEmpty) return;
 
-  if (myName.isEmpty) return;
+    row['ads'] = '';
 
-  row['ads'] = '';
-
-  // Clear all deliverables
-  for (int i = 1; i <= 6; i++) {
-    row['deliverables_$i'] = '';
-    row['complete_deliverables_$i'] = '';
-    row['balanced_deliverables_$i'] = '';
-  }
-
-  final clientTasks = assignedTasks.where(
-    (task) => (task['client_name'] ?? '').toString() == clientName,
-  );
-
-  int nextIndex = 1;
-
-  for (final task in clientTasks) {
-    //---------------------------------------------
-    // ADS
-    //---------------------------------------------
-    final adsEmployee =
-        (task['ads_handling'] ?? '').toString().trim().toUpperCase();
-
-    if (adsEmployee == myName) {
-      row['ads'] = task['ads_platform'] ?? '';
+    // Clear all deliverables
+    for (int i = 1; i <= 6; i++) {
+      row['deliverables_$i'] = '';
+      row['complete_deliverables_$i'] = '';
+      row['balanced_deliverables_$i'] = '';
     }
 
-    //---------------------------------------------
-    // PAGE
-    //---------------------------------------------
-    final pageEmployee =
-        (task['page_handling'] ?? '').toString().trim().toUpperCase();
+    final clientTasks = assignedTasks.where(
+      (task) => (task['client_name'] ?? '').toString() == clientName,
+    );
 
-    if (pageEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['pages_platform'] ?? '').toString();
-      nextIndex++;
-    }
+    int nextIndex = 1;
 
-    //---------------------------------------------
-    // DESIGNER
-    //---------------------------------------------
-    final designerEmployee =
-        (task['designer'] ?? '').toString().trim().toUpperCase();
+    for (final task in clientTasks) {
+      //---------------------------------------------
+      // ADS
+      //---------------------------------------------
+      final adsEmployee = (task['ads_handling'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
 
-    if (designerEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['designer_tasks'] ?? '').toString();
-      nextIndex++;
-    }
-
-    //---------------------------------------------
-    // VIDEOGRAPHER
-    //---------------------------------------------
-    final videoEmployee =
-        (task['videographer'] ?? '').toString().trim().toUpperCase();
-
-    if (videoEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['videographer_tasks'] ?? '').toString();
-      nextIndex++;
-    }
-
-    //---------------------------------------------
-    // VIDEO EDITOR
-    //---------------------------------------------
-    final editorEmployee =
-        (task['video_editor'] ?? '').toString().trim().toUpperCase();
-
-    if (editorEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['video_editor_task'] ?? '').toString();
-      nextIndex++;
-    }
-
-    //---------------------------------------------
-    // DEVELOPER
-    //---------------------------------------------
-    final developerEmployee =
-        (task['developer'] ?? '').toString().trim().toUpperCase();
-
-    if (developerEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['developer_tasks'] ?? '').toString();
-      nextIndex++;
-    }
-
-    //---------------------------------------------
-    // UI UX
-    //---------------------------------------------
-    final uiuxEmployee =
-        (task['ui_ux_designer'] ?? '').toString().trim().toUpperCase();
-
-    if (uiuxEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['ui_ux_tasks'] ?? '').toString();
-      nextIndex++;
-    }
-
-    //---------------------------------------------
-    // WEBSITE DESIGNER
-    //---------------------------------------------
-    final websiteDesignerEmployee =
-        (task['website_designer'] ?? '').toString().trim().toUpperCase();
-
-    if (websiteDesignerEmployee == myName && nextIndex <= 6) {
-      row['deliverables_$nextIndex'] =
-          (task['website_designer_tasks'] ?? '').toString();
-      nextIndex++;
-    }
-  }
-
-  //---------------------------------------------
-  // ADDITIONAL TASKS
-  //---------------------------------------------
-  final addTasks = additionalTasks.where(
-    (e) => (e['client_name'] ?? '') == clientName,
-  );
-
-  for (final task in addTasks) {
-    if (nextIndex > 6) break;
-
-    final total =
-        int.tryParse(task['no_of_rows'].toString()) ?? 1;
-
-    final taskName =
-        (task['deliverables'] ?? '').toString();
-
-    row['deliverables_$nextIndex'] =
-        "$taskName ($total)";
-
-    row['complete_deliverables_$nextIndex'] =
-        "$taskName (0/$total)";
-
-    row['balanced_deliverables_$nextIndex'] =
-        "$taskName ($total/$total)";
-
-    nextIndex++;
-  }
-
-  //---------------------------------------------
-  // DEFAULT COMPLETE / BALANCE
-  //---------------------------------------------
-  for (int i = 1; i <= 6; i++) {
-    final deliverable =
-        (row['deliverables_$i'] ?? '').toString().trim();
-
-    if (deliverable.isNotEmpty) {
-      final deliverableList = deliverable
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-
-      final completeList = <String>[];
-      final balancedList = <String>[];
-
-      for (final taskName in deliverableList) {
-        // Parse e.g. "POSTER (1)"
-        // name = POSTER
-        // total = 1
-        final match = RegExp(
-          r'^(.*?)\s*\((\d+)\)\s*$',
-        ).firstMatch(taskName);
-
-        final name =
-            match != null
-                ? match.group(1)!.trim()
-                : taskName;
-
-        final total =
-            match != null
-                ? int.tryParse(match.group(2)!) ?? 1
-                : 1;
-
-        completeList.add('$name (0/$total)');
-        balancedList.add('$name ($total/$total)');
+      if (adsEmployee == myName) {
+        row['ads'] = task['ads_platform'] ?? '';
       }
 
-      row['complete_deliverables_$i'] =
-          completeList.join(', ');
+      //---------------------------------------------
+      // PAGE
+      //---------------------------------------------
+      final pageEmployee = (task['page_handling'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
 
-      row['balanced_deliverables_$i'] =
-          balancedList.join(', ');
+      if (pageEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['pages_platform'] ?? '')
+            .toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // DESIGNER
+      //---------------------------------------------
+      final designerEmployee = (task['designer'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (designerEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['designer_tasks'] ?? '')
+            .toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // VIDEOGRAPHER
+      //---------------------------------------------
+      final videoEmployee = (task['videographer'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (videoEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['videographer_tasks'] ?? '')
+            .toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // VIDEO EDITOR
+      //---------------------------------------------
+      final editorEmployee = (task['video_editor'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (editorEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['video_editor_task'] ?? '')
+            .toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // DEVELOPER
+      //---------------------------------------------
+      final developerEmployee = (task['developer'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (developerEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['developer_tasks'] ?? '')
+            .toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // UI UX
+      //---------------------------------------------
+      final uiuxEmployee = (task['ui_ux_designer'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (uiuxEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['ui_ux_tasks'] ?? '').toString();
+        nextIndex++;
+      }
+
+      //---------------------------------------------
+      // WEBSITE DESIGNER
+      //---------------------------------------------
+      final websiteDesignerEmployee = (task['website_designer'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      if (websiteDesignerEmployee == myName && nextIndex <= 6) {
+        row['deliverables_$nextIndex'] = (task['website_designer_tasks'] ?? '')
+            .toString();
+        nextIndex++;
+      }
     }
-  }
-}
 
-Future<void> loadTodayDayPlan() async {
-  // Format the date as YYYY-MM-DD to ensure the backend filters correctly
-  String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-
-  try {
-    final response = await http.get(
-      Uri.parse("$_baseUrl/day-planner/today/$employeeName?date=$formattedDate"),
+    //---------------------------------------------
+    // ADDITIONAL TASKS
+    //---------------------------------------------
+    final addTasks = additionalTasks.where(
+      (e) => (e['client_name'] ?? '') == clientName,
     );
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
+    for (final task in addTasks) {
+      if (nextIndex > 6) break;
 
-      setState(() {
-        dayPlanRows.clear();
- 
-        for (final item in data) {
-          dayPlanRows.add({
-            'id': item['id'],
-            // Use the string date provided by the backend, which is in YYYY-MM-DD format
-            'date': DateTime.parse(item['date']), 
-            'client': item['client'] ?? '',
-            'maintenance_date': item['maintenance_date'] ?? '',
-            'ads': item['ads'] ?? '',
-            'today_leads': item['today_leads'] ?? '',
-            'today_report': item['today_report'] ?? '',
-            'deliverables_1': item['deliverables_1'] ?? '',
-            'complete_deliverables_1': item['complete_deliverables_1'] ?? '',
-            'balanced_deliverables_1': item['balanced_deliverables_1'] ?? '',
-            'deliverables_2': item['deliverables_2'] ?? '',
-            'complete_deliverables_2': item['complete_deliverables_2'] ?? '',
-            'balanced_deliverables_2': item['balanced_deliverables_2'] ?? '',
-            'deliverables_3': item['deliverables_3'] ?? '',
-            'complete_deliverables_3': item['complete_deliverables_3'] ?? '',
-            'balanced_deliverables_3': item['balanced_deliverables_3'] ?? '',
-            'deliverables_4': item['deliverables_4'] ?? '',
-'complete_deliverables_4': item['complete_deliverables_4'] ?? '',
-'balanced_deliverables_4': item['balanced_deliverables_4'] ?? '',
+      final total = int.tryParse(task['no_of_rows'].toString()) ?? 1;
 
-'deliverables_5': item['deliverables_5'] ?? '',
-'complete_deliverables_5': item['complete_deliverables_5'] ?? '',
-'balanced_deliverables_5': item['balanced_deliverables_5'] ?? '',
+      final taskName = (task['deliverables'] ?? '').toString();
 
-'deliverables_6': item['deliverables_6'] ?? '',
-'complete_deliverables_6': item['complete_deliverables_6'] ?? '',
-'balanced_deliverables_6': item['balanced_deliverables_6'] ?? '',
-            'today_plan': item['today_plan'] ?? '',
-            'status': item['status'] ?? '',
-            'remarks': item['remarks'] ?? '',
-            '_editing': false, // Existing records are read-only
-          });
+      row['deliverables_$nextIndex'] = "$taskName ($total)";
+
+      row['complete_deliverables_$nextIndex'] = "$taskName (0/$total)";
+
+      row['balanced_deliverables_$nextIndex'] = "$taskName ($total/$total)";
+
+      nextIndex++;
+    }
+
+    //---------------------------------------------
+    // DEFAULT COMPLETE / BALANCE
+    //---------------------------------------------
+    for (int i = 1; i <= 6; i++) {
+      final deliverable = (row['deliverables_$i'] ?? '').toString().trim();
+
+      if (deliverable.isNotEmpty) {
+        final deliverableList = deliverable
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+
+        final completeList = <String>[];
+        final balancedList = <String>[];
+
+        for (final taskName in deliverableList) {
+          // Parse e.g. "POSTER (1)"
+          // name = POSTER
+          // total = 1
+          final match = RegExp(r'^(.*?)\s*\((\d+)\)\s*$').firstMatch(taskName);
+
+          final name = match != null ? match.group(1)!.trim() : taskName;
+
+          final total = match != null ? int.tryParse(match.group(2)!) ?? 1 : 1;
+
+          completeList.add('$name (0/$total)');
+          balancedList.add('$name ($total/$total)');
         }
 
-      });
-      await _fetchTotalWorkingHours();
-    } 
-    else {
-      debugPrint('Failed to load day plan: ${response.statusCode}');
+        row['complete_deliverables_$i'] = completeList.join(', ');
+
+        row['balanced_deliverables_$i'] = balancedList.join(', ');
+      }
     }
-  } catch (e) {
-    debugPrint('Error in loadTodayDayPlan: $e');
   }
-}
 
-// String _formatMaintenanceDate(String value) {
-//   if (value.trim().isEmpty) return '';
+  Future<void> loadTodayDayPlan() async {
+    // Format the date as YYYY-MM-DD to ensure the backend filters correctly
+    String formattedDate =
+        "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
 
-//   try {
-//     final date = DateTime.parse(value).toLocal();
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "$_baseUrl/day-planner/today/$employeeName?date=$formattedDate",
+        ),
+      );
 
-//     return "${date.day}/${date.month}/${date.year}";
-//   } catch (_) {
-//     return value;
-//   }
-// }
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
 
-String _formatMaintenanceDate(String value) {
-  return value;
-}
+        setState(() {
+          dayPlanRows.clear();
+
+          for (final item in data) {
+            dayPlanRows.add({
+              'id': item['id'],
+              // Use the string date provided by the backend, which is in YYYY-MM-DD format
+              'date': DateTime.parse(item['date']),
+              'client': item['client'] ?? '',
+              'maintenance_date': item['maintenance_date'] ?? '',
+              'ads': item['ads'] ?? '',
+              'today_leads': item['today_leads'] ?? '',
+              'today_report': item['today_report'] ?? '',
+              'deliverables_1': item['deliverables_1'] ?? '',
+              'complete_deliverables_1': item['complete_deliverables_1'] ?? '',
+              'balanced_deliverables_1': item['balanced_deliverables_1'] ?? '',
+              'deliverables_2': item['deliverables_2'] ?? '',
+              'complete_deliverables_2': item['complete_deliverables_2'] ?? '',
+              'balanced_deliverables_2': item['balanced_deliverables_2'] ?? '',
+              'deliverables_3': item['deliverables_3'] ?? '',
+              'complete_deliverables_3': item['complete_deliverables_3'] ?? '',
+              'balanced_deliverables_3': item['balanced_deliverables_3'] ?? '',
+              'deliverables_4': item['deliverables_4'] ?? '',
+              'complete_deliverables_4': item['complete_deliverables_4'] ?? '',
+              'balanced_deliverables_4': item['balanced_deliverables_4'] ?? '',
+
+              'deliverables_5': item['deliverables_5'] ?? '',
+              'complete_deliverables_5': item['complete_deliverables_5'] ?? '',
+              'balanced_deliverables_5': item['balanced_deliverables_5'] ?? '',
+
+              'deliverables_6': item['deliverables_6'] ?? '',
+              'complete_deliverables_6': item['complete_deliverables_6'] ?? '',
+              'balanced_deliverables_6': item['balanced_deliverables_6'] ?? '',
+              'today_plan': item['today_plan'] ?? '',
+              'status': item['status'] ?? '',
+              'remarks': item['remarks'] ?? '',
+              '_editing': false, // Existing records are read-only
+            });
+          }
+        });
+        await _loadPlanItems();
+        // Fresh done/total for the TASKS column.
+        for (final row in List<Map<String, dynamic>>.from(dayPlanRows)) {
+          if ((row['client'] ?? '').toString().trim().isNotEmpty) {
+            await loadProgress(row);
+          }
+        }
+        await _fetchTotalWorkingHours();
+      } else {
+        debugPrint('Failed to load day plan: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error in loadTodayDayPlan: $e');
+    }
+  }
+
+  // String _formatMaintenanceDate(String value) {
+  //   if (value.trim().isEmpty) return '';
+
+  //   try {
+  //     final date = DateTime.parse(value).toLocal();
+
+  //     return "${date.day}/${date.month}/${date.year}";
+  //   } catch (_) {
+  //     return value;
+  //   }
+  // }
+
+  String _formatMaintenanceDate(String value) {
+    return value;
+  }
 
   Future<void> loadAssignedClients() async {
     final auth = Provider.of<AuthService>(context, listen: false);
@@ -758,23 +789,32 @@ String _formatMaintenanceDate(String value) {
 
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/employee-tasks/by-employee/${Uri.encodeComponent(name)}'),
+        Uri.parse(
+          '$_baseUrl/employee-tasks/by-employee/${Uri.encodeComponent(name)}',
+        ),
       );
       final additionalRes = await http.get(
-        Uri.parse('$_baseUrl/task-list/additional/${Uri.encodeComponent(name)}'),
+        Uri.parse(
+          '$_baseUrl/task-list/additional/${Uri.encodeComponent(name)}',
+        ),
       );
-     
+
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final rows = List<Map<String, dynamic>>.from(json['data'] ?? []);
         final nameUpper = name.toUpperCase();
 
-
         // Check the employee's name against every possible role column on
         // each row — same matching logic AssignedTasksContent already uses.
         const roleColumns = [
-          'designer', 'videographer', 'video_editor',
-          'ads_handling', 'page_handling', 'ui_ux_designer', 'developer','website_designer',
+          'designer',
+          'videographer',
+          'video_editor',
+          'ads_handling',
+          'page_handling',
+          'ui_ux_designer',
+          'developer',
+          'website_designer',
         ];
 
         final uniqueClients = <String>{};
@@ -782,62 +822,64 @@ String _formatMaintenanceDate(String value) {
         List<Map<String, dynamic>> allTasksList = [];
 
         for (final row in rows) {
-  final matchesEmployee = roleColumns.any((col) {
-    final val = row[col];
-    return val != null &&
-        val.toString().toUpperCase() == nameUpper;
-  });
+          final matchesEmployee = roleColumns.any((col) {
+            final val = row[col];
+            return val != null && val.toString().toUpperCase() == nameUpper;
+          });
 
-  if (matchesEmployee) {
-    final clientName = row['client_name']?.toString() ?? '';
+          if (matchesEmployee) {
+            final clientName = row['client_name']?.toString() ?? '';
 
-    final maintDate =
-        row['maintenance_date']?.toString() ??
-        row['submission_date']?.toString() ??
-        '';
+            final maintDate =
+                row['maintenance_date']?.toString() ??
+                row['submission_date']?.toString() ??
+                '';
 
-    if (clientName.isNotEmpty) {
-      uniqueClients.add(clientName);
+            if (clientName.isNotEmpty) {
+              uniqueClients.add(clientName);
 
-      if (maintDate.isNotEmpty) {
-        maintMap[clientName] = _formatMaintenanceDate(maintDate);
-      }
-    }
-  }
-}
+              if (maintDate.isNotEmpty) {
+                maintMap[clientName] = _formatMaintenanceDate(maintDate);
+              }
+            }
+          }
+        }
 
         if (additionalRes.statusCode == 200) {
-        final addJson = jsonDecode(additionalRes.body);
-        final addRows = List<Map<String, dynamic>>.from(addJson['data'] ?? []);
-        allTasksList.addAll(addRows);
-        
+          final addJson = jsonDecode(additionalRes.body);
+          final addRows = List<Map<String, dynamic>>.from(
+            addJson['data'] ?? [],
+          );
+          allTasksList.addAll(addRows);
 
-       for (final row in addRows) {
-  final clientName = row['client_name']?.toString() ?? '';
+          for (final row in addRows) {
+            final clientName = row['client_name']?.toString() ?? '';
 
-  final maintDate =
-      row['maintenance_date']?.toString() ??
-      row['submission_date']?.toString() ??
-      '';
+            final maintDate =
+                row['maintenance_date']?.toString() ??
+                row['submission_date']?.toString() ??
+                '';
 
-  if (clientName.isNotEmpty) {
-    uniqueClients.add(clientName);
+            if (clientName.isNotEmpty) {
+              uniqueClients.add(clientName);
 
-    if (maintDate.isNotEmpty) {
-      maintMap[clientName] = _formatMaintenanceDate(maintDate);
-    }
-  }
-}
-      }
+              if (maintDate.isNotEmpty) {
+                maintMap[clientName] = _formatMaintenanceDate(maintDate);
+              }
+            }
+          }
+        }
 
         setState(() {
           assignedTasks = rows;
-          additionalTasks = allTasksList; 
+          additionalTasks = allTasksList;
           assignedClients = uniqueClients.toList();
           clientMaintenanceDates = maintMap;
         });
       } else {
-        debugPrint('❌ loadAssignedClients failed (${response.statusCode}): ${response.body}');
+        debugPrint(
+          '❌ loadAssignedClients failed (${response.statusCode}): ${response.body}',
+        );
       }
     } catch (e) {
       debugPrint('❌ Error loading assigned clients: $e');
@@ -846,46 +888,53 @@ String _formatMaintenanceDate(String value) {
 
   bool isToday() {
     final now = DateTime.now();
-    return selectedDate.year == now.year && selectedDate.month == now.month && selectedDate.day == now.day;
+    return selectedDate.year == now.year &&
+        selectedDate.month == now.month &&
+        selectedDate.day == now.day;
   }
 
   List<Map<String, dynamic>> get filteredRows {
     return dayPlanRows.where((r) {
       final d = r['date'] as DateTime;
-      return d.year == selectedDate.year && d.month == selectedDate.month && d.day == selectedDate.day;
+      return d.year == selectedDate.year &&
+          d.month == selectedDate.month &&
+          d.day == selectedDate.day;
     }).toList();
   }
-  
 
-Future<void> loadProgress(Map<String, dynamic> row) async {
-  try {
-    final clientName = row['client'] ?? '';
-    if (clientName.isEmpty) return;
+  Future<void> loadProgress(Map<String, dynamic> row) async {
+    try {
+      final clientName = row['client'] ?? '';
+      if (clientName.isEmpty) return;
 
-    final response = await http.get(
-      Uri.parse('$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(clientName)}')
-    );
+      final response = await http.get(
+        Uri.parse(
+          '$_baseUrl/day-planner/progress/$employeeName/${Uri.encodeComponent(clientName)}',
+        ),
+      );
 
-    if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
-      final List<dynamic> list = json["data"] ?? [];
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final List<dynamic> list = json["data"] ?? [];
 
-      setState(() {
-        for (int i = 0; i < list.length && i < 6; i++) {
-          final int index = i + 1;
-          final item = list[i];
-          
-          // 🟢 Backend-il irunthu varukira accurate completed & balanced strings-ai assign seyyungal
-          row["deliverables_$index"] = item["deliverable"] ?? '';
-          row["complete_deliverables_$index"] = item["completed"] ?? ''; // e.g. "POSTER (2/5)"
-          row["balanced_deliverables_$index"] = item["balanced"] ?? ''; // e.g. "POSTER (3/5)"
-        }
-      });
+        setState(() {
+          for (int i = 0; i < list.length && i < 6; i++) {
+            final int index = i + 1;
+            final item = list[i];
+
+            // 🟢 Backend-il irunthu varukira accurate completed & balanced strings-ai assign seyyungal
+            row["deliverables_$index"] = item["deliverable"] ?? '';
+            row["complete_deliverables_$index"] =
+                item["completed"] ?? ''; // e.g. "POSTER (2/5)"
+            row["balanced_deliverables_$index"] =
+                item["balanced"] ?? ''; // e.g. "POSTER (3/5)"
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading progress: $e");
     }
-  } catch (e) {
-    debugPrint("Error loading progress: $e");
   }
-}
 
   Future<void> _addRow() async {
     try {
@@ -895,7 +944,8 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
         body: jsonEncode({
           'employeeName': employeeName,
           'employeeRole': employeeRole,
-          'date': '${selectedDate.year.toString().padLeft(4, '0')}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+          'date':
+              '${selectedDate.year.toString().padLeft(4, '0')}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
           'client': assignedClients.isNotEmpty ? assignedClients.first : '',
         }),
       );
@@ -904,52 +954,58 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
         final body = jsonDecode(r.body);
         final newId = body['data']['id'];
         setState(() {
-         dayPlanRows.add({
-  'id': newId,
-  'date': selectedDate,
-  'client': assignedClients.isNotEmpty ? assignedClients.first : '',
-  'ads': '',
-  'today_leads': '',
-  'today_report': '',
+          dayPlanRows.add({
+            'id': newId,
+            'date': selectedDate,
+            'client': assignedClients.isNotEmpty ? assignedClients.first : '',
+            'ads': '',
+            'today_leads': '',
+            'today_report': '',
 
-  'deliverables_1': '',
-  'complete_deliverables_1': '',
-  'balanced_deliverables_1': '',
+            'deliverables_1': '',
+            'complete_deliverables_1': '',
+            'balanced_deliverables_1': '',
 
-  'deliverables_2': '',
-  'complete_deliverables_2': '',
-  'balanced_deliverables_2': '',
+            'deliverables_2': '',
+            'complete_deliverables_2': '',
+            'balanced_deliverables_2': '',
 
-  'deliverables_3': '',
-  'complete_deliverables_3': '',
-  'balanced_deliverables_3': '',
+            'deliverables_3': '',
+            'complete_deliverables_3': '',
+            'balanced_deliverables_3': '',
 
-  'deliverables_4': '',
-  'complete_deliverables_4': '',
-  'balanced_deliverables_4': '',
+            'deliverables_4': '',
+            'complete_deliverables_4': '',
+            'balanced_deliverables_4': '',
 
-  'deliverables_5': '',
-  'complete_deliverables_5': '',
-  'balanced_deliverables_5': '',
+            'deliverables_5': '',
+            'complete_deliverables_5': '',
+            'balanced_deliverables_5': '',
 
-  'deliverables_6': '',
-  'complete_deliverables_6': '',
-  'balanced_deliverables_6': '',
+            'deliverables_6': '',
+            'complete_deliverables_6': '',
+            'balanced_deliverables_6': '',
 
-  'today_plan': '',
-  'status': '',
-  'remarks': '',
-  '_editing': true,
-});
+            'today_plan': '',
+            'status': '',
+            'remarks': '',
+            '_editing': true,
+          });
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add row (${r.statusCode})'), backgroundColor: const Color(0xFFDC2626)),
+          SnackBar(
+            content: Text('Failed to add row (${r.statusCode})'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error adding row: $e'), backgroundColor: const Color(0xFFDC2626)),
+        SnackBar(
+          content: Text('Error adding row: $e'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
       );
     }
   }
@@ -959,499 +1015,590 @@ Future<void> loadProgress(Map<String, dynamic> row) async {
   // }
 
   Future<void> _deleteRow(int id) async {
-  try {
-    final response = await http.delete(
-      Uri.parse('$_baseUrl/day-planner/$id'),
-    );
-
-    if (response.statusCode == 200) {
-      setState(() {
-        dayPlanRows.removeWhere((r) => r['id'] == id);
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Row deleted successfully"),
-          backgroundColor: Colors.green,
-        ),
+    try {
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/day-planner/$id'),
       );
-    } else {
+
+      if (response.statusCode == 200) {
+        setState(() {
+          dayPlanRows.removeWhere((r) => r['id'] == id);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Row deleted successfully"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Delete failed : ${response.body}"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Delete failed : ${response.body}"),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text("Error : $e"), backgroundColor: Colors.red),
       );
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Error : $e"),
-        backgroundColor: Colors.red,
-      ),
-    );
   }
-}
 
   void _editRow(Map<String, dynamic> row) {
     setState(() => row['_editing'] = true);
   }
 
-Future<void> _saveRow(
-  Map<String, dynamic> row, {
-  bool lockRow = true,
-  bool showMessage = true,
-}) async {
-  final id = row['id'];
+  Future<void> _saveRow(
+    Map<String, dynamic> row, {
+    bool lockRow = true,
+    bool showMessage = true,
+  }) async {
+    final id = row['id'];
 
-  try {
-    final body = {
-      'client': row['client'] ?? '',
-      'maintenanceDate': row['maintenance_date'] ?? '',
-      'ads': row['ads'] ?? '',
-      'todayLeads': row['today_leads'] ?? '',
-      'todayReport': row['today_report'] ?? '',
-      'deliverables1': row['deliverables_1'] ?? '',
-      'completeDeliverables1': row['complete_deliverables_1'] ?? '',
-      'balancedDeliverables1': row['balanced_deliverables_1'] ?? '',
-      'deliverables2': row['deliverables_2'] ?? '',
-      'completeDeliverables2': row['complete_deliverables_2'] ?? '',
-      'balancedDeliverables2': row['balanced_deliverables_2'] ?? '',
-      'deliverables3': row['deliverables_3'] ?? '',
-      'completeDeliverables3': row['complete_deliverables_3'] ?? '',
-      'balancedDeliverables3': row['balanced_deliverables_3'] ?? '',
-      'deliverables4': row['deliverables_4'] ?? '',
-'completeDeliverables4': row['complete_deliverables_4'] ?? '',
-'balancedDeliverables4': row['balanced_deliverables_4'] ?? '',
+    try {
+      final body = {
+        'client': row['client'] ?? '',
+        'maintenanceDate': row['maintenance_date'] ?? '',
+        'ads': row['ads'] ?? '',
+        'todayLeads': row['today_leads'] ?? '',
+        'todayReport': row['today_report'] ?? '',
+        'deliverables1': row['deliverables_1'] ?? '',
+        'completeDeliverables1': row['complete_deliverables_1'] ?? '',
+        'balancedDeliverables1': row['balanced_deliverables_1'] ?? '',
+        'deliverables2': row['deliverables_2'] ?? '',
+        'completeDeliverables2': row['complete_deliverables_2'] ?? '',
+        'balancedDeliverables2': row['balanced_deliverables_2'] ?? '',
+        'deliverables3': row['deliverables_3'] ?? '',
+        'completeDeliverables3': row['complete_deliverables_3'] ?? '',
+        'balancedDeliverables3': row['balanced_deliverables_3'] ?? '',
+        'deliverables4': row['deliverables_4'] ?? '',
+        'completeDeliverables4': row['complete_deliverables_4'] ?? '',
+        'balancedDeliverables4': row['balanced_deliverables_4'] ?? '',
 
-'deliverables5': row['deliverables_5'] ?? '',
-'completeDeliverables5': row['complete_deliverables_5'] ?? '',
-'balancedDeliverables5': row['balanced_deliverables_5'] ?? '',
+        'deliverables5': row['deliverables_5'] ?? '',
+        'completeDeliverables5': row['complete_deliverables_5'] ?? '',
+        'balancedDeliverables5': row['balanced_deliverables_5'] ?? '',
 
-'deliverables6': row['deliverables_6'] ?? '',
-'completeDeliverables6': row['complete_deliverables_6'] ?? '',
-'balancedDeliverables6': row['balanced_deliverables_6'] ?? '',
-      'todayPlan': row['today_plan'] ?? '',
-      'status': row['status'] ?? '',
-      'remarks': row['remarks'] ?? '',
-    };  
+        'deliverables6': row['deliverables_6'] ?? '',
+        'completeDeliverables6': row['complete_deliverables_6'] ?? '',
+        'balancedDeliverables6': row['balanced_deliverables_6'] ?? '',
+        'todayPlan': row['today_plan'] ?? '',
+        'status': row['status'] ?? '',
+        'remarks': row['remarks'] ?? '',
+      };
 
-    print("PUT URL : $_baseUrl/day-planner/$id");
-    print("BODY : ${jsonEncode(body)}");
+      print("PUT URL : $_baseUrl/day-planner/$id");
+      print("BODY : ${jsonEncode(body)}");
 
-    final response = await http.put(
-      Uri.parse('$_baseUrl/day-planner/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    );
-
-    print("STATUS : ${response.statusCode}");
-    print("RESPONSE : ${response.body}");
-
-    if (response.statusCode == 200) {
-  setState(() {
-    if (lockRow) {
-      row['_editing'] = false;
-    }
-  });
-
-  if (showMessage) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Saved Successfully"),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-} else {
-      if (showMessage) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(response.body),
-      backgroundColor: Colors.red,
-    ),
-  );
-}
-    }
-  } catch (e) {
-    print(e);
-
-   if (showMessage) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(e.toString()),
-      backgroundColor: Colors.red,
-    ),
-  );
-}
-  }
-}
-
-
-void _setDeliverableProgress(
-  Map<String, dynamic> row,
-  String deliverableField,
-) {
-  final task = (row[deliverableField] ?? '').toString().trim();
-
-  if (task.isEmpty) {
-    row['complete_$deliverableField'] = '';
-    row['balanced_$deliverableField'] = '';
-  } else {
-    row['complete_$deliverableField'] = '0/1';
-    row['balanced_$deliverableField'] = '1/1';
-  }
-}
-Future<void> _confirmDelete(int id) async {
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: const Text("Delete Row"),
-        content: const Text(
-          "Are you sure you want to delete this row?",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              "Delete",
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
+      final response = await http.put(
+        Uri.parse('$_baseUrl/day-planner/$id'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
       );
-    },
-  );
 
-  if (result == true) {
-    _deleteRow(id);
-  }
-}
+      print("STATUS : ${response.statusCode}");
+      print("RESPONSE : ${response.body}");
 
-Future<bool> _confirmSubmit() async {
-  return await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) {
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 24,
+      if (response.statusCode == 200) {
+        setState(() {
+          if (lockRow) {
+            row['_editing'] = false;
+          }
+        });
+
+        if (showMessage) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Saved Successfully"),
+              backgroundColor: Colors.green,
             ),
-            child: Container(
-              width: 420,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
+          );
+        }
+      } else {
+        if (showMessage) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(response.body), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      print(e);
+
+      if (showMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _setDeliverableProgress(
+    Map<String, dynamic> row,
+    String deliverableField,
+  ) {
+    final task = (row[deliverableField] ?? '').toString().trim();
+
+    if (task.isEmpty) {
+      row['complete_$deliverableField'] = '';
+      row['balanced_$deliverableField'] = '';
+    } else {
+      row['complete_$deliverableField'] = '0/1';
+      row['balanced_$deliverableField'] = '1/1';
+    }
+  }
+
+  Future<void> _confirmDelete(int id) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Delete Row"),
+          content: const Text("Are you sure you want to delete this row?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(
+                "Delete",
+                style: TextStyle(color: Colors.white),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ICON
-                  Container(
-                    width: 62,
-                    height: 62,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      shape: BoxShape.circle,
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true) {
+      _deleteRow(id);
+    }
+  }
+
+  Future<bool> _confirmSubmit() async {
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Container(
+                width: 420,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 30,
+                      offset: const Offset(0, 12),
                     ),
-                    child: const Icon(
-                      Icons.task_alt_rounded,
-                      color: Color(0xFF2563EB),
-                      size: 31,
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // TITLE
-                  const Text(
-                    "Submit Day Planner?",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // DESCRIPTION
-                  const Text(
-                    "Once you submit today's planner, "
-                    "you won't be able to edit it.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // ENCOURAGEMENT BOX
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 13,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: const Color(0xFFBBF7D0),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ICON
+                    Container(
+                      width: 62,
+                      height: 62,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.task_alt_rounded,
+                        color: Color(0xFF2563EB),
+                        size: 31,
                       ),
                     ),
-                    child: const Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+
+                    const SizedBox(height: 18),
+
+                    // TITLE
+                    const Text(
+                      "Submit Day Planner?",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // DESCRIPTION
+                    const Text(
+                      "Once you submit today's planner, "
+                      "you won't be able to edit it.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ENCOURAGEMENT BOX
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.check_circle_rounded,
+                            size: 19,
+                            color: Color(0xFF16A34A),
+                          ),
+                          SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              "Make sure today's plan and status "
+                              "are completely filled before submitting. "
+                              "Keep your day plan updated and stay on track!",
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                height: 1.45,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF166534),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    // BUTTONS
+                    Row(
                       children: [
-                        Icon(
-                          Icons.check_circle_rounded,
-                          size: 19,
-                          color: Color(0xFF16A34A),
-                        ),
-                        SizedBox(width: 9),
                         Expanded(
-                          child: Text(
-                            "Make sure today's plan and status "
-                            "are completely filled before submitting. "
-                            "Keep your day plan updated and stay on track!",
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              height: 1.45,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF166534),
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF475569),
+                                side: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: const Text(
+                                "Cancel",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 10),
+
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF16A34A),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_outline_rounded,
+                                    size: 17,
+                                  ),
+                                  SizedBox(width: 7),
+                                  Text(
+                                    "Submit",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-
-                  const SizedBox(height: 22),
-
-                  // BUTTONS
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 44,
-                          child: OutlinedButton(
-                            onPressed: () =>
-                                Navigator.pop(context, false),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor:
-                                  const Color(0xFF475569),
-                              side: const BorderSide(
-                                color: Color(0xFFCBD5E1),
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Text(
-                              "Cancel",
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 10),
-
-                      Expanded(
-                        child: SizedBox(
-                          height: 44,
-                          child: ElevatedButton(
-                            onPressed: () =>
-                                Navigator.pop(context, true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  const Color(0xFF16A34A),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.check_circle_outline_rounded,
-                                  size: 17,
-                                ),
-                                SizedBox(width: 7),
-                                Text(
-                                  "Submit",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-      ) ??
-      false;
-}
+            );
+          },
+        ) ??
+        false;
+  }
 
-String totalWorkingTimeFormatted = "00h 00m";
+  String totalWorkingTimeFormatted = "00h 00m";
 
-Future<void> _fetchTotalWorkingHours() async {
-  try {
-    String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-    
-    final response = await http.get(
-      Uri.parse('$_baseUrl/dashboard/live-tracking-tasks/$employeeName?date=$formattedDate'),
-    );
+  Future<void> _fetchTotalWorkingHours() async {
+    try {
+      String formattedDate =
+          "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
 
-    if (response.statusCode == 200) {
-      final body = jsonDecode(response.body);
-      final rows = List<dynamic>.from(body['data'] ?? []);
+      // Same source as the Live Tracking page and the top bar.
+      final response = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/live-all').replace(
+          queryParameters: {'employee': employeeName, 'date': formattedDate},
+        ),
+      );
 
-      // 🟢 Parse duration values from the list like live_tracking_tasks_page.dart
-      int totalSumSeconds = 0;
-      for (var row in rows) {
-        String durStr = (row['duration'] ?? '').toString().toLowerCase();
-        
-        int hrs = 0;
-        int mins = 0;
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final int totalSumSeconds = (body['totalSecs'] as num?)?.toInt() ?? 0;
 
-        if (durStr.contains('hrs') || durStr.contains('hr')) {
-          final parts = durStr.split('hr');
-          hrs = int.tryParse(parts[0].trim()) ?? 0;
-          if (parts.length > 1 && parts[1].contains('min')) {
-            final minPart = parts[1].replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
-            mins = int.tryParse(minPart) ?? 0;
-          }
-        } else if (durStr.contains('min')) {
-          final minPart = durStr.replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
-          mins = int.tryParse(minPart) ?? 0;
-        }
+        int totalHours = totalSumSeconds ~/ 3600;
+        int totalMinutes = (totalSumSeconds % 3600) ~/ 60;
 
-        totalSumSeconds += (hrs * 3600) + (mins * 60);
+        setState(() {
+          totalWorkingTimeFormatted =
+              '${totalHours.toString().padLeft(2, '0')}h ${totalMinutes.toString().padLeft(2, '0')}m';
+        });
+
+        // 🟢 Automatically sync total working seconds to backend day_plan_rows
+        await http.put(
+          Uri.parse('$_baseUrl/day-planner/working-hours'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'employeeName': employeeName,
+            'date': formattedDate,
+            'reportType': 'Morning', // or dynamic if you have reportType state
+            'totalWorkingSecs': totalSumSeconds,
+          }),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching total working hours: $e');
+    }
+  }
+
+  Future<void> _submitDay({bool skipConfirmation = false}) async {
+    if (!skipConfirmation && !await _confirmSubmit()) return;
+
+    if (!_validateRows()) return;
+
+    // Set default status if empty
+    for (final row in filteredRows) {
+      if ((row['status'] ?? '').toString().trim().isEmpty) {
+        row['status'] = 'NOT START';
       }
 
-      int totalHours = totalSumSeconds ~/ 3600;
-      int totalMinutes = (totalSumSeconds % 3600) ~/ 60;
+      // Ensure latest changes are saved before submit
+      await _saveRow(row, lockRow: false, showMessage: false);
+    }
 
-      setState(() {
-        totalWorkingTimeFormatted = '${totalHours.toString().padLeft(2, '0')}h ${totalMinutes.toString().padLeft(2, '0')}m';
-      });
-
-      // 🟢 Automatically sync total working seconds to backend day_plan_rows
-      await http.put(
-        Uri.parse('$_baseUrl/day-planner/working-hours'),
+    // Submit to backend
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/day-planner/submit'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'employeeName': employeeName,
-          'date': formattedDate,
-          'reportType': 'Morning', // or dynamic if you have reportType state
-          'totalWorkingSecs': totalSumSeconds,
+          'date':
+              '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
         }),
       );
 
-    }
-  } catch (e) {
-    debugPrint('Error fetching total working hours: $e');
-  }
-}
+      if (response.statusCode == 200) {
+        await _checkDeadlineStatus();
 
-Future<void> _submitDay() async {
-  final confirm = await _confirmSubmit();
-
-  if (!confirm) return;
-
-  if (!_validateRows()) return;
-
-  // Set default status if empty
-  for (final row in filteredRows) {
-    if ((row['status'] ?? '').toString().trim().isEmpty) {
-      row['status'] = 'NOT START';
-    }
-
-    // Ensure latest changes are saved before submit
-    await _saveRow(
-      row,
-      lockRow: false,
-      showMessage: false,
-    );
-  }
-
-  // Submit to backend
-  try {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/day-planner/submit'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'employeeName': employeeName,
-        'date':
-            '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      await _checkDeadlineStatus();
-
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Day plan submitted & Admin notified!'),
+            backgroundColor: Color(0xFF16A34A),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else if (response.statusCode == 409) {
+        final body = jsonDecode(response.body);
+        final activeTasks = List<Map<String, dynamic>>.from(
+          body['activeTasks'] ?? const [],
+        );
+        if (activeTasks.isNotEmpty &&
+            await _resolveActiveTaskBeforeSubmit(activeTasks.first) &&
+            mounted) {
+          await _submitDay(skipConfirmation: true);
+          return;
+        }
+        final message =
+            body['message']?.toString() ??
+            'Resolve the running task before submitting the Day Planner.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.orange),
+        );
+      } else {
+        final body = jsonDecode(response.body);
+        throw StateError(
+          body['message']?.toString() ?? 'Failed to submit the Day Planner',
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Day plan submitted & Admin notified!'),
-          backgroundColor: Color(0xFF16A34A),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
-    } else {
-      throw Exception('Failed to submit');
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Error: $e'),
-        backgroundColor: Colors.red,
+  }
+
+  Future<bool> _resolveActiveTaskBeforeSubmit(Map<String, dynamic> task) async {
+    final isCalendarSheet = task['type'] == 'calendar_sheet';
+    final isCalendarRow = task['type'] == 'calendar';
+    final title =
+        [
+              task['client_name'],
+              task['task'],
+              if (task['s_no'] != null) 'row ${task['s_no']}',
+              if (task['hook_headline'] != null) task['hook_headline'],
+            ]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' - ');
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('A task is still running'),
+        content: Text(
+          '$title\n\nHold or complete this task before submitting today’s plan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, 'hold'),
+            child: const Text('Hold'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'complete'),
+            child: const Text('Complete'),
+          ),
+        ],
       ),
     );
+    if (action == null) return false;
+
+    String? reason;
+    if (action == 'hold') {
+      final controller = TextEditingController();
+      reason = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Why are you holding this task?'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Hold reason *',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Hold task'),
+            ),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (reason == null || reason.isEmpty) return false;
+    }
+
+    final trackingItemId = task['tracking_item_id'];
+    final calendarId = task['calendar_id'];
+    final path = isCalendarSheet
+        ? '/tasks/content-calendar/sheet-${action == 'hold' ? 'hold' : 'complete'}'
+        : isCalendarRow
+        ? '/tasks/content-calendar/${action == 'hold' ? 'hold' : 'complete'}'
+        : '/tracking-items/$trackingItemId/$action';
+    final payload = isCalendarSheet
+        ? <String, dynamic>{
+            'task_item_id': calendarId,
+            'source_assignment_id': task['source_assignment_id'],
+            'source_role': task['source_role'],
+            'source_task_index': task['source_task_index'],
+            if (reason != null) 'reason': reason,
+          }
+        : isCalendarRow
+        ? <String, dynamic>{
+            'task_item_id': calendarId,
+            if (reason != null) 'reason': reason,
+          }
+        : <String, dynamic>{
+            if (reason != null) 'reason': reason,
+            if (action == 'complete') 'performance': 'N/A',
+          };
+    final token = Provider.of<AuthService>(context, listen: false).token;
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl$path'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(payload),
+      );
+      if (response.statusCode == 200) return true;
+      final body = jsonDecode(response.body);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            body['message']?.toString() ?? 'Could not resolve the running task',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not resolve the running task: $error')),
+      );
+    }
+    return false;
   }
-}
-  
+
   String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 
   @override
@@ -1554,8 +1701,12 @@ Future<void> _submitDay() async {
   }
 
   Widget _buildHeroIdentity() {
-    final displayName = employeeName.trim().isEmpty ? 'Employee' : employeeName.trim();
-    final displayRole = employeeRole.trim().isEmpty ? 'Team Member' : employeeRole.trim();
+    final displayName = employeeName.trim().isEmpty
+        ? 'Employee'
+        : employeeName.trim();
+    final displayRole = employeeRole.trim().isEmpty
+        ? 'Team Member'
+        : employeeRole.trim();
 
     return Row(
       children: [
@@ -1567,7 +1718,11 @@ Future<void> _submitDay() async {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.white.withValues(alpha: .24)),
           ),
-          child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 25),
+          child: const Icon(
+            Icons.auto_awesome_rounded,
+            color: Colors.white,
+            size: 25,
+          ),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -1627,14 +1782,26 @@ Future<void> _submitDay() async {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.calendar_month_rounded, color: Colors.white, size: 18),
+            const Icon(
+              Icons.calendar_month_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
             const SizedBox(width: 8),
             Text(
               _formatDate(selectedDate),
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(width: 5),
-            Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white.withValues(alpha: .75), size: 18),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.white.withValues(alpha: .75),
+              size: 18,
+            ),
           ],
         ),
       ),
@@ -1685,7 +1852,11 @@ Future<void> _submitDay() async {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 17, color: filled ? const Color(0xFF0757D5) : Colors.white),
+              Icon(
+                icon,
+                size: 17,
+                color: filled ? const Color(0xFF0757D5) : Colors.white,
+              ),
               const SizedBox(width: 6),
               Text(
                 label,
@@ -1733,12 +1904,50 @@ Future<void> _submitDay() async {
   Widget _buildStatusStrip(bool isMobile) {
     final total = dayPlanRows.length;
     final cards = <Widget>[
-      _metricCard('Clients', '$openedUniqueClientsCount/$totalAssignedClientsCount', Icons.groups_2_rounded, const Color(0xFF0757D5), totalAssignedClientsCount == 0 ? 0 : openedUniqueClientsCount / totalAssignedClientsCount),
-      _metricCard('Completed', '$completeCount', Icons.check_circle_rounded, const Color(0xFF087F5B), total == 0 ? 0 : completeCount / total),
-      _metricCard('Pending', '$pendingCount', Icons.schedule_rounded, const Color(0xFFB66A00), total == 0 ? 0 : pendingCount / total),
-      _metricCard('Processing', '$processingCount', Icons.autorenew_rounded, const Color(0xFF1557B0), total == 0 ? 0 : processingCount / total),
-      _metricCard('On Hold', '$holdCount', Icons.pause_circle_rounded, const Color(0xFF5C4AC7), total == 0 ? 0 : holdCount / total),
-      _metricCard('Not Started', '$notStartCount', Icons.radio_button_unchecked_rounded, const Color(0xFF64748B), total == 0 ? 0 : notStartCount / total),
+      _metricCard(
+        'Clients',
+        '$openedUniqueClientsCount/$totalAssignedClientsCount',
+        Icons.groups_2_rounded,
+        const Color(0xFF0757D5),
+        totalAssignedClientsCount == 0
+            ? 0
+            : openedUniqueClientsCount / totalAssignedClientsCount,
+      ),
+      _metricCard(
+        'Completed',
+        '$completeCount',
+        Icons.check_circle_rounded,
+        const Color(0xFF087F5B),
+        total == 0 ? 0 : completeCount / total,
+      ),
+      _metricCard(
+        'Pending',
+        '$pendingCount',
+        Icons.schedule_rounded,
+        const Color(0xFFB66A00),
+        total == 0 ? 0 : pendingCount / total,
+      ),
+      _metricCard(
+        'Processing',
+        '$processingCount',
+        Icons.autorenew_rounded,
+        const Color(0xFF1557B0),
+        total == 0 ? 0 : processingCount / total,
+      ),
+      _metricCard(
+        'On Hold',
+        '$holdCount',
+        Icons.pause_circle_rounded,
+        const Color(0xFF5C4AC7),
+        total == 0 ? 0 : holdCount / total,
+      ),
+      _metricCard(
+        'Not Started',
+        '$notStartCount',
+        Icons.radio_button_unchecked_rounded,
+        const Color(0xFF64748B),
+        total == 0 ? 0 : notStartCount / total,
+      ),
     ];
 
     return SizedBox(
@@ -1753,7 +1962,13 @@ Future<void> _submitDay() async {
     );
   }
 
-  Widget _metricCard(String title, String value, IconData icon, Color color, double progress) {
+  Widget _metricCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    double progress,
+  ) {
     final double safeProgress = progress.clamp(0.0, 1.0).toDouble();
     return Container(
       width: 172,
@@ -1763,7 +1978,11 @@ Future<void> _submitDay() async {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFDCE8FB)),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF174A8B).withValues(alpha: .06), blurRadius: 14, offset: const Offset(0, 6)),
+          BoxShadow(
+            color: const Color(0xFF174A8B).withValues(alpha: .06),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
@@ -1774,15 +1993,32 @@ Future<void> _submitDay() async {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(11)),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
                 child: Icon(icon, color: color, size: 18),
               ),
               const Spacer(),
-              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color)),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
             ],
           ),
           const Spacer(),
-          Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF52637B))),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF52637B),
+            ),
+          ),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
@@ -1921,9 +2157,7 @@ Future<void> _submitDay() async {
               Icon(
                 icon,
                 size: 17,
-                color: primary
-                    ? Colors.white
-                    : const Color(0xFF15803D),
+                color: primary ? Colors.white : const Color(0xFF15803D),
               ),
               const SizedBox(width: 7),
               Text(
@@ -1931,9 +2165,7 @@ Future<void> _submitDay() async {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
-                  color: primary
-                      ? Colors.white
-                      : const Color(0xFF15803D),
+                  color: primary ? Colors.white : const Color(0xFF15803D),
                 ),
               ),
             ],
@@ -1950,12 +2182,20 @@ Future<void> _submitDay() async {
       decoration: InputDecoration(
         hintText: 'Search clients, plans or work...',
         hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF91A0B7)),
-        prefixIcon: const Icon(Icons.search_rounded, size: 19, color: Color(0xFF0757D5)),
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          size: 19,
+          color: Color(0xFF0757D5),
+        ),
         suffixIcon: _searchController.text.isEmpty
             ? null
             : IconButton(
                 tooltip: 'Clear search',
-                icon: const Icon(Icons.close_rounded, size: 17, color: Color(0xFF71819A)),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 17,
+                  color: Color(0xFF71819A),
+                ),
                 onPressed: () {
                   _searchController.clear();
                   setState(() => _searchText = '');
@@ -1963,7 +2203,10 @@ Future<void> _submitDay() async {
               ),
         filled: true,
         fillColor: const Color(0xFFF6F9FE),
-        contentPadding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 13,
+          horizontal: 14,
+        ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(13),
           borderSide: const BorderSide(color: Color(0xFFE0E9F7)),
@@ -1981,10 +2224,14 @@ Future<void> _submitDay() async {
       constraints: BoxConstraints(minWidth: inHero ? 150 : 0),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
       decoration: BoxDecoration(
-        color: inHero ? Colors.white.withValues(alpha: .13) : const Color(0xFFEFF6FF),
+        color: inHero
+            ? Colors.white.withValues(alpha: .13)
+            : const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
-          color: inHero ? Colors.white.withValues(alpha: .22) : const Color(0xFFCFE0FF),
+          color: inHero
+              ? Colors.white.withValues(alpha: .22)
+              : const Color(0xFFCFE0FF),
         ),
       ),
       child: Row(
@@ -1994,7 +2241,9 @@ Future<void> _submitDay() async {
             width: 31,
             height: 31,
             decoration: BoxDecoration(
-              color: inHero ? Colors.white.withValues(alpha: .14) : const Color(0xFF0757D5).withValues(alpha: .10),
+              color: inHero
+                  ? Colors.white.withValues(alpha: .14)
+                  : const Color(0xFF0757D5).withValues(alpha: .10),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Icon(
@@ -2013,7 +2262,9 @@ Future<void> _submitDay() async {
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.w900,
-                  color: inHero ? Colors.white.withValues(alpha: .70) : const Color(0xFF6C7F9C),
+                  color: inHero
+                      ? Colors.white.withValues(alpha: .70)
+                      : const Color(0xFF6C7F9C),
                   letterSpacing: .65,
                 ),
               ),
@@ -2049,7 +2300,11 @@ Future<void> _submitDay() async {
           Expanded(
             child: Text(
               'Previous day records are read-only. Select today to continue editing.',
-              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF174A8B)),
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF174A8B),
+              ),
             ),
           ),
         ],
@@ -2057,7 +2312,11 @@ Future<void> _submitDay() async {
     );
   }
 
-  Widget _buildSheetGrid(List<Map<String, dynamic>> rows, bool isTodayView, bool isMobile) {
+  Widget _buildSheetGrid(
+    List<Map<String, dynamic>> rows,
+    bool isTodayView,
+    bool isMobile,
+  ) {
     final showAds = _hasAdsColumn();
     final showD1 = _hasDeliverable(1);
     final showD2 = _hasDeliverable(2);
@@ -2070,10 +2329,19 @@ Future<void> _submitDay() async {
       final search = _searchText.trim().toLowerCase();
       if (search.isEmpty) return true;
       final values = [
-        row['client'], row['today_plan'], row['remarks'], row['status'],
-        row['ads'], row['today_leads'], row['today_report'],
-        row['deliverables_1'], row['deliverables_2'], row['deliverables_3'],
-        row['deliverables_4'], row['deliverables_5'], row['deliverables_6'],
+        row['client'],
+        row['today_plan'],
+        row['remarks'],
+        row['status'],
+        row['ads'],
+        row['today_leads'],
+        row['today_report'],
+        row['deliverables_1'],
+        row['deliverables_2'],
+        row['deliverables_3'],
+        row['deliverables_4'],
+        row['deliverables_5'],
+        row['deliverables_6'],
       ].map((e) => (e ?? '').toString().toLowerCase());
       return values.any((v) => v.contains(search));
     }).toList();
@@ -2084,7 +2352,11 @@ Future<void> _submitDay() async {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFD9E5F6)),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF174A8B).withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, 8)),
+          BoxShadow(
+            color: const Color(0xFF174A8B).withValues(alpha: .07),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -2113,7 +2385,10 @@ Future<void> _submitDay() async {
 
   Widget _buildTableHeaderBar(int count, bool isMobile) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 13 : 17, vertical: 13),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 13 : 17,
+        vertical: 13,
+      ),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [Color(0xFF0757D5), Color(0xFF0A70E8)],
@@ -2127,16 +2402,42 @@ Future<void> _submitDay() async {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('PLANNER WORKSPACE', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .9)),
+                Text(
+                  'PLANNER WORKSPACE',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .9,
+                  ),
+                ),
                 SizedBox(height: 2),
-                Text('Client-wise daily execution board', style: TextStyle(color: Color(0xFFDCEBFF), fontSize: 9.5, fontWeight: FontWeight.w500)),
+                Text(
+                  'Client-wise daily execution board',
+                  style: TextStyle(
+                    color: Color(0xFFDCEBFF),
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)),
-            child: Text('$count ROW${count == 1 ? '' : 'S'}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: .5)),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .14),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$count ROW${count == 1 ? '' : 'S'}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .5,
+              ),
+            ),
           ),
         ],
       ),
@@ -2151,13 +2452,31 @@ Future<void> _submitDay() async {
           Container(
             width: 58,
             height: 58,
-            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(18)),
-            child: const Icon(Icons.inbox_rounded, color: Color(0xFF0757D5), size: 28),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.inbox_rounded,
+              color: Color(0xFF0757D5),
+              size: 28,
+            ),
           ),
           const SizedBox(height: 13),
-          const Text('No planner rows found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF1D3557))),
+          const Text(
+            'No planner rows found',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1D3557),
+            ),
+          ),
           const SizedBox(height: 5),
-          const Text('Add a row or choose another date to view your plan.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Color(0xFF7C8DA6))),
+          const Text(
+            'Add a row or choose another date to view your plan.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: Color(0xFF7C8DA6)),
+          ),
         ],
       ),
     );
@@ -2197,9 +2516,14 @@ Future<void> _submitDay() async {
                 final maxHeight = isMobile ? 600.0 : 650.0;
                 return Listener(
                   onPointerSignal: (signal) {
-                    if (signal is PointerScrollEvent && _horizontalController.hasClients) {
-                      final next = (_horizontalController.offset + signal.scrollDelta.dy)
-                          .clamp(0.0, _horizontalController.position.maxScrollExtent);
+                    if (signal is PointerScrollEvent &&
+                        _horizontalController.hasClients) {
+                      final next =
+                          (_horizontalController.offset + signal.scrollDelta.dy)
+                              .clamp(
+                                0.0,
+                                _horizontalController.position.maxScrollExtent,
+                              );
                       _horizontalController.jumpTo(next);
                     }
                   },
@@ -2216,8 +2540,28 @@ Future<void> _submitDay() async {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildDataHeader(showAds, showD1, showD2, showD3, showD4, showD5, showD6),
-                            ...rows.map((row) => _buildDataRow(row, isTodayView, showAds, showD1, showD2, showD3, showD4, showD5, showD6)),
+                            _buildDataHeader(
+                              showAds,
+                              showD1,
+                              showD2,
+                              showD3,
+                              showD4,
+                              showD5,
+                              showD6,
+                            ),
+                            ...rows.map(
+                              (row) => _buildDataRow(
+                                row,
+                                isTodayView,
+                                showAds,
+                                showD1,
+                                showD2,
+                                showD3,
+                                showD4,
+                                showD5,
+                                showD6,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2250,7 +2594,12 @@ Future<void> _submitDay() async {
               'CLIENT NAME',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white, fontSize: isMobile ? 9 : 10, fontWeight: FontWeight.w900, letterSpacing: .7),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isMobile ? 9 : 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .7,
+              ),
             ),
           ),
         ],
@@ -2258,61 +2607,109 @@ Future<void> _submitDay() async {
     );
   }
 
-  Widget _buildDataHeader(bool showAds, bool showD1, bool showD2, bool showD3, bool showD4, bool showD5, bool showD6) {
-    final cells = <Widget>[
-      const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
-    ];
+  // Simplified sheet: submit date, task progress, plan, automatic status,
+  // remarks, delete. (Ads / leads / report and the 18 deliverable columns
+  // were removed — progress now lives in one TASKS column.)
+  static const double _wDate = 130;
+  static const double _wTasks = 260;
+  static const double _wPlan = 240;
+  static const double _wStatus = 190;
+  static const double _wRemarks = 200;
+  static const double _wAction = 250;
 
-    if (showAds) {
-      cells.addAll(const [
-        _HeaderCell(width: 140, label: 'ADS'),
-        _HeaderCell(width: 110, label: 'TODAY LEADS'),
-        _HeaderCell(width: 110, label: 'TODAY REPORT'),
-      ]);
-    }
-
-    void addDeliverable(int n, bool show) {
-      if (!show) return;
-      cells.addAll([
-        _HeaderCell(width: 150, label: 'DELIVERABLES $n'),
-        _HeaderCell(width: 150, label: 'COMPLETE $n'),
-        _HeaderCell(width: 150, label: 'BALANCED $n'),
-      ]);
-    }
-
-    addDeliverable(1, showD1);
-    addDeliverable(2, showD2);
-    addDeliverable(3, showD3);
-    addDeliverable(4, showD4);
-    addDeliverable(5, showD5);
-    addDeliverable(6, showD6);
-
-    cells.addAll(const [
-      _HeaderCell(width: 180, label: 'TODAY PLAN'),
-      _HeaderCell(width: 130, label: 'STATUS'),
-      _HeaderCell(width: 180, label: 'REMARKS'),
-      _HeaderCell(width: 130, label: 'ACTION'),
-    ]);
-
-    return SizedBox(
+  Widget _buildDataHeader(
+    bool showAds,
+    bool showD1,
+    bool showD2,
+    bool showD3,
+    bool showD4,
+    bool showD5,
+    bool showD6,
+  ) {
+    return const SizedBox(
       height: 58,
-      child: Row(children: cells),
+      child: Row(
+        children: [
+          _HeaderCell(width: _wDate, label: 'SUBMIT DATE'),
+          _HeaderCell(width: _wTasks, label: 'TASKS (DONE / TOTAL)'),
+          _HeaderCell(width: _wPlan, label: 'TODAY PLAN'),
+          _HeaderCell(width: _wStatus, label: 'STATUS (AUTO)'),
+          _HeaderCell(width: _wRemarks, label: 'REMARKS'),
+          _HeaderCell(width: _wAction, label: 'ACTION'),
+        ],
+      ),
     );
   }
 
-  double get _totalGridWidth {
-    double width = 140;
-    if (_hasAdsColumn()) width += 140 + 110 + 110;
-    if (_hasDeliverable(1)) width += 150 * 3;
-    if (_hasDeliverable(2)) width += 150 * 3;
-    if (_hasDeliverable(3)) width += 150 * 3;
-    if (_hasDeliverable(4)) width += 150 * 3;
-    if (_hasDeliverable(5)) width += 150 * 3;
-    if (_hasDeliverable(6)) width += 150 * 3;
-    return width + 180 + 130 + 180 + 130;
+  double get _totalGridWidth =>
+      _wDate + _wTasks + _wPlan + _wStatus + _wRemarks + _wAction;
+
+  /// "POSTER (1/5), MG (0/2)" from the progress columns of this row.
+  String _taskSummary(Map<String, dynamic> row) {
+    final parts = <String>[];
+    for (var i = 1; i <= 6; i++) {
+      final done = (row['complete_deliverables_$i'] ?? '').toString().trim();
+      final name = (row['deliverables_$i'] ?? '').toString().trim();
+      if (done.isNotEmpty) {
+        parts.add(done);
+      } else if (name.isNotEmpty) {
+        parts.add(name);
+      }
+    }
+    return parts.join(', ');
   }
 
-  Future<void> _showClientPicker(Map<String, dynamic> row, bool isTodayView) async {
+  Widget _tasksCell(Map<String, dynamic> row) {
+    final summary = _taskSummary(row);
+    return Container(
+      width: _wTasks,
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: _getRowColor((row['status'] ?? '').toString()),
+        border: const Border(
+          right: BorderSide(color: Color(0xFFDCE5F2)),
+          bottom: BorderSide(color: Color(0xFFDCE5F2)),
+        ),
+      ),
+      alignment: Alignment.centerLeft,
+      child: Tooltip(
+        message: summary.isEmpty ? 'No tasks for this client' : summary,
+        child: Text(
+          summary.isEmpty ? '—' : summary,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF334D70)),
+        ),
+      ),
+    );
+  }
+
+  /// Status follows My Tasks / Content Calendar automatically; the button
+  /// opens Start / Hold / Complete for this client's work.
+  Widget _statusActionCell(Map<String, dynamic> row, bool isTodayView) {
+    final current = (row['status'] ?? '').toString();
+    final colorPair = _statusColors('status', current);
+    return Container(
+      width: _wStatus,
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: colorPair?.$1 ?? _getRowColor(current),
+        border: const Border(
+          right: BorderSide(color: Color(0xFFDCE5F2)),
+          bottom: BorderSide(color: Color(0xFFDCE5F2)),
+        ),
+      ),
+      alignment: Alignment.centerLeft,
+      child: _statusBadgeOrText(current.isEmpty ? 'NOT START' : current, colorPair, true),
+    );
+  }
+
+  Future<void> _showClientPicker(
+    Map<String, dynamic> row,
+    bool isTodayView,
+  ) async {
     if (!isTodayView) return;
 
     final currentClient = row['client']?.toString() ?? '';
@@ -2330,10 +2727,16 @@ Future<void> _submitDay() async {
             }).toList();
 
             return Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
               backgroundColor: Colors.transparent,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
+                constraints: const BoxConstraints(
+                  maxWidth: 520,
+                  maxHeight: 680,
+                ),
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -2356,7 +2759,9 @@ Future<void> _submitDay() async {
                             end: Alignment.bottomRight,
                             colors: [Color(0xFF0052CC), Color(0xFF0A70E8)],
                           ),
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(24),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -2366,24 +2771,47 @@ Future<void> _submitDay() async {
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: .14),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.white.withValues(alpha: .18)),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: .18),
+                                ),
                               ),
-                              child: const Icon(Icons.business_rounded, color: Colors.white, size: 21),
+                              child: const Icon(
+                                Icons.business_rounded,
+                                color: Colors.white,
+                                size: 21,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             const Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Select Client', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                                  Text(
+                                    'Select Client',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
                                   SizedBox(height: 3),
-                                  Text('Choose the client for this planner row', style: TextStyle(color: Color(0xFFDCEBFF), fontSize: 10.5, fontWeight: FontWeight.w500)),
+                                  Text(
+                                    'Choose the client for this planner row',
+                                    style: TextStyle(
+                                      color: Color(0xFFDCEBFF),
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
                             IconButton(
                               onPressed: () => Navigator.pop(dialogContext),
-                              icon: const Icon(Icons.close_rounded, color: Colors.white),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                              ),
                             ),
                           ],
                         ),
@@ -2392,11 +2820,16 @@ Future<void> _submitDay() async {
                         padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
                         child: TextField(
                           controller: searchCtrl,
-                          onChanged: (value) => setDialogState(() => search = value),
+                          onChanged: (value) =>
+                              setDialogState(() => search = value),
                           autofocus: true,
                           decoration: InputDecoration(
                             hintText: 'Search client...',
-                            prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF0757D5), size: 20),
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              color: Color(0xFF0757D5),
+                              size: 20,
+                            ),
                             suffixIcon: searchCtrl.text.isEmpty
                                 ? null
                                 : IconButton(
@@ -2404,32 +2837,60 @@ Future<void> _submitDay() async {
                                       searchCtrl.clear();
                                       setDialogState(() => search = '');
                                     },
-                                    icon: const Icon(Icons.close_rounded, size: 17),
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 17,
+                                    ),
                                   ),
                             filled: true,
                             fillColor: const Color(0xFFF6F9FE),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(color: Color(0xFFDCE8FB)),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFDCE8FB),
+                              ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(color: Color(0xFFDCE8FB)),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFDCE8FB),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(color: Color(0xFF0757D5), width: 1.4),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF0757D5),
+                                width: 1.4,
+                              ),
                             ),
                           ),
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 4,
+                        ),
                         child: Row(
                           children: [
-                            const Text('ASSIGNED CLIENTS', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: .8)),
+                            const Text(
+                              'ASSIGNED CLIENTS',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF64748B),
+                                letterSpacing: .8,
+                              ),
+                            ),
                             const Spacer(),
-                            Text('${filtered.length}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0757D5))),
+                            Text(
+                              '${filtered.length}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF0757D5),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2438,17 +2899,33 @@ Future<void> _submitDay() async {
                             ? const Center(
                                 child: Padding(
                                   padding: EdgeInsets.all(24),
-                                  child: Text('No matching clients found', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                                  child: Text(
+                                    'No matching clients found',
+                                    style: TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               )
                             : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  8,
+                                  18,
+                                  18,
+                                ),
                                 itemCount: filtered.length,
-                                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 8),
                                 itemBuilder: (_, index) {
                                   final client = filtered[index];
-                                  final maintenance = clientMaintenanceDates[client] ?? '';
-                                  final allowed = _isClientSelectionAllowed(client, row['id']?.toString());
+                                  final maintenance =
+                                      clientMaintenanceDates[client] ?? '';
+                                  final allowed = _isClientSelectionAllowed(
+                                    client,
+                                    row['id']?.toString(),
+                                  );
                                   final selected = currentClient == client;
 
                                   return Material(
@@ -2459,8 +2936,12 @@ Future<void> _submitDay() async {
                                           : () {
                                               setState(() {
                                                 row['client'] = client;
-                                                row['maintenance_date'] = maintenance;
-                                                _prefillRoleFieldsForClient(row, client);
+                                                row['maintenance_date'] =
+                                                    maintenance;
+                                                _prefillRoleFieldsForClient(
+                                                  row,
+                                                  client,
+                                                );
                                               });
                                               Navigator.pop(dialogContext);
                                               loadProgress(row);
@@ -2468,15 +2949,19 @@ Future<void> _submitDay() async {
                                             },
                                       borderRadius: BorderRadius.circular(15),
                                       child: AnimatedContainer(
-                                        duration: const Duration(milliseconds: 150),
+                                        duration: const Duration(
+                                          milliseconds: 150,
+                                        ),
                                         padding: const EdgeInsets.all(12),
                                         decoration: BoxDecoration(
                                           color: selected
                                               ? const Color(0xFFEAF2FF)
                                               : allowed
-                                                  ? const Color(0xFFF8FAFE)
-                                                  : const Color(0xFFF3F4F6),
-                                          borderRadius: BorderRadius.circular(15),
+                                              ? const Color(0xFFF8FAFE)
+                                              : const Color(0xFFF3F4F6),
+                                          borderRadius: BorderRadius.circular(
+                                            15,
+                                          ),
                                           border: Border.all(
                                             color: selected
                                                 ? const Color(0xFF0757D5)
@@ -2493,48 +2978,81 @@ Future<void> _submitDay() async {
                                                 color: selected
                                                     ? const Color(0xFF0757D5)
                                                     : const Color(0xFFEAF2FF),
-                                                borderRadius: BorderRadius.circular(12),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
                                               ),
                                               child: Icon(
-                                                selected ? Icons.check_rounded : Icons.business_rounded,
-                                                color: selected ? Colors.white : const Color(0xFF0757D5),
+                                                selected
+                                                    ? Icons.check_rounded
+                                                    : Icons.business_rounded,
+                                                color: selected
+                                                    ? Colors.white
+                                                    : const Color(0xFF0757D5),
                                                 size: 19,
                                               ),
                                             ),
                                             const SizedBox(width: 11),
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     client,
                                                     maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                     style: TextStyle(
                                                       fontSize: 12,
-                                                      fontWeight: FontWeight.w800,
-                                                      color: allowed || selected ? const Color(0xFF172B4D) : const Color(0xFF9CA3AF),
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: allowed || selected
+                                                          ? const Color(
+                                                              0xFF172B4D,
+                                                            )
+                                                          : const Color(
+                                                              0xFF9CA3AF,
+                                                            ),
                                                     ),
                                                   ),
-                                                  if (maintenance.isNotEmpty) ...[
+                                                  if (maintenance
+                                                      .isNotEmpty) ...[
                                                     const SizedBox(height: 3),
                                                     Text(
                                                       'Maintenance • $maintenance',
                                                       maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(fontSize: 9.5, color: Color(0xFF71819A), fontWeight: FontWeight.w600),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 9.5,
+                                                        color: Color(
+                                                          0xFF71819A,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
                                                     ),
                                                   ],
                                                 ],
                                               ),
                                             ),
                                             if (!allowed && !selected)
-                                              const Icon(Icons.lock_outline_rounded, size: 17, color: Color(0xFF9CA3AF))
+                                              const Icon(
+                                                Icons.lock_outline_rounded,
+                                                size: 17,
+                                                color: Color(0xFF9CA3AF),
+                                              )
                                             else
                                               Icon(
-                                                selected ? Icons.radio_button_checked_rounded : Icons.chevron_right_rounded,
+                                                selected
+                                                    ? Icons
+                                                          .radio_button_checked_rounded
+                                                    : Icons
+                                                          .chevron_right_rounded,
                                                 size: 18,
-                                                color: selected ? const Color(0xFF0757D5) : const Color(0xFF8CA0BB),
+                                                color: selected
+                                                    ? const Color(0xFF0757D5)
+                                                    : const Color(0xFF8CA0BB),
                                               ),
                                           ],
                                         ),
@@ -2593,7 +3111,11 @@ Future<void> _submitDay() async {
                     color: Colors.white.withValues(alpha: .13),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.business_rounded, color: Colors.white, size: 15),
+                  child: const Icon(
+                    Icons.business_rounded,
+                    color: Colors.white,
+                    size: 15,
+                  ),
                 ),
                 const SizedBox(width: 7),
                 Expanded(
@@ -2602,13 +3124,19 @@ Future<void> _submitDay() async {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.white.withValues(alpha: .78),
+                      color: selected
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: .78),
                       fontSize: 10.5,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 19),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white,
+                  size: 19,
+                ),
               ],
             ),
           ),
@@ -2631,54 +3159,28 @@ Future<void> _submitDay() async {
     final rowEditable = isTodayView;
     return Row(
       children: [
-        _textCell(row, 'maintenance_date', 140, false),
-        if (showAds) ...[
-          _textCell(row, 'ads', 140, false),
-          _dropdownCell(row, 'today_leads', 110, yesNoOptions, rowEditable),
-          _dropdownCell(row, 'today_report', 110, yesNoOptions, rowEditable),
-        ],
-        if (showD1) ...[
-          _textCell(row, 'deliverables_1', 150, false),
-          _textCell(row, 'complete_deliverables_1', 150, false),
-          _textCell(row, 'balanced_deliverables_1', 150, false),
-        ],
-        if (showD2) ...[
-          _textCell(row, 'deliverables_2', 150, false),
-          _textCell(row, 'complete_deliverables_2', 150, false),
-          _textCell(row, 'balanced_deliverables_2', 150, false),
-        ],
-        if (showD3) ...[
-          _textCell(row, 'deliverables_3', 150, false),
-          _textCell(row, 'complete_deliverables_3', 150, false),
-          _textCell(row, 'balanced_deliverables_3', 150, false),
-        ],
-        if (showD4) ...[
-          _textCell(row, 'deliverables_4', 150, false),
-          _textCell(row, 'complete_deliverables_4', 150, false),
-          _textCell(row, 'balanced_deliverables_4', 150, false),
-        ],
-        if (showD5) ...[
-          _textCell(row, 'deliverables_5', 150, false),
-          _textCell(row, 'complete_deliverables_5', 150, false),
-          _textCell(row, 'balanced_deliverables_5', 150, false),
-        ],
-        if (showD6) ...[
-          _textCell(row, 'deliverables_6', 150, false),
-          _textCell(row, 'complete_deliverables_6', 150, false),
-          _textCell(row, 'balanced_deliverables_6', 150, false),
-        ],
-        _textCell(row, 'today_plan', 180, rowEditable),
-        _dropdownCell(row, 'status', 130, statusOptions, rowEditable, useStatusBadge: true),
-        _textCell(row, 'remarks', 180, rowEditable),
+        _textCell(row, 'maintenance_date', _wDate, false),
+        _tasksCell(row),
+        _textCell(row, 'today_plan', _wPlan, rowEditable),
+        _statusActionCell(row, isTodayView),
+        _textCell(row, 'remarks', _wRemarks, rowEditable),
         _actionCell(row, isTodayView, rowEditable),
       ],
     );
   }
 
-  Widget _textCell(Map<String, dynamic> row, String field, double width, bool rowEditable) {
-    final value = (row[field] ?? '').toString();
+  Widget _textCell(
+    Map<String, dynamic> row,
+    String field,
+    double width,
+    bool rowEditable,
+  ) {
+    final raw = (row[field] ?? '').toString();
+    final linked = field == 'today_plan' && _refFor(row) != null;
+    // Linked rows keep their hidden marker, so their plan text is read-only.
+    final value = linked ? _planText(raw) : raw;
     const editableFields = ['today_plan', 'remarks'];
-    final canEdit = rowEditable && editableFields.contains(field);
+    final canEdit = rowEditable && editableFields.contains(field) && !linked;
     final bg = _getRowColor((row['status'] ?? '').toString());
 
     return Container(
@@ -2687,22 +3189,41 @@ Future<void> _submitDay() async {
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: bg,
-        border: const Border(right: BorderSide(color: Color(0xFFDCE5F2)), bottom: BorderSide(color: Color(0xFFDCE5F2))),
+        border: const Border(
+          right: BorderSide(color: Color(0xFFDCE5F2)),
+          bottom: BorderSide(color: Color(0xFFDCE5F2)),
+        ),
       ),
       alignment: Alignment.centerLeft,
       child: canEdit
           ? TextField(
-              controller: TextEditingController(text: value)..selection = TextSelection.collapsed(offset: value.length),
+              controller: TextEditingController(text: value)
+                ..selection = TextSelection.collapsed(offset: value.length),
               maxLines: 1,
-              style: const TextStyle(fontSize: 10.5, color: Color(0xFF19375E), fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontSize: 10.5,
+                color: Color(0xFF19375E),
+                fontWeight: FontWeight.w600,
+              ),
               decoration: InputDecoration(
                 isDense: true,
                 filled: true,
                 fillColor: Colors.white.withValues(alpha: .72),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(9), borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
-                hintText: field == 'today_plan' ? 'Enter today\'s plan...' : 'Add remarks...',
-                hintStyle: const TextStyle(fontSize: 9.5, color: Color(0xFF98A8BE)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(9),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 9,
+                ),
+                hintText: field == 'today_plan'
+                    ? 'Enter today\'s plan...'
+                    : 'Add remarks...',
+                hintStyle: const TextStyle(
+                  fontSize: 9.5,
+                  color: Color(0xFF98A8BE),
+                ),
               ),
               onChanged: (v) {
                 row[field] = v;
@@ -2713,7 +3234,13 @@ Future<void> _submitDay() async {
               value.isEmpty ? '—' : value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: value.isEmpty ? const Color(0xFF9AAAC0) : const Color(0xFF334D70)),
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: value.isEmpty
+                    ? const Color(0xFF9AAAC0)
+                    : const Color(0xFF334D70),
+              ),
             ),
     );
   }
@@ -2741,6 +3268,8 @@ Future<void> _submitDay() async {
         return (const Color(0xFFF0F3F8), const Color(0xFF475569));
       case 'PROCESSING':
         return (const Color(0xFFEAF3FF), const Color(0xFF1557B0));
+      case 'REWORK':
+        return (const Color(0xFFFFEDD5), const Color(0xFFC2410C));
       case 'NOT START':
         return (const Color(0xFFF1F5F9), const Color(0xFF64748B));
       default:
@@ -2757,7 +3286,8 @@ Future<void> _submitDay() async {
     bool useStatusBadge = false,
   }) {
     final current = (row[field] ?? '').toString();
-    final colorPair = _yesNoColors(field, current) ?? _statusColors(field, current);
+    final colorPair =
+        _yesNoColors(field, current) ?? _statusColors(field, current);
     const editableDropdowns = ['today_leads', 'today_report', 'status'];
     final canEdit = isTodayView && editableDropdowns.contains(field);
     final bg = colorPair?.$1 ?? _getRowColor((row['status'] ?? '').toString());
@@ -2768,7 +3298,10 @@ Future<void> _submitDay() async {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: bg,
-        border: const Border(right: BorderSide(color: Color(0xFFDCE5F2)), bottom: BorderSide(color: Color(0xFFDCE5F2))),
+        border: const Border(
+          right: BorderSide(color: Color(0xFFDCE5F2)),
+          bottom: BorderSide(color: Color(0xFFDCE5F2)),
+        ),
       ),
       alignment: Alignment.centerLeft,
       child: canEdit
@@ -2779,18 +3312,48 @@ Future<void> _submitDay() async {
                 dropdownColor: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 menuMaxHeight: 280,
-                hint: const Text('Select', style: TextStyle(fontSize: 10, color: Color(0xFF8EA0B8), fontWeight: FontWeight.w700)),
-                icon: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: colorPair?.$2 ?? const Color(0xFF0757D5)),
-                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: colorPair?.$2 ?? const Color(0xFF0757D5)),
+                hint: const Text(
+                  'Select',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF8EA0B8),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                icon: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: colorPair?.$2 ?? const Color(0xFF0757D5),
+                ),
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  color: colorPair?.$2 ?? const Color(0xFF0757D5),
+                ),
                 items: options.map((o) {
-                  final pair = _yesNoColors(field, o) ?? _statusColors(field, o);
+                  final pair =
+                      _yesNoColors(field, o) ?? _statusColors(field, o);
                   return DropdownMenuItem<String>(
                     value: o,
                     child: Row(
                       children: [
-                        Container(width: 7, height: 7, decoration: BoxDecoration(color: pair?.$2 ?? const Color(0xFF0757D5), shape: BoxShape.circle)),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: pair?.$2 ?? const Color(0xFF0757D5),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                         const SizedBox(width: 7),
-                        Text(o, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: pair?.$2 ?? const Color(0xFF334D70))),
+                        Text(
+                          o,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: pair?.$2 ?? const Color(0xFF334D70),
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -2806,17 +3369,42 @@ Future<void> _submitDay() async {
     );
   }
 
-  Widget _statusBadgeOrText(String value, (Color, Color)? pair, bool useStatusBadge) {
-    if (value.isEmpty) return const Text('—', style: TextStyle(fontSize: 11, color: Color(0xFF9AAAC0)));
+  Widget _statusBadgeOrText(
+    String value,
+    (Color, Color)? pair,
+    bool useStatusBadge,
+  ) {
+    if (value.isEmpty)
+      return const Text(
+        '—',
+        style: TextStyle(fontSize: 11, color: Color(0xFF9AAAC0)),
+      );
     if (!useStatusBadge && pair == null) {
-      return Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, color: Color(0xFF334D70), fontWeight: FontWeight.w600));
+      return Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 10.5,
+          color: Color(0xFF334D70),
+          fontWeight: FontWeight.w600,
+        ),
+      );
     }
     final bg = pair?.$1 ?? const Color(0xFFEAF3FF);
     final fg = pair?.$2 ?? const Color(0xFF0757D5);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-      child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: fg)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: fg),
+      ),
     );
   }
 
@@ -2830,6 +3418,8 @@ Future<void> _submitDay() async {
         return const Color(0xFFF3F8FF);
       case 'HOLD':
         return const Color(0xFFF7F8FB);
+      case 'REWORK':
+        return const Color(0xFFFFF7ED);
       case 'NOT START':
         return const Color(0xFFF8FAFD);
       default:
@@ -2837,37 +3427,91 @@ Future<void> _submitDay() async {
     }
   }
 
-  Widget _actionCell(Map<String, dynamic> row, bool isTodayView, bool rowEditable) {
+  Widget _actionCell(
+    Map<String, dynamic> row,
+    bool isTodayView,
+    bool rowEditable,
+  ) {
     if (!isTodayView) {
       return Container(
-        width: 130,
+        width: _wAction,
         height: 58,
-        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFDCE5F2)))),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFDCE5F2))),
+        ),
         alignment: Alignment.center,
-        child: const Icon(Icons.lock_outline_rounded, size: 16, color: Color(0xFF9AAAC0)),
+        child: const Icon(
+          Icons.lock_outline_rounded,
+          size: 16,
+          color: Color(0xFF9AAAC0),
+        ),
       );
     }
 
+    final ref = _refFor(row);
+    final item = ref == null ? null : _planItems[ref];
+    final client = (row['client'] ?? '').toString().trim();
+    final token = Provider.of<AuthService>(context, listen: false).token ?? '';
     return Container(
-      width: 130,
+      width: _wAction,
       height: 58,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: _getRowColor((row['status'] ?? '').toString()), border: const Border(bottom: BorderSide(color: Color(0xFFDCE5F2)))),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: _getRowColor((row['status'] ?? '').toString()),
+        border: const Border(bottom: BorderSide(color: Color(0xFFDCE5F2))),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // _smallActionButton(label: 'SAVE', color: const Color(0xFF087F5B), icon: Icons.save_rounded, onTap: () => _saveRow(row, lockRow: false, showMessage: true)),
-          // const SizedBox(width: 6),
-          Material(
-            color: Colors.transparent,
+          Expanded(
+            child: item != null
+                // Task / category row → its own Start · Hold · Complete · Rework.
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: TaskActionButtons(
+                      item: item,
+                      token: token,
+                      dense: true,
+                      onDone: loadTodayDayPlan,
+                    ),
+                  )
+                : client.isEmpty
+                    ? const SizedBox.shrink()
+                    // Client row → choose which of the client's tasks to act on.
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0757D5),
+                            visualDensity: VisualDensity.compact,
+                            minimumSize: const Size(0, 30),
+                          ),
+                          onPressed: () => TaskActionsSheet.show(
+                            context,
+                            employeeName: employeeName,
+                            clientName: client,
+                            token: token,
+                          ),
+                          icon: const Icon(Icons.play_circle_outline_rounded, size: 14),
+                          label: const Text('Tasks',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+          ),
+          const SizedBox(width: 4),
+          Tooltip(
+            message: 'Delete row',
             child: InkWell(
               onTap: () => _confirmDelete(row['id']),
               borderRadius: BorderRadius.circular(8),
               child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(color: const Color(0xFFFDEEEE), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFB42318)),
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDEEEE),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 15, color: Color(0xFFB42318)),
               ),
             ),
           ),
@@ -2876,7 +3520,12 @@ Future<void> _submitDay() async {
     );
   }
 
-  Widget _smallActionButton({required String label, required Color color, required IconData icon, required VoidCallback onTap}) {
+  Widget _smallActionButton({
+    required String label,
+    required Color color,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2885,13 +3534,23 @@ Future<void> _submitDay() async {
         child: Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 12, color: Colors.white),
               const SizedBox(width: 4),
-              Text(label, style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Colors.white)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
             ],
           ),
         ),
@@ -2900,7 +3559,8 @@ Future<void> _submitDay() async {
   }
 
   // Compatibility helpers kept so existing callers/references do not break.
-  Widget _buildTopBar(bool isTodayView) => _buildHero(isTodayView, MediaQuery.sizeOf(context).width < 700);
+  Widget _buildTopBar(bool isTodayView) =>
+      _buildHero(isTodayView, MediaQuery.sizeOf(context).width < 700);
 
   Widget _summaryCard(
     String title,
@@ -2910,7 +3570,13 @@ Future<void> _submitDay() async {
     int count,
     int total,
   ) {
-    return _metricCard(title, value, icon, color, total == 0 ? 0 : count / total);
+    return _metricCard(
+      title,
+      value,
+      icon,
+      color,
+      total == 0 ? 0 : count / total,
+    );
   }
 
   Widget _productivityCard() {
@@ -2932,8 +3598,20 @@ Future<void> _submitDay() async {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                CircularProgressIndicator(value: score, strokeWidth: 6, backgroundColor: const Color(0xFFEAF0F9), color: const Color(0xFF0757D5)),
-                Text('${(score * 100).round()}%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF174A8B))),
+                CircularProgressIndicator(
+                  value: score,
+                  strokeWidth: 6,
+                  backgroundColor: const Color(0xFFEAF0F9),
+                  color: const Color(0xFF0757D5),
+                ),
+                Text(
+                  '${(score * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF174A8B),
+                  ),
+                ),
               ],
             ),
           ),
@@ -2942,9 +3620,24 @@ Future<void> _submitDay() async {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('TODAY\'S PRODUCTIVITY', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF71839C), letterSpacing: .7)),
+                const Text(
+                  'TODAY\'S PRODUCTIVITY',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF71839C),
+                    letterSpacing: .7,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('$completed of $total tasks completed', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF19375E))),
+                Text(
+                  '$completed of $total tasks completed',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF19375E),
+                  ),
+                ),
               ],
             ),
           ),
@@ -2953,9 +3646,24 @@ Future<void> _submitDay() async {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('WORKING TIME', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF71839C), letterSpacing: .7)),
+              const Text(
+                'WORKING TIME',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF71839C),
+                  letterSpacing: .7,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(totalWorkingTimeFormatted, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Color(0xFF0757D5))),
+              Text(
+                totalWorkingTimeFormatted,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0757D5),
+                ),
+              ),
             ],
           ),
         ],
@@ -2987,13 +3695,20 @@ class _HeaderCell extends StatelessWidget {
         alignment: Alignment.centerLeft,
         decoration: const BoxDecoration(
           color: Color(0xFF0757D5),
-          border: Border(right: BorderSide(color: Color(0xFF4E8CE6), width: .8)),
+          border: Border(
+            right: BorderSide(color: Color(0xFF4E8CE6), width: .8),
+          ),
         ),
         child: Text(
           label,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: .35),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .35,
+          ),
         ),
       ),
     );

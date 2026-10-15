@@ -11,12 +11,18 @@ import '../constants/app_colors.dart';
 import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
 class EmployeeTopbar extends StatefulWidget {
   final EmployeeRole role;
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenAssignedTasks;
   final VoidCallback? onTapWorkingHours;
+  final VoidCallback? onOpenRunningTask;
+  /// Tapping the running chip: gets the running item
+  /// ({client, due_date, section: 'My Tasks' | 'Content Calendar', task_id, …})
+  /// so the dashboard can open that client's workspace on that tab.
+  final ValueChanged<Map<String, dynamic>>? onOpenRunningItem;
   final Function(String)? onSearch;
 
   const EmployeeTopbar({
@@ -25,6 +31,8 @@ class EmployeeTopbar extends StatefulWidget {
     this.onOpenNotifications,
     this.onOpenAssignedTasks,
     this.onTapWorkingHours,
+    this.onOpenRunningTask,
+    this.onOpenRunningItem,
     this.onSearch,
   });
 
@@ -43,7 +51,14 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
 
-  String formattedTotalWorkingTime = "00h 00m";
+  String formattedTotalWorkingTime = "00h 00m 00s";
+
+  // ── Working hours + running task (server is the source of truth) ──
+  int _baseTotalSecs = 0;               // seconds worked today when last fetched
+  DateTime _baseAt = DateTime.now();    // local time of that fetch
+  Duration _serverOffset = Duration.zero;
+  Map<String, dynamic>? _running;       // {trackingItemId, client, task, sessionStartedAt}
+  Timer? _tickTimer;
 
   late AnimationController _rotateController;
   late AnimationController _glowController;
@@ -72,6 +87,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
 
     _startPolling();
     _fetchTodayWorkingHours();
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) _recomputeWorkingDisplay();
+    });
     _connectNotificationSocket();
     _checkActiveBroadcast();
   }
@@ -79,6 +97,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _tickTimer?.cancel();
     _popupTimer?.cancel();
     _searchController.dispose();
     _socket?.dispose();
@@ -806,6 +825,9 @@ List<TextSpan> _buildHighlightedMessage(String message) {
       }
 
       _socket!.on('new_notification', handle);
+      _socket!.on('task_updated', (_) {
+        if (mounted) _fetchTodayWorkingHours();
+      });
     } catch (e) {
       debugPrint('Topbar socket init error: $e');
     }
@@ -823,54 +845,132 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     if (!mounted) return;
     final authService = Provider.of<AuthService>(context, listen: false);
     final employeeName = authService.user?['fullName'] ?? authService.user?['name'] ?? authService.user?['username'];
-    
-    if (employeeName == null || employeeName.isEmpty) return;
-
+    if (employeeName == null || employeeName.toString().isEmpty) return;
     try {
       final now = DateTime.now();
       final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      
-      final url = Uri.parse('${ApiConfig.baseUrl}/dashboard/live-tracking-tasks/$employeeName?date=$formattedDate');
+      // Running item (task or Content Calendar category) + today's total —
+      // the same numbers My Tasks, Live Tracking and the Day Planner use.
+      final url = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/running').replace(
+        queryParameters: {'employee': employeeName.toString(), 'date': formattedDate},
+      );
       final r = await http.get(url);
-
-      if (r.statusCode == 200) {
+      if (r.statusCode == 200 && mounted) {
         final body = jsonDecode(r.body);
-        final rows = List<dynamic>.from(body['data'] ?? []);
-
-        int totalSumSeconds = 0;
-        for (var row in rows) {
-          String durStr = (row["duration"] ?? "").toString().toLowerCase();
-          
-          int hrs = 0;
-          int mins = 0;
-
-          if (durStr.contains('hrs') || durStr.contains('hr')) {
-            final parts = durStr.split('hr');
-            hrs = int.tryParse(parts[0].trim()) ?? 0;
-            if (parts.length > 1 && parts[1].contains('min')) {
-              final minPart = parts[1].replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
-              mins = int.tryParse(minPart) ?? 0;
-            }
-          } else if (durStr.contains('min')) {
-            final minPart = durStr.replaceAll('s', '').replaceAll('mins', '').replaceAll('min', '').trim();
-            mins = int.tryParse(minPart) ?? 0;
-          }
-
-          totalSumSeconds += (hrs * 3600) + (mins * 60);
-        }
-
-        int totalHours = totalSumSeconds ~/ 3600;
-        int totalMinutes = (totalSumSeconds % 3600) ~/ 60;
-
-        if (mounted) {
-          setState(() {
-            formattedTotalWorkingTime = '${totalHours.toString().padLeft(2, '0')}h ${totalMinutes.toString().padLeft(2, '0')}m';
-          });
-        }
+        final serverNow = DateTime.tryParse((body['serverNow'] ?? '').toString());
+        setState(() {
+          _baseTotalSecs = (body['totalSecs'] as num?)?.toInt() ?? 0;
+          _baseAt = DateTime.now();
+          _serverOffset = serverNow != null ? serverNow.difference(DateTime.now()) : Duration.zero;
+          _running = body['running'] is Map ? Map<String, dynamic>.from(body['running'] as Map) : null;
+        });
+        _recomputeWorkingDisplay();
       }
     } catch (e) {
       debugPrint("Working hours fetch error: $e");
     }
+  }
+
+  // Ticks every second: today's total grows only while a task is running.
+  void _recomputeWorkingDisplay() {
+    int total = _baseTotalSecs;
+    if (_running != null) total += DateTime.now().difference(_baseAt).inSeconds;
+    final h = total ~/ 3600;
+    final m = (total % 3600) ~/ 60;
+    final sec = total % 60;
+    // Runs live with seconds while something is in progress.
+    final text = '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
+        '${sec.toString().padLeft(2, '0')}s';
+    if (_running != null || text != formattedTotalWorkingTime) {
+      setState(() => formattedTotalWorkingTime = text);
+    }
+  }
+
+  String _runningTimerText() {
+    // Total time on the running item (all sessions), ticking live.
+    final base = int.tryParse('${_running?['elapsedSecs'] ?? ''}');
+    int secs;
+    if (base != null) {
+      secs = base + DateTime.now().difference(_baseAt).inSeconds;
+    } else {
+      final started = DateTime.tryParse((_running?['sessionStartedAt'] ?? '').toString());
+      if (started == null) return '00:00:00';
+      secs = DateTime.now().add(_serverOffset).difference(started).inSeconds;
+    }
+    if (secs < 0) secs = 0;
+    final h = (secs ~/ 3600).toString().padLeft(2, '0');
+    final m = ((secs % 3600) ~/ 60).toString().padLeft(2, '0');
+    final sec = (secs % 60).toString().padLeft(2, '0');
+    return '$h:$m:$sec';
+  }
+
+  Future<void> _holdRunningTask() async {
+    final running = _running;
+    if (running == null) return;
+    final token = Provider.of<AuthService>(context, listen: false).token ?? '';
+    await TaskActions.run(context, Map<String, dynamic>.from(running), 'hold', token: token);
+    await _fetchTodayWorkingHours();
+  }
+
+  // Compact "running task" chip shown next to Today Working Hours.
+  Widget _buildRunningChip() {
+    final running = _running;
+    if (running == null) return const SizedBox.shrink();
+    final client = (running['client'] ?? '').toString();
+    var title = '${client.isEmpty ? '' : '$client · '}${running['task'] ?? ''}';
+    if (title.length > 32) title = '${title.substring(0, 32)}…';
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            final item = _running;
+            if (item != null && widget.onOpenRunningItem != null) {
+              widget.onOpenRunningItem!(Map<String, dynamic>.from(item));
+            } else {
+              widget.onOpenRunningTask?.call();
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
+                const SizedBox(width: 6),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
+                    Text(_runningTimerText(),
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFF166534))),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: _holdRunningTask,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('Hold',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309))),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _checkNewNotifications() async {
@@ -1163,6 +1263,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                     ),
                   ),
                 ),
+                if (!isSmallMobile) _buildRunningChip(),
                 const SizedBox(width: 8),
                 
                 Stack(

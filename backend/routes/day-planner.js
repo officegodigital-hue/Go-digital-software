@@ -4,6 +4,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
+const { syncDayPlanStatus, localDay } = require('../lib/dayPlanSync');
 
 // GET /api/day-planner?employeeName=Arun&date=2026-07-09
 router.get('/', async (req, res) => {
@@ -158,6 +159,9 @@ router.post('/', async (req, res) => {
         todayPlan || null, status || null, remarks || null, 0,
       ]
     );
+    if (client) {
+      try { await syncDayPlanStatus(employeeName, client, String(date).slice(0, 10)); } catch (_) {}
+    }
 
     return res.status(201).json({ success: true, message: 'Row created', data: { id: result.insertId } });
   } catch (err) {
@@ -235,6 +239,21 @@ router.put('/:id', async (req, res) => {
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Row not found' });
+    }
+
+    // Status is automatic for today's rows — re-derive it after any save so a
+    // stale value from the page can't overwrite live task progress.
+    try {
+      const [[saved]] = await db.query(
+        `SELECT employee_name, client_name, DATE_FORMAT(plan_date, '%Y-%m-%d') AS day
+         FROM day_plan_rows WHERE id = ?`,
+        [id],
+      );
+      if (saved && saved.client_name && saved.day === localDay(new Date())) {
+        await syncDayPlanStatus(saved.employee_name, saved.client_name, saved.day);
+      }
+    } catch (syncErr) {
+      console.error('Day plan status sync failed:', syncErr.message);
     }
 
     return res.json({ success: true, message: 'Row saved' });
@@ -495,6 +514,43 @@ router.post('/submit', async (req, res) => {
   const currentReportType = reportType || "Morning";
 
   try {
+    const [runningEmployeeTasks] = await db.query(
+      `SELECT
+         tti.id AS tracking_item_id,
+         tl.client_name,
+         tl.deliverables AS task,
+         tti.s_no
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tl.employee_name = ? AND tti.status = 'IN PROGRESS'
+       ORDER BY tti.start_time DESC, tti.id DESC`,
+      [employeeName],
+    );
+    const [runningCalendarRows] = await db.query(
+      `SELECT id AS calendar_id, source_assignment_id, source_role,
+              source_task_index, client_name, deliverable AS task,
+              hook_headline, s_no
+       FROM content_calendar
+       WHERE cc_prepared_by_name = ? AND cc_status = 'IN PROGRESS'
+         AND cc_handoff_at IS NULL AND cc_started_at IS NOT NULL
+       ORDER BY cc_started_at DESC, id DESC`,
+      [employeeName],
+    );
+    const activeTasks = [
+      ...runningEmployeeTasks.map((task) => ({ ...task, type: 'tracking' })),
+      ...runningCalendarRows.map((task) => ({
+        ...task,
+        type: task.source_assignment_id ? 'calendar_sheet' : 'calendar',
+      })),
+    ];
+    if (activeTasks.length) {
+      return res.status(409).json({
+        success: false,
+        message: 'Hold or complete the active task before submitting the Day Planner',
+        activeTasks,
+      });
+    }
+
     // 1. Calculate total working hours for this employee on this date from time_tracking_task_items
     const [timeRows] = await db.query(
       `SELECT SUM(tti.duration_secs) AS total_secs
@@ -605,6 +661,17 @@ router.get("/today/:employee", async (req, res) => {
   try {
     const employee = req.params.employee;
     const { date, reportType } = req.query; 
+
+    // Status is automatic: bring today's rows in line with My Tasks /
+    // Content Calendar activity before returning them.
+    const today = localDay(new Date());
+    if (!date || String(date).slice(0, 10) === today) {
+      try {
+        await syncDayPlanStatus(employee, null, today);
+      } catch (syncErr) {
+        console.error('Day plan status sync failed:', syncErr.message);
+      }
+    }
 
     const sql = `
       SELECT *, DATE_FORMAT(plan_date, '%Y-%m-%d') AS plan_date_str
