@@ -44,6 +44,10 @@ import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 
+/// Global navigator key — used by WaitingAlertService to show dialogs from
+/// outside the widget tree (e.g. background timers).
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
@@ -67,6 +71,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
+        navigatorKey: appNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: "GoDigital Portal",
         initialRoute: '/',

@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+﻿// ignore_for_file: use_build_context_synchronously
+import 'dart:convert';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,8 @@ import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
 import '../../services/hrms_payslip_api.dart';
 import '../../services/calendar_notifications_api.dart';
+import '../../services/waiting_alert_service.dart';
+import '../../main.dart' show appNavigatorKey;
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -21,6 +24,21 @@ class EmployeeDashboardPage extends StatefulWidget {
 
 class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   bool menuOpen = false;
+  late final WaitingAlertService _waitingAlertService;
+
+  @override
+  void initState() {
+    super.initState();
+    _waitingAlertService = WaitingAlertService(navigatorKey: appNavigatorKey);
+    _waitingAlertService.start();
+  }
+
+  @override
+  void dispose() {
+    _waitingAlertService.stop();
+    super.dispose();
+  }
+
   static const routes = <String>{
     '/employee/dashboard',
     '/employee/attendance',
