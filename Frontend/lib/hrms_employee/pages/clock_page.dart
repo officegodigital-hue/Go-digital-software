@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_config.dart';
 import '../../services/attendance_location.dart';
 import '../../services/auth_service.dart';
+import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
 
 class EmployeeClockPage extends StatelessWidget {
@@ -173,6 +174,8 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+
+    // ── Hybrid check-in: redirect to tracking page ────────────────────────────
     if (!clockOut) {
       try {
         final policy = await _call('check-in-policy', token);
@@ -189,6 +192,8 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('You are now checked in.')),
             );
+            // After Hybrid check-in succeeds, offer to start field tracking
+            await _offerStartTracking();
           }
           return;
         }
@@ -200,6 +205,29 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
         return;
       }
     }
+
+    // ── Hybrid checkout: warn if field tracking is still active ───────────────
+    if (clockOut) {
+      final session = _data?['session'] as Map?;
+      final workMode = session?['work_mode']?.toString() ?? '';
+      if (workMode == 'Hybrid') {
+        final shouldProceed = await _checkHybridBeforeCheckout();
+        if (!mounted || token != _token) return;
+        if (!shouldProceed) return;
+      } else {
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('End your shift now?'),
+            content: const Text('Your checkout time and worked hours will be recorded.'),
+            actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Check Out'))],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+    }
+
     setState(() => _punching = true);
     String message;
     try {
@@ -242,6 +270,82 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // Show "Start Field Tracking?" popup after Hybrid check-in
+  Future<void> _offerStartTracking() async {
+    if (!mounted) return;
+    final start = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Start Field Tracking?'),
+        content: const Text('You are checked in. Start tracking if you are heading out for field work.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not Now')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Start Tracking')),
+        ],
+      ),
+    );
+    if (start == true && mounted) {
+      await Navigator.pushNamed(context, '/employee/tracking');
+    }
+  }
+
+  // Returns true if checkout should proceed, false to cancel.
+  // For Hybrid: if tracking is active, shows stop+checkout dialog.
+  Future<bool> _checkHybridBeforeCheckout() async {
+    bool trackingActive = false;
+    try {
+      final session = await HrmsTrackingApi.hybridSession();
+      trackingActive = session['is_active'] == 1 || session['is_active'] == true || session['isActive'] == true;
+    } catch (_) {}
+
+    if (!mounted) return false;
+
+    if (trackingActive) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Tracking Still Active'),
+          content: const Text('Your field tracking is still running. Stop it before checking out.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, 'stop_and_checkout'),
+              child: const Text('Stop Tracking & Check Out'),
+            ),
+          ],
+        ),
+      );
+      if (choice != 'stop_and_checkout') return false;
+      // Stop the field tracking session
+      try {
+        final pos = await AttendanceLocation.currentPosition();
+        await HrmsTrackingApi.stopHybridSession(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracy: pos.accuracy,
+        );
+      } catch (_) {
+        await HrmsTrackingApi.stopHybridSession();
+      }
+      return true;
+    }
+
+    // Tracking not active — show normal checkout confirmation
+    if (!mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End your shift now?'),
+        content: const Text('Your checkout time and worked hours will be recorded.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Check Out')),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   String _formatPunchTime(dynamic rawTimestamp) {

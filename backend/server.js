@@ -10,7 +10,7 @@ const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
 const { runAutoAbsence } = require('./jobs/auto-absence');
-const { runAutoCheckout } = require('./jobs/auto-checkout');
+const { runAutoCheckout, runEndOfDayClose } = require('./jobs/auto-checkout');
 const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 
@@ -29,6 +29,16 @@ cron.schedule('* * * * *', async () => {
     if (result.checked > 0) console.log(`Auto-checkout: ${result.checked} session(s) closed on ${result.today}`);
   } catch (error) {
     console.error('Auto-checkout job failed:', error.message);
+  }
+}, { timezone: 'Asia/Kolkata' });
+
+// End-of-day auto-close: at 11:59 PM IST, close any session still open
+cron.schedule('59 23 * * *', async () => {
+  try {
+    const result = await runEndOfDayClose();
+    if (result.closed > 0) console.log(`End-of-day close: ${result.closed} session(s) closed on ${result.today}`);
+  } catch (error) {
+    console.error('End-of-day close job failed:', error.message);
   }
 }, { timezone: 'Asia/Kolkata' });
 

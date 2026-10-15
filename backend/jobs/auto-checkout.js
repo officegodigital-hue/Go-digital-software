@@ -159,4 +159,31 @@ async function _doCheckout(session, checkoutAt, eventType, reason) {
   );
 }
 
-module.exports = { runAutoCheckout };
+/**
+ * End-of-day auto-close — runs at 11:59 PM IST.
+ * Closes every open attendance session from today so no session
+ * carries over past midnight.
+ */
+async function runEndOfDayClose() {
+  const today = attendancePolicy.todayIstDate();
+  const closeAt = today + ' 23:59:00';
+  let closed = 0;
+
+  const [openSessions] = await db.query(
+    `SELECT ar.id, ar.employee_id, ar.check_in_at
+     FROM attendance_records ar
+     WHERE ar.attendance_date = ?
+       AND ar.check_in_at IS NOT NULL
+       AND ar.check_out_at IS NULL`,
+    [today]
+  );
+
+  for (const session of openSessions) {
+    await _doCheckout(session, closeAt, 'end_of_day_auto_close', 'Session auto-closed at end of day');
+    closed++;
+  }
+
+  return { closed, today };
+}
+
+module.exports = { runAutoCheckout, runEndOfDayClose };
