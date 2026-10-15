@@ -244,6 +244,10 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
       {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
       {'icon': Icons.access_time_rounded, 'title': 'Time Manager', 'route': '/time-manager'},
+      // Every client, every employee's tasks (live), Content Calendar,
+      // Task Review, Live Tracking, Team Chat and the Pending (late) list.
+      {'icon': Icons.workspaces_rounded, 'title': 'Employee Workspace', 'route': '/admin-workspace'},
+      {'icon': Icons.timer_outlined, 'title': 'Task Deadline Rules', 'route': '/task-deadline-rules'},
       // admin_layout.dart-il ulla allNavItems list-kkul intha item-ai serthukollavum:
 {
   'icon': Icons.campaign_rounded, 

@@ -51,12 +51,17 @@ class WorkspaceTaskReviewSection extends StatefulWidget {
   final String employeeName;
   final String authToken;
 
+  /// Main admin: sees the whole team's work for this client and can
+  /// Approve / set Pending / Rework / Reject every row.
+  final bool adminMode;
+
   const WorkspaceTaskReviewSection({
     super.key,
     required this.clientName,
     required this.submissionDate,
     required this.employeeName,
     required this.authToken,
+    this.adminMode = false,
   });
 
   @override
@@ -126,6 +131,7 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
           'date': widget.submissionDate.length >= 10
               ? widget.submissionDate.substring(0, 10)
               : widget.submissionDate,
+          if (widget.adminMode) 'admin': '1',
         },
       );
       final res = await http.get(uri, headers: _headers);
@@ -145,6 +151,7 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
         _team = team;
         _isReviewer = decoded['is_reviewer'] == true;
         if (!_isReviewer) _showTeam = false;
+        if (widget.adminMode && _isReviewer) _showTeam = true;
         _loading = false;
         _error = null;
       });
@@ -210,6 +217,7 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
           'employee': widget.employeeName,
           'action': action,
           'comment': comment,
+          if (widget.adminMode) 'as_admin': true,
         }),
       );
       if (!mounted) return;

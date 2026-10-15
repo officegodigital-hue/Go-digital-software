@@ -974,11 +974,30 @@ router.post('/:id/restart', async (req, res) => {
 
     const row = rows[0];
     const currentStatus = String(row.status || '').toUpperCase();
-    const isRework = currentStatus === 'REWORK' ||
-      (String(row.review_status || '').toUpperCase() === 'REWORK' && currentStatus !== 'IN PROGRESS');
+    const reviewNow = String(row.review_status || '').toUpperCase();
+    // Rejected work can be redone too (RESTART continues the same timer).
+    const isRejected = currentStatus === 'REJECTED' ||
+      (reviewNow === 'REJECTED' && ['COMPLETED', 'REWORK'].includes(currentStatus));
+    const isRework = isRejected || currentStatus === 'REWORK' ||
+      (reviewNow === 'REWORK' && currentStatus !== 'IN PROGRESS');
     if (currentStatus !== 'ON HOLD' && !isRework) {
       await connection.rollback();
-      return res.status(409).json({ success: false, message: 'Only a held or rework task can be restarted' });
+      return res.status(409).json({ success: false, message: 'Only a held, rework or rejected task can be restarted' });
+    }
+    // Older rejected rows still hold their completion time: park it in a hold
+    // slot so the restart pairs with it and the worked time keeps counting.
+    if (['COMPLETED', 'REJECTED'].includes(currentStatus) && row.complete_time) {
+      let holdSlot = null;
+      for (let i = 1; i <= 10; i++) {
+        if (row[`hold_time_${i}`] === null) { holdSlot = i; break; }
+      }
+      if (holdSlot) {
+        await connection.query(
+          `UPDATE time_tracking_task_items SET hold_time_${holdSlot} = complete_time WHERE id = ?`,
+          [id],
+        );
+        row[`hold_time_${holdSlot}`] = row.complete_time;
+      }
     }
     if (String(row.review_status || '').toUpperCase() === 'APPROVED') {
       await connection.rollback();

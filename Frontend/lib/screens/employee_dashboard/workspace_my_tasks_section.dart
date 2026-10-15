@@ -95,6 +95,8 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
   final Set<int> _busy = {};
   // Task rows already in today's Day Planner (row-based planner button).
   Set<int> _plannerIds = {};
+  // Deadline-rule status (Admin → Task Deadline Rules) for this client/date.
+  List<Map<String, dynamic>> _late = [];
   final Map<String, Timer> _fieldSavers = {};
   Timer? _ticker;
   Timer? _refreshDebounce;
@@ -205,6 +207,7 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
         throw Exception(_messageFrom(res, 'Unable to load your tasks'));
       }
       _loadPlannerIds();
+      _loadLate();
       final body = jsonDecode(res.body);
       final groups = (body['data'] as List? ?? [])
           .whereType<Map>()
@@ -235,6 +238,66 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadLate() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$_base/workspace-tasks/compliance').replace(queryParameters: {
+          'employee': widget.employeeName,
+          'client': widget.clientName,
+          'date': widget.submissionDate.length >= 10
+              ? widget.submissionDate.substring(0, 10)
+              : widget.submissionDate,
+          'late': '1',
+        }),
+        headers: _headers,
+      );
+      if (res.statusCode != 200 || !mounted) return;
+      final items = (jsonDecode(res.body)['data'] as List? ?? [])
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+      setState(() => _late = items);
+    } catch (_) {}
+  }
+
+  bool _isLate(Map<String, dynamic> group) =>
+      _late.any((i) => i['key'] == group['key']);
+
+  /// Red banner: tasks that are past the admin's start / complete deadline.
+  Widget _lateBanner() {
+    if (_late.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFB91C1C), size: 18),
+            SizedBox(width: 8),
+            Text('Late — please start / finish these now',
+                style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFB91C1C), fontSize: 13)),
+          ]),
+          const SizedBox(height: 6),
+          for (final i in _late)
+            for (final issue in (i['issues'] as List? ?? []).whereType<Map>())
+              Padding(
+                padding: const EdgeInsets.only(left: 26, top: 3),
+                child: Text(
+                  '${i['task']}${'${i['role_key']}' == 'content_calendar' ? ' (Content Calendar)' : ''}: ${issue['message']}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF7F1D1D), fontWeight: FontWeight.w600),
+                ),
+              ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadPlannerIds() async {
@@ -659,6 +722,7 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
         children: [
+          _lateBanner(),
           _categoryChips(),
           const SizedBox(height: 14),
           _groupHeader(group, rows),
@@ -695,6 +759,7 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
     final selected = index == _selected;
     const openStates = {'IDLE', 'IN PROGRESS', 'ON HOLD', 'REWORK'};
     final pending = rows.where((r) => openStates.contains(r['state'])).length;
+    final late = _isLate(group);
     final chip = InkWell(
       borderRadius: BorderRadius.circular(9),
       onTap: () => setState(() => _selected = index),
@@ -702,9 +767,12 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         decoration: BoxDecoration(
-          color: selected ? _kPrimary : Colors.white,
+          color: selected ? _kPrimary : (late ? const Color(0xFFFFF1F2) : Colors.white),
           borderRadius: BorderRadius.circular(9),
-          border: Border.all(color: selected ? _kPrimary : const Color(0xFFBFDBFE)),
+          border: Border.all(
+            color: late ? const Color(0xFFDC2626) : (selected ? _kPrimary : const Color(0xFFBFDBFE)),
+            width: late ? 2 : 1,
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -726,6 +794,15 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
                 color: selected ? Colors.white70 : _kMuted,
               ),
             ),
+            if (late)
+              Text(
+                'LATE',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                  color: selected ? Colors.white : const Color(0xFFB91C1C),
+                ),
+              ),
           ],
         ),
       ),
@@ -812,9 +889,8 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
   // Open work first (in S.No order); finished work sinks to the bottom.
   static int _rank(String state) => switch (state) {
         'IN REVIEW' => 1,
-        'REJECTED' => 2,
         'APPROVED' => 3,
-        _ => 0, // IDLE / IN PROGRESS / ON HOLD / REWORK
+        _ => 0, // IDLE / IN PROGRESS / ON HOLD / REWORK / REJECTED (can be redone)
       };
 
   List<Map<String, dynamic>> _orderedRows(List<Map<String, dynamic>> rows) {
@@ -1368,6 +1444,11 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
       case 'REWORK':
         // Continues the same timer from where it stopped at completion.
         actions.add(_actionButton('RESTART', const Color(0xFFB45309), Icons.replay_rounded,
+            busy ? null : () => _runAction(row, 'restart')));
+        break;
+      case 'REJECTED':
+        // Rejected work can be redone: RESTART continues the same timer.
+        actions.add(_actionButton('REWORK', const Color(0xFFB91C1C), Icons.replay_rounded,
             busy ? null : () => _runAction(row, 'restart')));
         break;
       case 'IN REVIEW':
