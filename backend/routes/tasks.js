@@ -429,23 +429,40 @@ router.put('/:id', async (req, res) => {
     // 🟢 NEW FIX: Oru task re-assign aagum pothu (e.g., designer, adsHandling, etc. mathum pothu),
     // antha task_assignment_id-kku link aana task_list table-la irukkira employee_name-aiyum update panrom
     // Ithanaala munnadi iruntha tracking rows & completed records puthu employee-ku transfer/retain aagum.
-    const allAssignedEmployees = [
-      adsHandling, pageHandling, designer, videographer, 
-      videoEditor, uiUxDesigner, developer, websiteDesigner
-    ].filter(emp => emp && emp.trim() !== '' && emp.toUpperCase() !== 'NONE');
-
-    if (allAssignedEmployees.length > 0) {
-      // Oru task-assignment row-la multiple roles irukalam, aana particular role-ku thakkatha task_list update aagum
-      for (const empName of allAssignedEmployees) {
-        await db.query(
-          `UPDATE task_list 
-           SET employee_name = ? 
-           WHERE task_assignment_id = ?`,
-          [empName, req.params.id]
-        );
-      }
+    // Re-point each role's task_list rows at that role's employee only.
+    // (The old loop set EVERY task_list of this assignment to the last
+    // employee in the list, so one person's tasks showed up for another.)
+    const roleTaskPairs = [
+      [adsHandling, adsPlatform],
+      [pageHandling, pagesPlatform],
+      [designer, designerTasks],
+      [videographer, videographerTasks],
+      [videoEditor, videoEditorTask],
+      [uiUxDesigner, uiUxTasks],
+      [developer, developerTasks],
+      [websiteDesigner, websiteDesignerTasks],
+    ];
+    for (const [empName, taskText] of roleTaskPairs) {
+      const name = String(empName || '').trim();
+      if (!name || name.toUpperCase() === 'NONE') continue;
+      const taskNames = String(taskText || '')
+        .split(',')
+        .map((t) => t.trim().replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase())
+        .filter(Boolean);
+      if (!taskNames.length) continue;
+      await db.query(
+        `UPDATE task_list
+         SET employee_name = ?,
+             employee_id = COALESCE(
+               (SELECT id FROM employee_users
+                WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1),
+               employee_id)
+         WHERE task_assignment_id = ?
+           AND LOWER(TRIM(deliverables)) IN (?)`,
+        [name, name, req.params.id, taskNames]
+      );
     }
-    
+
     try {
       const io = req.app.get('io');
       if (io) {

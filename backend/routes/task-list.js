@@ -470,7 +470,8 @@ router.patch('/:id/rows', async (req, res) => {
     // 3. Ensure tracking items exist up to the new row count (e.g., when increasing from 12 to 13)
     for (let sno = 1; sno <= noOfRows; sno++) {
       const [existingItem] = await db.query(
-        `SELECT id, status FROM time_tracking_task_items WHERE task_list_id = ? AND s_no = ?`,
+        `SELECT id, status FROM time_tracking_task_items
+         WHERE task_list_id = ? AND s_no = ? AND parent_item_id IS NULL`,
         [req.params.id, sno]
       );
 

@@ -18,6 +18,70 @@ function formatDuration(seconds) {
   return `${mins} mins`;
 }
 
+const VALID_ACTIONS = ['ACTION', 'APPROVED', 'REWORK', 'REJECTED'];
+
+// Mirror the manager's decision onto the tracking row the employee works on.
+//   APPROVED → review_status APPROVED (row is final / locked in My Tasks)
+//   REWORK   → status REWORK; the completion time becomes a hold so the
+//              employee's RESTART continues the same timer
+//   REJECTED → review_status REJECTED
+//   ACTION   → back to PENDING review
+async function applyReviewDecision(trackingItemId, action) {
+  if (action === 'APPROVED') {
+    await db.query(
+      `UPDATE time_tracking_task_items SET review_status = 'APPROVED' WHERE id = ?`,
+      [trackingItemId]
+    );
+    return;
+  }
+  if (action === 'REJECTED') {
+    await db.query(
+      `UPDATE time_tracking_task_items SET review_status = 'REJECTED' WHERE id = ?`,
+      [trackingItemId]
+    );
+    return;
+  }
+  if (action === 'ACTION') {
+    await db.query(
+      `UPDATE time_tracking_task_items SET review_status = 'PENDING' WHERE id = ? AND status = 'COMPLETED'`,
+      [trackingItemId]
+    );
+    return;
+  }
+  // REWORK
+  const [[row]] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [trackingItemId]);
+  if (!row) return;
+  if (String(row.status).toUpperCase() !== 'COMPLETED') {
+    await db.query(
+      `UPDATE time_tracking_task_items SET review_status = 'REWORK' WHERE id = ?`,
+      [trackingItemId]
+    );
+    return;
+  }
+  let slot = null;
+  for (let i = 1; i <= 10; i++) {
+    if (row[`hold_time_${i}`] === null) { slot = i; break; }
+  }
+  if (slot === null) {
+    await db.query(
+      `UPDATE time_tracking_task_items
+       SET status = 'REWORK', review_status = 'REWORK', complete_time = NULL
+       WHERE id = ?`,
+      [trackingItemId]
+    );
+    return;
+  }
+  await db.query(
+    `UPDATE time_tracking_task_items
+     SET hold_time_${slot} = COALESCE(complete_time, NOW()),
+         complete_time = NULL,
+         status = 'REWORK',
+         review_status = 'REWORK'
+     WHERE id = ?`,
+    [trackingItemId]
+  );
+}
+
 // GET /api/manager-review — every tracking row currently COMPLETED, across
 // all employees/clients, with the manager's current action/comment on it
 // (LEFT JOIN so rows with no review yet still show up, defaulting to 'ACTION').
@@ -189,66 +253,6 @@ router.get('/task-status/:employeeName', async (req, res) => {
   }
 });
 
-// Employee Task Status
-// Employee Task Status
-router.get('/task-status/:employeeName', async (req, res) => {
-  try {
-    const employeeName = req.params.employeeName;
-
-    const [rows] = await db.query(
-      `
-      SELECT
-          tti.id AS tracking_item_id,
-          tl.client_name,
-          tl.employee_name,
-          tl.deliverables AS task,
-          tti.task_description AS task_description,
-          tti.duration_secs,
-          tti.status,
-          COALESCE(mr.manager_action, 'ACTION') AS manager_action,
-          COALESCE(mr.manager_comment, '') AS manager_comment
-      FROM time_tracking_task_items tti
-
-      JOIN task_list tl
-           ON tl.id = tti.task_list_id
-
-      INNER JOIN clients c 
-           ON TRIM(LOWER(tl.client_name)) = TRIM(LOWER(c.company_name))
-
-      LEFT JOIN manager_review mr
-           ON mr.tracking_item_id = tti.id
-
-      WHERE
-          tl.employee_name = ?
-          AND tti.status = 'COMPLETED'
-          AND c.is_active = 1
-
-      ORDER BY tti.updated_at DESC
-      `,
-      [employeeName]
-    );
-
-    const data = rows.map(r => ({
-      ...r,
-      duration: formatDuration(r.duration_secs)
-    }));
-
-    res.json({
-      success: true,
-      data
-    });
-
-  } catch (err) {
-    console.error('GET /manager-review/task-status ERROR:', err);
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-  }
-});
-
-
 // PATCH /api/manager-review/:trackingItemId — find-or-create the review row
 // for this tracking item, then update action and/or comment on it. Either
 // field can be sent alone (the dropdown fires with just { action }, the
@@ -301,38 +305,47 @@ router.patch('/:trackingItemId', async (req, res) => {
     //   [trackingItemId]
     // );
 
-const updates = [];
-const values = [];
+    const [existingReview] = await db.query(
+      `SELECT id, manager_action FROM manager_review WHERE tracking_item_id = ?`,
+      [trackingItemId]
+    );
+    const normalizedAction = action === undefined ? undefined : String(action).trim().toUpperCase();
+    if (normalizedAction !== undefined && !VALID_ACTIONS.includes(normalizedAction)) {
+      return res.status(400).json({ success: false, message: `action must be one of ${VALID_ACTIONS.join(', ')}` });
+    }
+    // Approved work is final — it can no longer be changed.
+    if (
+      normalizedAction !== undefined &&
+      existingReview.length > 0 &&
+      String(existingReview[0].manager_action).toUpperCase() === 'APPROVED' &&
+      normalizedAction !== 'APPROVED'
+    ) {
+      return res.status(409).json({ success: false, message: 'This task is already approved and cannot be changed' });
+    }
 
-if (action !== undefined) {
-  updates.push("manager_action = ?");
-  values.push(action);
-}
+    if (existingReview.length > 0) {
+      const updates = ['reviewed_at = NOW()'];
+      const values = [];
+      if (normalizedAction !== undefined) { updates.push('manager_action = ?'); values.push(normalizedAction); }
+      if (comment !== undefined) { updates.push('manager_comment = ?'); values.push(comment); }
+      values.push(existingReview[0].id);
+      await db.query(`UPDATE manager_review SET ${updates.join(', ')} WHERE id = ?`, values);
+    } else {
+      await db.query(
+        `INSERT INTO manager_review (tracking_item_id, manager_action, manager_comment, reviewed_at)
+         VALUES (?, ?, ?, NOW())`,
+        [trackingItemId, normalizedAction ?? 'ACTION', comment ?? null]
+      );
+    }
 
-if (comment !== undefined) {
-  updates.push("manager_comment = ?");
-  values.push(comment);
-}
+    if (normalizedAction !== undefined) {
+      await applyReviewDecision(trackingItemId, normalizedAction);
+    }
 
-updates.push("reviewed_at = NOW()");
-values.push(trackingItemId);
-
-await db.query(
-  `UPDATE manager_review
-   SET ${updates.join(", ")}
-   WHERE tracking_item_id = ?`,
-  values
-);
-
-const [rows] = await db.query(
-`
-SELECT *
-FROM manager_review
-WHERE tracking_item_id = ?
-`,
-[trackingItemId]);
-
-
+    const [rows] = await db.query(
+      `SELECT * FROM manager_review WHERE tracking_item_id = ?`,
+      [trackingItemId]
+    );
 
     // FIX: this is the missing piece — when the manager actually sets a
     // decision (APPROVED/REWORK/REJECTED, not just typing a comment), the
@@ -340,8 +353,8 @@ WHERE tracking_item_id = ?
     // if (action !== undefined && action !== 'ACTION') {
     // if (rows.length > 0 && rows[0].manager_action !== 'ACTION') {
  if (
-    action !== undefined &&
-    action !== "ACTION" &&
+    normalizedAction !== undefined &&
+    normalizedAction !== "ACTION" &&
     rows.length > 0
 ) {
     try {
@@ -418,4 +431,68 @@ try {
   }
 });
 
+// Shared by the Employee Workspace Task Review (Ads / Page Handler decisions).
+async function recordReviewDecision({ trackingItemId, action, comment = '', senderName = 'Reviewer' }) {
+  const normalized = String(action).trim().toUpperCase();
+  if (!VALID_ACTIONS.includes(normalized)) throw new Error(`Invalid review action ${action}`);
+  const [existing] = await db.query(
+    `SELECT id, manager_action FROM manager_review WHERE tracking_item_id = ?`,
+    [trackingItemId]
+  );
+  if (existing.length && String(existing[0].manager_action).toUpperCase() === 'APPROVED') {
+    throw new Error('This task is already approved and cannot be changed');
+  }
+  if (existing.length) {
+    await db.query(
+      `UPDATE manager_review SET manager_action = ?, manager_comment = ?, reviewed_at = NOW() WHERE id = ?`,
+      [normalized, comment || null, existing[0].id]
+    );
+  } else {
+    await db.query(
+      `INSERT INTO manager_review (tracking_item_id, manager_action, manager_comment, reviewed_at)
+       VALUES (?, ?, ?, NOW())`,
+      [trackingItemId, normalized, comment || null]
+    );
+  }
+  await applyReviewDecision(trackingItemId, normalized);
+
+  try {
+    const [taskInfo] = await db.query(
+      `SELECT tl.employee_name, tl.deliverables
+       FROM time_tracking_task_items tti
+       JOIN task_list tl ON tl.id = tti.task_list_id
+       WHERE tti.id = ?`,
+      [trackingItemId]
+    );
+    if (taskInfo.length && normalized !== 'ACTION') {
+      const name = taskInfo[0].deliverables;
+      const preview = normalized === 'APPROVED'
+        ? `✅ Your task "${name}" has been approved`
+        : normalized === 'REWORK'
+          ? `🔄 Rework requested for "${name}"`
+          : `❌ Your task "${name}" has been rejected`;
+      await createNotification({
+        senderName,
+        recipientName: taskInfo[0].employee_name,
+        message: JSON.stringify({
+          preview,
+          payload: {
+            type: 'TASK_REVIEW',
+            sender: senderName,
+            recipient: taskInfo[0].employee_name,
+            taskName: name,
+            action: normalized,
+            comment: comment || '',
+            reviewedAt: new Date().toLocaleString('en-IN'),
+          },
+        }),
+      });
+    }
+  } catch (notifyErr) {
+    console.error('Review notification failed:', notifyErr.message);
+  }
+}
+
 module.exports = router;
+module.exports.recordReviewDecision = recordReviewDecision;
+module.exports.applyReviewDecision = applyReviewDecision;

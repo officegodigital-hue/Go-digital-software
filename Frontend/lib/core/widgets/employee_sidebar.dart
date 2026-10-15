@@ -23,6 +23,12 @@ class EmployeeSidebar extends StatefulWidget {
 }
 
 class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderStateMixin {
+  // Pages that should not appear in the employee sidebar.
+  static const Set<String> _hiddenMenus = {
+    'Content Assigned',
+    'Client Assigned Tasks',
+  };
+
   bool _isSidebarCollapsed = false;
   late AnimationController _bubbleController;
 
@@ -42,10 +48,12 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
   }
 
   IconData _iconForMenu(String title) {
-    switch (title) { 
+    switch (title) {
       case 'Dashboard': return Icons.dashboard_rounded;
+      case 'Employee Workspace': return Icons.workspaces_rounded;
       case 'Day Planner': return Icons.task_alt_rounded;
       case 'Chat': return Icons.chat_bubble_rounded;
+      case 'Additional Task': return Icons.playlist_add_check_rounded;
       case 'Client Credentials': return Icons.vpn_key_rounded;
       case 'Daily Reports': return Icons.checklist_outlined;
       case 'Assigned Task': return Icons.assignment_rounded;
@@ -62,6 +70,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    final visibleMenus = widget.menuItems
+        .where((menu) => !_hiddenMenus.contains(menu.trim()))
+        .toList();
+
     final Widget sidebarWidget = AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
@@ -191,7 +203,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                         physics: const BouncingScrollPhysics(),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: widget.menuItems.map(
+                          children: visibleMenus.map(
                             (menu) => _SidebarItem(
                               icon: _iconForMenu(menu),
                               title: menu,
@@ -209,7 +221,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                       ),
                     ),
                     Container(height: 1, color: Colors.white.withOpacity(0.2)),
-                    
+
                     // Settings Button
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -349,7 +361,7 @@ class _SidebarItem extends StatelessWidget {
   final String title;
   final bool isActive;
   final bool isCollapsed;
-  final VoidCallback onTap; 
+  final VoidCallback onTap;
 
   const _SidebarItem({
     required this.icon,
@@ -389,7 +401,7 @@ class _SidebarItem extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  icon, 
+                  icon,
                   size: 20, // ⬆️ Slightly taller and prominent icon size
                   color: isActive ? const Color(0xFF0757D5) : Colors.white70,
                 ),
