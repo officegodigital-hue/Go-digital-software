@@ -82,14 +82,15 @@ test('inactive employee and database failure roll back', async () => {
   }
 });
 
-test('dashboard scopes data to identity and reports unconfigured rules as unavailable', async () => {
-  const pool = fakePool([[], [], [{ present_days: '3' }]]);
+test('dashboard scopes data to identity and reports configured calendar working days', async () => {
+  const pool = fakePool([[], [], [], [{ present_days: '3' }], [], []]);
   const result = await createService(pool, options).dashboard({ id: 7, full_name: 'Employee', staff_id: 'EMP7' });
   assert.equal(result.status, 'not_checked_in');
   assert.equal(result.actions.can_clock_in, true);
   assert.equal(result.month_overview.present_days, 3);
-  assert.equal(result.month_overview.absent_days, null);
+  assert.equal(result.month_overview.absent_days, 0);
   assert.equal(result.month_overview.late_days, 0);
-  assert.deepEqual(pool.calls[1].params, [7, '2026-09-06', '2026-09-01']);
-  assert.deepEqual(pool.calls[2].params, [7, '2026-09-01', '2026-10-01']);
+  assert.equal(result.month_overview.working_days, 26);
+  assert.deepEqual(pool.calls[2].params, [7, '2026-09-06', '2026-09-01']);
+  assert.deepEqual(pool.calls[3].params, [7, '2026-09-01', '2026-10-01']);
 });

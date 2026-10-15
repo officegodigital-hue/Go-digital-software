@@ -18,6 +18,106 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+async function ensureNotificationSettings() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hrms_notification_settings (
+      admin_user_id BIGINT UNSIGNED NOT NULL,
+      sound_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      sound_name VARCHAR(120) NOT NULL DEFAULT 'notification.mp3',
+      sound_volume TINYINT UNSIGNED NOT NULL DEFAULT 70,
+      custom_sound_url VARCHAR(500) NULL,
+      custom_sound_name VARCHAR(255) NULL,
+      comment_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      waiting_reason_notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (admin_user_id)
+    )
+  `);
+  await db.query(
+    'ALTER TABLE hrms_notification_settings ADD COLUMN IF NOT EXISTS custom_sound_name VARCHAR(255) NULL'
+  );
+}
+
+async function notificationSettings(req, res) {
+  try {
+    await ensureNotificationSettings();
+    let [rows] = await db.query(
+      'SELECT * FROM hrms_notification_settings WHERE admin_user_id = ?',
+      [req.user.id]
+    );
+    if (!rows.length) {
+      [rows] = await db.query(
+        'SELECT * FROM hrms_notification_settings WHERE custom_sound_url IS NOT NULL ORDER BY updated_at DESC LIMIT 1'
+      );
+    }
+    const row = rows[0] || {};
+    return ok(res, {
+      soundEnabled: row.sound_enabled !== 0,
+      soundName: row.sound_name || 'notification.mp3',
+      soundVolume: Number(row.sound_volume ?? 70),
+      customSoundUrl: row.custom_sound_url || null,
+      customSoundName: row.custom_sound_name || null,
+      commentNotificationsEnabled: row.comment_notifications_enabled !== 0,
+      waitingReasonNotificationsEnabled: row.waiting_reason_notifications_enabled !== 0,
+    });
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function updateNotificationSettings(req, res) {
+  try {
+    await ensureNotificationSettings();
+    const body = req.body || {};
+    await db.query(
+      `INSERT INTO hrms_notification_settings
+       (admin_user_id, sound_enabled, sound_name, sound_volume,
+        comment_notifications_enabled, waiting_reason_notifications_enabled)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        sound_enabled = VALUES(sound_enabled), sound_name = VALUES(sound_name),
+        sound_volume = VALUES(sound_volume), comment_notifications_enabled = VALUES(comment_notifications_enabled),
+        waiting_reason_notifications_enabled = VALUES(waiting_reason_notifications_enabled)`,
+      [req.user.id, body.soundEnabled === false ? 0 : 1,
+        String(body.soundName || 'notification.mp3'),
+        Math.max(0, Math.min(100, Number(body.soundVolume ?? 70))),
+        body.commentNotificationsEnabled === false ? 0 : 1,
+        body.waitingReasonNotificationsEnabled === false ? 0 : 1]
+    );
+    // Keep the clock-out reminder channel in sync with the admin-selected
+    // notification sound. The reminder tables may not exist on an older
+    // installation, so this remains non-fatal until its migration runs.
+    try {
+      await db.query('UPDATE hrms_clockout_reminder_policy SET sound_name = ? WHERE id = 1', [String(body.soundName || 'notification.mp3')]);
+    } catch (_) {}
+    return notificationSettings(req, res);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
+async function uploadNotificationSound(req, res) {
+  try {
+    if (!req.file) return fail(res, 400, 'An audio file is required');
+    await ensureNotificationSettings();
+    const url = '/uploads/notification-sounds/' + req.file.filename;
+    await db.query(
+      `INSERT INTO hrms_notification_settings
+       (admin_user_id, sound_name, custom_sound_url, custom_sound_name)
+       VALUES (?, 'custom', ?, ?)
+       ON DUPLICATE KEY UPDATE sound_name = 'custom', custom_sound_url = VALUES(custom_sound_url),
+       custom_sound_name = VALUES(custom_sound_name)`,
+      [req.user.id, url, req.file.originalname]
+    );
+    try {
+      await db.query('UPDATE hrms_clockout_reminder_policy SET sound_name = ? WHERE id = 1', [req.file.originalname]);
+    } catch (_) {}
+    return notificationSettings(req, res);
+  } catch (error) {
+    return fail(res, 500, error.message);
+  }
+}
+
 const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
 const EXTRA_TYPES = ['extra_hours', 'late_entry', 'early_exit', 'reclock_in'];
 
@@ -98,6 +198,9 @@ function toUi(row) {
     duration: extra ? '—' : leaveDuration(row),
     reason: row.reason || '',
     status: String(row.status || 'pending').replace(/^./, function (c) { return c.toUpperCase(); }),
+    salaryMode: row.salary_mode || null,
+    permissionStartTime: row.permission_start_time || null,
+    permissionEndTime: row.permission_end_time || null,
     icon: meta.icon,
     color: meta.color,
     tab: extra ? 'extra' : 'leave',
@@ -204,7 +307,8 @@ async function list(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
+              p.permission_start_time, p.permission_end_time,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
@@ -246,6 +350,7 @@ async function review(req, res) {
   try {
     const id = Number(req.params.id);
     const status = String((req.body && req.body.status) || '').toLowerCase();
+    const salaryMode = String((req.body && req.body.salaryMode) || '').toLowerCase();
     if (status !== 'approved' && status !== 'rejected') {
       return fail(res, 400, 'status must be approved or rejected');
     }
@@ -255,15 +360,19 @@ async function review(req, res) {
       [id]
     );
     if (!pendingRequest) return fail(res, 404, 'Pending request not found');
+    if (status === 'approved' && pendingRequest.request_type === 'permission' &&
+        salaryMode !== 'paid' && salaryMode !== 'unpaid') {
+      return fail(res, 400, 'Choose paid or unpaid permission before approving');
+    }
     // Approval intentionally does not rewrite attendance. It unlocks a single
     // additional Clock In; that Clock In reopens the same session while keeping
     // the original Clock In timestamp for the full workday calculation.
     const at = policy.nowIstDateTime();
     const [result] = await db.query(
       `UPDATE attendance_permission_requests
-       SET status = ?, reviewed_by = ?, reviewed_at = ?
+       SET status = ?, salary_mode = ?, reviewed_by = ?, reviewed_at = ?
        WHERE id = ? AND status = 'pending'`,
-      [status, req.user.id, at, id]
+      [status, pendingRequest.request_type === 'permission' && status === 'approved' ? salaryMode : null, req.user.id, at, id]
     );
     await db.query(`
       CREATE TABLE IF NOT EXISTS hrms_leave_approval_links (
@@ -280,7 +389,8 @@ async function review(req, res) {
        WHERE link.approval_request_id = ?`,
       [status === 'approved' ? 'APPROVED' : 'DENIED', id]
     );    const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.salary_mode,
+              p.permission_start_time, p.permission_end_time,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(leave_request.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(leave_request.to_date, '%Y-%m-%d') AS to_date,
@@ -307,5 +417,8 @@ module.exports = {
   review,
   notifications,
   markAllNotificationsRead,
+  notificationSettings,
+  updateNotificationSettings,
+  uploadNotificationSound,
   LEAVE_TYPES,
 };

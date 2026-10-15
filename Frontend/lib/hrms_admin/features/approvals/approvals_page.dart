@@ -28,6 +28,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   // 0 = leave, 1 = corrections
   int _activeTab = 0;
   bool leaveRequests = true;
+  String requestCategory = 'leave';
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
@@ -37,6 +38,10 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   List<String> employeeNames = const ['All Employees'];
   int leaveCount = 0;
   int extraCount = 0;
+  int permissionCount = 0;
+  int _pendingLeaveCount = 0;
+  int _pendingExtraCount = 0;
+  int _pendingPermissionCount = 0;
   int kpiPending = 0;
   int kpiApproved = 0;
   int kpiRejected = 0;
@@ -114,27 +119,36 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
       error = null;
     });
     try {
-      final leave = await HrmsApprovalsApi.list(
-        leaveTab: true,
-        employee: employee,
-        status: status,
-      );
-      final extra = await HrmsApprovalsApi.list(
-        leaveTab: false,
-        employee: employee,
-        status: status,
-      );
+      final results = await Future.wait([
+        HrmsApprovalsApi.list(leaveTab: true, employee: employee, status: status),
+        HrmsApprovalsApi.list(leaveTab: false, employee: employee, status: status),
+        HrmsApprovalsApi.list(tab: 'permission', employee: employee, status: status),
+        HrmsApprovalsApi.list(leaveTab: true, employee: 'All Employees', status: 'pending'),
+        HrmsApprovalsApi.list(leaveTab: false, employee: 'All Employees', status: 'pending'),
+        HrmsApprovalsApi.list(tab: 'permission', employee: 'All Employees', status: 'pending'),
+      ]);
+      final leave = results[0];
+      final extra = results[1];
+      final permissions = results[2];
+      final leavePending = results[3];
+      final extraPending = results[4];
+      final permissionPending = results[5];
       final leaveItems = _parse(leave['items']);
       final extraItems = _parse(extra['items']);
+      final permissionItems = _parse(permissions['items']);
       final kpis = Map<String, dynamic>.from(leave['kpis'] as Map? ?? {});
       final names = <String>{'All Employees'};
       names.addAll((leave['employees'] as List? ?? []).map((e) => e.toString()));
       names.addAll((extra['employees'] as List? ?? []).map((e) => e.toString()));
       if (!mounted) return;
       setState(() {
-        requests = leaveRequests ? leaveItems : extraItems;
+        requests = requestCategory == 'leave' ? leaveItems : requestCategory == 'extra' ? extraItems : permissionItems;
         leaveCount = (leave['items'] as List? ?? []).length;
         extraCount = (extra['items'] as List? ?? []).length;
+        permissionCount = (permissions['items'] as List? ?? []).length;
+        _pendingLeaveCount = (leavePending['items'] as List? ?? []).length;
+        _pendingExtraCount = (extraPending['items'] as List? ?? []).length;
+        _pendingPermissionCount = (permissionPending['items'] as List? ?? []).length;
         employeeNames = names.toList();
         if (!employeeNames.contains(employee)) employee = 'All Employees';
         kpiPending = _asInt(kpis['pending']);
@@ -216,25 +230,27 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const _ApprovalsHeader(),
+                                _ApprovalsHeader(
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
+                                      const SizedBox(width: 10),
+                                      _MainTabBtn(
+                                        label: 'Attendance Corrections',
+                                        active: _activeTab == 1,
+                                        badge: _correctionsPendingCount,
+                                        onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 17),
                                 _ApprovalKpis(
                                   pending: kpiPending,
                                   approved: kpiApproved,
                                   rejected: kpiRejected,
                                 ),
-                                const SizedBox(height: 16),
-                                // Top-level tab: Leave vs Attendance Corrections
-                                Row(children: [
-                                  _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
-                                  const SizedBox(width: 10),
-                                  _MainTabBtn(
-                                    label: 'Attendance Corrections',
-                                    active: _activeTab == 1,
-                                    badge: _correctionsPendingCount,
-                                    onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
-                                  ),
-                                ]),
                                 const SizedBox(height: 14),
                                 if (_activeTab == 1) ...[
                                   _CorrectionRequestsPanel(
@@ -250,14 +266,15 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     child: LinearProgressIndicator(minHeight: 2),
                                   ),
                                 _RequestsPanel(
-                                  leaveRequests: leaveRequests,
                                   employee: employee,
                                   status: status,
                                   dateRange: dateRange,
                                   period: period,
                                   employees: employeeNames,
-                                  leaveCount: leaveCount,
-                                  extraCount: extraCount,
+                                  leaveCount: _pendingLeaveCount,
+                                  extraCount: _pendingExtraCount,
+                                  permissionCount: _pendingPermissionCount,
+                                  requestCategory: requestCategory,
                                   requests: requests.where((request) {
                                     final query = searchQuery.trim().toLowerCase();
                                     return (query.isEmpty || request.name.toLowerCase().contains(query) || request.id.toLowerCase().contains(query) || request.type.toLowerCase().contains(query)) && _matchesPeriod(request, period);
@@ -265,7 +282,8 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                   searchQuery: searchQuery,
                                   onSearch: (value) => setState(() => searchQuery = value),
                                   onTabChanged: (value) {
-                                    leaveRequests = value;
+                                    requestCategory = value;
+                                    leaveRequests = value == 'leave';
                                     _load();
                                   },
                                   onEmployeeChanged: (value) {
@@ -307,11 +325,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 }
 
 class _ApprovalsHeader extends StatelessWidget {
-  const _ApprovalsHeader();
+  const _ApprovalsHeader({required this.trailing});
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) =>
-      const AdminPageHeader(title: 'Approvals');
+      AdminPageHeader(title: 'Approvals', breadcrumb: 'Approvals', trailing: trailing);
 }
 
 class _ApprovalKpis extends StatelessWidget {
@@ -443,7 +462,7 @@ class _ApprovalKpi extends StatelessWidget {
 
 class _RequestsPanel extends StatelessWidget {
   const _RequestsPanel({
-    required this.leaveRequests,
+    required this.requestCategory,
     required this.employee,
     required this.status,
     required this.dateRange,
@@ -451,6 +470,7 @@ class _RequestsPanel extends StatelessWidget {
     required this.employees,
     required this.leaveCount,
     required this.extraCount,
+    required this.permissionCount,
     required this.requests,
     required this.searchQuery,
     required this.onSearch,
@@ -464,14 +484,14 @@ class _RequestsPanel extends StatelessWidget {
     required this.onReject,
   });
 
-  final bool leaveRequests;
   final String employee, status, dateRange, period;
   final List<String> employees;
-  final int leaveCount, extraCount;
+  final int leaveCount, extraCount, permissionCount;
+  final String requestCategory;
   final List<_ApprovalRequest> requests;
   final String searchQuery;
   final ValueChanged<String> onSearch;
-  final ValueChanged<bool> onTabChanged;
+  final ValueChanged<String> onTabChanged;
   final ValueChanged<String?> onEmployeeChanged, onStatusChanged, onDateChanged;
   final ValueChanged<String> onPeriodChanged;
   final VoidCallback onReset;
@@ -497,9 +517,10 @@ class _RequestsPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _ApprovalTabs(
-                leaveRequests: leaveRequests,
+                requestCategory: requestCategory,
                 leaveCount: leaveCount,
                 extraCount: extraCount,
+                permissionCount: permissionCount,
                 onChanged: onTabChanged),
             const SizedBox(height: 12),
             _ApprovalFilters(
@@ -536,10 +557,6 @@ class _RequestsPanel extends StatelessWidget {
                       'Showing 1 to ${requests.length} of ${requests.length} requests',
                       style: const TextStyle(
                           color: Color(0xFF596176), fontSize: 13)),
-                  const Spacer(),
-                  const _PaginationButton(icon: Icons.chevron_left_rounded),
-                  const _PaginationButton(text: '1', active: true),
-                  const _PaginationButton(icon: Icons.chevron_right_rounded),
                 ],
               ),
           ],
@@ -566,8 +583,10 @@ class _MobileApprovalList extends StatelessWidget {
     }
     return Column(
       children: requests
+          .asMap()
+          .entries
           .map(
-            (request) => Container(
+            (e) => Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -578,13 +597,19 @@ class _MobileApprovalList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
+                    Text('#${e.key + 1}',
+                        style: const TextStyle(
+                            color: Color(0xFF9DAABF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
                     CircleAvatar(
                         radius: 21,
                         backgroundColor: const Color(0xFFEAF1FF),
                         child: Text(
-                            request.name.isEmpty
+                            e.value.name.isEmpty
                                 ? '?'
-                                : request.name.substring(0, 1),
+                                : e.value.name.substring(0, 1),
                             style: const TextStyle(
                                 color: _ApprovalsColors.blue,
                                 fontWeight: FontWeight.w800))),
@@ -593,15 +618,15 @@ class _MobileApprovalList extends StatelessWidget {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          Text(request.name,
+                          Text(e.value.name,
                               style: const TextStyle(
                                   color: _ApprovalsColors.navy,
                                   fontWeight: FontWeight.w700)),
-                          Text('${request.id} • ${request.type}',
+                          Text('${e.value.id} • ${e.value.type}',
                               style: const TextStyle(
                                   color: Color(0xFF657087), fontSize: 10))
                         ])),
-                    _RequestStatus(status: request.status),
+                    _RequestStatus(status: e.value.status),
                   ]),
                   const SizedBox(height: 13),
                   Container(
@@ -615,11 +640,11 @@ class _MobileApprovalList extends StatelessWidget {
                             size: 15, color: _ApprovalsColors.blue),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: Text(request.dates,
+                            child: Text(e.value.dates,
                                 style: const TextStyle(
                                     color: _ApprovalsColors.navy,
                                     fontSize: 11))),
-                        Text(request.duration,
+                        Text(e.value.duration,
                             style: const TextStyle(
                                 color: _ApprovalsColors.navy,
                                 fontWeight: FontWeight.w700,
@@ -631,25 +656,25 @@ class _MobileApprovalList extends StatelessWidget {
                             size: 15, color: Color(0xFF657087)),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: Text(request.reason,
+                            child: Text(e.value.reason,
                                 style: const TextStyle(
                                     color: Color(0xFF657087), fontSize: 11)))
                       ]),
                     ]),
                   ),
-                  if (request.status == 'Pending') ...[
+                  if (e.value.status == 'Pending') ...[
                     const SizedBox(height: 12),
                     Row(children: [
                       Expanded(
                           child: FilledButton(
-                              onPressed: () => onApprove(request),
+                              onPressed: () => onApprove(e.value),
                               style: FilledButton.styleFrom(
                                   backgroundColor: _ApprovalsColors.blue),
                               child: const Text('Approve'))),
                       const SizedBox(width: 10),
                       Expanded(
                           child: OutlinedButton(
-                              onPressed: () => onReject(request),
+                              onPressed: () => onReject(e.value),
                               style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFFF0182A),
                                   side: const BorderSide(
@@ -668,25 +693,26 @@ class _MobileApprovalList extends StatelessWidget {
 
 class _ApprovalTabs extends StatelessWidget {
   const _ApprovalTabs({
-    required this.leaveRequests,
+    required this.requestCategory,
     required this.leaveCount,
     required this.extraCount,
+    required this.permissionCount,
     required this.onChanged,
   });
-  final bool leaveRequests;
-  final int leaveCount, extraCount;
-  final ValueChanged<bool> onChanged;
+  final String requestCategory;
+  final int leaveCount, extraCount, permissionCount;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (_, constraints) {
         return SizedBox(
-          width: constraints.maxWidth < 600 ? constraints.maxWidth : 220,
-          child: _TabButton(
-              label: 'Leave Requests',
-              count: leaveCount,
-              active: true,
-              onTap: () => onChanged(true)),
+          width: constraints.maxWidth < 600 ? constraints.maxWidth : 620,
+          child: Row(children: [
+            Expanded(child: _TabButton(label: 'Leave', count: leaveCount, active: requestCategory == 'leave', onTap: () => onChanged('leave'))),
+            const SizedBox(width: 8),
+            Expanded(child: _TabButton(label: 'Permission', count: permissionCount, active: requestCategory == 'permission', onTap: () => onChanged('permission'))),
+          ]),
         );
       });
 }
@@ -925,7 +951,7 @@ InputDecoration _fieldDecoration({IconData? prefix}) => InputDecoration(
           borderSide: const BorderSide(color: _ApprovalsColors.blue)),
     );
 
-class _ApprovalTable extends StatelessWidget {
+class _ApprovalTable extends StatefulWidget {
   const _ApprovalTable(
       {required this.requests,
       required this.onApprove,
@@ -934,32 +960,78 @@ class _ApprovalTable extends StatelessWidget {
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
   @override
+  State<_ApprovalTable> createState() => _ApprovalTableState();
+}
+
+class _ApprovalTableState extends State<_ApprovalTable> {
+  final _tableHeaderScrollCtrl = ScrollController();
+  final _tableBodyScrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tableBodyScrollCtrl.addListener(() {
+      if (_tableHeaderScrollCtrl.hasClients &&
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+        _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tableHeaderScrollCtrl.dispose();
+    _tableBodyScrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
             border: Border.all(color: const Color(0xFFE3E7EF)),
             borderRadius: BorderRadius.circular(10)),
         clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: 1400,
-            child: Column(
-              children: [
-                const _ApprovalTableHeader(),
-                if (requests.isEmpty)
-                  const SizedBox(
-                      height: 180,
-                      child: Center(
-                          child: Text(
-                              'No approval requests match these filters.')))
-                else
-                  ...requests.map((request) => _ApprovalRow(
-                      request: request,
-                      onApprove: onApprove,
-                      onReject: onReject)),
-              ],
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              controller: _tableHeaderScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: const SizedBox(
+                width: 1480,
+                child: _ApprovalTableHeader(),
+              ),
             ),
-          ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520),
+              child: SingleChildScrollView(
+                controller: _tableBodyScrollCtrl,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1480,
+                  child: SingleChildScrollView(
+                    primary: false,
+                    child: Column(
+                      children: [
+                        if (widget.requests.isEmpty)
+                          const SizedBox(
+                              height: 180,
+                              child: Center(
+                                  child: Text(
+                                      'No approval requests match these filters.')))
+                        else
+                          ...widget.requests.asMap().entries.map((e) => _ApprovalRow(
+                              index: e.key + 1,
+                              request: e.value,
+                              onApprove: widget.onApprove,
+                              onReject: widget.onReject)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
 }
@@ -971,6 +1043,7 @@ class _ApprovalTableHeader extends StatelessWidget {
         height: 44,
         color: const Color(0xFFFCFCFD),
         child: const Row(children: [
+          _ApprovalCell(width: 80, child: Text('S.No', style: _headStyle)),
           _ApprovalCell(width: 270, child: Text('Employee', style: _headStyle)),
           _ApprovalCell(
               width: 200, child: Text('Leave Type', style: _headStyle)),
@@ -985,7 +1058,8 @@ class _ApprovalTableHeader extends StatelessWidget {
 
 class _ApprovalRow extends StatelessWidget {
   const _ApprovalRow(
-      {required this.request, required this.onApprove, required this.onReject});
+      {required this.index, required this.request, required this.onApprove, required this.onReject});
+  final int index;
   final _ApprovalRequest request;
   final ValueChanged<_ApprovalRequest> onApprove, onReject;
 
@@ -1000,6 +1074,10 @@ class _ApprovalRow extends StatelessWidget {
             border: Border(top: BorderSide(color: Color(0xFFE6E9EF)))),
         child: Row(
           children: [
+            _ApprovalCell(
+              width: 80,
+              child: Text('$index', style: const TextStyle(color: Color(0xFF596176), fontSize: 13)),
+            ),
             _ApprovalCell(
               width: 270,
               child: Row(children: [
@@ -1040,9 +1118,28 @@ class _ApprovalRow extends StatelessWidget {
                     child: Icon(request.icon,
                         color: Color(request.color), size: 19)),
                 const SizedBox(width: 11),
-                Text(request.type,
-                    style: const TextStyle(
-                        color: Color(0xFF272B35), fontSize: 13)),
+                Flexible(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(request.type,
+                        style: const TextStyle(
+                            color: Color(0xFF272B35), fontSize: 13)),
+                    if (request.abbreviation != null)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Color(request.color).withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(request.abbreviation!,
+                          style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w700,
+                            color: Color(request.color), letterSpacing: 0.5)),
+                      ),
+                  ],
+                )),
               ]),
             ),
             _ApprovalCell(
@@ -1194,6 +1291,7 @@ class _ApprovalRequest {
     required this.name,
     required this.id,
     required this.type,
+    required this.abbreviation,
     required this.dates,
     required this.dayRange,
     required this.duration,
@@ -1205,6 +1303,7 @@ class _ApprovalRequest {
 
   final int requestId;
   final String name, id, type, dates, dayRange, duration, reason;
+  final String? abbreviation;
   String status;
   final IconData icon;
   final int color;
@@ -1213,11 +1312,13 @@ class _ApprovalRequest {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     final iconKey = (json['icon'] ?? '').toString();
+    final abbr = json['abbreviation']?.toString();
     return _ApprovalRequest(
       requestId: asInt(json['id']),
       name: (json['name'] ?? '').toString(),
       id: (json['employeeCode'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
+      abbreviation: (abbr != null && abbr.isNotEmpty) ? abbr : null,
       dates: (json['dates'] ?? '').toString(),
       dayRange: (json['dayRange'] ?? '').toString(),
       duration: (json['duration'] ?? '').toString(),
@@ -1274,7 +1375,7 @@ class _MainTabBtn extends StatelessWidget {
 }
 
 // ── Correction requests panel (admin) ─────────────────────────────────────────
-class _CorrectionRequestsPanel extends StatelessWidget {
+class _CorrectionRequestsPanel extends StatefulWidget {
   const _CorrectionRequestsPanel({
     required this.corrections,
     required this.loading,
@@ -1285,6 +1386,31 @@ class _CorrectionRequestsPanel extends StatelessWidget {
   final bool loading;
   final ValueChanged<int> onApprove, onReject;
 
+  @override
+  State<_CorrectionRequestsPanel> createState() => _CorrectionRequestsPanelState();
+}
+
+class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
+  String _searchQuery = '';
+  String _statusFilter = 'All Status';
+
+  static const _statuses = ['All Status', 'Pending', 'Approved', 'Rejected'];
+
+  List<Map<String, dynamic>> get _filtered {
+    return widget.corrections.where((c) {
+      final name = (c['full_name'] ?? '').toString().toLowerCase();
+      final staffId = (c['staff_id'] ?? '').toString().toLowerCase();
+      final q = _searchQuery.trim().toLowerCase();
+      final matchSearch = q.isEmpty || name.contains(q) || staffId.contains(q);
+      final status = (c['status'] ?? '').toString();
+      final matchStatus = _statusFilter == 'All Status' ||
+          status.toLowerCase() == _statusFilter.toLowerCase();
+      return matchSearch && matchStatus;
+    }).toList();
+  }
+
+  void _resetFilters() => setState(() { _searchQuery = ''; _statusFilter = 'All Status'; });
+
   String _fmt(dynamic raw) {
     if (raw == null) return '--';
     try {
@@ -1293,6 +1419,15 @@ class _CorrectionRequestsPanel extends StatelessWidget {
       final m = dt.minute.toString().padLeft(2, '0');
       final ampm = dt.hour >= 12 ? 'PM' : 'AM';
       return '$h:$m $ampm';
+    } catch (_) { return '--'; }
+  }
+
+  String _fmtDate(dynamic raw) {
+    if (raw == null) return '--';
+    try {
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     } catch (_) { return '--'; }
   }
 
@@ -1307,23 +1442,107 @@ class _CorrectionRequestsPanel extends StatelessWidget {
     }
   }
 
+  Widget _filterBar(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    if (mobile) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          onChanged: (v) => setState(() => _searchQuery = v),
+          decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(
+            hintText: 'Search by name or ID',
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _statusFilter,
+              onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
+              decoration: _fieldDecoration(),
+              items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.outlined(
+            onPressed: _resetFilters,
+            icon: const Icon(Icons.restart_alt_rounded),
+            color: _ApprovalsColors.blue,
+            tooltip: 'Reset filters',
+          ),
+        ]),
+        const SizedBox(height: 16),
+      ]);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          _FilterField(
+            label: 'Search',
+            width: 260,
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: _fieldDecoration(prefix: Icons.search_rounded).copyWith(
+                hintText: 'Name or employee ID',
+                contentPadding: const EdgeInsets.symmetric(vertical: 15),
+              ),
+            ),
+          ),
+          _FilterField(
+            label: 'Status',
+            width: 200,
+            child: DropdownButtonFormField<String>(
+              value: _statusFilter,
+              onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
+              decoration: _fieldDecoration(),
+              items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: _resetFilters,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Reset'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _ApprovalsColors.blue,
+              side: const BorderSide(color: Color(0xFFD6DDEA)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
-    if (corrections.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(40),
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14)),
-        child: const Center(child: Text('No attendance correction requests.', style: TextStyle(color: Color(0xFF596176)))),
-      );
-    }
+    if (widget.loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+    final filtered = _filtered;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14),
         boxShadow: const [BoxShadow(color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: corrections.map((c) {
+        children: [
+          _filterBar(context),
+          if (filtered.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              alignment: Alignment.center,
+              child: Text(
+                widget.corrections.isEmpty
+                    ? 'No attendance correction requests.'
+                    : 'No requests match the current filters.',
+                style: const TextStyle(color: Color(0xFF596176)),
+              ),
+            )
+          else
+            ...filtered.map((c) {
           final status = c['status']?.toString() ?? 'pending';
           final isPending = status == 'pending';
           final statusColor = status == 'approved' ? const Color(0xFF188226) : status == 'rejected' ? const Color(0xFFF0182A) : const Color(0xFFD97706);
@@ -1355,7 +1574,26 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                 ),
               ]),
               const SizedBox(height: 10),
-              Text(_typeLabel(c['request_type']), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ApprovalsColors.blue)),
+              Row(children: [
+                Text(_typeLabel(c['request_type']), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _ApprovalsColors.blue)),
+                const Spacer(),
+                if (c['created_at'] != null)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.access_time_rounded, size: 13, color: Color(0xFF8A94A6)),
+                    const SizedBox(width: 4),
+                    Text('Requested ${_fmtDate(c['created_at'])}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
+                  ]),
+              ]),
+              if (c['attendance_date'] != null) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.calendar_today_outlined, size: 13, color: Color(0xFF8A94A6)),
+                  const SizedBox(width: 4),
+                  Text('Attendance date: ${_fmtDate(c['attendance_date'])}',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF8A94A6))),
+                ]),
+              ],
               const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 6, children: [
                 _CorrChip('Recorded in', _fmt(c['check_in_at'])),
@@ -1376,7 +1614,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                   OutlinedButton(
-                    onPressed: () => onReject(c['id'] as int),
+                    onPressed: () => widget.onReject(c['id'] as int),
                     style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF0182A),
                       side: const BorderSide(color: Color(0xFFF0182A)),
                       visualDensity: VisualDensity.compact,
@@ -1387,7 +1625,7 @@ class _CorrectionRequestsPanel extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: () => onApprove(c['id'] as int),
+                    onPressed: () => widget.onApprove(c['id'] as int),
                     style: FilledButton.styleFrom(backgroundColor: _ApprovalsColors.blue,
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1399,7 +1637,16 @@ class _CorrectionRequestsPanel extends StatelessWidget {
               ],
             ]),
           );
-        }).toList(),
+        }),
+          // footer count
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Showing ${filtered.length} of ${widget.corrections.length} requests',
+              style: const TextStyle(color: Color(0xFF596176), fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -11,6 +12,19 @@ import '../shared/employee_ui.dart';
 List<String> _attendanceBaseUrls() {
   return ['${ApiConfig.baseUrl}/attendance'];
 }
+
+double _leaveDays(dynamic value) =>
+    value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+String _formatLeaveDays(double value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(1);
+
+bool _isUsageOnly(dynamic balance) =>
+    balance is Map &&
+    (balance['display_mode'] == 'USAGE_ONLY' ||
+        balance['usage_only'] == true ||
+        balance['usage_only'] == 1);
 
 class EmployeeLeavePage extends StatefulWidget {
   const EmployeeLeavePage({super.key});
@@ -124,25 +138,41 @@ class _EmployeeLeavePageState extends State<EmployeeLeavePage> {
       route: '/employee/leave',
       title: 'Leave',
       subtitle: '',
-      desktopHeaderAction: mode == 'requests' ? null : GestureDetector(
-        onTap: () => _showLeaveHistoryDialog(context, _requests),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0F5FF),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFD0E1FF)),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.history_rounded, size: 13, color: Color(0xFF0B72F5)),
-              SizedBox(width: 6),
-              Text('View History', style: TextStyle(fontSize: 12, color: Color(0xFF0B72F5), fontWeight: FontWeight.w700)),
-            ],
-          ),
-        ),
-      ),
+      desktopHeaderAction: mode == 'requests'
+          ? null
+          : GestureDetector(
+              onTap: () => _showLeaveHistoryDialog(context, _requests),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F5FF),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFD0E1FF)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.history_rounded,
+                      size: 13,
+                      color: Color(0xFF0B72F5),
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'View History',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF0B72F5),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
       desktop: _DesktopLeave(
         mode: mode,
         loading: _loading,
@@ -206,25 +236,31 @@ class _DesktopLeave extends StatelessWidget {
 }
 
 void _showLeaveHistoryDialog(BuildContext context, List<dynamic> requests) {
-  String _statusLabel(String status) {
+  String statusLabel(String status) {
     switch (status.toUpperCase()) {
-      case 'APPROVED': return 'Approved';
+      case 'APPROVED':
+        return 'Approved';
       case 'DENIED':
-      case 'CANCELLED': return 'Rejected';
-      default: return 'Pending';
+      case 'CANCELLED':
+        return 'Rejected';
+      default:
+        return 'Pending';
     }
   }
 
-  Color _statusColor(String status) {
+  Color statusColor(String status) {
     switch (status.toUpperCase()) {
-      case 'APPROVED': return employeeGreen;
+      case 'APPROVED':
+        return employeeGreen;
       case 'DENIED':
-      case 'CANCELLED': return const Color(0xFFF12B46);
-      default: return employeeOrange;
+      case 'CANCELLED':
+        return const Color(0xFFF12B46);
+      default:
+        return employeeOrange;
     }
   }
 
-  String _fmtDate(String? v) {
+  String fmtDate(String? v) {
     final dt = DateTime.tryParse(v ?? '');
     return dt == null ? (v ?? '--') : DateFormat('dd/MM/yyyy').format(dt);
   }
@@ -241,40 +277,65 @@ void _showLeaveHistoryDialog(BuildContext context, List<dynamic> requests) {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [
-                const Icon(Icons.history_rounded, color: employeePurple, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('Leave History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                IconButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  icon: const Icon(Icons.close, size: 18),
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFF4F6FB),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.history_rounded,
+                    color: employeePurple,
+                    size: 20,
                   ),
-                ),
-              ]),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Leave History',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, size: 18),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFF4F6FB),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 4),
-              const Text('Past and pending leave requests', style: TextStyle(fontSize: 12, color: employeeMuted)),
+              const Text(
+                'Past and pending leave requests',
+                style: TextStyle(fontSize: 12, color: employeeMuted),
+              ),
               const SizedBox(height: 16),
               if (requests.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: Text('No leave requests found.', style: TextStyle(color: employeeMuted))),
+                  child: Center(
+                    child: Text(
+                      'No leave requests found.',
+                      style: TextStyle(color: employeeMuted),
+                    ),
+                  ),
                 )
               else
                 Flexible(
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: requests.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final r = requests[i];
                       final status = r['status']?.toString() ?? 'Pending';
-                      final color = _statusColor(status);
-                      final dateStr = _fmtDate(r['from_date']?.toString());
+                      final color = statusColor(status);
+                      final dateStr = fmtDate(r['from_date']?.toString());
                       final leaveType = r['leave_type']?.toString() ?? '';
-                      final durationType = r['duration_type']?.toString() ?? 'Full Day';
+                      final durationType =
+                          r['duration_type']?.toString() ?? 'Full Day';
                       String dateRange = '--';
                       try {
                         final from = DateTime.parse(r['from_date'].toString());
@@ -289,30 +350,60 @@ void _showLeaveHistoryDialog(BuildContext context, List<dynamic> requests) {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.shield_outlined, color: employeePurple, size: 18),
+                            const Icon(
+                              Icons.shield_outlined,
+                              color: employeePurple,
+                              size: 18,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(dateStr, style: const TextStyle(color: employeeNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                                  Text(
+                                    dateStr,
+                                    style: const TextStyle(
+                                      color: employeeNavy,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
                                   Text(
                                     '$leaveType · $durationType · $dateRange',
-                                    style: const TextStyle(color: employeeMuted, fontSize: 11),
+                                    style: const TextStyle(
+                                      color: employeeMuted,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                   if (reason.isNotEmpty)
-                                    Text(reason, style: const TextStyle(color: employeeMuted, fontSize: 11)),
+                                    Text(
+                                      reason,
+                                      style: const TextStyle(
+                                        color: employeeMuted,
+                                        fontSize: 11,
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: color.withValues(alpha: .10),
                                 borderRadius: BorderRadius.circular(5),
                               ),
-                              child: Text(_statusLabel(status), style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
+                              child: Text(
+                                statusLabel(status),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: color,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -332,16 +423,35 @@ class _LeaveBalance extends StatelessWidget {
   const _LeaveBalance({required this.balances});
   final List<dynamic> balances;
 
+  static const _palette = [
+    employeeGreen,
+    employeePurple,
+    employeeBlue,
+    employeeOrange,
+  ];
+
+  static final _typeColorCache = <String, Color>{};
+  static int _nextIndex = 0;
+
   Color _colorFor(String type) {
+    if (_typeColorCache.containsKey(type)) return _typeColorCache[type]!;
     switch (type) {
       case 'Casual Leave':
-        return employeeGreen;
+        return _typeColorCache[type] = employeeGreen;
       case 'Sick Leave':
-        return employeePurple;
+        return _typeColorCache[type] = employeePurple;
       case 'Earned Leave':
-        return employeeBlue;
+        return _typeColorCache[type] = employeeBlue;
+      case 'Annual Leave':
+        return _typeColorCache[type] = employeeBlue;
+      case 'Maternity Leave':
+        return _typeColorCache[type] = employeeOrange;
+      case 'Paternity Leave':
+        return _typeColorCache[type] = employeeOrange;
       default:
-        return employeeOrange;
+        final c = _palette[_nextIndex % _palette.length];
+        _nextIndex++;
+        return _typeColorCache[type] = c;
     }
   }
 
@@ -358,24 +468,41 @@ class _LeaveBalance extends StatelessWidget {
         else
           LayoutBuilder(
             builder: (context, constraints) {
-              final boxWidth = constraints.maxWidth >= 900
-                  ? (constraints.maxWidth - 48) / 4
-                  : constraints.maxWidth >= 560
-                  ? (constraints.maxWidth - 16) / 2
-                  : constraints.maxWidth;
+              final visible = balances
+                  .where((b) => b['show_balance_card'] == true)
+                  .take(4)
+                  .toList();
+              final count = visible.length;
+              if (count == 0) {
+                return const Text(
+                  'No balance data available',
+                  style: TextStyle(color: employeeMuted),
+                );
+              }
+              final w = constraints.maxWidth;
+              // columns: match visible card count, collapse on small screens
+              final cols = w < 400
+                  ? 1
+                  : w < 600
+                  ? (count == 1 ? 1 : 2)
+                  : count.clamp(1, 4);
+              final spacing = 14.0 * (cols - 1);
+              final boxWidth = (w - spacing) / cols;
               return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: balances.map((b) {
-                  final total = (b['total'] as num?)?.toInt() ?? 0;
-                  final used = (b['used'] as num?)?.toInt() ?? 0;
+                spacing: 14,
+                runSpacing: 14,
+                children: visible.map((b) {
+                  final total = _leaveDays(b['total']);
+                  final used = _leaveDays(b['used']);
                   final type = b['type']?.toString() ?? 'Leave';
                   return SizedBox(
                     width: boxWidth,
                     child: _BalanceBox(
                       label: type,
-                      remaining: (total - used).clamp(0, total).toInt(),
+                      remaining: (total - used).clamp(0, total).toDouble(),
                       total: total,
+                      used: used,
+                      usageOnly: _isUsageOnly(b),
                       color: _colorFor(type),
                     ),
                   );
@@ -418,12 +545,16 @@ class _BalanceBox extends StatelessWidget {
     required this.label,
     required this.remaining,
     required this.total,
+    required this.used,
+    required this.usageOnly,
     required this.color,
   });
 
   final String label;
-  final int remaining;
-  final int total;
+  final double remaining;
+  final double total;
+  final double used;
+  final bool usageOnly;
   final Color color;
 
   @override
@@ -451,7 +582,9 @@ class _BalanceBox extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '$remaining / $total days',
+          usageOnly
+              ? '${_formatLeaveDays(used)} days used'
+              : '${_formatLeaveDays(remaining)} / ${_formatLeaveDays(total)} days',
           style: TextStyle(
             color: color,
             fontSize: 21,
@@ -514,10 +647,14 @@ class _LeaveHistoryRow extends StatelessWidget {
 
   String _statusLabel(String status) {
     switch (status) {
-      case 'APPROVED': return 'Approved';
-      case 'DENIED': return 'Rejected';
-      case 'CANCELLED': return 'Cancelled';
-      default: return 'Pending';
+      case 'APPROVED':
+        return 'Approved';
+      case 'DENIED':
+        return 'Rejected';
+      case 'CANCELLED':
+        return 'Cancelled';
+      default:
+        return 'Pending';
     }
   }
 
@@ -535,8 +672,8 @@ class _LeaveHistoryRow extends StatelessWidget {
         : '--';
     final dateRange = fromDt != null && toDt != null
         ? (fromDt == toDt
-            ? DateFormat('d MMM yyyy').format(fromDt)
-            : '${DateFormat('d MMM').format(fromDt)} – ${DateFormat('d MMM yyyy').format(toDt)}')
+              ? DateFormat('d MMM yyyy').format(fromDt)
+              : '${DateFormat('d MMM').format(fromDt)} – ${DateFormat('d MMM yyyy').format(toDt)}')
         : '--';
     final status = r['status']?.toString() ?? 'PENDING';
     final color = _statusColor(status);
@@ -594,7 +731,10 @@ class _LeaveHistoryRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(20),
@@ -639,20 +779,86 @@ class _LeaveForm extends StatefulWidget {
   State<_LeaveForm> createState() => _LeaveFormState();
 }
 
+// Holds the full leave type record returned by the admin API.
+class _LeaveTypeOption {
+  final int id;
+  final String name;
+  final String? abbreviation;
+  final bool allowHalfDay;
+  const _LeaveTypeOption({
+    required this.id,
+    required this.name,
+    this.abbreviation,
+    required this.allowHalfDay,
+  });
+  String get label => (abbreviation != null && abbreviation!.isNotEmpty)
+      ? '${abbreviation!} · $name'
+      : name;
+}
+
 class _LeaveFormState extends State<_LeaveForm> {
-  String type = 'Casual Leave';
+  _LeaveTypeOption? _selectedType;
   String duration = 'Full Day';
+  List<_LeaveTypeOption> _types = [];
+  bool _loadingTypes = true;
   DateTime fromDate = DateTime.now();
   DateTime toDate = DateTime.now();
   final _reasonCtrl = TextEditingController();
   bool _submitting = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadTypes();
+  }
+
+  Future<void> _loadTypes() async {
+    final token = context.read<AuthService>().token;
+    if (token == null) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/leave/types'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      final body = jsonDecode(response.body);
+      if (response.statusCode == 200 && body['success'] == true) {
+        final list = (body['data'] as List)
+            .map(
+              (item) => _LeaveTypeOption(
+                id: int.tryParse('${item['id']}') ?? 0,
+                name: item['name'].toString(),
+                abbreviation: item['abbreviation']?.toString(),
+                // A legacy server may omit this newly-added field; preserve the
+                // previous behaviour until the policy migration is available.
+                allowHalfDay:
+                    item['allow_half_day'] != false &&
+                    item['allow_half_day'] != 0,
+              ),
+            )
+            .toList();
+        if (mounted)
+          setState(() {
+            _types = list;
+            _selectedType = list.isEmpty ? null : list.first;
+            _loadingTypes = false;
+          });
+      } else {
+        if (mounted) setState(() => _loadingTypes = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingTypes = false);
+    }
+  }
+
   Future<void> _pickDate(bool isFrom) async {
+    final today = DateUtils.dateOnly(DateTime.now());
     final picked = await showDatePicker(
       context: context,
-      initialDate: isFrom ? fromDate : toDate,
-      firstDate: DateTime(2025),
-      lastDate: DateTime(2028),
+      initialDate: (isFrom ? fromDate : toDate).isBefore(today)
+          ? today
+          : (isFrom ? fromDate : toDate),
+      firstDate: today,
+      lastDate: DateTime(today.year + 10),
     );
     if (picked != null) {
       setState(() {
@@ -670,9 +876,11 @@ class _LeaveFormState extends State<_LeaveForm> {
     final token = context.read<AuthService>().token;
     if (token == null) return;
 
-    if (_reasonCtrl.text.trim().isEmpty) {
+    if (_selectedType == null || _reasonCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please provide a reason for leave.')),
+        const SnackBar(
+          content: Text('Please select a leave type and provide a reason.'),
+        ),
       );
       return;
     }
@@ -680,7 +888,8 @@ class _LeaveFormState extends State<_LeaveForm> {
     setState(() => _submitting = true);
 
     final payload = {
-      'leave_type': type,
+      'leave_type': _selectedType!.name,
+      'leave_type_id': _selectedType!.id,
       'duration_type': duration,
       'from_date': DateFormat('yyyy-MM-dd').format(fromDate),
       'to_date': DateFormat('yyyy-MM-dd').format(toDate),
@@ -692,6 +901,7 @@ class _LeaveFormState extends State<_LeaveForm> {
         .toList();
 
     bool ok = false;
+    String? errorMessage;
     for (final base in candidateUrls) {
       try {
         final res = await http.post(
@@ -702,10 +912,12 @@ class _LeaveFormState extends State<_LeaveForm> {
           },
           body: jsonEncode(payload),
         );
-        if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        if (res.statusCode == 200 && body['success'] == true) {
           ok = true;
           break;
         }
+        errorMessage = body is Map ? body['message']?.toString() : null;
       } catch (_) {}
     }
 
@@ -721,16 +933,36 @@ class _LeaveFormState extends State<_LeaveForm> {
         widget.onSuccess();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to submit leave. Check connection.'),
+          SnackBar(
+            content: Text(
+              errorMessage ?? 'Failed to submit leave. Check connection.',
+            ),
           ),
         );
       }
     }
   }
 
+  Widget _durationField(String label) {
+    final allowHalfDay = _selectedType?.allowHalfDay ?? false;
+    final options = allowHalfDay
+        ? const ['Full Day', 'Half Day']
+        : const ['Full Day'];
+    return _DropdownField(
+      label,
+      duration,
+      options,
+      (v) => setState(() => duration = v!),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_loadingTypes) return const Center(child: CircularProgressIndicator());
+    if (_types.isEmpty)
+      return const EmployeeCard(
+        child: Text('No active leave types are configured by Admin.'),
+      );
     final fromStr = DateFormat('dd/MM/yyyy').format(fromDate);
     final toStr = DateFormat('dd/MM/yyyy').format(toDate);
 
@@ -747,34 +979,32 @@ class _LeaveFormState extends State<_LeaveForm> {
             Row(
               children: [
                 Expanded(
-                  child: _DropdownField('LEAVE TYPE', type, const [
-                    'Casual Leave',
-                    'Sick Leave',
-                    'Earned Leave',
-                    'Optional Holiday',
-                  ], (v) => setState(() => type = v!)),
+                  child: _LeaveTypeDropdown(
+                    label: 'LEAVE TYPE',
+                    value: _selectedType,
+                    items: _types,
+                    onChanged: (v) => setState(() {
+                      _selectedType = v;
+                      if (v != null && !v.allowHalfDay) duration = 'Full Day';
+                    }),
+                  ),
                 ),
                 const SizedBox(width: 18),
-                Expanded(
-                  child: _DropdownField('DURATION', duration, const [
-                    'Full Day',
-                    'Half Day',
-                  ], (v) => setState(() => duration = v!)),
-                ),
+                Expanded(child: _durationField('DURATION')),
               ],
             )
           else ...[
-            _DropdownField('Leave Type', type, const [
-              'Casual Leave',
-              'Sick Leave',
-              'Earned Leave',
-              'Optional Holiday',
-            ], (v) => setState(() => type = v!)),
+            _LeaveTypeDropdown(
+              label: 'Leave Type',
+              value: _selectedType,
+              items: _types,
+              onChanged: (v) => setState(() {
+                _selectedType = v;
+                if (v != null && !v.allowHalfDay) duration = 'Full Day';
+              }),
+            ),
             const SizedBox(height: 14),
-            _DropdownField('Duration', duration, const [
-              'Full Day',
-              'Half Day',
-            ], (v) => setState(() => duration = v!)),
+            _durationField('Duration'),
           ],
           const SizedBox(height: 14),
           if (widget.desktop)
@@ -938,6 +1168,90 @@ class _DateFieldShell extends StatelessWidget {
   );
 }
 
+class _LeaveTypeDropdown extends StatelessWidget {
+  const _LeaveTypeDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+  final String label;
+  final _LeaveTypeOption? value;
+  final List<_LeaveTypeOption> items;
+  final ValueChanged<_LeaveTypeOption?> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          color: employeeNavy,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 6),
+      DropdownButtonFormField<_LeaveTypeOption>(
+        value: value,
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: const Color(0xFFFBFCFE),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 13,
+          ),
+          border: OutlineInputBorder(
+            borderSide: const BorderSide(color: employeeLine),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderSide: const BorderSide(color: employeeLine),
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        items: items
+            .map(
+              (opt) => DropdownMenuItem(
+                value: opt,
+                child: Row(
+                  children: [
+                    if (opt.abbreviation != null &&
+                        opt.abbreviation!.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F0FF),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          opt.abbreviation!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0B72F5),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(opt.name),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+        onChanged: onChanged,
+      ),
+    ],
+  );
+}
+
 class _DropdownField extends StatelessWidget {
   const _DropdownField(this.label, this.value, this.items, this.onChanged);
   final String label;
@@ -1000,7 +1314,10 @@ class _MobileLeaveBalance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayBalances = balances.take(4).toList();
+    final displayBalances = balances
+        .where((balance) => balance['show_balance_card'] == true)
+        .take(4)
+        .toList();
     return EmployeeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1040,25 +1357,36 @@ class _MobileLeaveBalance extends StatelessWidget {
           if (displayBalances.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: Text('Leave balances are not available yet.')),
+              child: Center(
+                child: Text('Leave balances are not available yet.'),
+              ),
             )
           else
             Row(
               children: List.generate(displayBalances.length, (index) {
                 final balance = displayBalances[index];
                 final type = (balance['type'] ?? 'Leave').toString();
-                final total = (balance['total'] as num?)?.toInt() ?? 0;
-                final used = (balance['used'] as num?)?.toInt() ?? 0;
-                final remaining = (total - used).clamp(0, total).toInt();
+                final total = _leaveDays(balance['total']);
+                final used = _leaveDays(balance['used']);
+                final remaining = (total - used).clamp(0, total).toDouble();
+                final usageOnly = _isUsageOnly(balance);
                 final color = _colorFor(type);
                 return Expanded(
                   child: Container(
                     height: 112,
-                    margin: EdgeInsets.only(right: index == displayBalances.length - 1 ? 0 : 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 12),
+                    margin: EdgeInsets.only(
+                      right: index == displayBalances.length - 1 ? 0 : 8,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.045),
-                      border: Border.all(color: color.withOpacity(0.26), width: 1.2),
+                      color: color.withValues(alpha: 0.045),
+                      border: Border.all(
+                        color: color.withValues(alpha: 0.26),
+                        width: 1.2,
+                      ),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
@@ -1077,7 +1405,7 @@ class _MobileLeaveBalance extends StatelessWidget {
                         ),
                         const Spacer(),
                         Text(
-                          '$remaining',
+                          _formatLeaveDays(usageOnly ? used : remaining),
                           style: TextStyle(
                             color: color,
                             fontSize: 29,
@@ -1087,7 +1415,9 @@ class _MobileLeaveBalance extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'of $total',
+                          usageOnly
+                              ? 'days used'
+                              : 'of ${_formatLeaveDays(total)}',
                           style: const TextStyle(
                             color: employeeMuted,
                             fontSize: 11,
@@ -1105,6 +1435,7 @@ class _MobileLeaveBalance extends StatelessWidget {
     );
   }
 }
+
 class _MobileLeave extends StatelessWidget {
   const _MobileLeave({
     required this.mode,

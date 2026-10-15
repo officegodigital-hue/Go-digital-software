@@ -2,12 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('./auth');
 const attendance = require('../controllers/attendanceController');
+const calendarNotifications = require('../controllers/calendarNotificationsController');
 
 router.use(authenticateToken);
 const leavePolicies = require('../controllers/leavePolicies');
 const attendancePolicies = require('../controllers/attendancePolicySettingsController');
 router.use('/leave/policies', attendance.requireAdmin);
 router.get('/leave/policies', attendance.requireAdmin, leavePolicies.list);
+router.post('/leave/policies', attendance.requireAdmin, leavePolicies.create);
+router.put('/leave/policies', attendance.requireAdmin, leavePolicies.saveAll);
 router.put('/leave/policies/:id', attendance.requireAdmin, leavePolicies.save);
 
 // Both portals keep their existing URL.  The signed-in user determines the
@@ -25,6 +28,9 @@ router.get('/permissions', attendance.requireAdmin, attendance.adminPermissions)
 router.patch('/permissions/:id', attendance.requireAdmin, attendance.reviewPermission);
 
 router.get('/me', attendance.myHistory);
+router.get('/me/day', attendance.dayDetail);
+router.get('/calendar-notifications', calendarNotifications.mine);
+router.patch('/calendar-notifications/:id/read', calendarNotifications.markRead);
 router.get('/me/export', attendance.myExport);
 router.get('/check-in-policy', attendance.checkInPolicy);
 router.post('/check-in', attendance.checkIn);

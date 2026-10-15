@@ -126,9 +126,17 @@ class HrmsTrackingApi {
   }
 
   static Map<String, dynamic> _decode(http.Response response) {
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body);
+    dynamic decoded;
+    try {
+      decoded = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body);
+    } catch (_) {
+      throw Exception(
+        'Attendance server returned an invalid response '
+        '(HTTP ${response.statusCode}).',
+      );
+    }
 
     if (decoded is! Map) {
       throw Exception('Unexpected response');
@@ -137,7 +145,10 @@ class HrmsTrackingApi {
     final map = Map<String, dynamic>.from(decoded);
 
     if (response.statusCode >= 400 || map['success'] == false) {
-      throw Exception(map['message']?.toString() ?? 'Request failed');
+      throw Exception(
+        map['message']?.toString() ??
+            'Attendance request failed (HTTP ${response.statusCode}).',
+      );
     }
 
     final data = map['data'];
@@ -171,6 +182,11 @@ class HrmsTrackingApi {
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> employeeTrackingDetails({
+    required int employeeUserId,
+    required String date,
+  }) => route(employeeUserId: employeeUserId, date: date);
+
   static Future<Map<String, dynamic>> myRoute({required String date}) async {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/hrms/tracking/route/my',
@@ -197,7 +213,7 @@ class HrmsTrackingApi {
     _decode(response);
   }
 
-  static Future<void> ping({
+  static Future<Map<String, dynamic>> ping({
     required double latitude,
     required double longitude,
     double? accuracy,
@@ -208,11 +224,11 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        'accuracy': ?accuracy,
+        'accuracy': accuracy,
       }),
     );
 
-    _decode(response);
+    return _decode(response);
   }
 
   static Future<Map<String, dynamic>> fieldSession() async {
@@ -221,6 +237,40 @@ class HrmsTrackingApi {
       headers: await _headers(),
     );
 
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> hybridSession() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session'),
+      headers: await _headers(),
+    );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> trackingPermissions() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/permissions'),
+      headers: await _headers(),
+    );
+
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> fieldSessionSummary() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/summary'),
+      headers: await _headers(),
+    );
+
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> fieldSessionTimeline() async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/timeline'),
+      headers: await _headers(),
+    );
     return _decode(response);
   }
 
@@ -235,14 +285,32 @@ class HrmsTrackingApi {
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        'accuracy': ?accuracy,
+        'accuracy': accuracy,
       }),
     );
 
     return _decode(response);
   }
 
+  static Future<Map<String, dynamic>> startHybridSession({
+    required double latitude,
+    required double longitude,
+    double? accuracy,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session/start'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
+      }),
+    );
+    return _decode(response);
+  }
+
   static Future<Map<String, dynamic>> stopFieldSession({
+    required String reason,
     double? latitude,
     double? longitude,
     double? accuracy,
@@ -251,12 +319,30 @@ class HrmsTrackingApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/field-session/stop'),
       headers: await _headers(),
       body: jsonEncode({
-        'latitude': ?latitude,
-        'longitude': ?longitude,
-        'accuracy': ?accuracy,
+        'reason': reason,
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
       }),
     );
 
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> stopHybridSession({
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/hybrid-session/stop'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
+      }),
+    );
     return _decode(response);
   }
 
@@ -274,6 +360,11 @@ class HrmsTrackingApi {
     }
 
     return data;
+  }
+
+  static Future<Map<String, dynamic>> clockOutReminderStatus() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/attendance/clock-out-reminder/status'), headers: await _headers());
+    return _decode(response);
   }
 
   static Future<void> submitWaitingReason({
@@ -304,7 +395,13 @@ class HrmsTrackingApi {
     required int fieldWaitingMinutes,
     required int stationaryRadiusMeters,
     required int fieldPingIntervalMinutes,
+    required int popupAlertRepeatSeconds,
     required bool homeTrackingEnabled,
+    bool autoClockOutEnabled = false,
+    int autoClockOutConfirmationMinutes = 3,
+    int autoClockOutWarningSeconds = 60,
+    int autoClockOutBoundaryBufferMeters = 50,
+    int autoClockOutSnoozeMinutes = 15,
   }) async {
     final response = await http.put(
       Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
@@ -313,7 +410,13 @@ class HrmsTrackingApi {
         'fieldWaitingMinutes': fieldWaitingMinutes,
         'stationaryRadiusMeters': stationaryRadiusMeters,
         'fieldPingIntervalMinutes': fieldPingIntervalMinutes,
+        'popupAlertRepeatSeconds': popupAlertRepeatSeconds,
         'homeTrackingEnabled': homeTrackingEnabled,
+        'autoClockOutEnabled': autoClockOutEnabled,
+        'autoClockOutConfirmationMinutes': autoClockOutConfirmationMinutes,
+        'autoClockOutWarningSeconds': autoClockOutWarningSeconds,
+        'autoClockOutBoundaryBufferMeters': autoClockOutBoundaryBufferMeters,
+        'autoClockOutSnoozeMinutes': autoClockOutSnoozeMinutes,
       }),
     );
 

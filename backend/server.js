@@ -10,6 +10,7 @@ const db = require('./config/db');
 
 const attendancePolicy = require('./lib/attendancePolicy');
 const { runAutoAbsence } = require('./jobs/auto-absence');
+const { runAutoCheckout } = require('./jobs/auto-checkout');
 const { ensureAttendancePolicyTables } = require('./controllers/attendancePolicySettingsController');
 const { ensureAuthSchema } = require('./lib/ensureAuthSchema');
 
@@ -20,6 +21,16 @@ cron.schedule('1 0 * * *', async () => {
   catch (error) { console.error('Auto-absence job failed:', error.message); }
 }, { timezone: 'Asia/Kolkata' });
 runAutoAbsence().catch((error) => console.error('Auto-absence reconciliation failed:', error.message));
+
+// Auto-checkout: every minute, check open sessions for out-of-radius or no-GPS situations
+cron.schedule('* * * * *', async () => {
+  try {
+    const result = await runAutoCheckout();
+    if (result.checked > 0) console.log(`Auto-checkout: ${result.checked} session(s) closed on ${result.today}`);
+  } catch (error) {
+    console.error('Auto-checkout job failed:', error.message);
+  }
+}, { timezone: 'Asia/Kolkata' });
 
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
@@ -153,6 +164,7 @@ const hrmsDashboardRoutes = require('./routes/hrmsDashboard');
 const hrmsApprovalsRoutes = require('./routes/hrmsApprovals');
 const hrmsPayrollRoutes = require('./routes/hrmsPayroll');
 const hrmsTrackingRoutes = require('./routes/hrmsTracking');
+const hrmsAnnouncementsRoutes = require('./routes/hrmsAnnouncements');
 const hrmsPayslipRoutes = require('./routes/hrmsPayslips');
 const { generatePayrollRun } = require('./controllers/hrmsPayrollController');
 
@@ -268,6 +280,7 @@ app.use('/api/hrms/dashboard', hrmsDashboardRoutes);
 app.use('/api/hrms/approvals', hrmsApprovalsRoutes);
 app.use('/api/hrms/payroll', hrmsPayrollRoutes);
 app.use('/api/hrms/tracking', hrmsTrackingRoutes);
+app.use('/api/hrms/announcements', hrmsAnnouncementsRoutes);
 app.use('/api/hrms/payslips', hrmsPayslipRoutes);
 
 

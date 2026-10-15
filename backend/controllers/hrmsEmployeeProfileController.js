@@ -1,5 +1,7 @@
 const db = require('../config/db');
 const policy = require('../lib/attendancePolicy');
+const { computeRows } = require('./hrmsPayrollController');
+const { effectiveOverrides } = require('../lib/calendarOverrides');
 
 function ok(res, data) {
   return res.json({ success: true, message: 'OK', data });
@@ -78,7 +80,6 @@ function displayType(requestType) {
   return String(requestType || '').replace(/_/g, ' ');
 }
 
-const LEAVE_TYPES = ['leave', 'risk_leave', 'annual_leave', 'sick_leave', 'personal_leave', 'casual_leave', 'earned_leave', 'optional_holiday'];
 const DEFAULT_WEEKLY_OFF = [0]; // Sunday
 
 async function getPayrollPolicy() {
@@ -89,13 +90,11 @@ async function getPayrollPolicy() {
     try { weeklyOffDays = JSON.parse(row.weekly_off_days || '[0]'); } catch (_) {}
     return {
       weeklyOffDays: Array.isArray(weeklyOffDays) ? weeklyOffDays.map(Number) : DEFAULT_WEEKLY_OFF,
-      deductApprovedLeave: Boolean(Number(row.deduct_approved_leave ?? 1)),
       deductExplicitAbsence: Boolean(Number(row.deduct_explicit_absence ?? 1)),
       missingAttendanceIsAbsent: Boolean(Number(row.missing_attendance_is_absent ?? 0)),
-      salaryDayDivisor: Math.max(1, Number(row.salary_day_divisor || 26)),
     };
   } catch (_) {
-    return { weeklyOffDays: DEFAULT_WEEKLY_OFF, deductApprovedLeave: true, deductExplicitAbsence: true, missingAttendanceIsAbsent: false, salaryDayDivisor: 26 };
+    return { weeklyOffDays: DEFAULT_WEEKLY_OFF, deductExplicitAbsence: true, missingAttendanceIsAbsent: false };
   }
 }
 
@@ -172,6 +171,10 @@ async function getProfile(req, res) {
     // 2 ─ Payroll policy
     const pol = await getPayrollPolicy();
     const weeklyOff = new Set(pol.weeklyOffDays);
+    const overrideMap = (await effectiveOverrides(periodStart, periodEnd, [{
+      employee_user_id: employeeUserId,
+      department: profile.department || '',
+    }])).get(Number(employeeUserId)) || new Map();
 
     // 3 ─ Attendance records for the month
     const [records] = employeeUserId
@@ -223,10 +226,12 @@ async function getProfile(req, res) {
                   p.reviewed_by, p.created_at,
                   DATE_FORMAT(COALESCE(el.from_date, p.request_date),'%Y-%m-%d') AS from_date,
                   DATE_FORMAT(COALESCE(el.to_date,   p.request_date),'%Y-%m-%d') AS to_date,
-                  el.duration_type
+                  el.duration_type, el.leave_type_id,
+                  COALESCE(lt.is_lop, 0) AS is_lop
            FROM attendance_permission_requests p
            LEFT JOIN hrms_leave_approval_links lnk ON lnk.approval_request_id = p.id
            LEFT JOIN employee_leaves el ON el.id = lnk.leave_id
+           LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
            WHERE p.employee_id = ?
              AND COALESCE(el.from_date, p.request_date) BETWEEN ? AND ?
            ORDER BY COALESCE(el.from_date, p.request_date) DESC`,
@@ -234,9 +239,10 @@ async function getProfile(req, res) {
         )
       : [[]];
 
-    // Build leave set for LOP calculation
-    const leaveSet = new Set();
-    leaveRows.filter(r => r.status === 'approved' && LEAVE_TYPES.includes(String(r.request_type).toLowerCase()))
+    // Build the leave map from the per-type Admin policy. A missing legacy
+    // policy link stays paid until Admin maps it; it can never silently deduct.
+    const leaveSet = new Map();
+    leaveRows.filter(r => r.status === 'approved' && r.leave_type_id)
       .forEach(r => {
         const from = isoDate(r.from_date || r.request_date);
         const to = isoDate(r.to_date || r.request_date);
@@ -244,7 +250,10 @@ async function getProfile(req, res) {
           let d = new Date(from + 'T00:00:00Z');
           const end = new Date(to + 'T00:00:00Z');
           while (d <= end) {
-            leaveSet.add(d.toISOString().slice(0, 10));
+            leaveSet.set(d.toISOString().slice(0, 10), {
+              isLop: Number(r.is_lop) === 1,
+              isHalf: String(r.duration_type || '').toLowerCase() === 'half day',
+            });
             d.setUTCDate(d.getUTCDate() + 1);
           }
         }
@@ -266,7 +275,8 @@ async function getProfile(req, res) {
     for (let day = 1; day <= daysInMonth(year, month); day++) {
       const date = ymd(year, month, day);
       const weekday = new Date(date + 'T00:00:00Z').getUTCDay();
-      const isWeeklyOff = weeklyOff.has(weekday);
+      const override = overrideMap.get(date)?.status;
+      const isWeeklyOff = override === 'Holiday' || override === 'Weekly Off' || (!override && weeklyOff.has(weekday));
 
       const record = recordMap.get(date);
       const brks = record ? (breaksByRecord.get(Number(record.id)) || []) : [];
@@ -302,9 +312,10 @@ async function getProfile(req, res) {
             presentCount += 1;
           }
         } else if (leaveSet.has(date)) {
+          const leaveInfo = leaveSet.get(date);
           status = 'leave';
           leaveCount += 1;
-          if (pol.deductApprovedLeave) { lopDays += 1; isLop = true; }
+          if (leaveInfo.isLop) { lopDays += leaveInfo.isHalf ? 0.5 : 1; isLop = true; }
         } else if (pol.missingAttendanceIsAbsent) {
           status = 'absent';
           absentCount += 1;
@@ -338,7 +349,7 @@ async function getProfile(req, res) {
 
     const paidDays = Math.max(0, workingDays - lopDays);
     const deductions = monthlySalary && lopDays > 0
-      ? Math.min(monthlySalary, Math.ceil(lopDays * (monthlySalary / pol.salaryDayDivisor)))
+      ? Math.min(monthlySalary, Math.ceil(lopDays * (monthlySalary / Math.max(1, workingDays))))
       : 0;
     const netPay = Math.max(0, monthlySalary - deductions);
 
@@ -385,8 +396,9 @@ async function getProfile(req, res) {
       if (from && to) {
         durationDays = Math.max(1, Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000) + 1);
       }
+      if (String(row.duration_type || '').toLowerCase() === 'half day') durationDays = 0.5;
       const isPermission = String(row.request_type).toLowerCase() === 'permission';
-      const isLopImpact = !isPermission && LEAVE_TYPES.includes(String(row.request_type).toLowerCase()) && pol.deductApprovedLeave && row.status === 'approved';
+      const isLopImpact = !isPermission && Boolean(row.leave_type_id) && Number(row.is_lop) === 1 && row.status === 'approved';
       return {
         id: row.id,
         type: displayType(row.request_type),
@@ -404,13 +416,21 @@ async function getProfile(req, res) {
       };
     });
 
-    // 10 ─ Current month payroll row (if saved)
+    // 10 ─ Payroll summary must match the Admin dashboard and Payroll page.
+    // Detailed daily activity above remains for the profile timeline, while
+    // money and payable-day figures come from the shared payroll calculator.
+    const livePayrollRows = await computeRows(year, month, today);
+    const livePayroll = livePayrollRows.find((row) =>
+      Number(row.employeeUserId) === Number(employeeUserId)
+    );
+
+    // 11 ─ Current month payroll row (if saved)
     const [currentPayroll] = await db.query(
       `SELECT status, net_pay FROM hrms_payroll_items WHERE profile_id = ? AND pay_year = ? AND pay_month = ? LIMIT 1`,
       [profile.id || 0, year, month]
     );
     const currentPayrollStatus = currentPayroll[0] ? String(currentPayroll[0].status) : 'draft';
-    const currentNetPay = currentPayroll[0] ? Number(currentPayroll[0].net_pay || 0) : netPay;
+    const currentNetPay = currentPayroll[0] ? Number(currentPayroll[0].net_pay || 0) : (livePayroll ? Number(livePayroll.netPay || 0) : netPay);
 
     return ok(res, {
       employee: {
@@ -426,16 +446,21 @@ async function getProfile(req, res) {
       },
       period: { year, month, periodStart, periodEnd, monthLabel: MONTHS[month - 1] + ' ' + year },
       summary: {
-        workingDays,
-        present: presentCount,
-        late: lateCount,
-        absent: absentCount,
-        leaveDays: leaveCount,
+        workingDays: livePayroll ? Number(livePayroll.workingDays || 0) : workingDays,
+        present: livePayroll ? Number(livePayroll.presentDays || 0) : presentCount,
+        late: livePayroll ? Number(livePayroll.lateDays || 0) : lateCount,
+        absent: livePayroll ? Number(livePayroll.absentDays || 0) : absentCount,
+        leaveDays: livePayroll ? Number(livePayroll.leaveDays || 0) : leaveCount,
         permissions: permissionCount,
-        lopDays,
-        paidDays,
-        deductions,
-        deductionsLabel: formatSalary(deductions),
+        lopDays: livePayroll ? Number(livePayroll.lopDays || 0) : lopDays,
+        paidDays: livePayroll ? Number(livePayroll.paidDays || 0) : paidDays,
+        paidDaysToDate: livePayroll ? Number(livePayroll.paidDaysToDate || 0) : paidDays,
+        paidLeaveDays: livePayroll ? Number(livePayroll.paidLeaveDays || 0) : 0,
+        lopLeaveDays: livePayroll ? Number(livePayroll.lopLeaveDays || 0) : lopDays,
+        dailySalary: livePayroll ? Number(livePayroll.dailyRate || 0) : (workingDays ? monthlySalary / workingDays : 0),
+        earnedToDate: livePayroll ? Number(livePayroll.earnedToDate || 0) : 0,
+        deductions: livePayroll ? Number(livePayroll.deductions || 0) : deductions,
+        deductionsLabel: livePayroll ? livePayroll.deductionsLabel : formatSalary(deductions),
         netPay: currentNetPay,
         netPayLabel: formatSalary(currentNetPay),
         payrollStatus: currentPayrollStatus,

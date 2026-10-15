@@ -1,17 +1,13 @@
 import 'dart:async';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../services/hrms_tracking_api.dart';
-import '../../services/attendance_api.dart';
-import '../../services/auth_storage.dart';
-import '../../services/tracking_comments_api.dart';
 import '../../services/tracking_comments_section.dart';
 import '../shared/employee_ui.dart';
+import '../shared/live_tracking_coordinator.dart';
 import 'home_location_dialog.dart';
 
 class EmployeeTrackingPage extends StatelessWidget {
@@ -33,54 +29,7 @@ class EmployeeTrackingPage extends StatelessWidget {
   }
 }
 
-enum _WorkMode { office, hybrid, field }
-
-Future<BitmapDescriptor> _routeMarkerIcon(Color color, String label) async {
-  const width = 56.0;
-  const height = 70.0;
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder);
-  final shadow = Paint()..color = const Color(0x33000000);
-  canvas.drawCircle(const Offset(30, 31), 23, shadow);
-  final pin = Path()
-    ..moveTo(28, 62)
-    ..lineTo(14, 35)
-    ..arcToPoint(const Offset(42, 35), radius: const Radius.circular(20))
-    ..close();
-  canvas.drawPath(pin, Paint()..color = color);
-  canvas.drawCircle(const Offset(28, 28), 16, Paint()..color = Colors.white);
-  final painter = TextPainter(
-    text: TextSpan(
-      text: label,
-      style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900),
-    ),
-    textDirection: ui.TextDirection.ltr,
-  )..layout();
-  painter.paint(
-    canvas,
-    Offset(28 - painter.width / 2, 28 - painter.height / 2),
-  );
-  final image = await recorder.endRecording().toImage(
-    width.toInt(),
-    height.toInt(),
-  );
-  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  return BitmapDescriptor.bytes(
-    Uint8List.fromList(bytes!.buffer.asUint8List()),
-  );
-}
-
-class _EmployeeRoutePoint {
-  const _EmployeeRoutePoint({required this.latitude, required this.longitude});
-  final double latitude;
-  final double longitude;
-
-  factory _EmployeeRoutePoint.fromApi(Map<String, dynamic> json) =>
-      _EmployeeRoutePoint(
-        latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
-        longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
-      );
-}
+enum _WorkMode { office, home, field }
 
 class _TrackingView extends StatefulWidget {
   const _TrackingView({required this.mobile, required this.routeHistory});
@@ -92,33 +41,26 @@ class _TrackingView extends StatefulWidget {
 }
 
 class _TrackingViewState extends State<_TrackingView> {
+  Timer? _timelineRefreshTimer;
   _WorkMode mode = _WorkMode.office;
   String updated = 'Not tracking yet';
   bool trackingActive = false;
-  bool clockedIn = false;
-  Timer? _locationTimer;
-  Timer? _waitingAlertTimer;
   Position? _lastPosition;
-  Position? _stationaryStartPosition;
-  DateTime? _stationarySince;
-  bool _localWaitingDialogOpen = false;
-  BitmapDescriptor? _routeStartMarker;
-  BitmapDescriptor? _routeEndMarker;
+  List<LatLng> _routePoints = const [];
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
   bool _homeLoading = true;
   bool _officeLoading = true;
   bool _homeDialogOpen = false;
-  bool _homeTrackingEnabled = false;
+  bool _trackingActionInProgress = false;
+  bool _fieldTrackingEnabled = false;
+  bool _homeLocationEnabled = true;
   String? _homeError;
 
   String distance = '—';
   String duration = '—';
   String avgSpeed = '—';
-  DateTime _routeDate = DateTime.now();
-  bool _routeLoading = true;
-  List<_EmployeeRoutePoint> _routePoints = const [];
-  String? _routeError;
+
 
   List<dynamic> activities = [
     {
@@ -130,63 +72,61 @@ class _TrackingViewState extends State<_TrackingView> {
   @override
   void initState() {
     super.initState();
+    employeeRouteSignal.revision.addListener(_reloadSavedSession);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadFieldSession();
-      _loadClockStatus();
-      _checkWaitingAlert();
+      _loadTrackingPermissions();
+      _loadHomeLocation();
       _loadOfficeSettings();
-      _loadRoute();
-      _loadRouteMarkerIcons();
     });
-
-    _waitingAlertTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => _checkWaitingAlert(),
+    _timelineRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        if (!mounted) return;
+        // Refresh the server timeline even when the page was opened before
+        // tracking started or the app restored a background session. Previously
+        // this was gated by the stale local trackingActive flag, so APK users
+        // only saw new GPS pings after a manual refresh.
+        _loadFieldSession();
+        if (trackingActive) _loadTripSummary();
+      },
     );
-  }
-
-  Future<void> _loadRouteMarkerIcons() async {
-    final icons = await Future.wait([
-      _routeMarkerIcon(const Color(0xFF075EF7), 'S'),
-      _routeMarkerIcon(const Color(0xFF7E20E8), 'E'),
-    ]);
-    if (mounted) {
-      setState(() {
-        _routeStartMarker = icons[0];
-        _routeEndMarker = icons[1];
-      });
-    }
-  }
-
-  Future<void> _loadClockStatus() async {
-    try {
-      final data = await AttendanceApi.dashboard(DateTime.now());
-      final status = '${data['status'] ?? ''}'.toLowerCase();
-      final value =
-          data['checkedIn'] ??
-          data['checked_in'] ??
-          data['isCheckedIn'] ??
-          data['is_checked_in'] ??
-          data['clockedIn'] ??
-          data['clocked_in'];
-      final active =
-          status == 'checked_in' ||
-          value == true ||
-          value == 1 ||
-          value == '1' ||
-          value == 'true';
-      if (mounted) setState(() => clockedIn = active);
-    } catch (_) {
-      // The tracking page remains usable if attendance status is unavailable.
-    }
   }
 
   @override
   void dispose() {
-    _locationTimer?.cancel();
-    _waitingAlertTimer?.cancel();
+    _timelineRefreshTimer?.cancel();
+    employeeRouteSignal.revision.removeListener(_reloadSavedSession);
     super.dispose();
+  }
+
+  void _reloadSavedSession() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadFieldSession();
+    });
+  }
+
+  Future<void> _loadTrackingPermissions() async {
+    try {
+      final permissions = await HrmsTrackingApi.trackingPermissions();
+      if (!mounted) return;
+      setState(() {
+        _fieldTrackingEnabled =
+            permissions['fieldTrackingEnabled'] == true ||
+            permissions['field_tracking_enabled'] == true ||
+            permissions['fieldTrackingEnabled'].toString() == '1';
+        _homeLocationEnabled = permissions['homeLocationEnabled'] != false;
+        if (!_fieldTrackingEnabled && mode == _WorkMode.field) {
+          mode = _WorkMode.office;
+        }
+        if (!_homeLocationEnabled && mode == _WorkMode.home) {
+          mode = _WorkMode.office;
+        }
+      });
+    } catch (_) {
+      // Field tracking remains unavailable unless the admin permission loads.
+    }
   }
 
   Future<void> _loadOfficeSettings() async {
@@ -195,41 +135,13 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
       setState(() {
         _officeSettings = settings;
-        _homeTrackingEnabled =
-            settings['home_tracking_enabled'] == true ||
-            settings['home_tracking_enabled'] == 1 ||
-            settings['home_tracking_enabled'] == '1';
         _officeLoading = false;
       });
-      if (trackingActive) _startLocationTimer();
-      if (_homeTrackingEnabled) await _loadHomeLocation();
+
     } catch (_) {
       if (!mounted) return;
       setState(() => _officeLoading = false);
     }
-  }
-
-  Future<Position> _getCurrentPosition() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!enabled) {
-      throw Exception('Please turn on device location services.');
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission is required for live tracking.');
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
   }
 
   Future<void> _loadHomeLocation() async {
@@ -267,78 +179,69 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> _loadFieldSession() async {
     try {
-      final session = await HrmsTrackingApi.fieldSession();
-
-      final active =
-          session['is_active'] == 1 ||
-          session['is_active'] == true ||
-          session['isActive'] == true;
-
+      await context.read<LiveTrackingCoordinator>().restore();
+      final timeline = await HrmsTrackingApi.fieldSessionTimeline();
       if (!mounted) return;
-
       setState(() {
-        trackingActive = active;
-
-        if (active) {
-          final savedMode =
-              '${session['work_mode'] ?? session['workMode'] ?? ''}'
-                  .toLowerCase();
-          if (savedMode == 'hybrid') mode = _WorkMode.hybrid;
+        trackingActive = timeline['isActive'] == true;
+        if (trackingActive) {
+          mode = _WorkMode.field;
           updated = 'Live tracking active';
         }
+        _applyTimeline(timeline);
       });
-
-      if (active) {
-        _startLocationTimer();
-        await _sendLocationPing(showMessage: false);
-      }
     } catch (_) {
       // Office and Home employees may not have a Field tracking session.
     }
   }
 
-  void _startLocationTimer() {
-    _locationTimer?.cancel();
-    final configuredMinutes =
-        int.tryParse(
-          '${_officeSettings?['field_ping_interval_minutes'] ?? 15}',
-        ) ??
-        15;
-    final intervalMinutes = configuredMinutes.clamp(1, 60);
-    _locationTimer = Timer.periodic(Duration(minutes: intervalMinutes), (_) {
-      _sendLocationPing(showMessage: false);
-    });
+  Future<void> _loadTripSummary() async {
+    try {
+      final summary = await HrmsTrackingApi.fieldSessionTimeline();
+      if (!mounted || summary['hasSession'] != true) return;
+      setState(() => _applyTimeline(summary));
+    } catch (_) {}
+  }
+
+  void _applyTimeline(Map<String, dynamic> summary) {
+      final seconds = (summary['durationSeconds'] as num?)?.toInt() ?? 0;
+      final minutes = seconds ~/ 60;
+      final hours = minutes ~/ 60;
+      final remainingMinutes = minutes % 60;
+      final distanceKm = (summary['distanceKm'] as num?)?.toDouble() ?? 0;
+      final averageSpeed =
+          (summary['averageSpeedKmph'] as num?)?.toDouble() ?? 0;
+      duration = hours > 0
+            ? '${hours}h ${remainingMinutes}m'
+            : '$minutes min';
+      distance = '${distanceKm.toStringAsFixed(2)} km';
+      avgSpeed = '${averageSpeed.toStringAsFixed(1)} km/h';
+      final savedPoints = (summary['points'] as List? ?? []).whereType<Map>().map((point) {
+        final lat = double.tryParse('${point['latitude']}');
+        final lng = double.tryParse('${point['longitude']}');
+        return lat == null || lng == null ? null : LatLng(lat, lng);
+      }).whereType<LatLng>().toList();
+      _routePoints = savedPoints;
+      final items = (summary['events'] as List? ?? []).whereType<Map>().map((event) => {
+        'activity_time': _eventTime(event['recordedAt']),
+        'activity_text': '${event['text'] ?? 'Live location updated'}${event['address'] == null || '${event['address']}'.trim().isEmpty ? '' : ' — ${event['address']}'}${event['latitude'] == null ? '' : '\nGPS: ${event['latitude']}, ${event['longitude']}'}',
+      }).toList().reversed.toList();
+      activities = items.isEmpty ? [{'activity_time': '--:--', 'activity_text': 'No live tracking activity yet'}] : items;
+  }
+
+  String _eventTime(dynamic raw) {
+    final date = DateTime.tryParse('${raw ?? ''}');
+    return date == null ? '--:--' : TimeOfDay.fromDateTime(date.toLocal()).format(context);
   }
 
   Future<void> _sendLocationPing({required bool showMessage}) async {
     if (!trackingActive) return;
 
     try {
-      final position = await _getCurrentPosition();
-
-      await HrmsTrackingApi.ping(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-      );
+      await context.read<LiveTrackingCoordinator>().sendPing();
 
       if (!mounted) return;
-
-      setState(() {
-        _lastPosition = position;
-        updated = 'Updated just now';
-        activities = [
-          {
-            'activity_time': TimeOfDay.now().format(context),
-            'activity_text': 'Live location updated',
-          },
-          ...activities.where(
-            (item) => item['activity_text'] != 'No live tracking activity yet',
-          ),
-        ];
-      });
-      _checkLocalStationaryPosition(position);
-      _loadRoute(silent: true);
+      await _loadTripSummary();
 
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -356,200 +259,86 @@ class _TrackingViewState extends State<_TrackingView> {
     }
   }
 
-  void _checkLocalStationaryPosition(Position position) {
-    if (!trackingActive || _localWaitingDialogOpen) return;
-    final radius =
-        int.tryParse('${_officeSettings?['stationary_radius_meters'] ?? 50}') ??
-        50;
-    final waitingMinutes =
-        int.tryParse('${_officeSettings?['field_waiting_minutes'] ?? 60}') ??
-        60;
-    final now = DateTime.now();
-    final start = _stationaryStartPosition;
-    if (start == null || _stationarySince == null) {
-      _stationaryStartPosition = position;
-      _stationarySince = now;
-      return;
-    }
-    final movedMeters = Geolocator.distanceBetween(
-      start.latitude,
-      start.longitude,
-      position.latitude,
-      position.longitude,
-    );
-    if (movedMeters > radius) {
-      _stationaryStartPosition = position;
-      _stationarySince = now;
-      return;
-    }
-    if (now.difference(_stationarySince!).inMinutes >= waitingMinutes) {
-      _showLocalWaitingReasonDialog(position, waitingMinutes);
-    }
-  }
-
-  Future<void> _showLocalWaitingReasonDialog(
-    Position position,
-    int waitingMinutes,
-  ) async {
-    if (!mounted || _localWaitingDialogOpen) return;
-    _localWaitingDialogOpen = true;
+  Future<String?> _askStopReason() async {
     final controller = TextEditingController();
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Field waiting reason'),
+    String? error;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialogState) => AlertDialog(
+          title: const Text('Stop live tracking'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'You have remained within the allowed radius for '
-                '$waitingMinutes minutes. Please enter the reason for waiting.',
-              ),
-              const SizedBox(height: 16),
+              const Text('Enter the reason for stopping live tracking.'),
+              const SizedBox(height: 12),
               TextField(
                 controller: controller,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Reason for waiting',
-                  border: OutlineInputBorder(),
+                minLines: 3,
+                maxLines: 5,
+                maxLength: 1000,
+                decoration: InputDecoration(
+                  labelText: 'Reason',
+                  errorText: error,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
           ),
           actions: [
-            ElevatedButton(
-              onPressed: () async {
-                final reason = controller.text.trim();
-                if (reason.isEmpty) return;
-                final token = await AuthStorage.getString('auth_token');
-                if (token == null || token.isEmpty) return;
-                await TrackingCommentsApi.addComment(
-                  token,
-                  'Waiting reason: $reason',
-                  latitude: position.latitude,
-                  longitude: position.longitude,
-                );
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Waiting reason submitted')),
-                  );
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(() => error = 'Enter at least 3 characters.');
+                  return;
                 }
+                Navigator.pop(dialogContext, value);
               },
-              child: const Text('Submit reason'),
+              child: const Text('Stop tracking'),
             ),
           ],
         ),
-      );
-    } finally {
-      controller.dispose();
-      _stationaryStartPosition = position;
-      _stationarySince = DateTime.now();
-      _localWaitingDialogOpen = false;
-    }
-  }
-
-  Future<void> _loadRoute({bool silent = false}) async {
-    if (!silent && mounted) setState(() => _routeLoading = true);
-    try {
-      final data = await HrmsTrackingApi.myRoute(
-        date: DateFormat('yyyy-MM-dd').format(_routeDate),
-      );
-      final points = (data['points'] as List? ?? [])
-          .whereType<Map>()
-          .map(
-            (item) =>
-                _EmployeeRoutePoint.fromApi(Map<String, dynamic>.from(item)),
-          )
-          .where((point) => point.latitude != 0 && point.longitude != 0)
-          .toList();
-      if (!mounted) return;
-      setState(() {
-        _routePoints = points;
-        _routeLoading = false;
-        _routeError = null;
-      });
-    } catch (error) {
-      if (mounted && !silent) {
-        setState(() {
-          _routeLoading = false;
-          _routeError = error.toString().replaceFirst('Exception: ', '');
-        });
-      }
-    }
-  }
-
-  Future<void> _selectRouteDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _routeDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      ),
     );
-    if (picked == null || !mounted) return;
-    setState(() => _routeDate = picked);
-    await _loadRoute();
+    controller.dispose();
+    return reason;
   }
 
   Future<void> toggleTracking() async {
-    try {
-      final position = await _getCurrentPosition();
+    if (_trackingActionInProgress) return;
 
+    setState(() => _trackingActionInProgress = true);
+    try {
       if (!trackingActive) {
-        await HrmsTrackingApi.startFieldSession(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-        );
+        await context.read<LiveTrackingCoordinator>().start();
 
         if (!mounted) return;
 
         setState(() {
           trackingActive = true;
-          _lastPosition = position;
-          _stationaryStartPosition = position;
-          _stationarySince = DateTime.now();
+          mode = _WorkMode.field;
           updated = 'Updated just now';
-          activities = [
-            {
-              'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Started live Field tracking',
-            },
-          ];
         });
-
-        _startLocationTimer();
-        _loadRoute(silent: true);
+        await _loadTripSummary();
 
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
       } else {
-        await HrmsTrackingApi.stopFieldSession(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-        );
-
-        _locationTimer?.cancel();
+        final reason = await _askStopReason();
+        if (reason == null || !mounted) return;
+        await context.read<LiveTrackingCoordinator>().stop(reason);
 
         if (!mounted) return;
 
         setState(() {
           trackingActive = false;
-          _lastPosition = position;
           updated = 'Live tracking stopped';
-          activities = [
-            {
-              'activity_time': TimeOfDay.now().format(context),
-              'activity_text': 'Stopped live Field tracking',
-            },
-            ...activities,
-          ];
         });
-        _loadRoute(silent: true);
+
+        await _loadTripSummary();
 
         ScaffoldMessenger.of(
           context,
@@ -563,6 +352,10 @@ class _TrackingViewState extends State<_TrackingView> {
           content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _trackingActionInProgress = false);
+      }
     }
   }
 
@@ -572,7 +365,7 @@ class _TrackingViewState extends State<_TrackingView> {
 
   String get modeLabel => switch (mode) {
     _WorkMode.office => 'Office',
-    _WorkMode.hybrid => 'Hybrid',
+    _WorkMode.home => 'Home',
     _WorkMode.field => 'Field',
   };
 
@@ -591,7 +384,7 @@ class _TrackingViewState extends State<_TrackingView> {
       ].where((value) => value.isNotEmpty).join('\n');
     }
 
-    if (mode == _WorkMode.hybrid) {
+    if (mode == _WorkMode.home) {
       if (_homeLoading) return 'Loading home location...';
       if (_homeError != null) return _homeError!;
       if (_homeLocation == null) {
@@ -629,6 +422,8 @@ class _TrackingViewState extends State<_TrackingView> {
 
     final modes = _ModeTabs(
       selected: mode,
+      homeEnabled: _homeLocationEnabled,
+      fieldEnabled: _fieldTrackingEnabled,
       onChanged: (value) => setState(() => mode = value),
     );
 
@@ -638,7 +433,7 @@ class _TrackingViewState extends State<_TrackingView> {
       color: activeColor,
       onRefresh: mode == _WorkMode.office
           ? _loadOfficeSettings
-          : mode == _WorkMode.hybrid
+          : mode == _WorkMode.home
           ? _loadHomeLocation
           : refreshLocation,
     );
@@ -646,19 +441,9 @@ class _TrackingViewState extends State<_TrackingView> {
     final map = _RouteMap(
       mode: mode,
       position: _lastPosition,
+      routePoints: _routePoints,
       homeLocation: _homeLocation,
       officeSettings: _officeSettings,
-      routePoints: _routePoints,
-      routeLoading: _routeLoading,
-      routeError: _routeError,
-      startMarker: _routeStartMarker,
-      endMarker: _routeEndMarker,
-    );
-
-    final routeDateButton = OutlinedButton.icon(
-      onPressed: _routeLoading ? null : _selectRouteDate,
-      icon: const Icon(Icons.calendar_today_outlined, size: 16),
-      label: Text(DateFormat('dd MMM yyyy').format(_routeDate)),
     );
 
     final homeAction = Align(
@@ -675,23 +460,22 @@ class _TrackingViewState extends State<_TrackingView> {
     );
 
     final metrics = _TripMetrics(
-  distance: distance,
-  duration: duration,
-  avgSpeed: avgSpeed,
-  updated: 'Updated just now',
-);
+      distance: distance,
+      duration: duration,
+      avgSpeed: avgSpeed,
+    );
 
     final timeline = _ActivityTimeline(activities: activities);
 
     final live = _LiveTrackingControl(
       active: trackingActive,
+      busy: _trackingActionInProgress,
       onToggle: toggleTracking,
     );
 
-    final comments = TrackingCommentsSection(
-      workMode: modeLabel,
-      clockedIn: clockedIn,
-    );
+    // Only Field and Hybrid employees receive field-tracking permission. The
+    // backend performs the same authorization before saving a comment.
+    final comments = const TrackingCommentsSection();
 
     if (widget.mobile) {
       return Column(
@@ -704,7 +488,7 @@ class _TrackingViewState extends State<_TrackingView> {
           modes,
           const SizedBox(height: 14),
           status,
-          if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[
+          if (mode == _WorkMode.home) ...[
             const SizedBox(height: 12),
             homeAction,
           ],
@@ -721,13 +505,19 @@ class _TrackingViewState extends State<_TrackingView> {
                   ),
                 ),
               ),
-              routeDateButton,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(updated, style: const TextStyle(color: employeeMuted)),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
           map,
           const SizedBox(height: 14),
           metrics,
+          if (_fieldTrackingEnabled) ...[const SizedBox(height: 18), comments],
           const SizedBox(height: 22),
           const Text(
             'Today’s Activity',
@@ -740,9 +530,7 @@ class _TrackingViewState extends State<_TrackingView> {
           const SizedBox(height: 12),
           timeline,
           const SizedBox(height: 18),
-          live,
-          const SizedBox(height: 18),
-          comments,
+          if (_fieldTrackingEnabled) live,
         ],
       );
     }
@@ -753,10 +541,7 @@ class _TrackingViewState extends State<_TrackingView> {
         modes,
         const SizedBox(height: 18),
         status,
-        if (_homeTrackingEnabled && mode == _WorkMode.hybrid) ...[
-          const SizedBox(height: 12),
-          homeAction,
-        ],
+        if (mode == _WorkMode.home) ...[const SizedBox(height: 12), homeAction],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -770,7 +555,12 @@ class _TrackingViewState extends State<_TrackingView> {
                 ),
               ),
             ),
-            routeDateButton,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(updated, style: const TextStyle(color: employeeMuted)),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -788,6 +578,10 @@ class _TrackingViewState extends State<_TrackingView> {
               flex: 4,
               child: Column(
                 children: [
+                  if (_fieldTrackingEnabled) ...[
+                    comments,
+                    const SizedBox(height: 18),
+                  ],
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -802,9 +596,7 @@ class _TrackingViewState extends State<_TrackingView> {
                   const SizedBox(height: 12),
                   timeline,
                   const SizedBox(height: 18),
-                  live,
-                  const SizedBox(height: 18),
-                  comments,
+                  if (_fieldTrackingEnabled) live,
                 ],
               ),
             ),
@@ -814,203 +606,49 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
-  Future<void> _checkWaitingAlert() async {
-    if (_homeDialogOpen) return;
-    try {
-      final alert = await HrmsTrackingApi.waitingAlert();
-
-      debugPrint('Waiting alert response: $alert');
-
-      if (!mounted || _homeDialogOpen || alert == null) return;
-
-      final reasonId = int.tryParse('${alert['id']}');
-
-      if (reasonId == null) {
-        debugPrint('Waiting alert has no valid ID');
-        return;
-      }
-
-      await _showWaitingReasonDialog(
-        reasonId: reasonId,
-        waitingMinutes: alert['waiting_minutes'] ?? 0,
-      );
-    } catch (error) {
-      debugPrint('Waiting alert check failed: $error');
-    }
-  }
-
-  Future<void> _showWaitingReasonDialog({
-    required int reasonId,
-    required dynamic waitingMinutes,
-  }) async {
-    final controller = TextEditingController();
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Field waiting reason'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'You have been at this location for $waitingMinutes minutes. '
-                'Please enter the reason for waiting.',
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Reason for waiting',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () async {
-                final reason = controller.text.trim();
-
-                if (reason.isEmpty) return;
-
-                try {
-                  await HrmsTrackingApi.submitWaitingReason(
-                    reasonId: reasonId,
-                    reason: reason,
-                  );
-
-                  if (mounted) {
-                    Navigator.of(context, rootNavigator: true).pop();
-                  }
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Waiting reason submitted')),
-                    );
-                  }
-                } catch (error) {
-                  debugPrint('Waiting reason submit failed: $error');
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.toString())));
-                  }
-                }
-              },
-              child: const Text('Submit'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
-class _RouteHistoryView extends StatefulWidget {
+class _RouteHistoryView extends StatelessWidget {
   const _RouteHistoryView({required this.mobile});
   final bool mobile;
 
   @override
-  State<_RouteHistoryView> createState() => _RouteHistoryViewState();
-}
-
-class _RouteHistoryViewState extends State<_RouteHistoryView> {
-  late Future<Map<String, dynamic>> _history;
-
-  @override
-  void initState() {
-    super.initState();
-    _history = HrmsTrackingApi.myRouteHistory();
-  }
-
-  String _duration(int minutes) => '${minutes ~/ 60}h ${minutes % 60}m';
-
-  String _place(dynamic value) {
-    final text = '${value ?? ''}'.trim();
-    return text.isEmpty ? 'Location unavailable' : text;
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final history = FutureBuilder<Map<String, dynamic>>(
-      future: _history,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done)
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(30),
-              child: CircularProgressIndicator(),
-            ),
-          );
-        if (snapshot.hasError)
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                snapshot.error.toString().replaceFirst('Exception: ', ''),
-                style: const TextStyle(color: Colors.red),
-              ),
-              TextButton(
-                onPressed: () =>
-                    setState(() => _history = HrmsTrackingApi.myRouteHistory()),
-                child: const Text('Retry'),
-              ),
-            ],
-          );
-        final items = (snapshot.data?['items'] as List? ?? [])
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .toList();
-        if (items.isEmpty)
-          return const Text(
-            'No route history has been recorded yet.',
-            style: TextStyle(color: employeeMuted),
-          );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Recent Routes',
-              style: TextStyle(
-                color: employeeNavy,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...items.expand((item) {
-              final date = DateTime.tryParse('${item['date'] ?? ''}');
-              final label =
-                  date != null && DateUtils.isSameDay(date, DateTime.now())
-                  ? 'Today'
-                  : date == null
-                  ? '${item['date'] ?? ''}'
-                  : DateFormat('dd MMM yyyy').format(date);
-              final distance =
-                  (item['distanceKm'] as num?)?.toDouble() ??
-                  double.tryParse('${item['distanceKm']}') ??
-                  0;
-              final minutes =
-                  (item['durationMinutes'] as num?)?.toInt() ??
-                  int.tryParse('${item['durationMinutes']}') ??
-                  0;
-              return [
-                _RouteHistoryCard(
-                  label,
-                  '${_place(item['startAddress'])} → ${_place(item['endAddress'])}',
-                  '${distance.toStringAsFixed(2)} km',
-                  _duration(minutes),
-                ),
-                const SizedBox(height: 12),
-              ];
-            }),
-          ],
-        );
-      },
+    final history = const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recent Routes',
+          style: TextStyle(
+            color: employeeNavy,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          'Today',
+          'Sector 62 → Sector 63 → Sector 62',
+          '18.6 km',
+          '01h 48m',
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          '22 Aug 2026',
+          'Noida Office → Sector 18 → Noida Office',
+          '12.4 km',
+          '01h 12m',
+        ),
+        SizedBox(height: 12),
+        _RouteHistoryCard(
+          '21 Aug 2026',
+          'Noida Office → Greater Noida',
+          '24.1 km',
+          '02h 06m',
+        ),
+      ],
     );
-    return widget.mobile
+    return mobile
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1086,8 +724,15 @@ class _RouteHistoryCard extends StatelessWidget {
 }
 
 class _ModeTabs extends StatelessWidget {
-  const _ModeTabs({required this.selected, required this.onChanged});
+  const _ModeTabs({
+    required this.selected,
+    required this.homeEnabled,
+    required this.fieldEnabled,
+    required this.onChanged,
+  });
   final _WorkMode selected;
+  final bool homeEnabled;
+  final bool fieldEnabled;
   final ValueChanged<_WorkMode> onChanged;
 
   @override
@@ -1099,13 +744,24 @@ class _ModeTabs extends StatelessWidget {
         active: selected == _WorkMode.office,
         onTap: () => onChanged(_WorkMode.office),
       ),
-      const SizedBox(width: 8),
-      _ModeTab(
-        icon: Icons.person_outline_rounded,
-        label: 'Field',
-        active: selected == _WorkMode.field,
-        onTap: () => onChanged(_WorkMode.field),
-      ),
+      if (homeEnabled) ...[
+        const SizedBox(width: 8),
+        _ModeTab(
+          icon: Icons.home_outlined,
+          label: 'Home',
+          active: selected == _WorkMode.home,
+          onTap: () => onChanged(_WorkMode.home),
+        ),
+      ],
+      if (fieldEnabled) ...[
+        const SizedBox(width: 8),
+        _ModeTab(
+          icon: Icons.person_outline_rounded,
+          label: 'Field',
+          active: selected == _WorkMode.field,
+          onTap: () => onChanged(_WorkMode.field),
+        ),
+      ],
     ],
   );
 }
@@ -1125,7 +781,7 @@ class _ModeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Material(
-      color: Colors.transparent,
+      color: active ? employeeGreen : Colors.white,
       borderRadius: BorderRadius.circular(11),
       child: InkWell(
         onTap: onTap,
@@ -1133,8 +789,7 @@ class _ModeTab extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            gradient: active ? const LinearGradient(colors: [Color(0xFF13C58A), Color(0xFF00AE7B)]) : null,
-            border: Border.all(color: active ? Colors.transparent : employeeLine),
+            border: Border.all(color: active ? employeeGreen : employeeLine),
             borderRadius: BorderRadius.circular(11),
           ),
           child: Row(
@@ -1252,52 +907,20 @@ class _RouteMap extends StatelessWidget {
     required this.position,
     this.homeLocation,
     this.officeSettings,
-    required this.routePoints,
-    required this.routeLoading,
-    this.routeError,
-    this.startMarker,
-    this.endMarker,
+    this.routePoints = const [],
   });
 
   final _WorkMode mode;
   final Position? position;
   final Map<String, dynamic>? homeLocation;
   final Map<String, dynamic>? officeSettings;
-  final List<_EmployeeRoutePoint> routePoints;
-  final bool routeLoading;
-  final String? routeError;
-  final BitmapDescriptor? startMarker;
-  final BitmapDescriptor? endMarker;
+  final List<LatLng> routePoints;
 
   @override
   Widget build(BuildContext context) {
-    if (routeLoading) {
-      return const AspectRatio(
-        aspectRatio: 1.95,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (routePoints.isEmpty) {
-      return AspectRatio(
-        aspectRatio: 1.95,
-        child: Container(
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFD),
-            border: Border.all(color: employeeLine),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Text(
-            routeError == null
-                ? 'No GPS route was recorded for the selected date.'
-                : 'Unable to load GPS route: $routeError',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: employeeMuted),
-          ),
-        ),
-      );
-    }
-    final livePoint = position == null
+    final livePoint = routePoints.isNotEmpty
+        ? routePoints.last
+        : position == null
         ? null
         : LatLng(position!.latitude, position!.longitude);
 
@@ -1312,19 +935,16 @@ class _RouteMap extends StatelessWidget {
         ? LatLng(officeLat, officeLng)
         : const LatLng(20.5937, 78.9629);
     final officeName = '${officeSettings?['office_name'] ?? 'Office'}';
-    final routeCoordinates = routePoints
-        .map((point) => LatLng(point.latitude, point.longitude))
-        .toList();
 
-    final center = routeCoordinates.isNotEmpty
-        ? routeCoordinates.first
-        : mode == _WorkMode.field && livePoint != null
+    final center = mode == _WorkMode.field && livePoint != null
         ? livePoint
-        : mode == _WorkMode.hybrid && homePoint != null
+        : mode == _WorkMode.home && homePoint != null
         ? homePoint
         : officePoint;
 
-    final markerColor = mode == _WorkMode.hybrid
+    final markerColor = mode == _WorkMode.field
+        ? BitmapDescriptor.hueRed
+        : mode == _WorkMode.home
         ? BitmapDescriptor.hueGreen
         : BitmapDescriptor.hueAzure;
 
@@ -1334,7 +954,7 @@ class _RouteMap extends StatelessWidget {
         aspectRatio: 1.95,
         child: GoogleMap(
           key: ValueKey(
-            'tracking-map-${mode.name}-${officePoint.latitude}-${officePoint.longitude}-${homePoint?.latitude}-${homePoint?.longitude}-${routeCoordinates.length}-${routeCoordinates.isEmpty ? '' : routeCoordinates.first}-${routeCoordinates.isEmpty ? '' : routeCoordinates.last}',
+            'tracking-map-${mode.name}-${officePoint.latitude}-${officePoint.longitude}-${homePoint?.latitude}-${homePoint?.longitude}',
           ),
           initialCameraPosition: CameraPosition(
             target: center,
@@ -1350,7 +970,7 @@ class _RouteMap extends StatelessWidget {
                 BitmapDescriptor.hueAzure,
               ),
             ),
-            if (mode == _WorkMode.hybrid && homePoint != null)
+            if (mode == _WorkMode.home && homePoint != null)
               Marker(
                 markerId: const MarkerId('registered-home'),
                 position: homePoint,
@@ -1362,51 +982,24 @@ class _RouteMap extends StatelessWidget {
                   BitmapDescriptor.hueGreen,
                 ),
               ),
-            if (mode == _WorkMode.field &&
-                livePoint != null &&
-                routeCoordinates.isEmpty)
+            if (mode == _WorkMode.field && livePoint != null)
               Marker(
                 markerId: const MarkerId('live-location'),
                 position: livePoint,
                 infoWindow: const InfoWindow(title: 'Your Live Location'),
                 icon: BitmapDescriptor.defaultMarkerWithHue(markerColor),
               ),
-            if (routeCoordinates.isNotEmpty)
-              Marker(
-                markerId: const MarkerId('route-start'),
-                position: routeCoordinates.first,
-                infoWindow: const InfoWindow(title: 'Start point'),
-                icon: startMarker ?? BitmapDescriptor.defaultMarker,
-              ),
-            if (routeCoordinates.length > 1)
-              Marker(
-                markerId: const MarkerId('route-end'),
-                position: routeCoordinates.last,
-                infoWindow: const InfoWindow(title: 'End point'),
-                icon: endMarker ?? BitmapDescriptor.defaultMarker,
-              ),
           },
-          circles: {
-            for (var index = 1; index < routeCoordinates.length - 1; index++)
-              Circle(
-                circleId: CircleId('route-point-$index'),
-                center: routeCoordinates[index],
-                radius: 1.5,
-                fillColor: employeeGreen,
-                strokeColor: Colors.white,
-                strokeWidth: 1,
-              ),
-          },
-          polylines: routeCoordinates.length < 2
-              ? const <Polyline>{}
-              : {
+          polylines: mode == _WorkMode.field && routePoints.length > 1
+              ? {
                   Polyline(
-                    polylineId: const PolylineId('my-route'),
-                    points: routeCoordinates,
+                    polylineId: const PolylineId('saved-field-route'),
+                    points: routePoints,
                     color: employeeBlue,
                     width: 5,
                   ),
-                },
+                }
+              : const {},
         ),
       ),
     );
@@ -1418,30 +1011,48 @@ class _TripMetrics extends StatelessWidget {
     required this.distance,
     required this.duration,
     required this.avgSpeed,
-    required this.updated,
   });
 
   final String distance;
   final String duration;
   final String avgSpeed;
-  final String updated;
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 18),
     child: Row(
       children: [
-        Expanded(child: _TripMetric(Icons.route_outlined, 'Distance', distance, employeeGreen)),
-        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.timer_outlined, 'Duration', duration, employeeGreen)),
-        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.speed_outlined, 'Avg speed', avgSpeed, employeeGreen)),
-        const SizedBox(height: 42, child: VerticalDivider(color: employeeLine)),
-        Expanded(child: _TripMetric(Icons.update_rounded, 'Updated', updated.replaceFirst('Updated ', ''), employeeGreen)),
+        Expanded(
+          child: _TripMetric(
+            Icons.route_outlined,
+            'Distance Travelled',
+            distance,
+            employeeGreen,
+          ),
+        ),
+        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
+        Expanded(
+          child: _TripMetric(
+            Icons.schedule_rounded,
+            'Duration',
+            duration,
+            employeeBlue,
+          ),
+        ),
+        const SizedBox(height: 66, child: VerticalDivider(color: employeeLine)),
+        Expanded(
+          child: _TripMetric(
+            Icons.speed_rounded,
+            'Avg Speed',
+            avgSpeed,
+            employeeGreen,
+          ),
+        ),
       ],
     ),
   );
 }
+
 class _TripMetric extends StatelessWidget {
   const _TripMetric(this.icon, this.label, this.value, this.color);
   final IconData icon;
@@ -1535,8 +1146,13 @@ class _TimelineRow extends StatelessWidget {
 }
 
 class _LiveTrackingControl extends StatelessWidget {
-  const _LiveTrackingControl({required this.active, required this.onToggle});
+  const _LiveTrackingControl({
+    required this.active,
+    required this.busy,
+    required this.onToggle,
+  });
   final bool active;
+  final bool busy;
   final VoidCallback onToggle;
 
   @override
@@ -1562,11 +1178,15 @@ class _LiveTrackingControl extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         FilledButton.icon(
-          onPressed: onToggle,
+          onPressed: busy ? null : onToggle,
           icon: Icon(
             active ? Icons.stop_circle_outlined : Icons.play_circle_outline,
           ),
-          label: Text(active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          label: Text(
+            busy
+                ? (active ? 'Stopping…' : 'Starting…')
+                : (active ? 'Stop Live Tracking' : 'Start Live Tracking'),
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: active ? const Color(0xFFD84343) : employeeGreen,
             foregroundColor: Colors.white,

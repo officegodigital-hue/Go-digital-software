@@ -1,3 +1,7 @@
+import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
+import '../../../services/api_config.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -7,21 +11,55 @@ import '../../../services/hrms_notifications_api.dart';
 import '../../../services/auth_service.dart';
 import '../../../screens/login_screen.dart';
 
-const _blue = Color(0xFF075EF7);
+const _blue = Color(0xFFE3162A);
 const _navy = Color(0xFF061457);
+const _redHeader = Color(0xFFE3162A);
+
+/// Opens the same notification preferences dialog used by the notification bell.
+Future<void> showAdminNotificationSettings(BuildContext context) async {
+  final player = AudioPlayer();
+  try {
+    final settings = await HrmsNotificationsApi.settings();
+    final reminderPolicy = await HrmsNotificationsApi.clockOutReminderPolicy();
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => _NotificationSettingsDialog(
+        settings: settings,
+        reminderPolicy: reminderPolicy,
+        onPreview: (name, volume, customUrl) {
+          final source =
+              name == 'custom' && customUrl != null && customUrl.isNotEmpty
+              ? UrlSource(ApiConfig.mediaUrl(customUrl))
+              : AssetSource('sounds/$name');
+          return player.play(source, volume: volume.clamp(0.0, 1.0).toDouble());
+        },
+      ),
+    );
+  } finally {
+    await player.dispose();
+  }
+}
 
 class AdminTopNav extends StatelessWidget {
-  const AdminTopNav({super.key, required this.activeRoute});
+  const AdminTopNav({
+    super.key,
+    required this.activeRoute,
+    this.redHeader = false,
+  });
 
   final String activeRoute;
+  final bool redHeader;
 
   static const items = <(String, String)>[
     ('Dashboard', '/admin/dashboard'),
     ('Employees', '/admin/employees'),
+    // Keep the reference labels, but use the existing production routes that
+    // are already used by the mobile navigation and live deployment.
     ('Clock Logs', '/admin/clock-logs'),
-    ('Approvals', '/admin/approvals'),
+    ('Leave', '/admin/approvals'),
     ('Payroll', '/admin/payroll'),
-    ('Tracking', '/admin/tracking'),
+    ('Performance', '/admin/tracking'),
+    ('Settings', '/admin/settings'),
   ];
 
   void _open(BuildContext context, String route) {
@@ -36,18 +74,20 @@ class AdminTopNav extends StatelessWidget {
     // The full navigation pill needs considerably more room than the page
     // content. Switch to a compact menu before Windows display scaling can
     // squeeze the trailing actions outside the viewport.
-    final compact = screenWidth < 1180;
+    final compact = screenWidth < 1320;
     return Container(
-      height: mobile ? 68 : 90,
+      // Compact desktop height keeps the attendance sheet above the fold on
+      // Windows displays using common browser scaling.
+      height: mobile ? 68 : 52,
       padding: EdgeInsets.symmetric(
         horizontal: mobile
             ? 14
             : compact
             ? 16
-            : 32,
+            : 20,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: redHeader ? _redHeader : Colors.white,
         boxShadow: [
           BoxShadow(
             color: Color(0x12071A72),
@@ -58,16 +98,27 @@ class AdminTopNav extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Image.asset(
-            'assets/images/godigital_logo.png',
-            width: mobile
-                ? 116
-                : compact
-                ? 142
-                : 174,
-            fit: BoxFit.contain,
+          Container(
+            padding: redHeader
+                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
+                : EdgeInsets.zero,
+            decoration: redHeader
+                ? BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                  )
+                : null,
+            child: Image.asset(
+              'assets/images/godigital_logo.png',
+              width: mobile
+                  ? 116
+                  : compact
+                  ? 132
+                  : 150,
+              fit: BoxFit.contain,
+            ),
           ),
-          SizedBox(width: mobile ? 8 : 20),
+          SizedBox(width: mobile ? 8 : 14),
           if (!compact)
             Expanded(
               child: Center(
@@ -75,6 +126,7 @@ class AdminTopNav extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   child: _DesktopNav(
                     activeRoute: activeRoute,
+                    light: redHeader,
                     onOpen: (route) => _open(context, route),
                   ),
                 ),
@@ -181,7 +233,9 @@ class AdminLogoutButton extends StatelessWidget {
   final bool compact;
 
   Future<void> _logout(BuildContext context) async {
-    await AuthService().logout();
+    // Use the app's provided service instead of constructing a separate
+    // instance. The provider must be notified so AuthGate switches to login.
+    await context.read<AuthService>().logout();
     if (context.mounted) {
       // AdminPortalApp is a nested MaterialApp, so '/' would resolve back to
       // the admin dashboard. Replace the whole visible stack with login.
@@ -403,6 +457,12 @@ class AdminMobileBottomNav extends StatelessWidget {
               label: 'Tracking',
               route: '/admin/tracking',
             ),
+            _dockItem(
+              context,
+              icon: Icons.settings_rounded,
+              label: 'Settings',
+              route: '/admin/settings',
+            ),
           ],
         ),
       ),
@@ -444,11 +504,13 @@ class AdminPageHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.breadcrumb,
+    this.subtitle,
     this.trailing,
   });
 
   final String title;
   final String? breadcrumb;
+  final String? subtitle;
   final Widget? trailing;
 
   @override
@@ -468,21 +530,32 @@ class AdminPageHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Home', style: TextStyle(color: _blue, fontSize: 15)),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(Icons.chevron_right, color: _blue, size: 18),
-              ),
-              Text(
-                breadcrumb ?? title,
-                style: const TextStyle(color: _blue, fontSize: 15),
-              ),
-            ],
-          ),
+          const SizedBox(height: 8),
+          subtitle != null
+              ? Text(
+                  subtitle!,
+                  style: const TextStyle(
+                    color: Color(0xFF647697),
+                    fontSize: 15,
+                  ),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Home',
+                      style: TextStyle(color: _blue, fontSize: 15),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Icon(Icons.chevron_right, color: _blue, size: 18),
+                    ),
+                    Text(
+                      breadcrumb ?? title,
+                      style: const TextStyle(color: _blue, fontSize: 15),
+                    ),
+                  ],
+                ),
         ],
       );
       if (trailing == null) return heading;
@@ -504,51 +577,72 @@ class AdminPageHeader extends StatelessWidget {
 }
 
 class _DesktopNav extends StatelessWidget {
-  const _DesktopNav({required this.activeRoute, required this.onOpen});
+  const _DesktopNav({
+    required this.activeRoute,
+    required this.onOpen,
+    this.light = false,
+  });
   final String activeRoute;
   final ValueChanged<String> onOpen;
+  final bool light;
+
+  IconData _iconFor(String route) => switch (route) {
+    '/admin/dashboard' => Icons.grid_view_rounded,
+    '/admin/employees' => Icons.groups_2_outlined,
+    '/admin/clock-logs' => Icons.calendar_month_outlined,
+    '/admin/approvals' => Icons.flight_takeoff_outlined,
+    '/admin/payroll' => Icons.account_balance_wallet_outlined,
+    '/admin/tracking' => Icons.insights_outlined,
+    _ => Icons.settings_outlined,
+  };
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 60,
-    padding: const EdgeInsets.all(7),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      border: Border.all(color: const Color(0xFFE2E7F1)),
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x0C071A72),
-          blurRadius: 8,
-          offset: Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Row(
-      children: AdminTopNav.items.map((item) {
-        final active = item.$2 == activeRoute;
-        return InkWell(
-          onTap: () => onOpen(item.$2),
-          borderRadius: BorderRadius.circular(13),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 19, vertical: 12),
-            decoration: BoxDecoration(
-              color: active ? _blue : Colors.transparent,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Text(
-              item.$1,
-              style: TextStyle(
-                color: active ? Colors.white : _navy,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
+  Widget build(BuildContext context) => Row(
+    children: AdminTopNav.items.map((item) {
+      final active = item.$2 == activeRoute ||
+          (item.$2 == '/admin/attendance' && activeRoute == '/admin/clock-logs') ||
+          (item.$2 == '/admin/leave' && activeRoute == '/admin/approvals') ||
+          (item.$2 == '/admin/performance' && activeRoute == '/admin/tracking');
+      return InkWell(
+        onTap: () => onOpen(item.$2),
+        borderRadius: BorderRadius.circular(9),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 11),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            border: Border(
+              bottom: BorderSide(
+                color: light
+                    ? Colors.white
+                    : (active ? _blue : Colors.transparent),
+                width: 3,
               ),
             ),
           ),
-        );
-      }).toList(),
-    ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _iconFor(item.$2),
+                size: 18,
+                color: light ? Colors.white : (active ? _blue : _navy),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                item.$1,
+                style: TextStyle(
+                  color: light ? Colors.white : (active ? _blue : _navy),
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList(),
   );
 }
 
@@ -709,6 +803,322 @@ class _NotificationsDialog extends StatelessWidget {
         onPressed: onViewApprovals,
         icon: const Icon(Icons.open_in_new_rounded, size: 18),
         label: const Text('View Approvals'),
+      ),
+    ],
+  );
+}
+
+class _NotificationSettingsDialog extends StatefulWidget {
+  const _NotificationSettingsDialog({
+    required this.settings,
+    required this.reminderPolicy,
+    required this.onPreview,
+  });
+  final Map<String, dynamic> settings;
+  final Map<String, dynamic> reminderPolicy;
+  final Future<void> Function(
+    String soundName,
+    double volume,
+    String? customUrl,
+  )
+  onPreview;
+
+  @override
+  State<_NotificationSettingsDialog> createState() =>
+      _NotificationSettingsDialogState();
+}
+
+class _NotificationSettingsDialogState
+    extends State<_NotificationSettingsDialog> {
+  late bool _soundEnabled;
+  late bool _commentsEnabled;
+  late bool _waitingEnabled;
+  late String _soundName;
+  String? _customSoundUrl;
+  String? _customSoundLabel;
+  late double _volume;
+  late bool _reminderEnabled;
+  late double _reminderThresholdHours;
+  late double _reminderRepeatHours;
+  bool _saving = false;
+  bool _uploading = false;
+
+  static const _sounds = <String>[
+    'notification.mp3',
+    'notifications.mp3',
+    'notificationss.mp3',
+    'notification_ai voice.mp3',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _soundEnabled = widget.settings['soundEnabled'] != false;
+    _commentsEnabled = widget.settings['commentNotificationsEnabled'] != false;
+    _waitingEnabled =
+        widget.settings['waitingReasonNotificationsEnabled'] != false;
+    _soundName = _sounds.contains(widget.settings['soundName'])
+        ? widget.settings['soundName'] as String
+        : (widget.settings['soundName'] == 'custom' &&
+                  widget.settings['customSoundUrl'] != null
+              ? 'custom'
+              : _sounds.first);
+    _customSoundUrl = widget.settings['customSoundUrl']?.toString();
+    _customSoundLabel = widget.settings['customSoundName']?.toString() ??
+        (_customSoundUrl == null ? null : 'Custom uploaded sound');
+    final requestedVolume =
+        (widget.settings['soundVolume'] as num?)?.toDouble() ?? 70;
+    _volume = requestedVolume < 0
+        ? 0
+        : (requestedVolume > 100 ? 100 : requestedVolume);
+    _reminderEnabled = widget.reminderPolicy['enabled'] != false;
+    _reminderThresholdHours = ((widget.reminderPolicy['thresholdMinutes'] as num?)?.toDouble() ?? 540) / 60;
+    _reminderRepeatHours = ((widget.reminderPolicy['repeatMinutes'] as num?)?.toDouble() ?? 60) / 60;
+  }
+
+  List<String> get _soundOptions => <String>[
+    ..._sounds,
+    if (_customSoundUrl != null) 'custom',
+  ];
+
+  Future<void> _uploadSound() async {
+    final selection = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp3', 'wav', 'm4a', 'aac', 'ogg'],
+      withData: true,
+    );
+    final file = selection != null && selection.files.isNotEmpty
+        ? selection.files.first
+        : null;
+    if (file == null) return;
+    if (file.bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read the selected file.')),
+        );
+      }
+      return;
+    }
+    if (file.bytes!.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Choose an audio file smaller than 5 MB.'),
+          ),
+        );
+      }
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final settings = await HrmsNotificationsApi.uploadCustomSound(
+        file.bytes!,
+        file.name,
+      );
+      if (!mounted) return;
+      setState(() {
+        _customSoundUrl = settings['customSoundUrl']?.toString();
+        _customSoundLabel = file.name;
+        _soundName = 'custom';
+      });
+      await widget.onPreview('custom', _volume / 100, _customSoundUrl);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Custom sound uploaded and selected.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await HrmsNotificationsApi.updateSettings({
+        'soundEnabled': _soundEnabled,
+        'soundName': _soundName,
+        'soundVolume': _volume.round(),
+        'commentNotificationsEnabled': _commentsEnabled,
+        'waitingReasonNotificationsEnabled': _waitingEnabled,
+      });
+      await HrmsNotificationsApi.updateClockOutReminderPolicy({
+        'enabled': _reminderEnabled,
+        'thresholdMinutes': (_reminderThresholdHours * 60).round(),
+        'repeatMinutes': (_reminderRepeatHours * 60).round(),
+        'soundName': _soundName == 'custom' ? (_customSoundLabel ?? 'custom') : _soundName,
+      });
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Notification settings'),
+    content: SizedBox(
+      width: 390,
+      // The reminder controls make this dialog taller than small laptop and
+      // tablet viewports. Keep the actions fixed while allowing the settings
+      // body to scroll instead of overlapping the lower switches.
+      height: (MediaQuery.sizeOf(context).height * 0.68).clamp(360.0, 650.0),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Play a sound for new alerts'),
+            value: _soundEnabled,
+            onChanged: (value) => setState(() => _soundEnabled = value),
+          ),
+          DropdownButtonFormField<String>(
+            key: ValueKey(_soundName),
+            initialValue: _soundName,
+            decoration: const InputDecoration(labelText: 'Notification sound'),
+            items: _soundOptions
+                .map(
+                  (sound) => DropdownMenuItem(
+                    value: sound,
+                    child: Text(
+                      sound == 'custom'
+                          ? (_customSoundLabel ?? 'Custom uploaded sound')
+                          : sound.replaceAll('.mp3', '').replaceAll('_', ' '),
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: _soundEnabled
+                ? (value) => setState(() => _soundName = value!)
+                : null,
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _uploading ? null : _uploadSound,
+              icon: const Icon(Icons.upload_file_rounded, size: 18),
+              label: Text(_uploading ? 'Uploading...' : 'Upload custom sound'),
+            ),
+          ),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'MP3, WAV, M4A, AAC, or OGG · maximum 5 MB',
+                style: TextStyle(fontSize: 12, color: Color(0xFF63718F)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Text('Volume'),
+              Expanded(
+                child: Slider(
+                  value: _volume,
+                  min: 0,
+                  max: 100,
+                  divisions: 10,
+                  label: '${_volume.round()}%',
+                  onChanged: _soundEnabled
+                      ? (value) => setState(() => _volume = value)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _soundEnabled
+                  ? () => widget.onPreview(
+                      _soundName,
+                      _volume / 100,
+                      _customSoundUrl,
+                    )
+                  : null,
+              icon: const Icon(Icons.volume_up_outlined, size: 18),
+              label: const Text('Preview sound'),
+            ),
+          ),
+          const Divider(height: 24),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Clock-out reminder'),
+            subtitle: const Text('Remind employees after they stay clocked in too long'),
+            value: _reminderEnabled,
+            onChanged: (value) => setState(() => _reminderEnabled = value),
+          ),
+          if (_reminderEnabled) ...[
+            Row(
+              children: [
+                const Expanded(child: Text('Reminder starts after')),
+                SizedBox(
+                  width: 110,
+                  child: DropdownButtonFormField<double>(
+                    initialValue: _reminderThresholdHours,
+                    items: [8, 9, 10, 11, 12].map((value) => DropdownMenuItem(value: value.toDouble(), child: Text('$value hours'))).toList(),
+                    onChanged: (value) => setState(() => _reminderThresholdHours = value ?? 9),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Repeat reminder every')),
+                SizedBox(
+                  width: 110,
+                  child: DropdownButtonFormField<double>(
+                    initialValue: _reminderRepeatHours,
+                    items: [1, 2, 3, 4].map((value) => DropdownMenuItem(value: value.toDouble(), child: Text('$value hour${value == 1 ? '' : 's'}'))).toList(),
+                    onChanged: (value) => setState(() => _reminderRepeatHours = value ?? 1),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Align(alignment: Alignment.centerLeft, child: Text('Reminder sound: ${_soundName == 'custom' ? (_customSoundLabel ?? 'Custom sound') : _soundName}', style: const TextStyle(fontSize: 12, color: Color(0xFF63718F))),),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Employee comments'),
+            value: _commentsEnabled,
+            onChanged: (value) => setState(() => _commentsEnabled = value),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Field waiting reasons'),
+            value: _waitingEnabled,
+            onChanged: (value) => setState(() => _waitingEnabled = value),
+          ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: _saving ? null : _save,
+        child: Text(_saving ? 'Saving...' : 'Save settings'),
       ),
     ],
   );

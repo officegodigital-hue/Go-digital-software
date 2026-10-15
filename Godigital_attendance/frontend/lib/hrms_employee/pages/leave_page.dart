@@ -178,19 +178,6 @@ class _DesktopLeave extends StatelessWidget {
 
     return Column(
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            onPressed: () => Navigator.pushNamed(
-              context,
-              '/employee/leave',
-              arguments: 'requests',
-            ),
-            icon: const Icon(Icons.history_rounded, size: 18),
-            label: const Text('View History'),
-          ),
-        ),
-        const SizedBox(height: 12),
         _LeaveBalance(balances: balances),
         const SizedBox(height: 20),
         _LeaveForm(desktop: true, onSuccess: onRefresh),
@@ -238,14 +225,14 @@ class _LeaveBalance extends StatelessWidget {
                 spacing: 16,
                 runSpacing: 16,
                 children: balances.map((b) {
-                  final total = (b['total'] as num?)?.toInt() ?? 0;
-                  final used = (b['used'] as num?)?.toInt() ?? 0;
+                  final total = (b['total'] as num?) ?? 0;
+                  final used = (b['used'] as num?) ?? 0;
                   final type = b['type']?.toString() ?? 'Leave';
                   return SizedBox(
                     width: boxWidth,
                     child: _BalanceBox(
-                      label: type,
-                      remaining: (total - used).clamp(0, total).toInt(),
+                      label: b['isPaidLeave'] == true ? '$type (Paid)' : type,
+                      remaining: (total - used).clamp(0, total),
                       total: total,
                       color: _colorFor(type),
                     ),
@@ -293,8 +280,8 @@ class _BalanceBox extends StatelessWidget {
   });
 
   final String label;
-  final int remaining;
-  final int total;
+  final num remaining;
+  final num total;
   final Color color;
 
   @override
@@ -323,7 +310,7 @@ class _BalanceBox extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '$remaining / $total days',
+          '${_days(remaining)} / ${_days(total)} days',
           style: TextStyle(
             color: color,
             fontSize: 21,
@@ -334,6 +321,10 @@ class _BalanceBox extends StatelessWidget {
     ),
   );
 }
+
+String _days(num value) => value == value.roundToDouble()
+    ? value.toInt().toString()
+    : value.toStringAsFixed(1);
 
 class _RequestList extends StatelessWidget {
   const _RequestList({required this.requests, required this.onCancel});
@@ -529,6 +520,7 @@ class _LeaveFormState extends State<_LeaveForm> {
         .toList();
 
     bool ok = false;
+    String? submitError;
     for (final base in candidateUrls) {
       try {
         final res = await http.post(
@@ -539,8 +531,13 @@ class _LeaveFormState extends State<_LeaveForm> {
           },
           body: jsonEncode(payload),
         );
-        if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        if (res.statusCode == 200 && body is Map && body['success'] != false) {
           ok = true;
+          break;
+        }
+        if (body is Map && body['message'] != null) {
+          submitError = body['message'].toString();
           break;
         }
       } catch (_) {}
@@ -558,9 +555,7 @@ class _LeaveFormState extends State<_LeaveForm> {
         widget.onSuccess();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to submit leave. Check connection.'),
-          ),
+          SnackBar(content: Text(submitError ?? 'Failed to submit leave. Check connection.')),
         );
       }
     }
@@ -613,6 +608,13 @@ class _LeaveFormState extends State<_LeaveForm> {
               'Half Day',
             ], (v) => setState(() => duration = v!)),
           ],
+          if (type == 'Earned Leave') ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Earned Leave is paid leave. Your company paid-leave rules apply to this request.',
+              style: TextStyle(color: employeeBlue, fontWeight: FontWeight.w600, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 14),
           if (widget.desktop)
             Row(
@@ -632,17 +634,24 @@ class _LeaveFormState extends State<_LeaveForm> {
                 ),
               ],
             )
-          else ...[
-            InkWell(
-              onTap: () => _pickDate(true),
-              child: _DateFieldShell('From Date', fromStr),
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _pickDate(true),
+                    child: _DateFieldShell('From Date', fromStr),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _pickDate(false),
+                    child: _DateFieldShell('To Date', toStr),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            InkWell(
-              onTap: () => _pickDate(false),
-              child: _DateFieldShell('To Date', toStr),
-            ),
-          ],
           const SizedBox(height: 14),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -680,49 +689,49 @@ class _LeaveFormState extends State<_LeaveForm> {
             ],
           ),
           const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                OutlinedButton(
-                  onPressed: () => setState(() {
-                    _reasonCtrl.clear();
-                    fromDate = DateTime.now();
-                    toDate = DateTime.now();
-                  }),
-                  child: const Text('Clear'),
+          Builder(
+            builder: (context) {
+              final clearButton = OutlinedButton(
+                onPressed: () => setState(() {
+                  _reasonCtrl.clear();
+                  fromDate = DateTime.now();
+                  toDate = DateTime.now();
+                }),
+                style: widget.desktop ? null : OutlinedButton.styleFrom(
+                  foregroundColor: employeePurple,
+                  minimumSize: const Size.fromHeight(52),
+                  side: const BorderSide(color: employeePurple, width: 1.5),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                const SizedBox(width: 10),
-                ElevatedButton.icon(
-                  onPressed: _submitting ? null : _submit,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send_outlined, size: 16),
-                  label: Text(_submitting ? 'Submitting…' : 'Submit Request'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0B72F5),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+                child: const Text('Clear'),
+              );
+              final submitButton = ElevatedButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: _submitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send_outlined, size: 16),
+                label: Text(_submitting ? 'Submitting…' : 'Submit Request'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0B72F5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  minimumSize: widget.desktop ? null : const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(widget.desktop ? 8 : 12)),
                 ),
-              ],
-            ),
-          ),
-        ],
+              );
+              return Align(
+                alignment: widget.desktop ? Alignment.centerRight : Alignment.center,
+                child: Row(
+                  mainAxisSize: widget.desktop ? MainAxisSize.min : MainAxisSize.max,
+                  children: [
+                    if (widget.desktop) clearButton else Expanded(child: clearButton),
+                    SizedBox(width: widget.desktop ? 10 : 12),
+                    if (widget.desktop) submitButton else Expanded(child: submitButton),
+                  ],
+                ),
+              );
+            },
+          ),        ],
       ),
     );
   }
@@ -824,123 +833,88 @@ class _DropdownField extends StatelessWidget {
 
 class _MobileLeaveBalance extends StatelessWidget {
   const _MobileLeaveBalance({required this.balances});
-
   final List<dynamic> balances;
 
   Color _colorFor(String type) {
-    final value = type.toLowerCase();
-    if (value.contains('sick')) return const Color(0xFF7C2BEF);
-    if (value.contains('earned')) return const Color(0xFF126DF3);
-    if (value.contains('optional')) return const Color(0xFFFF6A00);
-    return const Color(0xFF00AE7B);
+    if (type.contains('Sick')) return employeePurple;
+    if (type.contains('Earned')) return employeeBlue;
+    if (type.contains('Optional')) return employeeOrange;
+    return employeeGreen;
+  }
+
+  IconData _iconFor(String type) {
+    if (type.contains('Sick')) return Icons.medical_services_outlined;
+    if (type.contains('Earned')) return Icons.calendar_month_outlined;
+    if (type.contains('Optional')) return Icons.event_available_outlined;
+    return Icons.calendar_today_outlined;
   }
 
   @override
-  Widget build(BuildContext context) {
-    final displayBalances = balances.take(4).toList();
-    return EmployeeCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Leave Balance',
-                  style: TextStyle(
-                    color: employeeNavy,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: () => Navigator.pushNamed(
-                  context,
-                  '/employee/leave',
-                  arguments: 'requests',
-                ),
-                icon: const Icon(Icons.chevron_right_rounded, size: 20),
-                label: const Text('View Details'),
-                style: TextButton.styleFrom(
-                  foregroundColor: employeeBlue,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  textStyle: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (displayBalances.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: Text('Leave balances are not available yet.')),
-            )
-          else
-            Row(
-              children: List.generate(displayBalances.length, (index) {
-                final balance = displayBalances[index];
-                final type = (balance['type'] ?? 'Leave').toString();
-                final total = (balance['total'] as num?)?.toInt() ?? 0;
-                final used = (balance['used'] as num?)?.toInt() ?? 0;
-                final remaining = (total - used).clamp(0, total).toInt();
-                final color = _colorFor(type);
-                return Expanded(
-                  child: Container(
-                    height: 112,
-                    margin: EdgeInsets.only(right: index == displayBalances.length - 1 ? 0 : 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.045),
-                      border: Border.all(color: color.withOpacity(0.26), width: 1.2),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          type,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: employeeMuted,
-                            fontSize: 11,
-                            height: 1.15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          '$remaining',
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 29,
-                            height: 1,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'of $total',
-                          style: const TextStyle(
-                            color: employeeMuted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+  Widget build(BuildContext context) => EmployeeCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text('Leave Balance', style: TextStyle(color: employeeNavy, fontSize: 20, fontWeight: FontWeight.w800)),
             ),
-        ],
-      ),
-    );
-  }
+            TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/employee/leave', arguments: 'requests'),
+              icon: const Text('View Details'),
+              label: const Icon(Icons.chevron_right_rounded, size: 20),
+              style: TextButton.styleFrom(
+                foregroundColor: employeeBlue,
+                padding: EdgeInsets.zero,
+                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (balances.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Center(child: Text('No balance data available', style: TextStyle(color: employeeMuted))),
+          )
+        else
+          Row(
+            children: balances.take(4).map((balance) {
+              final type = (balance['type'] ?? 'Leave').toString();
+              final total = (balance['total'] as num?)?.toInt() ?? 0;
+              final used = (balance['used'] as num?)?.toInt() ?? 0;
+              final remaining = (total - used).clamp(0, total).toInt();
+              final color = _colorFor(type);
+              return Expanded(
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(color: color.withValues(alpha: 0.20)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle),
+                        child: Icon(_iconFor(type), color: color, size: 19),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(type.replaceAll(' ', '\n'), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: employeeMuted, fontSize: 11, fontWeight: FontWeight.w700, height: 1.12)),
+                      const SizedBox(height: 7),
+                      Text('$remaining', style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+                      Text('of $total', style: const TextStyle(color: employeeMuted, fontSize: 10, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    ),
+  );
 }
 class _MobileLeave extends StatelessWidget {
   const _MobileLeave({

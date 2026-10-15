@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -17,7 +17,7 @@ class EmployeeClockPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const EmployeeScaffold(
     route: '/employee/clock-log',
-    title: 'Clock In / Clock Out',
+    title: 'Check In / Check Out',
     subtitle: 'Track your daily working hours in real time',
     desktop: _ClockView(mobile: false),
     mobile: _ClockView(mobile: true),
@@ -90,7 +90,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
   }) async {
     // Use the configured backend for both validation and the attendance write.
     // Retrying a denied punch against an older server could bypass the rule.
-    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint');
+    final cacheBuster = endpoint == 'check-in-policy'
+        ? '?_=${DateTime.now().microsecondsSinceEpoch}'
+        : '';
+    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/$endpoint$cacheBuster');
     final headers = {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -170,15 +173,54 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    if (!clockOut) {
+      try {
+        final policy = await _call('check-in-policy', token);
+        if (policy['workMode'] == 'Hybrid') {
+          if (!mounted || token != _token) return;
+          final clockedIn = await Navigator.pushNamed<bool>(
+            context,
+            '/employee/tracking',
+            arguments: const {'clockInAfterTracking': true},
+          );
+          if (!mounted || token != _token) return;
+          await _load();
+          if (clockedIn == true && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are now checked in.')),
+            );
+          }
+          return;
+        }
+      } catch (error) {
+        if (!mounted || token != _token) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_message(error))),
+        );
+        return;
+      }
+    }
     setState(() => _punching = true);
     String message;
     try {
-      final payload = clockOut
-          ? <String, dynamic>{}
-          : await AttendanceLocation.checkInPayload(
-              client: _client,
-              token: token,
-            );
+      Map<String, dynamic> payload;
+      if (clockOut) {
+        try {
+          final pos = await AttendanceLocation.currentPosition();
+          payload = {
+            'latitude': pos.latitude,
+            'longitude': pos.longitude,
+            'accuracy': pos.accuracy,
+          };
+        } catch (_) {
+          payload = <String, dynamic>{};
+        }
+      } else {
+        payload = await AttendanceLocation.checkInPayload(
+          client: _client,
+          token: token,
+        );
+      }
       if (!mounted || token != _token) return;
       await _call(
         clockOut ? 'clock-out' : 'clock-in',
@@ -187,7 +229,7 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
         payload: payload,
       );
       message = clockOut
-          ? 'You have been clocked out.'
+          ? 'You have been checked out.'
           : 'You are now checked in.';
     } catch (error) {
       message = '${_message(error)} Refresh attendance before trying again.';
@@ -322,10 +364,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
                       title: "TODAY'S SESSION — $todayFormatted",
                       value: punchInDisplay,
                       caption: checkedIn
-                          ? 'Clock In · ${session?['work_mode'] ?? 'Not set'}'
+                          ? 'Check In · ${session?['work_mode'] ?? 'Not set'}'
                           : (checkedOut
                                 ? 'Ended at $punchOutDisplay'
-                                : 'Not clocked in'),
+                                : 'Not checked in'),
                     ),
                     _SessionMetric(
                       title: 'ELAPSED TODAY',
@@ -383,10 +425,10 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
                       _punching
                           ? 'Saving…'
                           : checkedIn
-                          ? 'Clock Out'
+                          ? 'Check Out'
                           : checkedOut
                           ? 'Completed'
-                          : 'Clock In',
+                          : 'Check In',
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: checkedIn
@@ -550,10 +592,10 @@ class _RecentRecordHeader extends StatelessWidget {
       children: [
         Expanded(flex: 3, child: Text('DATE', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('CHECK IN', style: _recordHeaderStyle)),
+        Expanded(flex: 2, child: Text('CHECK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK IN', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('BREAK TIME', style: _recordHeaderStyle)),
-        Expanded(flex: 2, child: Text('CHECK OUT', style: _recordHeaderStyle)),
         Expanded(flex: 2, child: Text('WORKED', style: _recordHeaderStyle)),
         Expanded(
           flex: 2,
@@ -685,6 +727,18 @@ class _RecentRecordRow extends StatelessWidget {
                     ),
                     Expanded(
                       child: _compactValue(
+                        'Check out',
+                        _timeLabel(record['clock_out_at']),
+                      ),
+                    ),
+                    Expanded(child: _compactValue('Worked', _duration())),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _compactValue(
                         'Break in',
                         breakInLabel,
                         valueColor: breakColor,
@@ -697,17 +751,6 @@ class _RecentRecordRow extends StatelessWidget {
                         valueColor: breakColor,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _compactValue(
-                        'Check out',
-                        _timeLabel(record['clock_out_at']),
-                      ),
-                    ),
                     Expanded(
                       child: _compactValue(
                         'Break time',
@@ -715,7 +758,6 @@ class _RecentRecordRow extends StatelessWidget {
                         valueColor: breakColor,
                       ),
                     ),
-                    Expanded(child: _compactValue('Worked', _duration())),
                   ],
                 ),
               ],
@@ -726,6 +768,10 @@ class _RecentRecordRow extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: _value(_timeLabel(record['clock_in_at'])),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: _value(_timeLabel(record['clock_out_at'])),
                 ),
                 Expanded(
                   flex: 2,
@@ -742,10 +788,6 @@ class _RecentRecordRow extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: _value(_breakDuration(), color: breakColor),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: _value(_timeLabel(record['clock_out_at'])),
                 ),
                 Expanded(flex: 2, child: _value(_duration())),
                 Expanded(flex: 2, child: _value(_workLocation())),

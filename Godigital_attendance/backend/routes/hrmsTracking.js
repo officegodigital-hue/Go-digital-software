@@ -35,6 +35,7 @@ router.post(
   '/field-waiting-reasons/:id',
   hrms.submitWaitingReason
 );
+router.get('/my-field-waiting-reasons', hrms.myFieldWaitingReasons);
 
 router.get(
   '/field-waiting-reasons',
@@ -48,6 +49,9 @@ router.patch(
   hrms.reviewFieldWaitingReason
 );
 
+router.get('/permissions', hrms.getTrackingPermissions);
+router.get('/field-session/summary', hrms.getFieldSessionSummary);
+router.get('/field-session/timeline', hrms.getFieldSessionTimeline);
 router.get('/field-session', hrms.getMyFieldSession);
 router.post('/field-session/start', hrms.startFieldTracking);
 router.post('/field-session/stop', hrms.stopFieldTracking);

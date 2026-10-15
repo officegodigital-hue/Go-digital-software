@@ -1,6 +1,7 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,12 +9,38 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/hrms_tracking_api.dart';
 import '../../../services/office_address_search.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import 'employee_tracking_report_page.dart';
 import 'widgets/home_locations_dialog.dart';
+
+part 'tracking_desktop.dart';
 
 abstract final class HrmsColors {
   static const blue = Color(0xFF075EF7);
   static const navy = Color(0xFF061457);
   static const page = Color(0xFFFCFDFF);
+}
+
+Future<void> showOfficeLocationDialog(BuildContext context) async {
+  await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const _OfficeLocationDialog(),
+  );
+}
+
+Future<void> showHybridSettingsDialog(BuildContext context) async {
+  await showDialog<void>(
+    context: context,
+    builder: (_) => const _FieldWaitingSettingsDialog(),
+  );
+}
+
+Future<void> showHomeApprovalsDialog(BuildContext context) async {
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const HomeLocationsDialog(),
+  );
 }
 
 class TrackingPage extends StatefulWidget {
@@ -26,7 +53,6 @@ class TrackingPage extends StatefulWidget {
 }
 
 class _TrackingPageState extends State<TrackingPage> {
-  String mode = 'Hybrid';
 
   static const _modeStorageKey = 'admin_tracking_last_mode';
   static const _pollInterval = Duration(seconds: 30);
@@ -38,11 +64,14 @@ class _TrackingPageState extends State<TrackingPage> {
     field: 0,
     activeNow: 0,
   );
+  String mode = 'Office';
   bool loading = true;
   String? error;
   DateTime? lastLoadedAt;
   Timer? _pollTimer;
+  int _loadRequest = 0;
   _TrackedEmployee? _selectedEmployee;
+  DateTime _selectedDate = DateTime.now();
   final _pageScrollController = ScrollController();
 
   @override
@@ -111,6 +140,7 @@ class _TrackingPageState extends State<TrackingPage> {
   /// full-screen loading spinner every 30 seconds — only the first load
   /// and manual pull-to-refresh show that.
   Future<void> _load({bool silent = false}) async {
+    final request = ++_loadRequest;
     if (!silent) {
       setState(() {
         loading = true;
@@ -118,7 +148,9 @@ class _TrackingPageState extends State<TrackingPage> {
       });
     }
     try {
-      final data = await HrmsTrackingApi.live();
+      final data = await HrmsTrackingApi.live(
+        date: DateFormat('yyyy-MM-dd').format(_selectedDate),
+      );
       final countsJson = Map<String, dynamic>.from(
         data['counts'] as Map? ?? {},
       );
@@ -128,17 +160,22 @@ class _TrackingPageState extends State<TrackingPage> {
             (item) => _TrackedEmployee.fromApi(Map<String, dynamic>.from(item)),
           )
           .toList();
-      if (!mounted) return;
-      if (silent && _sameEmployees(employees, items)) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         employees = items;
+        if (_selectedEmployee != null) {
+          final matches = items.where(
+            (item) => item.employeeUserId == _selectedEmployee!.employeeUserId,
+          );
+          _selectedEmployee = matches.isEmpty ? null : matches.first;
+        }
         counts = _TrackingCounts.fromApi(countsJson);
         loading = false;
         error = null;
         lastLoadedAt = DateTime.now();
       });
     } catch (err) {
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         loading = false;
         if (!silent) {
@@ -146,24 +183,6 @@ class _TrackingPageState extends State<TrackingPage> {
         }
       });
     }
-  }
-
-  bool _sameEmployees(
-    List<_TrackedEmployee> before,
-    List<_TrackedEmployee> after,
-  ) {
-    if (before.length != after.length) return false;
-    for (var index = 0; index < before.length; index++) {
-      final oldItem = before[index];
-      final newItem = after[index];
-      if (oldItem.employeeUserId != newItem.employeeUserId ||
-          oldItem.active != newItem.active ||
-          oldItem.lastUpdated != newItem.lastUpdated ||
-          oldItem.lat != newItem.lat ||
-          oldItem.lng != newItem.lng)
-        return false;
-    }
-    return true;
   }
 
   List<_TrackedEmployee> get _visibleEmployees =>
@@ -177,10 +196,29 @@ class _TrackingPageState extends State<TrackingPage> {
     setState(() => _selectedEmployee = null);
   }
 
+  void _setDate(DateTime d) {
+    setState(() => _selectedDate = d);
+    _load();
+  }
+
   void _viewActivity(_TrackedEmployee employee) {
     showDialog<void>(
       context: context,
-      builder: (_) => _EmployeeActivityDialog(employee: employee),
+      builder: (_) =>
+          _EmployeeActivityDialog(employee: employee, date: _selectedDate),
+    );
+  }
+
+  void _viewReport(_TrackedEmployee employee) {
+    if (employee.employeeUserId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EmployeeTrackingReportPage(
+          employeeUserId: employee.employeeUserId!,
+          employeeName: employee.name,
+          employeeCode: employee.id,
+        ),
+      ),
     );
   }
 
@@ -192,73 +230,78 @@ class _TrackingPageState extends State<TrackingPage> {
       bottomNavigationBar: mobile
           ? const AdminMobileBottomNav(activeRoute: '/admin/tracking')
           : null,
-      body: Column(
-        children: [
-          const AdminTopNav(activeRoute: '/admin/tracking'),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: SingleChildScrollView(
-                controller: _pageScrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.fromLTRB(
-                  mobile ? 16 : 29,
-                  18,
-                  mobile ? 16 : 29,
-                  28,
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1580),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _TrackingHeader(
-                          onRefresh: _load,
-                          onManageWaiting: _openFieldWaitingSettings,
-                          onViewReasons: _openFieldWaitingReasons,
-                          onHomeApprovals: _openHomeApprovals,
-                          onOfficeLocation: _openOfficeLocation,
-                        ),
-                        const SizedBox(height: 14),
-                        if (loading && employees.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 80),
-                            child: Center(child: CircularProgressIndicator()),
-                          )
-                        else if (error != null && employees.isEmpty)
-                          _TrackingErrorState(message: error!, onRetry: _load)
-                        else ...[
-                          _TrackingKpis(counts: counts),
-                          if (mobile) ...[
-                            const SizedBox(height: 16),
-                            _TrackingMobileActions(
-                              onOfficeLocation: _openOfficeLocation,
-                              onManageWaiting: _openFieldWaitingSettings,
+      body: PrimaryScrollController(
+        controller: _pageScrollController,
+        child: Column(
+          children: [
+            const AdminTopNav(activeRoute: '/admin/tracking'),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: SingleChildScrollView(
+                  primary: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    mobile ? 16 : 29,
+                    18,
+                    mobile ? 16 : 29,
+                    28,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1580),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _TrackingHeader(
+                            onRefresh: _load,
+                            onViewReasons: _openFieldWaitingReasons,
+                          ),
+                          const SizedBox(height: 14),
+                          if (loading && employees.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 80),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else if (error != null && employees.isEmpty)
+                            _TrackingErrorState(message: error!, onRetry: _load)
+                          else if (mobile) ...[
+                            _TrackingKpis(counts: counts),
+                            const SizedBox(height: 14),
+                            _TrackingWorkspace(
+                              mode: mode,
+                              employees: _visibleEmployees,
+                              lastLoadedAt: lastLoadedAt,
+                              onModeChanged: (value) => _setMode(value),
+                              onViewRoute: _viewRoute,
+                              onViewActivity: _viewActivity,
+                              selectedEmployee: _selectedEmployee,
+                              onReturnToLiveMap: _returnToLiveMap,
+                            ),
+                          ] else ...[
+                            _DesktopTrackingDashboard(
+                              mode: mode,
+                              employees: _visibleEmployees,
+                              selectedEmployee: _selectedEmployee,
+                              selectedDate: _selectedDate,
+                              lastLoadedAt: lastLoadedAt,
+                              onModeChanged: _setMode,
+                              onDateChanged: _setDate,
+                              onSelectEmployee: _viewRoute,
+                              onViewActivity: _viewActivity,
                               onHomeApprovals: _openHomeApprovals,
-                              onRefresh: _load,
+                              onViewReport: _viewReport,
                             ),
                           ],
-                          const SizedBox(height: 20),
-                          _TrackingWorkspace(
-                            mode: mode,
-                            employees: _visibleEmployees,
-                            lastLoadedAt: lastLoadedAt,
-                            onModeChanged: (value) => _setMode(value),
-                            onViewRoute: _viewRoute,
-                            onViewActivity: _viewActivity,
-                            selectedEmployee: _selectedEmployee,
-                            onReturnToLiveMap: _returnToLiveMap,
-                          ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -266,12 +309,8 @@ class _TrackingPageState extends State<TrackingPage> {
 
 class _TrackingMobileActions extends StatelessWidget {
   const _TrackingMobileActions({
-    required this.onOfficeLocation,
-    required this.onManageWaiting,
-    required this.onHomeApprovals,
     required this.onRefresh,
   });
-  final VoidCallback onOfficeLocation, onManageWaiting, onHomeApprovals;
   final Future<void> Function() onRefresh;
 
   @override
@@ -285,9 +324,6 @@ class _TrackingMobileActions extends StatelessWidget {
     ),
     child: Row(
       children: [
-        _tool(Icons.location_on_outlined, 'Office', onOfficeLocation),
-        _tool(Icons.timer_outlined, 'Hybrid', onManageWaiting),
-        _tool(Icons.home_work_outlined, 'Home', onHomeApprovals),
         _tool(Icons.refresh, 'Refresh', () => onRefresh()),
       ],
     ),
@@ -319,62 +355,290 @@ class _TrackingMobileActions extends StatelessWidget {
 class _TrackingHeader extends StatelessWidget {
   const _TrackingHeader({
     required this.onRefresh,
-    required this.onManageWaiting,
     required this.onViewReasons,
-    required this.onHomeApprovals,
-    required this.onOfficeLocation,
   });
 
   final Future<void> Function() onRefresh;
-  final VoidCallback onManageWaiting;
   final VoidCallback onViewReasons;
-  final VoidCallback onHomeApprovals;
-  final VoidCallback onOfficeLocation;
 
   @override
-  Widget build(BuildContext context) => AdminPageHeader(
-    title: 'Employee Tracking',
-    breadcrumb: 'Tracking',
-    trailing: Wrap(
-      spacing: 4,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        FilledButton.icon(
-          onPressed: onOfficeLocation,
-          icon: const Icon(Icons.location_on_outlined, size: 18),
-          label: const Text('Manage Office Location'),
-          style: FilledButton.styleFrom(backgroundColor: HrmsColors.blue),
-        ),
-        OutlinedButton.icon(
-          onPressed: onManageWaiting,
-          icon: const Icon(Icons.timer_outlined, size: 18),
-          label: const Text('Hybrid Settings'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.blue,
-            side: const BorderSide(color: Color(0xFFBFD4FF)),
-          ),
-        ),
-        OutlinedButton.icon(
-          onPressed: onHomeApprovals,
-          icon: const Icon(Icons.home_work_outlined, size: 18),
-          label: const Text('Home Approvals'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: HrmsColors.blue,
-            side: const BorderSide(color: Color(0xFFBFD4FF)),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Waiting Reasons',
-          onPressed: onViewReasons,
-          icon: const Icon(Icons.fact_check_outlined, color: HrmsColors.blue),
-        ),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: () => onRefresh(),
-          icon: const Icon(Icons.refresh, color: HrmsColors.blue),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final mobile = constraints.maxWidth < 700;
+      final toolbar = _TrackingActionToolbar(
+        mobile: mobile,
+        onViewReasons: onViewReasons,
+        onRefresh: onRefresh,
+      );
+      if (mobile) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const AdminPageHeader(
+              title: 'Employee Tracking',
+              breadcrumb: 'Tracking',
+            ),
+            const SizedBox(height: 12),
+            toolbar,
+          ],
+        );
+      }
+      return AdminPageHeader(
+        title: 'Employee Tracking',
+        breadcrumb: 'Tracking',
+        trailing: toolbar,
+      );
+    },
+  );
+}
+
+class _TrackingActionToolbar extends StatefulWidget {
+  const _TrackingActionToolbar({
+    required this.onViewReasons,
+    required this.onRefresh,
+    this.mobile = false,
+  });
+
+  final VoidCallback onViewReasons;
+  final Future<void> Function() onRefresh;
+  final bool mobile;
+
+  @override
+  State<_TrackingActionToolbar> createState() => _TrackingActionToolbarState();
+}
+
+class _TrackingActionToolbarState extends State<_TrackingActionToolbar> {
+  int _selected = 0;
+
+  void _tap(int index, VoidCallback action) {
+    setState(() => _selected = index);
+    action();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.mobile) return _buildMobile();
+    return _buildDesktop();
+  }
+
+  Widget _buildDesktop() => Container(
+    height: 52,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFE5EAF3)),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x09071A72),
+          blurRadius: 10,
+          offset: Offset(0, 2),
         ),
       ],
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(width: 6),
+        _tab(
+          0,
+          Icons.fact_check_outlined,
+          'Waiting Reasons',
+          () => _tap(0, widget.onViewReasons),
+        ),
+        const SizedBox(width: 6),
+        const _ToolbarDivider(),
+        _refreshBtn(),
+        const SizedBox(width: 6),
+      ],
+    ),
+  );
+
+  Widget _buildMobile() => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFE5EAF3)),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x09071A72),
+          blurRadius: 10,
+          offset: Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _mobTab(
+            0,
+            Icons.fact_check_outlined,
+            'Waiting',
+            () => _tap(0, widget.onViewReasons),
+          ),
+        ),
+        _mobDivider(),
+        Expanded(child: _mobRefreshTab()),
+      ],
+    ),
+  );
+
+  Widget _mobDivider() =>
+      Container(width: 1, height: 36, color: const Color(0xFFE5EAF3));
+
+  Widget _mobTab(int index, IconData icon, String label, VoidCallback onTap) {
+    final active = _selected == index;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: index == 0
+          ? const BorderRadius.horizontal(left: Radius.circular(13))
+          : BorderRadius.zero,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFEEF3FF) : Colors.transparent,
+          borderRadius: index == 0
+              ? const BorderRadius.horizontal(left: Radius.circular(13))
+              : BorderRadius.zero,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: active ? HrmsColors.blue : const Color(0xFF596176),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                color: active ? HrmsColors.blue : const Color(0xFF596176),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mobRefreshTab() => InkWell(
+    onTap: () => widget.onRefresh(),
+    borderRadius: const BorderRadius.horizontal(right: Radius.circular(13)),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.refresh_rounded, size: 18, color: HrmsColors.blue),
+          SizedBox(height: 3),
+          Text(
+            'Refresh',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: HrmsColors.blue,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _tab(int index, IconData icon, String label, VoidCallback onTap) {
+    final active = _selected == index;
+    if (active) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 9),
+        child: Material(
+          color: HrmsColors.blue,
+          borderRadius: BorderRadius.circular(22),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(22),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 15, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: const Color(0xFF596176)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF596176),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _refreshBtn() => Tooltip(
+    message: 'Refresh',
+    child: InkWell(
+      onTap: () => widget.onRefresh(),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.refresh_rounded, size: 16, color: HrmsColors.blue),
+            const SizedBox(width: 5),
+            const Text(
+              'Refresh',
+              style: TextStyle(
+                color: HrmsColors.blue,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ToolbarDivider extends StatelessWidget {
+  const _ToolbarDivider();
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(vertical: 10),
+    child: SizedBox(
+      height: 32,
+      child: VerticalDivider(width: 1, thickness: 1, color: Color(0xFFD5E1F5)),
     ),
   );
 }
@@ -450,204 +714,156 @@ class _TrackingKpis extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
     final cards = [
       _TrackingKpi(
-        'Office',
-        '${counts.office}',
-        'Tracked employees',
-        Icons.apartment_outlined,
-        HrmsColors.blue,
+        label: 'Office',
+        value: '${counts.office}',
+        caption: 'Tracked employees',
+        icon: Icons.apartment_outlined,
+        color: HrmsColors.blue,
+        compact: isMobile,
       ),
       _TrackingKpi(
-        'Home',
-        '${counts.home}',
-        'Tracked employees',
-        Icons.home_outlined,
-        const Color(0xFF138A20),
+        label: 'Home',
+        value: '${counts.home}',
+        caption: 'Tracked employees',
+        icon: Icons.home_outlined,
+        color: const Color(0xFF138A20),
+        compact: isMobile,
       ),
       _TrackingKpi(
-        'Hybrid',
-        '${counts.field}',
-        'Tracked employees',
-        Icons.hiking_outlined,
-        const Color(0xFFFF6500),
+        label: 'Hybrid',
+        value: '${counts.field}',
+        caption: 'Tracked employees',
+        icon: Icons.hiking_outlined,
+        color: const Color(0xFFFF6500),
+        compact: isMobile,
       ),
       _TrackingKpi(
-        'Active Now',
-        '${counts.activeNow}',
-        'Employees active',
-        Icons.wifi_rounded,
-        const Color(0xFF138A20),
+        label: 'Active Now',
+        value: '${counts.activeNow}',
+        caption: 'Employees active',
+        icon: Icons.wifi_rounded,
+        color: const Color(0xFF138A20),
+        compact: isMobile,
       ),
     ];
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final columns = constraints.maxWidth < 650
-            ? 2
-            : constraints.maxWidth < 1100
-            ? 2
-            : 4;
-        final spacing = constraints.maxWidth < 650 ? 12.0 : 20.0;
-        final width =
-            (constraints.maxWidth - (columns - 1) * spacing) / columns;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: constraints.maxWidth < 650 ? 12 : 16,
-          children: cards
-              .map((card) => SizedBox(width: width, child: card))
-              .toList(),
-        );
-      },
+    return Row(
+      children: [
+        for (int i = 0; i < cards.length; i++) ...[
+          if (i > 0) SizedBox(width: isMobile ? 6 : 10),
+          Expanded(child: cards[i]),
+        ],
+      ],
     );
   }
 }
 
 class _TrackingKpi extends StatelessWidget {
-  const _TrackingKpi(
-    this.label,
-    this.value,
-    this.caption,
-    this.icon,
-    this.color,
-  );
+  const _TrackingKpi({
+    required this.label,
+    required this.value,
+    required this.caption,
+    required this.icon,
+    required this.color,
+    this.compact = false,
+  });
   final String label, value, caption;
   final IconData icon;
   final Color color;
+  final bool compact;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (_, constraints) {
-      final compact = constraints.maxWidth < 220;
-      return Container(
-        height: 116,
-        padding: EdgeInsets.fromLTRB(
-          compact ? 12 : 16,
-          14,
-          compact ? 12 : 16,
-          9,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xFFE3E7EF)),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x08071A72),
-              blurRadius: 14,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
-        child: compact
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 39,
-                        height: 39,
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: .10),
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        child: Icon(icon, color: color, size: 23),
-                      ),
-                      const Spacer(),
-                      Text(
-                        value,
-                        style: const TextStyle(
-                          color: HrmsColors.navy,
-                          fontSize: 25,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xFF303747),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    caption,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF657087),
-                      fontSize: 9,
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: .09),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(icon, color: color, size: 29),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              label,
-                              style: const TextStyle(
-                                color: Color(0xFF303747),
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              value,
-                              style: const TextStyle(
-                                color: Color(0xFF10131B),
-                                fontSize: 27,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              caption,
-                              style: const TextStyle(
-                                color: Color(0xFF596176),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: 55,
-                      height: 3,
-                      decoration: BoxDecoration(
-                        color: HrmsColors.blue,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ],
+  Widget build(BuildContext context) {
+    final iconSize = compact ? 32.0 : 44.0;
+    final iconInner = compact ? 16.0 : 22.0;
+    final radius = compact ? 8.0 : 10.0;
+    final numSize = compact ? 20.0 : 26.0;
+    final labelSize = compact ? 9.5 : 11.0;
+    final captionSize = compact ? 9.0 : 10.0;
+    final pad = compact
+        ? const EdgeInsets.fromLTRB(8, 10, 8, 0)
+        : const EdgeInsets.fromLTRB(14, 14, 14, 0);
+    final gap = compact ? 6.0 : 12.0;
+
+    return Container(
+      padding: pad,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE3E7EF)),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08071A72),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: iconSize,
+                height: iconSize,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(radius),
+                ),
+                child: Icon(icon, color: color, size: iconInner),
               ),
-      );
-    },
-  );
+              SizedBox(width: gap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: const Color(0xFF6B7280),
+                        fontSize: labelSize,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        color: HrmsColors.navy,
+                        fontSize: numSize,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    Text(
+                      caption,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: const Color(0xFF9AA3B2),
+                        fontSize: captionSize,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TrackingWorkspace extends StatelessWidget {
@@ -687,6 +903,42 @@ class _TrackingWorkspace extends StatelessWidget {
     clipBehavior: Clip.antiAlias,
     child: LayoutBuilder(
       builder: (_, constraints) {
+        // The phone layout follows the admin mobile design: live map first,
+        // then a distinct employee card. The same live API data powers both.
+        if (constraints.maxWidth < 700 && selectedEmployee == null) {
+          return Column(
+            children: [
+              _MobileLiveLocationCard(
+                employees: employees,
+                onViewRoute: onViewRoute,
+              ),
+              const SizedBox(height: 14),
+              _MobileEmployeesCard(
+                mode: mode,
+                employees: employees,
+                lastLoadedAt: lastLoadedAt,
+                onModeChanged: onModeChanged,
+                onViewRoute: onViewRoute,
+                onViewActivity: onViewActivity,
+              ),
+            ],
+          );
+        }
+        // On mobile with an employee selected, show only the route panel.
+        if (constraints.maxWidth < 700 && selectedEmployee != null) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: KeyedSubtree(
+              key: ValueKey(selectedEmployee!.employeeUserId),
+              child: _AdminRoutePanel(
+                employee: selectedEmployee!,
+                onReturnToLiveMap: onReturnToLiveMap,
+                mode: mode,
+                onModeChanged: onModeChanged,
+              ),
+            ),
+          );
+        }
         final stacked = constraints.maxWidth < 1050;
         final map = selectedEmployee == null
             ? _MapPanel(
@@ -708,14 +960,11 @@ class _TrackingWorkspace extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _MapModeTabs(
-                              mode: mode,
-                              onModeChanged: onModeChanged,
-                            ),
-                            const SizedBox(height: 15),
                             _AdminRoutePanel(
                               employee: selectedEmployee!,
                               onReturnToLiveMap: onReturnToLiveMap,
+                              mode: mode,
+                              onModeChanged: onModeChanged,
                             ),
                           ],
                         ),
@@ -734,9 +983,9 @@ class _TrackingWorkspace extends StatelessWidget {
         if (stacked) {
           return Column(
             children: [
-              table,
-              const Divider(height: 1, color: Color(0xFFE3E7EF)),
               map,
+              const Divider(height: 1, color: Color(0xFFE3E7EF)),
+              table,
             ],
           );
         }
@@ -744,13 +993,694 @@ class _TrackingWorkspace extends StatelessWidget {
           height: 615,
           child: Row(
             children: [
-              Expanded(flex: 10, child: table),
-              const VerticalDivider(width: 1, color: Color(0xFFE3E7EF)),
-              Expanded(flex: 11, child: map),
+              Expanded(flex: 10, child: _TrackingSurface(child: table)),
+              const SizedBox(width: 16),
+              Expanded(flex: 11, child: _TrackingSurface(child: map)),
             ],
           ),
         );
       },
+    ),
+  );
+}
+
+class _TrackingSurface extends StatelessWidget {
+  const _TrackingSurface({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFE3E7EF)),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x08071A72),
+          blurRadius: 15,
+          offset: Offset(0, 6),
+        ),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
+class _MobileLiveLocationCard extends StatefulWidget {
+  const _MobileLiveLocationCard({
+    required this.employees,
+    required this.onViewRoute,
+  });
+
+  final List<_TrackedEmployee> employees;
+  final ValueChanged<_TrackedEmployee> onViewRoute;
+
+  @override
+  State<_MobileLiveLocationCard> createState() =>
+      _MobileLiveLocationCardState();
+}
+
+class _MobileLiveLocationCardState extends State<_MobileLiveLocationCard> {
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFE3E7EF)),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Live Location',
+                style: TextStyle(
+                  color: HrmsColors.navy,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Open live map',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _LiveMapFullscreen(
+                    employees: widget.employees,
+                    onViewRoute: widget.onViewRoute,
+                  ),
+                ),
+              ),
+              icon: const Icon(
+                Icons.fullscreen_rounded,
+                color: HrmsColors.navy,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 230,
+          width: double.infinity,
+          child: _LiveMap(
+            employees: widget.employees,
+            onViewRoute: widget.onViewRoute,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MobileEmployeesCard extends StatefulWidget {
+  const _MobileEmployeesCard({
+    required this.mode,
+    required this.employees,
+    required this.lastLoadedAt,
+    required this.onModeChanged,
+    required this.onViewRoute,
+    required this.onViewActivity,
+  });
+
+  final String mode;
+  final List<_TrackedEmployee> employees;
+  final DateTime? lastLoadedAt;
+  final ValueChanged<String> onModeChanged;
+  final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
+
+  @override
+  State<_MobileEmployeesCard> createState() => _MobileEmployeesCardState();
+}
+
+class _MobileEmployeesCardState extends State<_MobileEmployeesCard> {
+  String _query = '';
+
+  String get _updatedLabel {
+    final loadedAt = widget.lastLoadedAt;
+    if (loadedAt == null) return 'Updating…';
+    final minutes = DateTime.now().difference(loadedAt).inMinutes;
+    return minutes == 0 ? 'Updated just now' : 'Updated ${minutes}m ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.trim().toLowerCase();
+    // Filter employees by the active mode tab
+    final modeEmployees = widget.employees
+        .where((e) => e.mode == widget.mode)
+        .toList();
+    final matches = modeEmployees.where((e) {
+      return query.isEmpty ||
+          e.name.toLowerCase().contains(query) ||
+          e.id.toLowerCase().contains(query);
+    }).toList();
+
+    final activeCount = modeEmployees.where((e) => e.active).length;
+    final inactiveCount = modeEmployees.length - activeCount;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE3E7EF)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Employee Tracking',
+                  style: TextStyle(
+                    color: HrmsColors.navy,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF16A34A),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _updatedLabel,
+                style: const TextStyle(color: Color(0xFF657087), fontSize: 10),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Mode tabs (Office | Home | Hybrid)
+          Row(
+            children: [
+              for (final item in ['Office', 'Home', 'Hybrid']) ...[
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(right: item == 'Hybrid' ? 0 : 6),
+                    child: _ModeButton(
+                      label: item,
+                      active: widget.mode == item,
+                      onTap: () => widget.onModeChanged(item),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Mode-specific mini KPI row
+          _MobileModeKpis(
+            mode: widget.mode,
+            total: modeEmployees.length,
+            activeCount: activeCount,
+            inactiveCount: inactiveCount,
+          ),
+          const SizedBox(height: 12),
+
+          // Search bar (always visible)
+          TextField(
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Search ${widget.mode.toLowerCase()} employees…',
+              prefixIcon: const Icon(Icons.search_rounded, size: 18),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFD6DDEA)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFD6DDEA)),
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Employee list — mode-specific layout
+          if (matches.isEmpty)
+            const _EmptyTrackedState()
+          else if (widget.mode == 'Home')
+            _MobileHomeGrid(
+              employees: matches,
+              onViewRoute: widget.onViewRoute,
+              onViewActivity: widget.onViewActivity,
+            )
+          else
+            ...matches.map(
+              (e) => _MobileEmployeeRow(
+                employee: e,
+                onViewRoute: widget.onViewRoute,
+                onViewActivity: widget.onViewActivity,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Mode-specific mini KPI strip inside the mobile employees card.
+class _MobileModeKpis extends StatelessWidget {
+  const _MobileModeKpis({
+    required this.mode,
+    required this.total,
+    required this.activeCount,
+    required this.inactiveCount,
+  });
+  final String mode;
+  final int total, activeCount, inactiveCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<(String, int, Color)> kpis;
+    switch (mode) {
+      case 'Home':
+        kpis = [
+          ('Home', total, const Color(0xFF138A20)),
+          ('Checked In', activeCount, HrmsColors.blue),
+          ('Not Checked In', inactiveCount, const Color(0xFFDC2626)),
+        ];
+      case 'Hybrid':
+        kpis = [
+          ('Hybrid', total, const Color(0xFFFF6500)),
+          ('Active Now', activeCount, const Color(0xFF138A20)),
+          ('Offline', inactiveCount, const Color(0xFF657087)),
+        ];
+      default: // Office
+        kpis = [
+          ('Office', total, HrmsColors.blue),
+          ('Checked In', activeCount, const Color(0xFF138A20)),
+          ('Not Checked In', inactiveCount, const Color(0xFFDC2626)),
+        ];
+    }
+    return Row(
+      children: [
+        for (int i = 0; i < kpis.length; i++) ...[
+          if (i > 0) const SizedBox(width: 6),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+              decoration: BoxDecoration(
+                color: kpis[i].$3.withValues(alpha: .08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: kpis[i].$3.withValues(alpha: .25)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${kpis[i].$2}',
+                    style: TextStyle(
+                      color: kpis[i].$3,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    kpis[i].$1,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF657087),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 3-column compact grid used for Home mode employees.
+class _MobileHomeGrid extends StatelessWidget {
+  const _MobileHomeGrid({
+    required this.employees,
+    required this.onViewRoute,
+    required this.onViewActivity,
+  });
+  final List<_TrackedEmployee> employees;
+  final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
+
+  @override
+  Widget build(BuildContext context) => GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 3,
+      childAspectRatio: 0.82,
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+    ),
+    itemCount: employees.length,
+    itemBuilder: (_, i) => _MobileHomeCard(
+      employee: employees[i],
+      onTap: () => onViewRoute(employees[i]),
+    ),
+  );
+}
+
+/// Compact avatar card used inside the Home grid.
+class _MobileHomeCard extends StatelessWidget {
+  const _MobileHomeCard({required this.employee, required this.onTap});
+  final _TrackedEmployee employee;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = employee.active;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE3E7EF)),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x06071A72),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: const Color(0xFFE8F0FF),
+              child: Text(
+                employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(),
+                style: const TextStyle(
+                  color: HrmsColors.navy,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              employee.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: HrmsColors.navy,
+              ),
+            ),
+            Text(
+              employee.id,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 9, color: Color(0xFF657087)),
+            ),
+            const SizedBox(height: 5),
+            // Home badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F4FF),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'Home',
+                style: TextStyle(
+                  color: HrmsColors.blue,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 3),
+            // Status chip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isActive
+                    ? const Color(0xFFDCFCE7)
+                    : const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                isActive ? 'Checked In' : 'Not In',
+                style: TextStyle(
+                  color: isActive
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFDC2626),
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-width row for Office and Hybrid modes.
+class _MobileEmployeeRow extends StatelessWidget {
+  const _MobileEmployeeRow({
+    required this.employee,
+    required this.onViewRoute,
+    required this.onViewActivity,
+  });
+  final _TrackedEmployee employee;
+  final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<_TrackedEmployee> onViewActivity;
+
+  @override
+  Widget build(BuildContext context) {
+    final isHybrid = employee.mode == 'Hybrid';
+    final isActive = employee.active;
+
+    // Mode badge styling
+    final (badgeLabel, badgeBg, badgeFg) = isHybrid
+        ? ('Hybrid', const Color(0xFFFFF4EC), const Color(0xFFFF6500))
+        : ('Office', const Color(0xFFE8F0FF), HrmsColors.blue);
+
+    // Status chip styling
+    final (statusLabel, statusBg, statusFg) = isHybrid
+        ? isActive
+              ? ('Active', const Color(0xFFDCFCE7), const Color(0xFF16A34A))
+              : ('Offline', const Color(0xFFF3F4F6), const Color(0xFF6B7280))
+        : isActive
+        ? ('Checked In', const Color(0xFFDCFCE7), const Color(0xFF16A34A))
+        : ('Not Checked In', const Color(0xFFFEF2F2), const Color(0xFFDC2626));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFEDF0F6))),
+      ),
+      child: Row(
+        children: [
+          // Avatar
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: const Color(0xFFE8F0FF),
+            child: Text(
+              employee.name.isEmpty ? '?' : employee.name[0].toUpperCase(),
+              style: const TextStyle(
+                color: HrmsColors.navy,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          // Name / ID / location
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        employee.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: HrmsColors.navy,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Mode badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        badgeLabel,
+                        style: TextStyle(
+                          color: badgeFg,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  employee.id,
+                  style: const TextStyle(
+                    color: Color(0xFF657087),
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                if (isHybrid)
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.wifi_rounded,
+                        color: Color(0xFFFF6500),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Last ping: ${employee.updatedLabel.replaceFirst('Updated ', '')}',
+                        style: const TextStyle(
+                          color: Color(0xFF657087),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        color: HrmsColors.blue,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          employee.address ?? 'No location yet',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF657087),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Status chip + action buttons
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: statusBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    color: statusFg,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RowIconBtn(
+                    icon: Icons.map_outlined,
+                    tooltip: 'View on map',
+                    color: HrmsColors.blue,
+                    onTap: () => onViewRoute(employee),
+                  ),
+                  const SizedBox(width: 2),
+                  _RowIconBtn(
+                    icon: Icons.history_rounded,
+                    tooltip: 'Location history',
+                    color: const Color(0xFF00A884),
+                    onTap: () => onViewActivity(employee),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small icon button used in mobile employee rows.
+class _RowIconBtn extends StatelessWidget {
+  const _RowIconBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(5),
+        child: Icon(icon, color: color, size: 18),
+      ),
     ),
   );
 }
@@ -822,52 +1752,305 @@ class _MapModeTabs extends StatelessWidget {
 /// Google Maps display for the live employee markers. Only employees with
 /// at least one GPS ping recorded are shown as pins — an employee who has
 /// only set a status but never sent a location has nothing to plot yet.
-class _LiveMap extends StatelessWidget {
-  const _LiveMap({required this.employees, required this.onViewRoute});
+class _LiveMap extends StatefulWidget {
+  const _LiveMap({
+    required this.employees,
+    required this.onViewRoute,
+    this.onMapCreated,
+    this.highlightedEmployee,
+    this.showEmptyOverlay = true,
+  });
   final List<_TrackedEmployee> employees;
   final ValueChanged<_TrackedEmployee> onViewRoute;
+  final ValueChanged<GoogleMapController>? onMapCreated;
+  final _TrackedEmployee? highlightedEmployee;
+  final bool showEmptyOverlay;
 
-  static const _delhiCenter = LatLng(28.6139, 77.2090);
+  @override
+  State<_LiveMap> createState() => _LiveMapState();
+}
+
+class _LiveMapState extends State<_LiveMap> {
+  GoogleMapController? _controller;
+  late LatLng _center;
+  double _zoom = 11;
+
+  static const _fallbackCenter = LatLng(20.5937, 78.9629); // India center
+
+  LatLng? _officeCenter;
+  String? _officeAddress;
+  double? _officeRadiusMeters;
+
+  List<_TrackedEmployee> get _located => widget.employees
+      .where((employee) => employee.lat != null && employee.lng != null)
+      .toList();
+
+  @override
+  void initState() {
+    super.initState();
+    _center = _initialCenter;
+    _loadOfficeCenter();
+  }
+
+  Future<void> _loadOfficeCenter() async {
+    try {
+      final data = await HrmsTrackingApi.trackingSettings();
+      final lat = _mapNumber(data['office_latitude'] ?? data['officeLatitude']);
+      final lng = _mapNumber(
+        data['office_longitude'] ?? data['officeLongitude'],
+      );
+      final radius = _mapNumber(
+        data['office_radius_meters'] ?? data['officeRadiusMeters'],
+      );
+      if (lat != null && lng != null && mounted) {
+        final officeView = widget.highlightedEmployee == null;
+        setState(() {
+          _officeCenter = LatLng(lat, lng);
+          _officeAddress = (data['office_address'] ?? data['officeAddress'])
+              ?.toString();
+          _officeRadiusMeters = radius;
+          if (officeView || _located.isEmpty) {
+            _center = _officeCenter!;
+            _zoom = 15;
+          }
+        });
+        if (officeView || _located.isEmpty) {
+          _controller?.animateCamera(
+            CameraUpdate.newLatLngZoom(_officeCenter!, 15),
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  double? _mapNumber(Object? value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString().trim() ?? '');
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newHighlight = widget.highlightedEmployee;
+    final oldHighlight = oldWidget.highlightedEmployee;
+    if (newHighlight?.employeeUserId != oldHighlight?.employeeUserId &&
+        newHighlight?.homeLat != null &&
+        newHighlight?.homeLng != null &&
+        _located.isEmpty) {
+      _moveTo(LatLng(newHighlight!.homeLat!, newHighlight.homeLng!), 14);
+    } else if (oldWidget.employees != widget.employees && _located.isNotEmpty) {
+      _center = _initialCenter;
+    }
+  }
+
+  LatLng get _initialCenter {
+    // In the Office tab the configured office/geofence is the map's anchor.
+    // Employee GPS remains visible as a separate marker when available.
+    if (widget.highlightedEmployee == null && _officeCenter != null) {
+      return _officeCenter!;
+    }
+    if (_located.isNotEmpty)
+      return LatLng(_located.first.lat!, _located.first.lng!);
+    final h = widget.highlightedEmployee;
+    if (h?.homeLat != null && h?.homeLng != null)
+      return LatLng(h!.homeLat!, h.homeLng!);
+    return _officeCenter ?? _fallbackCenter;
+  }
+
+  Future<void> _moveTo(LatLng target, [double? zoom]) async {
+    _center = target;
+    if (zoom != null) _zoom = zoom;
+    await _controller?.animateCamera(
+      CameraUpdate.newLatLngZoom(_center, _zoom),
+    );
+  }
+
+  Future<void> _changeZoom(double change) async {
+    _zoom = (_zoom + change).clamp(3.0, 20.0);
+    await _controller?.animateCamera(CameraUpdate.zoomTo(_zoom));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final located = employees
-        .where((e) => e.lat != null && e.lng != null)
-        .toList();
-    final center = located.isNotEmpty
-        ? LatLng(located.first.lat!, located.first.lng!)
-        : _delhiCenter;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: center, zoom: 11),
-        mapToolbarEnabled: false,
-        markers: located
-            .map(
-              (employee) => Marker(
-                markerId: MarkerId(employee.id),
-                position: LatLng(employee.lat!, employee.lng!),
-                infoWindow: InfoWindow(
-                  title: employee.name,
-                  snippet:
-                      employee.address ?? 'Location not yet reverse-geocoded',
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: _center, zoom: _zoom),
+            onMapCreated: (controller) {
+              _controller = controller;
+              widget.onMapCreated?.call(controller);
+              if (widget.highlightedEmployee == null && _officeCenter != null) {
+                controller.animateCamera(
+                  CameraUpdate.newLatLngZoom(_officeCenter!, 15),
+                );
+              }
+            },
+            mapToolbarEnabled: false,
+            circles: {
+              if (_officeCenter != null && (_officeRadiusMeters ?? 0) > 0)
+                Circle(
+                  circleId: const CircleId('__office_geofence__'),
+                  center: _officeCenter!,
+                  radius: _officeRadiusMeters!,
+                  strokeColor: HrmsColors.blue,
+                  strokeWidth: 2,
+                  fillColor: HrmsColors.blue.withValues(alpha: 0.12),
                 ),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  _markerHue(employee.mode),
+            },
+            markers: {
+              ..._located.map(
+                (employee) => Marker(
+                  markerId: MarkerId(employee.id),
+                  position: LatLng(employee.lat!, employee.lng!),
+                  infoWindow: InfoWindow(
+                    title: employee.name,
+                    snippet:
+                        employee.address ?? 'Location not yet reverse-geocoded',
+                  ),
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                    _markerHue(employee.mode),
+                  ),
+                  onTap: () => widget.onViewRoute(employee),
                 ),
-                onTap: () => onViewRoute(employee),
               ),
-            )
-            .toSet(),
+              if (_officeCenter != null)
+                Marker(
+                  markerId: const MarkerId('__office__'),
+                  position: _officeCenter!,
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueAzure,
+                  ),
+                  infoWindow: InfoWindow(
+                    title: 'Office Location',
+                    snippet: _officeAddress?.trim().isNotEmpty == true
+                        ? _officeAddress
+                        : 'Configured office geofence',
+                  ),
+                ),
+              if (widget.highlightedEmployee?.homeLat != null &&
+                  widget.highlightedEmployee?.homeLng != null)
+                Marker(
+                  markerId: const MarkerId('__home__'),
+                  position: LatLng(
+                    widget.highlightedEmployee!.homeLat!,
+                    widget.highlightedEmployee!.homeLng!,
+                  ),
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueGreen,
+                  ),
+                  infoWindow: InfoWindow(
+                    title: '${widget.highlightedEmployee!.name} – Home',
+                    snippet:
+                        widget.highlightedEmployee!.homeAddress ??
+                        'Approved home location',
+                  ),
+                ),
+            },
+          ),
+          Positioned(
+            right: 10,
+            top: 10,
+            child: Column(
+              children: [
+                _mapControl(
+                  Icons.gps_fixed_rounded,
+                  'Recenter live locations',
+                  () => _moveTo(_initialCenter, 11),
+                ),
+                const SizedBox(height: 8),
+                _mapControl(Icons.add_rounded, 'Zoom in', () => _changeZoom(1)),
+                const SizedBox(height: 8),
+                _mapControl(
+                  Icons.remove_rounded,
+                  'Zoom out',
+                  () => _changeZoom(-1),
+                ),
+              ],
+            ),
+          ),
+          if (widget.showEmptyOverlay &&
+              _located.isEmpty &&
+              _officeCenter == null &&
+              (widget.highlightedEmployee?.homeLat == null ||
+                  widget.highlightedEmployee?.homeLng == null))
+            const Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xCCFFFFFF),
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'No live locations for this filter yet',
+                    style: TextStyle(
+                      color: HrmsColors.navy,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
+
+  Widget _mapControl(IconData icon, String label, VoidCallback action) =>
+      Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        elevation: 2,
+        child: IconButton(
+          tooltip: label,
+          onPressed: action,
+          icon: Icon(icon, color: HrmsColors.blue),
+        ),
+      );
 
   double _markerHue(String mode) => switch (mode) {
     'Office' => BitmapDescriptor.hueAzure,
     'Home' => BitmapDescriptor.hueGreen,
     _ => BitmapDescriptor.hueOrange,
   };
+}
+
+class _LiveMapFullscreen extends StatelessWidget {
+  const _LiveMapFullscreen({
+    required this.employees,
+    required this.onViewRoute,
+  });
+  final List<_TrackedEmployee> employees;
+  final ValueChanged<_TrackedEmployee> onViewRoute;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: SafeArea(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: _LiveMap(employees: employees, onViewRoute: onViewRoute),
+          ),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              child: IconButton(
+                tooltip: 'Close full screen map',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded, color: HrmsColors.navy),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _ModeButton extends StatelessWidget {
@@ -974,25 +2157,32 @@ class _TrackedEmployeesPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               clipBehavior: Clip.antiAlias,
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: 650,
-                    child: Column(
-                      children: [
-                        const _TrackingTableHeader(),
-                        ...employees.map(
-                          (employee) => _TrackingRow(
-                            employee: employee,
-                            onViewRoute: onViewRoute,
-                            onViewActivity: onViewActivity,
-                          ),
+              child: LayoutBuilder(
+                builder: (_, c) {
+                  const minW = 560.0;
+                  final tableW = c.maxWidth < minW ? minW : c.maxWidth;
+                  return SingleChildScrollView(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: tableW,
+                        child: Column(
+                          children: [
+                            _TrackingTableHeader(width: tableW),
+                            ...employees.map(
+                              (employee) => _TrackingRow(
+                                employee: employee,
+                                tableWidth: tableW,
+                                onViewRoute: onViewRoute,
+                                onViewActivity: onViewActivity,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -1119,113 +2309,102 @@ class _MobileTrackedList extends StatelessWidget {
 }
 
 class _TrackingTableHeader extends StatelessWidget {
-  const _TrackingTableHeader();
+  const _TrackingTableHeader({this.width = 560});
+  final double width;
+
   @override
-  Widget build(BuildContext context) => Container(
-    height: 42,
-    color: const Color(0xFFFCFCFD),
-    child: const Row(
-      children: [
-        _TrackingCell(width: 220, child: Text('Employee', style: _headStyle)),
-        _TrackingCell(
-          width: 220,
-          child: Text('Current Location', style: _headStyle),
-        ),
-        _TrackingCell(width: 110, child: Text('Status', style: _headStyle)),
-        _TrackingCell(width: 100, child: Text('Actions', style: _headStyle)),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final c = _colWidths(width);
+    return Container(
+      width: width,
+      height: 42,
+      color: const Color(0xFFFCFCFD),
+      child: Row(
+        children: [
+          _TrackingCell(
+            width: c[0],
+            child: const Text('Employee', style: _headStyle),
+          ),
+          _TrackingCell(
+            width: c[1],
+            child: const Text('Current Location', style: _headStyle),
+          ),
+          _TrackingCell(
+            width: c[2],
+            child: const Text('Status', style: _headStyle),
+          ),
+          _TrackingCell(
+            width: c[3],
+            child: const Text('Actions', style: _headStyle),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+// Proportional column widths: Employee 34%, Location 34%, Status 17%, Actions 15%
+List<double> _colWidths(double total) => [
+  total * 0.34,
+  total * 0.34,
+  total * 0.17,
+  total * 0.15,
+];
 
 class _TrackingRow extends StatelessWidget {
   const _TrackingRow({
     required this.employee,
     required this.onViewRoute,
     required this.onViewActivity,
+    this.tableWidth = 560,
   });
   final _TrackedEmployee employee;
   final ValueChanged<_TrackedEmployee> onViewRoute;
   final ValueChanged<_TrackedEmployee> onViewActivity;
+  final double tableWidth;
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 59,
-    decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Color(0xFFE5E8EF))),
-    ),
-    child: Row(
-      children: [
-        _TrackingCell(
-          width: 220,
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 19,
-                backgroundColor: const Color(0xFFE8EEF8),
-                child: Text(
-                  employee.name.isNotEmpty
-                      ? employee.name.substring(0, 1)
-                      : '?',
-                  style: const TextStyle(
-                    color: HrmsColors.navy,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    employee.name,
+  Widget build(BuildContext context) {
+    final c = _colWidths(tableWidth);
+    return Container(
+      width: tableWidth,
+      height: 59,
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFE5E8EF))),
+      ),
+      child: Row(
+        children: [
+          _TrackingCell(
+            width: c[0],
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 19,
+                  backgroundColor: const Color(0xFFE8EEF8),
+                  child: Text(
+                    employee.name.isNotEmpty
+                        ? employee.name.substring(0, 1)
+                        : '?',
                     style: const TextStyle(
-                      color: Color(0xFF303747),
-                      fontSize: 13,
+                      color: HrmsColors.navy,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  Text(
-                    employee.id,
-                    style: const TextStyle(
-                      color: Color(0xFF657087),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        _TrackingCell(
-          width: 220,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.location_on,
-                  color: HrmsColors.blue,
-                  size: 15,
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
+                const SizedBox(width: 12),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      employee.address ?? 'No location yet',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      employee.name,
                       style: const TextStyle(
                         color: Color(0xFF303747),
-                        fontSize: 12,
+                        fontSize: 13,
                       ),
                     ),
                     Text(
-                      employee.updatedLabel,
+                      employee.id,
                       style: const TextStyle(
                         color: Color(0xFF657087),
                         fontSize: 11,
@@ -1233,50 +2412,93 @@ class _TrackingRow extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        _TrackingCell(width: 110, child: _ActiveBadge(active: employee.active)),
-        _TrackingCell(
-          width: 100,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                tooltip: 'View route',
-                onPressed: () => onViewRoute(employee),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 40,
+          _TrackingCell(
+            width: c[1],
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.location_on,
+                    color: HrmsColors.blue,
+                    size: 15,
+                  ),
                 ),
-                icon: const Icon(
-                  Icons.map_outlined,
-                  color: HrmsColors.blue,
-                  size: 24,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        employee.address ?? 'No location yet',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF303747),
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        employee.updatedLabel,
+                        style: const TextStyle(
+                          color: Color(0xFF657087),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                tooltip: 'View activity history',
-                onPressed: () => onViewActivity(employee),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 40,
-                ),
-                icon: const Icon(
-                  Icons.history,
-                  color: Color(0xFF00AB84),
-                  size: 24,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+          _TrackingCell(
+            width: c[2],
+            child: _ActiveBadge(active: employee.active),
+          ),
+          _TrackingCell(
+            width: c[3],
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  tooltip: 'View route',
+                  onPressed: () => onViewRoute(employee),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 40,
+                  ),
+                  icon: const Icon(
+                    Icons.map_outlined,
+                    color: HrmsColors.blue,
+                    size: 24,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'View activity history',
+                  onPressed: () => onViewActivity(employee),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 40,
+                  ),
+                  icon: const Icon(
+                    Icons.history,
+                    color: Color(0xFF00AB84),
+                    size: 24,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TrackingCell extends StatelessWidget {
@@ -1317,6 +2539,31 @@ class _ActiveBadge extends StatelessWidget {
 /// `GET /api/hrms/tracking/live`. `mode` is normalized to 'Office' / 'Home'
 /// / 'Hybrid' (title case) to match the tab labels in this UI; the backend
 /// itself stores it lowercase.
+class _AttendanceDay {
+  const _AttendanceDay({
+    required this.date,
+    this.checkInAt,
+    this.status,
+    this.checkInLat,
+    this.checkInLng,
+  });
+  final String date;
+  final DateTime? checkInAt;
+  final String? status;
+  final double? checkInLat;
+  final double? checkInLng;
+
+  factory _AttendanceDay.fromApi(Map<String, dynamic> json) => _AttendanceDay(
+    date: '${json['date'] ?? ''}',
+    checkInAt: json['checkInAt'] != null
+        ? DateTime.tryParse('${json['checkInAt']}')?.toLocal()
+        : null,
+    status: json['status'] as String?,
+    checkInLat: (json['checkInLat'] as num?)?.toDouble(),
+    checkInLng: (json['checkInLng'] as num?)?.toDouble(),
+  );
+}
+
 class _TrackedEmployee {
   const _TrackedEmployee({
     required this.employeeUserId,
@@ -1328,6 +2575,25 @@ class _TrackedEmployee {
     this.lng,
     this.address,
     this.lastUpdated,
+    this.checkInAt,
+    this.checkOutAt,
+    this.isLate = false,
+    this.onBreak = false,
+    this.homeApprovalStatus,
+    this.homeDistanceMeters,
+    this.officeDistanceMeters,
+    this.homeRadiusMeters = 100,
+    this.officeRadiusMeters = 100,
+    this.accuracyMeters,
+    this.attendanceDate,
+    this.recentAttendance = const [],
+    this.workingMinutes,
+    this.sessionStatus,
+    this.checkInMethod,
+    this.attendanceStatus,
+    this.homeAddress,
+    this.homeLat,
+    this.homeLng,
   });
 
   final int? employeeUserId;
@@ -1336,6 +2602,27 @@ class _TrackedEmployee {
   final double? lat, lng;
   final String? address;
   final DateTime? lastUpdated;
+
+  // Extended fields for desktop new UI
+  final DateTime? checkInAt;
+  final DateTime? checkOutAt;
+  final bool isLate;
+  final bool onBreak;
+  final String? homeApprovalStatus;
+  final double? homeDistanceMeters;
+  final double? officeDistanceMeters;
+  final double homeRadiusMeters;
+  final double officeRadiusMeters;
+  final double? accuracyMeters;
+  final String? attendanceDate;
+  final List<_AttendanceDay> recentAttendance;
+  final int? workingMinutes;
+  final String? sessionStatus;
+  final String? checkInMethod;
+  final String? attendanceStatus;
+  final String? homeAddress;
+  final double? homeLat;
+  final double? homeLng;
 
   factory _TrackedEmployee.fromApi(Map<String, dynamic> json) {
     final rawStatus = (json['status'] ?? 'office').toString();
@@ -1350,6 +2637,15 @@ class _TrackedEmployee {
     final lastUpdated = rawUpdated != null
         ? DateTime.tryParse(rawUpdated.toString())
         : null;
+    final rawCheckIn = json['checkInAt'] ?? json['check_in_at'];
+    final checkInAt = rawCheckIn != null
+        ? DateTime.tryParse('$rawCheckIn')?.toLocal()
+        : null;
+    final rawCheckOut = json['checkOutAt'] ?? json['check_out_at'];
+    final checkOutAt = rawCheckOut != null
+        ? DateTime.tryParse('$rawCheckOut')?.toLocal()
+        : null;
+    final recentRaw = json['recentAttendance'] as List? ?? [];
     return _TrackedEmployee(
       employeeUserId: json['employeeUserId'] is int
           ? json['employeeUserId'] as int
@@ -1364,6 +2660,59 @@ class _TrackedEmployee {
           ? null
           : json['address'] as String?,
       lastUpdated: lastUpdated,
+      checkInAt: checkInAt,
+      checkOutAt: checkOutAt,
+      isLate: json['isLate'] == true || json['is_late'] == true,
+      onBreak: json['onBreak'] == true || json['on_break'] == true,
+      homeApprovalStatus:
+          json['homeApprovalStatus']?.toString() ??
+          json['home_approval_status']?.toString(),
+      homeDistanceMeters:
+          (json['homeDistanceMeters'] as num?)?.toDouble() ??
+          (json['home_distance_meters'] as num?)?.toDouble(),
+      officeDistanceMeters:
+          (json['officeDistanceMeters'] as num?)?.toDouble() ??
+          (json['office_distance_meters'] as num?)?.toDouble(),
+      homeRadiusMeters:
+          (json['homeRadiusMeters'] as num?)?.toDouble() ??
+          (json['home_radius_meters'] as num?)?.toDouble() ??
+          100,
+      officeRadiusMeters:
+          (json['officeRadiusMeters'] as num?)?.toDouble() ??
+          (json['office_radius_meters'] as num?)?.toDouble() ??
+          100,
+      accuracyMeters:
+          (json['accuracyMeters'] as num?)?.toDouble() ??
+          (json['accuracy_meters'] as num?)?.toDouble(),
+      attendanceDate:
+          json['attendanceDate']?.toString() ??
+          json['attendance_date']?.toString(),
+      recentAttendance: recentRaw
+          .whereType<Map>()
+          .map(
+            (item) => _AttendanceDay.fromApi(Map<String, dynamic>.from(item)),
+          )
+          .toList(),
+      workingMinutes:
+          (json['workingMinutes'] as num?)?.toInt() ??
+          (json['working_minutes'] as num?)?.toInt(),
+      sessionStatus:
+          json['sessionStatus']?.toString() ??
+          json['session_status']?.toString(),
+      checkInMethod:
+          json['checkInMethod']?.toString() ??
+          json['check_in_method']?.toString(),
+      attendanceStatus:
+          json['attendanceStatus']?.toString() ??
+          json['attendance_status']?.toString(),
+      homeAddress:
+          json['homeAddress']?.toString() ?? json['home_address']?.toString(),
+      homeLat:
+          (json['homeLatitude'] as num?)?.toDouble() ??
+          (json['home_latitude'] as num?)?.toDouble(),
+      homeLng:
+          (json['homeLongitude'] as num?)?.toDouble() ??
+          (json['home_longitude'] as num?)?.toDouble(),
     );
   }
 
@@ -1403,9 +2752,13 @@ class _AdminRoutePanel extends StatefulWidget {
   const _AdminRoutePanel({
     required this.employee,
     required this.onReturnToLiveMap,
+    this.mode,
+    this.onModeChanged,
   });
   final _TrackedEmployee employee;
   final VoidCallback onReturnToLiveMap;
+  final String? mode;
+  final ValueChanged<String>? onModeChanged;
   @override
   State<_AdminRoutePanel> createState() => _AdminRoutePanelState();
 }
@@ -1547,6 +2900,7 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
             ),
           ),
     };
+    final isMobileWidth = MediaQuery.sizeOf(context).width < 600;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1557,31 +2911,90 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${widget.employee.name} — Route history',
-                  style: const TextStyle(
-                    color: HrmsColors.navy,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
+          if (isMobileWidth) ...[
+            Text(
+              widget.employee.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: HrmsColors.navy,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Text(
+              'Route history',
+              style: TextStyle(color: Color(0xFF657087), fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: widget.onReturnToLiveMap,
+                    icon: const Icon(Icons.arrow_back, size: 16),
+                    label: const Text('Back to Live Map'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
                   ),
                 ),
-              ),
-              OutlinedButton.icon(
-                onPressed: widget.onReturnToLiveMap,
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Back to Live Map'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: _pick,
-                icon: const Icon(Icons.calendar_month_outlined),
-                label: Text(DateFormat('dd MMM yyyy').format(_date)),
-              ),
-            ],
-          ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pick,
+                    icon: const Icon(Icons.calendar_month_outlined, size: 16),
+                    label: Text(
+                      DateFormat('dd MMM yyyy').format(_date),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${widget.employee.name} — Route history',
+                    style: const TextStyle(
+                      color: HrmsColors.navy,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: widget.onReturnToLiveMap,
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('Back to Live Map'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _pick,
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  label: Text(DateFormat('dd MMM yyyy').format(_date)),
+                ),
+              ],
+            ),
+          if (widget.mode != null && widget.onModeChanged != null) ...[
+            const SizedBox(height: 12),
+            _MapModeTabs(
+              mode: widget.mode!,
+              onModeChanged: widget.onModeChanged!,
+            ),
+          ],
           const SizedBox(height: 14),
           if (_loading)
             const SizedBox(
@@ -1779,8 +3192,9 @@ class _AdminRouteSummaryMetric extends StatelessWidget {
 }
 
 class _EmployeeActivityDialog extends StatefulWidget {
-  const _EmployeeActivityDialog({required this.employee});
+  const _EmployeeActivityDialog({required this.employee, required this.date});
   final _TrackedEmployee employee;
+  final DateTime date;
 
   @override
   State<_EmployeeActivityDialog> createState() =>
@@ -1810,7 +3224,7 @@ class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
     try {
       final data = await HrmsTrackingApi.route(
         employeeUserId: employeeUserId,
-        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        date: DateFormat('yyyy-MM-dd').format(widget.date),
       );
       if (!mounted) return;
       setState(() {
@@ -1844,125 +3258,131 @@ class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => Dialog(
-    backgroundColor: const Color(0xFFF9F9FF),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 650, maxHeight: 540),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(26, 24, 26, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${widget.employee.name} — Today\'s Activity',
-                    style: const TextStyle(
-                      color: HrmsColors.navy,
-                      fontSize: 21,
-                      fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) {
+    final screenH = MediaQuery.sizeOf(context).height;
+    return Dialog(
+      backgroundColor: const Color(0xFFF9F9FF),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 650, maxHeight: screenH * 0.85),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(26, 24, 26, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${widget.employee.name} — Activity',
+                      style: const TextStyle(
+                        color: HrmsColors.navy,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close, size: 28),
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFEDEDF4),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 28),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFEDEDF4),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '${_activities.length} location update(s) today',
-              style: const TextStyle(color: Color(0xFF657087), fontSize: 14),
-            ),
-            const SizedBox(height: 18),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0F3FA),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: const Row(
-                children: [
-                  SizedBox(
-                    width: 92,
-                    child: Text('TIME', style: _activityHeaderStyle),
-                  ),
-                  Text('PLACE', style: _activityHeaderStyle),
                 ],
               ),
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? Center(
-                      child: Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    )
-                  : _activities.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No GPS activity recorded today.',
-                        style: TextStyle(
-                          color: Color(0xFF657087),
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: _activities.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1, color: Color(0xFFE2E6ED)),
-                      itemBuilder: (_, index) {
-                        final item = _activities[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 14,
-                          ),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 92,
-                                child: Text(
-                                  _displayTime(item['recordedAt']),
-                                  style: const TextStyle(
-                                    color: HrmsColors.navy,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  _displayPlace(item['placeName']),
-                                  style: const TextStyle(
-                                    color: Color(0xFF3E4658),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+              const SizedBox(height: 10),
+              Text(
+                '${_activities.length} location update(s) on ${DateFormat('dd MMM yyyy').format(widget.date)}',
+                style: const TextStyle(color: Color(0xFF657087), fontSize: 14),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 13,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F3FA),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Row(
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text('TIME', style: _activityHeaderStyle),
                     ),
-            ),
-          ],
+                    Text('PLACE', style: _activityHeaderStyle),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                    ? Center(
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      )
+                    : _activities.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No GPS activity recorded for this date.',
+                          style: TextStyle(
+                            color: Color(0xFF657087),
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: _activities.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1, color: Color(0xFFE2E6ED)),
+                        itemBuilder: (_, index) {
+                          final item = _activities[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 14,
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 92,
+                                  child: Text(
+                                    _displayTime(item['recordedAt']),
+                                    style: const TextStyle(
+                                      color: HrmsColors.navy,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    _displayPlace(item['placeName']),
+                                    style: const TextStyle(
+                                      color: Color(0xFF3E4658),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 const _activityHeaderStyle = TextStyle(
@@ -2167,8 +3587,14 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   final _radius = TextEditingController();
   bool _loading = true;
   bool _saving = false;
-  bool _homeTrackingEnabled = true;
+  bool _gpsLoading = false;
   String? _error;
+
+  static const _blue = Color(0xFF075EF7);
+  static const _navy = Color(0xFF061457);
+  static const _muted = Color(0xFF657087);
+  static const _line = Color(0xFFE3E9F4);
+  static const _inputBorder = Color(0xFFD0DBEE);
 
   @override
   void initState() {
@@ -2215,11 +3641,53 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        final message = error.toString().replaceFirst('Exception: ', '');
-        _error = message.contains('Route not found')
+        final msg = error.toString().replaceFirst('Exception: ', '');
+        _error = msg.contains('Route not found')
             ? 'The running backend is an older version. Start the backend from Go-digital-software, then Retry.'
-            : message;
+            : msg;
       });
+    }
+  }
+
+  Future<void> _captureGps() async {
+    if (_gpsLoading || _saving) return;
+    setState(() {
+      _gpsLoading = true;
+      _error = null;
+    });
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) throw Exception('Location services are disabled.');
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permission denied.');
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission permanently denied. Enable it in Settings.',
+        );
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      if (!mounted) return;
+      final point = LatLng(pos.latitude, pos.longitude);
+      setState(() {
+        _pin = point;
+        _latitude.text = pos.latitude.toStringAsFixed(7);
+        _longitude.text = pos.longitude.toStringAsFixed(7);
+      });
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(point, 17));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _gpsLoading = false);
     }
   }
 
@@ -2264,93 +3732,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       if (address != null) _address.text = address;
       _matches = [];
     });
-    if (address != null) {
+    if (address != null)
       _mapController?.animateCamera(CameraUpdate.newLatLngZoom(point, 17));
-    }
   }
-
-  Widget _mapPicker() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      TextField(
-        controller: _search,
-        enabled: !_saving && !_searching,
-        onSubmitted: (_) => _findAddress(),
-        decoration: InputDecoration(
-          labelText: 'Search office address',
-          hintText: 'Street, city or postcode',
-          prefixIcon: const Icon(Icons.search),
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            tooltip: 'Find address',
-            onPressed: _saving || _searching ? null : _findAddress,
-            icon: const Icon(Icons.arrow_forward),
-          ),
-        ),
-      ),
-      if (_searching) const LinearProgressIndicator(),
-      if (_searchError != null)
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
-        ),
-      for (final match in _matches)
-        ListTile(
-          leading: const Icon(Icons.place_outlined),
-          title: Text('${match['address']}'),
-          onTap: () => _selectPin(
-            LatLng(match['latitude'] as double, match['longitude'] as double),
-            address: match['address'] as String,
-          ),
-        ),
-      const SizedBox(height: 12),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: SizedBox(
-          height: 270,
-          child: GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _pin ?? const LatLng(20.5937, 78.9629),
-              zoom: _pin == null ? 4 : 17,
-            ),
-            onMapCreated: (controller) => _mapController = controller,
-            onTap: _saving ? null : _selectPin,
-            mapToolbarEnabled: false,
-            markers: {
-              if (_pin != null)
-                Marker(
-                  markerId: const MarkerId('office-location'),
-                  position: _pin!,
-                  draggable: !_saving,
-                  onDragEnd: _selectPin,
-                  infoWindow: const InfoWindow(title: 'Office entrance'),
-                ),
-            },
-            circles: {
-              if (_pin != null)
-                Circle(
-                  circleId: const CircleId('office-radius'),
-                  center: _pin!,
-                  radius: (int.tryParse(_radius.text) ?? 100)
-                      .clamp(1, 100000)
-                      .toDouble(),
-                  strokeColor: HrmsColors.blue,
-                  strokeWidth: 2,
-                  fillColor: HrmsColors.blue.withValues(alpha: 0.12),
-                ),
-            },
-          ),
-        ),
-      ),
-      const SizedBox(height: 8),
-      Text(
-        _pin == null
-            ? 'Search and select an address, or tap the map to place your office pin.'
-            : 'Drag the pin to the office entrance. Coordinates are filled automatically.',
-        style: const TextStyle(color: Color(0xFF657087), fontSize: 12),
-      ),
-    ],
-  );
 
   Future<void> _save() async {
     if (!_loaded || _saving || _searching) return;
@@ -2372,7 +3756,8 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         radius == null ||
         radius < 1) {
       setState(
-        () => _error = 'Enter an office name and address, select its map pin, and enter a valid radius.',
+        () => _error =
+            'Enter an office name and address, select a map pin, and enter a valid radius.',
       );
       return;
     }
@@ -2404,122 +3789,477 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
     }
   }
 
-  Widget _field(
-    TextEditingController controller,
-    String label, {
-    TextInputType? type,
-  }) {
-    return TextField(
-      controller: controller,
-      enabled: !_saving,
-      keyboardType: type,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
-    );
-  }
+  // ── helpers ──────────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-    titlePadding: EdgeInsets.zero,
-    title: Container(
-      padding: const EdgeInsets.all(22),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF075EF7), Color(0xFF123DA8)],
+  InputDecoration _dec(String label, {String? helper}) => InputDecoration(
+    labelText: label,
+    labelStyle: const TextStyle(color: _muted, fontSize: 13),
+    helperText: helper,
+    helperStyle: const TextStyle(color: _muted, fontSize: 11),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: _inputBorder),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: _blue, width: 1.5),
+    ),
+    disabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: _inputBorder),
+    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+    filled: true,
+    fillColor: Colors.white,
+  );
+
+  Widget _searchBar() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _inputBorder),
         ),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        child: Row(
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(left: 12),
+              child: Icon(Icons.search, color: _muted, size: 20),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _search,
+                enabled: !_saving && !_searching,
+                onSubmitted: (_) => _findAddress(),
+                style: const TextStyle(fontSize: 14, color: _navy),
+                decoration: const InputDecoration(
+                  hintText: 'Search office address',
+                  hintStyle: TextStyle(color: _muted, fontSize: 14),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ),
+            InkWell(
+              onTap: _saving || _searching ? null : _findAddress,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
+                child: const Icon(Icons.arrow_forward, color: _navy, size: 20),
+              ),
+            ),
+          ],
+        ),
       ),
-      child: const Row(
-        children: [
-          Icon(Icons.location_on_outlined, color: Colors.white),
-          SizedBox(width: 10),
-          Text('Manage Office Location', style: TextStyle(color: Colors.white)),
-        ],
+      if (_searching)
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: LinearProgressIndicator(),
+        ),
+      if (_searchError != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            _searchError!,
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
+        ),
+      for (final match in _matches)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.place_outlined, size: 18),
+          title: Text(
+            '${match['address']}',
+            style: const TextStyle(fontSize: 13),
+          ),
+          onTap: () => _selectPin(
+            LatLng(match['latitude'] as double, match['longitude'] as double),
+            address: match['address'] as String,
+          ),
+        ),
+    ],
+  );
+
+  Widget _map() => ClipRRect(
+    borderRadius: BorderRadius.circular(12),
+    child: SizedBox(
+      height: 180,
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: _pin ?? const LatLng(20.5937, 78.9629),
+          zoom: _pin == null ? 4 : 17,
+        ),
+        onMapCreated: (c) => _mapController = c,
+        onTap: _saving ? null : _selectPin,
+        mapToolbarEnabled: false,
+        markers: {
+          if (_pin != null)
+            Marker(
+              markerId: const MarkerId('office-location'),
+              position: _pin!,
+              draggable: !_saving,
+              onDragEnd: _selectPin,
+              infoWindow: const InfoWindow(title: 'Office entrance'),
+            ),
+        },
+        circles: {
+          if (_pin != null)
+            Circle(
+              circleId: const CircleId('office-radius'),
+              center: _pin!,
+              radius: (int.tryParse(_radius.text) ?? 100)
+                  .clamp(1, 100000)
+                  .toDouble(),
+              strokeColor: _blue,
+              strokeWidth: 2,
+              fillColor: _blue.withValues(alpha: 0.12),
+            ),
+        },
       ),
     ),
-    content: SizedBox(
-      width: 620,
-      child: _loading
-          ? const SizedBox(
-              height: 220,
-              child: Center(child: CircularProgressIndicator()),
+  );
+
+  Widget _gpsButton({bool fullWidth = false}) {
+    final btn = OutlinedButton.icon(
+      onPressed: (_gpsLoading || _saving) ? null : _captureGps,
+      icon: _gpsLoading
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: _blue),
             )
-          : SingleChildScrollView(
+          : const Icon(Icons.my_location_rounded, size: 18),
+      label: Text(_gpsLoading ? 'Getting GPS...' : 'Capture Current GPS'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _blue,
+        side: const BorderSide(color: _blue),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      ),
+    );
+    if (fullWidth) return SizedBox(width: double.infinity, child: btn);
+    return btn;
+  }
+
+  Widget _body(bool isMobile) => SingleChildScrollView(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Office name
+        TextField(
+          controller: _name,
+          enabled: !_saving,
+          style: const TextStyle(color: _navy, fontSize: 14),
+          decoration: _dec('Office / branch name'),
+        ),
+        const SizedBox(height: 14),
+        // Search bar
+        _searchBar(),
+        const SizedBox(height: 12),
+        // GPS button
+        if (isMobile) ...[
+          _gpsButton(fullWidth: true),
+          const SizedBox(height: 6),
+          const Text(
+            'Use this device\'s current location.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _muted, fontSize: 12),
+          ),
+        ] else
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Use this device\'s current location',
+                style: TextStyle(color: _muted, fontSize: 12),
+              ),
+              _gpsButton(),
+            ],
+          ),
+        const SizedBox(height: 12),
+        // Map
+        _map(),
+        const SizedBox(height: 8),
+        Text(
+          _pin == null
+              ? 'Search and select an address, or tap the map to place your office pin.'
+              : 'Drag the pin to the office entrance. Coordinates are filled automatically.',
+          style: const TextStyle(color: _muted, fontSize: 12),
+        ),
+        const SizedBox(height: 14),
+        // Lat / Lng side-by-side
+        Row(
+          children: [
+            Expanded(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Find your office and place the pin at its entrance. Employees can clock in within the highlighted area.',
-                    style: TextStyle(color: Color(0xFF657087), height: 1.4),
+                    'Latitude',
+                    style: TextStyle(
+                      color: _navy,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                  const SizedBox(height: 18),
-                  _field(_name, 'Office / branch name'),
-                  const SizedBox(height: 14),
-                  _mapPicker(),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 6),
                   TextField(
-                    controller: _address,
+                    controller: _latitude,
                     enabled: !_saving,
-                    minLines: 2,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Full office address',
-                      border: OutlineInputBorder(),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
                     ),
+                    style: const TextStyle(color: _navy, fontSize: 14),
+                    decoration: _dec(''),
                   ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _radius,
-                    enabled: !_saving,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Allowed Clock In radius (metres)',
-                      border: OutlineInputBorder(),
-                      helperText: 'This distance also applies to approved home locations.',
-                    ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Longitude',
+                    style: TextStyle(
+                      color: _navy,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _longitude,
+                    enabled: !_saving,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
+                    ),
+                    style: const TextStyle(color: _navy, fontSize: 14),
+                    decoration: _dec(''),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        // Full address
+        const Text(
+          'Full office address',
+          style: TextStyle(
+            color: _navy,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _address,
+          enabled: !_saving,
+          minLines: 2,
+          maxLines: 3,
+          style: const TextStyle(color: _navy, fontSize: 14),
+          decoration: _dec(''),
+        ),
+        const SizedBox(height: 14),
+        // Radius
+        TextField(
+          controller: _radius,
+          enabled: !_saving,
+          keyboardType: TextInputType.number,
+          onChanged: (_) => setState(() {}),
+          style: const TextStyle(color: _navy, fontSize: 14),
+          decoration: _dec(
+            'Allowed Check In radius (metres)',
+            helper: 'This distance also applies to approved home locations.',
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _error!,
+            style: const TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ],
+        const SizedBox(height: 4),
+      ],
     ),
-    actionsPadding: const EdgeInsets.fromLTRB(22, 0, 22, 20),
-    actions: [
-      if (!_loaded && !_loading)
-        TextButton(onPressed: _load, child: const Text('Retry')),
-      TextButton(
-        onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-        child: const Text('Cancel'),
-      ),
-      FilledButton.icon(
-        onPressed: _saving || _loading || !_loaded || _searching ? null : _save,
-        icon: _saving
-            ? const SizedBox.square(
-                dimension: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(Icons.save_outlined),
-        label: Text(_saving ? 'Saving...' : 'Save Location'),
-      ),
-    ],
   );
+
+  Widget _footer(bool isMobile) => Container(
+    padding: EdgeInsets.fromLTRB(
+      isMobile ? 14 : 20,
+      10,
+      isMobile ? 14 : 20,
+      isMobile ? 14 : 14,
+    ),
+    decoration: const BoxDecoration(
+      border: Border(top: BorderSide(color: _line)),
+      color: Colors.white,
+      borderRadius: BorderRadius.vertical(bottom: Radius.circular(22)),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        if (!_loaded && !_loading)
+          TextButton(onPressed: _load, child: const Text('Retry')),
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          style: TextButton.styleFrom(foregroundColor: _navy),
+          child: const Text('Cancel'),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          onPressed: _saving || _loading || !_loaded || _searching
+              ? null
+              : _save,
+          style: FilledButton.styleFrom(
+            backgroundColor: _blue,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          ),
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.save_outlined, size: 16),
+          label: Text(
+            _saving ? 'Saving...' : 'Save Location',
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _header() => Container(
+    padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: _line)),
+      color: Colors.white,
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8EFFE),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.location_on_rounded, color: _blue, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Manage Office Location',
+                style: TextStyle(
+                  color: _navy,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Configure the company office geofence used for employee clock-in',
+                style: TextStyle(color: _muted, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          icon: const Icon(Icons.close, color: _muted, size: 20),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
+    if (isMobile) {
+      return Dialog(
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _header(),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                child: _loading
+                    ? const SizedBox(
+                        height: 220,
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : _body(true),
+              ),
+            ),
+            _footer(true),
+          ],
+        ),
+      );
+    }
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680, maxHeight: 820),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _header(),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                child: _loading
+                    ? const SizedBox(
+                        height: 220,
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : _body(false),
+              ),
+            ),
+            _footer(false),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _FieldWaitingSettingsDialog extends StatefulWidget {
@@ -2532,226 +4272,550 @@ class _FieldWaitingSettingsDialog extends StatefulWidget {
 
 class _FieldWaitingSettingsDialogState
     extends State<_FieldWaitingSettingsDialog> {
-  final _waitingController = TextEditingController();
-  final _radiusController = TextEditingController();
-  final _pingController = TextEditingController();
-  final _officeOutsideRadiusGraceController = TextEditingController();
-  final _homeOutsideRadiusGraceController = TextEditingController();
+  final _waitingCtrl = TextEditingController();
+  final _stationaryCtrl = TextEditingController();
+  final _pingCtrl = TextEditingController();
+  final _officeGraceCtrl = TextEditingController();
+  final _officeNoGpsCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
-  bool _homeTrackingEnabled = true;
+  DateTime? _lastUpdated;
   String? _error;
+
+  static const _blue = Color(0xFF0B5FFF);
+  static const _navy = Color(0xFF061457);
+  static const _muted = Color(0xFF657087);
+  static const _line = Color(0xFFE3E9F4);
+  static const _cardBg = Colors.white;
+  static const _cardBorder = Color(0xFFE0E8F8);
+  static const _iconBg = Color(0xFFFFF0E0);
+  static const _iconColor = Color(0xFFE07A00);
+  static const _infoBg = Color(0xFFEFF4FF);
+  static const _infoBorder = Color(0xFFBFD1FF);
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _load();
   }
 
   @override
   void dispose() {
-    _waitingController.dispose();
-    _radiusController.dispose();
-    _pingController.dispose();
-    _officeOutsideRadiusGraceController.dispose();
-    _homeOutsideRadiusGraceController.dispose();
+    _waitingCtrl.dispose();
+    _stationaryCtrl.dispose();
+    _pingCtrl.dispose();
+    _officeGraceCtrl.dispose();
+    _officeNoGpsCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadSettings() async {
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final data = await HrmsTrackingApi.trackingSettings();
-
       if (!mounted) return;
-
       setState(() {
-        _waitingController.text = '${data['field_waiting_minutes'] ?? ''}';
-        _radiusController.text = '${data['stationary_radius_meters'] ?? ''}';
-        _pingController.text = '${data['field_ping_interval_minutes'] ?? ''}';
-        _officeOutsideRadiusGraceController.text =
-            '${data['office_outside_radius_grace_minutes'] ?? ''}';
-        _homeOutsideRadiusGraceController.text =
-            '${data['home_outside_radius_grace_minutes'] ?? ''}';
-        _homeTrackingEnabled = data['home_tracking_enabled'] != 0;
+        _waitingCtrl.text = '${data['field_waiting_minutes'] ?? 60}';
+        _stationaryCtrl.text = '${data['stationary_radius_meters'] ?? 50}';
+        _pingCtrl.text = '${data['field_ping_interval_minutes'] ?? 15}';
+        _officeGraceCtrl.text =
+            '${data['office_outside_radius_grace_minutes'] ?? 5}';
+        _officeNoGpsCtrl.text =
+            '${data['office_no_gps_timeout_minutes'] ?? 30}';
+        final updated = data['updated_at'];
+        _lastUpdated = updated != null ? DateTime.tryParse('$updated') : null;
         _loading = false;
       });
-    } catch (error) {
+    } catch (e) {
       if (!mounted) return;
-
       setState(() {
         _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
   Future<void> _save() async {
-    final waitingMinutes = int.tryParse(_waitingController.text.trim());
-    final stationaryRadius = int.tryParse(_radiusController.text.trim());
-    final pingInterval = int.tryParse(_pingController.text.trim());
-    final officeOutsideRadiusGrace = int.tryParse(
-      _officeOutsideRadiusGraceController.text.trim(),
-    );
-    final homeOutsideRadiusGrace = int.tryParse(
-      _homeOutsideRadiusGraceController.text.trim(),
-    );
+    if (_saving) return;
+    final waiting = int.tryParse(_waitingCtrl.text.trim());
+    final stationary = int.tryParse(_stationaryCtrl.text.trim());
+    final ping = int.tryParse(_pingCtrl.text.trim());
+    final officeGrace = int.tryParse(_officeGraceCtrl.text.trim());
+    final officeNoGps = int.tryParse(_officeNoGpsCtrl.text.trim());
 
-    if (waitingMinutes == null ||
-        stationaryRadius == null ||
-        pingInterval == null ||
-        officeOutsideRadiusGrace == null ||
-        homeOutsideRadiusGrace == null ||
-        waitingMinutes < 1 ||
-        stationaryRadius < 1 ||
-        pingInterval < 1 ||
-        officeOutsideRadiusGrace < 1 ||
-        homeOutsideRadiusGrace < 1) {
-      setState(() {
-        _error = 'Enter valid numbers greater than zero.';
-      });
+    if (waiting == null ||
+        waiting < 1 ||
+        stationary == null ||
+        stationary < 1 ||
+        ping == null ||
+        ping < 1 ||
+        officeGrace == null ||
+        officeGrace < 1 ||
+        officeNoGps == null ||
+        officeNoGps < 1) {
+      setState(
+        () => _error = 'All fields must be whole numbers greater than zero.',
+      );
       return;
     }
-
     setState(() {
       _saving = true;
       _error = null;
     });
-
     try {
-      await HrmsTrackingApi.updateFieldWaitingSettings(
-        fieldWaitingMinutes: waitingMinutes,
-        stationaryRadiusMeters: stationaryRadius,
-        fieldPingIntervalMinutes: pingInterval,
-        officeOutsideRadiusGraceMinutes: officeOutsideRadiusGrace,
-        homeOutsideRadiusGraceMinutes: homeOutsideRadiusGrace,
-        homeTrackingEnabled: _homeTrackingEnabled,
+      await HrmsTrackingApi.updateHybridSettings(
+        fieldWaitingMinutes: waiting,
+        stationaryRadiusMeters: stationary,
+        fieldPingIntervalMinutes: ping,
+        officeOutsideRadiusGraceMinutes: officeGrace,
+        officeNoGpsTimeoutMinutes: officeNoGps,
       );
-
       if (!mounted) return;
-
-      Navigator.of(context).pop();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hybrid tracking settings saved')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
       setState(() {
         _saving = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _lastUpdated = DateTime.now();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hybrid tracking settings saved.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
-  Widget _numberField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
+  // ── widgets ───────────────────────────────────────────────────────────────
+
+  Widget _header() => Container(
+    padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(bottom: BorderSide(color: _line)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: _iconBg,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.home_work_rounded,
+            color: _iconColor,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Hybrid Settings',
+                style: TextStyle(
+                  color: _navy,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Configure tracking behaviour and checkout rules for Office and Hybrid employees.',
+                style: TextStyle(color: _muted, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close, color: _muted, size: 20),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        ),
+      ],
+    ),
+  );
+
+  Widget _infoBanner(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: _infoBg,
+      border: Border.all(color: _infoBorder),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.info_outline_rounded, color: _blue, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(color: _navy, fontSize: 12, height: 1.4),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _settingCard({
+    required IconData icon,
+    required String title,
+    required String desc,
+    required TextEditingController ctrl,
+    required String unit,
   }) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        border: const OutlineInputBorder(),
+    final isMins = unit == 'minute';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        border: Border.all(color: _cardBorder),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _iconBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: _iconColor, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: _navy,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      desc,
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: ctrl,
+            enabled: !_saving,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(
+              color: _navy,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              suffixText: isMins ? 'minute' : unit,
+              suffixStyle: const TextStyle(
+                color: _muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _cardBorder),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _blue, width: 1.5),
+              ),
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _cardBorder),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Row(
-      children: [
-        Icon(Icons.timer_outlined, color: HrmsColors.blue),
-        SizedBox(width: 10),
-        Text('Tracking and Checkout Settings'),
-      ],
-    ),
-    content: SizedBox(
-      width: 400,
-      child: _loading
-          ? const SizedBox(
-              height: 180,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+  String _lastUpdatedLabel() {
+    if (_lastUpdated == null) return '';
+    final diff = DateTime.now().difference(_lastUpdated!);
+    if (diff.inSeconds < 60) return 'Last updated just now';
+    if (diff.inMinutes < 60) return 'Last updated ${diff.inMinutes}m ago';
+    return 'Last updated ${diff.inHours}h ago';
+  }
+
+  Widget _footer() => LayoutBuilder(
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 400;
+      return Container(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: _line)),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(22)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+            Row(
               children: [
-                const Text(
-                  'Hybrid waiting uses the first three settings. Office/Hybrid and Home checkout grace are saved separately.',
-                  style: TextStyle(color: Color(0xFF657087), fontSize: 12),
-                ),
-                const SizedBox(height: 18),
-                _numberField(
-                  controller: _waitingController,
-                  label: 'Waiting time (minutes)',
-                  hint: 'Example: 60',
-                ),
-                const SizedBox(height: 14),
-                _numberField(
-                  controller: _radiusController,
-                  label: 'Stationary radius (metres)',
-                  hint: 'Example: 50',
-                ),
-                const SizedBox(height: 14),
-                _numberField(
-                  controller: _pingController,
-                  label: 'GPS update interval (minutes)',
-                  hint: 'Example: 15',
-                ),
-                const SizedBox(height: 14),
-                _numberField(
-                  controller: _officeOutsideRadiusGraceController,
-                  label: 'Office / Hybrid checkout grace (minutes)',
-                  hint: 'Admin setting',
-                ),
-                const SizedBox(height: 14),
-                _numberField(
-                  controller: _homeOutsideRadiusGraceController,
-                  label: 'Home checkout grace (minutes)',
-                  hint: 'Admin setting',
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Enable Home Tracking'),
-                  subtitle: const Text(
-                    'When off, Home tracking is hidden and blocked for employees.',
+                const Spacer(),
+                OutlinedButton(
+                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _navy,
+                    side: const BorderSide(color: _line),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                   ),
-                  value: _homeTrackingEnabled,
-                  onChanged: _saving
-                      ? null
-                      : (value) => setState(() => _homeTrackingEnabled = value),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 13)),
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red, fontSize: 12),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _loading || _saving ? null : _save,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _blue,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 12 : 18,
+                      vertical: 10,
+                    ),
                   ),
-                ],
+                  child: _saving
+                      ? const SizedBox.square(
+                          dimension: 15,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          compact ? 'Save' : 'Save Settings',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                ),
               ],
             ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _saving ? null : () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
-      ),
-      ElevatedButton(
-        onPressed: _loading || _saving ? null : _save,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: HrmsColors.blue,
-          foregroundColor: Colors.white,
+          ],
         ),
-        child: Text(_saving ? 'Saving...' : 'Save Settings'),
-      ),
-    ],
+      );
+    },
   );
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 12 : 24,
+        vertical: isMobile ? 12 : 20,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 780),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _header(),
+            Flexible(
+              child: _loading
+                  ? const SizedBox(
+                      height: 220,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : SingleChildScrollView(
+                      padding: EdgeInsets.all(isMobile ? 12 : 18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _infoBanner(
+                            'Hybrid waiting uses the first three tracking settings. '
+                            'Office/Hybrid and Home checkout grace are saved separately.',
+                          ),
+                          const SizedBox(height: 16),
+                          // 2×2 grid — wrap to single column on mobile
+                          if (isMobile) ...[
+                            _settingCard(
+                              icon: Icons.timer_outlined,
+                              title: 'Waiting Time',
+                              desc:
+                                  'Time an employee must remain stationary before a stop is detected.',
+                              ctrl: _waitingCtrl,
+                              unit: 'minute',
+                            ),
+                            const SizedBox(height: 12),
+                            _settingCard(
+                              icon: Icons.location_searching_rounded,
+                              title: 'Stationary Radius',
+                              desc:
+                                  'Movement within this radius is treated as one stationary location.',
+                              ctrl: _stationaryCtrl,
+                              unit: 'metres',
+                            ),
+                            const SizedBox(height: 12),
+                            _settingCard(
+                              icon: Icons.wifi_tethering_rounded,
+                              title: 'GPS Update Interval',
+                              desc:
+                                  "How often the employee's live location is refreshed.",
+                              ctrl: _pingCtrl,
+                              unit: 'minute',
+                            ),
+                            const SizedBox(height: 12),
+                            _settingCard(
+                              icon: Icons.update_rounded,
+                              title: 'Office / Hybrid Checkout Grace',
+                              desc:
+                                  'Allowed time outside the radius before auto-checkout for Office and Hybrid.',
+                              ctrl: _officeGraceCtrl,
+                              unit: 'minutes',
+                            ),
+                            const SizedBox(height: 12),
+                            _settingCard(
+                              icon: Icons.signal_wifi_off_rounded,
+                              title: 'Office No-GPS Timeout',
+                              desc:
+                                  'Auto-checkout Office/Hybrid employees if no GPS ping is received for this long.',
+                              ctrl: _officeNoGpsCtrl,
+                              unit: 'minutes',
+                            ),
+                          ] else ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.timer_outlined,
+                                    title: 'Waiting Time',
+                                    desc:
+                                        'Time an employee must remain stationary before a stop is detected.',
+                                    ctrl: _waitingCtrl,
+                                    unit: 'minute',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.location_searching_rounded,
+                                    title: 'Stationary Radius',
+                                    desc:
+                                        'Movement within this radius is treated as one stationary location.',
+                                    ctrl: _stationaryCtrl,
+                                    unit: 'metres',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.wifi_tethering_rounded,
+                                    title: 'GPS Update Interval',
+                                    desc:
+                                        "How often the employee's live location is refreshed.",
+                                    ctrl: _pingCtrl,
+                                    unit: 'minute',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.update_rounded,
+                                    title: 'Office / Hybrid Checkout Grace',
+                                    desc:
+                                        'Allowed time outside the radius before auto-checkout for Office and Hybrid.',
+                                    ctrl: _officeGraceCtrl,
+                                    unit: 'minutes',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _settingCard(
+                                    icon: Icons.signal_wifi_off_rounded,
+                                    title: 'Office No-GPS Timeout',
+                                    desc:
+                                        'Auto-checkout Office/Hybrid employees if no GPS ping is received for this long.',
+                                    ctrl: _officeNoGpsCtrl,
+                                    unit: 'minutes',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(child: SizedBox()),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          _infoBanner(
+                            'Home checkout grace is configured separately in Home Approvals.',
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            _footer(),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _FieldWaitingReasonsDialog extends StatefulWidget {
@@ -2809,8 +4873,9 @@ class _FieldWaitingReasonsDialogState
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 

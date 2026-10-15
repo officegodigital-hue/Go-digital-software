@@ -25,6 +25,17 @@ class HrmsEmployeesApi {
     return _decode(response);
   }
 
+  static Future<List<Map<String, dynamic>>> workingDayTemplates() async {
+    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/hrms/working-days/templates'), headers: await _headers());
+    final data = _decode(response);
+    return (data['items'] as List? ?? []).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).where((item) => item['is_archived'] != 1 && item['isArchived'] != true).toList();
+  }
+
+  static Future<Map<String, dynamic>> createWorkingDayTemplate(Map<String, dynamic> body) async {
+    final response = await http.post(Uri.parse('${ApiConfig.baseUrl}/hrms/working-days/templates'), headers: await _headers(), body: jsonEncode(body));
+    return _decode(response);
+  }
+
   static Map<String, dynamic> _decode(http.Response response) {
     final decoded = response.body.isEmpty
         ? <String, dynamic>{}
@@ -71,6 +82,14 @@ class HrmsEmployeesApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/employees'),
       headers: await _headers(),
       body: jsonEncode(body),
+    );
+    return _decode(response);
+  }
+
+  static Future<Map<String, dynamic>> detail(int id) async {
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/hrms/employees/$id'),
+      headers: await _headers(),
     );
     return _decode(response);
   }

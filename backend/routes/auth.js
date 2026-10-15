@@ -75,6 +75,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         userType: user.user_type,
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRY }
@@ -141,6 +142,7 @@ router.post('/login', async (req, res) => {
         username: user.username,
         role: user.role,
         userType: user.user_type,
+        isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
         staffId: user.staff_id,
         initials: user.initials,
         isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
@@ -253,3 +255,4 @@ module.exports = router;
 module.exports.authenticateToken = authenticateToken;
 // Shared so every auth layer verifies against the exact key login signs with.
 module.exports.JWT_SECRET = JWT_SECRET;
+

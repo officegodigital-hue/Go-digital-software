@@ -34,13 +34,14 @@ class HrmsApprovalsApi {
   }
 
   static Future<Map<String, dynamic>> list({
-    required bool leaveTab,
+    bool leaveTab = true,
+    String? tab,
     String employee = 'All Employees',
     String status = 'All Status',
   }) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}/hrms/approvals').replace(
       queryParameters: {
-        'tab': leaveTab ? 'leave' : 'extra',
+        'tab': tab ?? (leaveTab ? 'leave' : 'extra'),
         'employee': employee,
         'status': status,
       },

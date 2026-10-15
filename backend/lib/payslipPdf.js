@@ -5,6 +5,7 @@ function money(value) {
 }
 
 async function buildPayslipPdf(row) {
+  const companyName = process.env.COMPANY_NAME || 'GO DIGITAL';
   const doc = await PDFDocument.create();
   const page = doc.addPage([595.28, 841.89]);
   const regular = await doc.embedFont(StandardFonts.Helvetica);
@@ -23,7 +24,7 @@ async function buildPayslipPdf(row) {
   };
 
   page.drawRectangle({x:left,y:776,width,height:36,color:navy});
-  text('GO DIGITAL', left + 12, 789, 13, bold, rgb(1,1,1));
+  text(companyName, left + 12, 789, 13, bold, rgb(1,1,1));
   text(`Salary Slip For The Month - ${row.pay_month}/${row.pay_year}`, left + 165, 789, 13, bold, rgb(1,1,1));
 
   let y = 765;
@@ -47,6 +48,7 @@ async function buildPayslipPdf(row) {
   ['Earnings','Amt. (INR)','Deductions','Amt. (INR)'].forEach((v,i)=>text(v,xs[i]+7,y-17,8.5,bold,navy));
   const earnings = [
     ['Basic Salary', money(row.monthly_salary), 'Leave Deduction', money(row.deductions)],
+    ['Daily Salary', money(row.daily_rate), 'LOP Days', String(row.lop_days || 0)],
     ['House Rent Allowance', money(0), 'PF Employee Contribution', money(0)],
     ['Other Allowance', money(0), 'ESIC Employee Contribution', money(0)],
     ['OT/Night Shift Allowance', money(0), 'Professional Tax', money(0)],

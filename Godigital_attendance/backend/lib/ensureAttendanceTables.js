@@ -30,11 +30,31 @@ async function ensureAttendanceTables(db) {
     session_status: "VARCHAR(32) NOT NULL DEFAULT 'open'",
     check_in_method: 'VARCHAR(32) NULL',
     is_late: 'TINYINT(1) NOT NULL DEFAULT 0',
-    working_minutes: 'INT UNSIGNED NOT NULL DEFAULT 0'
+    working_minutes: 'INT UNSIGNED NOT NULL DEFAULT 0',
+    clock_out_reason: 'TEXT NULL',
+    tracking_stop_reason: 'TEXT NULL'
   };
   for (const [name, definition] of Object.entries(required)) {
     if (!existing.has(name)) {
       await db.query(`ALTER TABLE attendance_records ADD COLUMN \`${name}\` ${definition}`);
+    }
+  }
+
+  const [permissionColumns] = await db.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_permission_requests'`
+  );
+  const permissionExisting = new Set(permissionColumns.map(function (column) {
+    return column.COLUMN_NAME;
+  }));
+  const permissionRequired = {
+    permission_start_time: 'TIME NULL',
+    permission_end_time: 'TIME NULL',
+    salary_mode: 'VARCHAR(16) NULL'
+  };
+  for (const [name, definition] of Object.entries(permissionRequired)) {
+    if (!permissionExisting.has(name)) {
+      await db.query(`ALTER TABLE attendance_permission_requests ADD COLUMN \`${name}\` ${definition}`);
     }
   }
 }

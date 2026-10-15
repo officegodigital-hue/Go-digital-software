@@ -5,4 +5,5 @@ backend/.env
 
 # Flutter
 .dart_tool/
-build/
+build/Godigital_attendance/frontend/web/*.exe
+Godigital_attendance/frontend/web/*.exe

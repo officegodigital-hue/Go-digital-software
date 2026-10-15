@@ -63,8 +63,8 @@ class HrmsDashboardApi {
       Uri.parse('${ApiConfig.baseUrl}/hrms/dashboard/calendar'),
       headers: await _headers(),
       body: jsonEncode({
-        if (weeklyOffDay != null) 'weeklyOffDay': weeklyOffDay,
-        if (override != null) 'override': override,
+        'weeklyOffDay': ?weeklyOffDay,
+        'override': ?override,
       }),
     );
     return _decode(response);

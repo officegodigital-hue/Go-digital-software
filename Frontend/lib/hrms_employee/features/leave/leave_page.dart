@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/employee_shell.dart';
-import '../../core/employee_nav.dart';
+import '../../pages/leave_page.dart' as legacy;
 
 /// See HRMS_PROJECT_BLUEPRINT.md, Section 1 for this page's purpose.
 class LeavePage extends StatelessWidget {
@@ -10,9 +9,6 @@ class LeavePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return EmployeeShell(
-      current: EmployeeNavItem.leave,
-      body: const Center(child: Text('LeavePage — pending design reference')),
-    );
+    return const legacy.EmployeeLeavePage();
   }
 }

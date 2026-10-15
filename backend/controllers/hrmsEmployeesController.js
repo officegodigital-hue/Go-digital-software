@@ -249,13 +249,57 @@ async function updateStatus(req, res) {
 }
 
 async function remove(req, res) {
+  let connection;
   try {
     const id = Number(req.params.id);
-    const [result] = await db.query("UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE id = ?", [id]);
-    if (!result.affectedRows) return fail(res, 404, 'Employee not found');
-    return ok(res, { id: id }, 'Employee deactivated; history retained');
+    if (!Number.isInteger(id) || id <= 0) return fail(res, 400, 'A valid employee is required');
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [profiles] = await connection.query(
+      'SELECT id, employee_user_id FROM hrms_employee_profiles WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!profiles.length) {
+      await connection.rollback();
+      return fail(res, 404, 'Employee not found');
+    }
+
+    // An administrator must not be able to remove the profile used by their
+    // current authenticated session.
+    if (Number(profiles[0].employee_user_id) === Number(req.user && req.user.id)) {
+      await connection.rollback();
+      return fail(res, 400, 'You cannot delete your own employee profile');
+    }
+
+    const employeeUserId = profiles[0].employee_user_id;
+    await connection.query(
+      'DELETE FROM hrms_employee_compensation WHERE profile_id = ?',
+      [id]
+    ).catch((error) => {
+      if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
+    });
+    const [result] = await connection.query(
+      'DELETE FROM hrms_employee_profiles WHERE id = ?',
+      [id]
+    );
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return fail(res, 404, 'Employee not found');
+    }
+    if (employeeUserId !== null && employeeUserId !== undefined) {
+      await connection.query('DELETE FROM employee_users WHERE id = ?', [employeeUserId]);
+    }
+    await connection.commit();
+    return ok(res, { id: id }, 'Employee permanently deleted');
   } catch (error) {
+    if (connection) await connection.rollback();
+    if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+      return fail(res, 409, 'This employee has linked records and cannot be permanently deleted');
+    }
     return fail(res, 500, error.message);
+  } finally {
+    if (connection) connection.release();
   }
 }
 
