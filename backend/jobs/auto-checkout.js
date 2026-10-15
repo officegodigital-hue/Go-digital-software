@@ -33,16 +33,15 @@ async function runAutoCheckout() {
   const now = attendancePolicy.nowIstDateTime();
   let checked = 0;
 
-  // Fetch all open attendance sessions for today
+  // Fetch ALL open attendance sessions (any date) — an employee may have
+  // checked in on a previous calendar day and never checked out
   const [openSessions] = await db.query(
     `SELECT ar.id, ar.employee_id, ar.check_in_at,
             ep.work_mode
      FROM attendance_records ar
      JOIN hrms_employee_profiles ep ON ep.employee_user_id = ar.employee_id
-     WHERE ar.attendance_date = ?
-       AND ar.check_in_at IS NOT NULL
-       AND ar.check_out_at IS NULL`,
-    [today]
+     WHERE ar.check_in_at IS NOT NULL
+       AND ar.check_out_at IS NULL`
   );
 
   if (!openSessions.length) return { checked, today };
