@@ -152,7 +152,8 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
       throw new LocationPolicyError(503, 'The approved Home location is invalid. Contact admin.');
     }
   }
-  return { workMode, requiresLocation: true, radiusMeters: settings.radiusMeters, center };
+  const radiusMeters = workMode === 'Home' ? settings.homeRadiusMeters : settings.radiusMeters;
+  return { workMode, requiresLocation: true, radiusMeters, center };
 }
 
 function validateCheckIn(locationPolicy, body, now) {
