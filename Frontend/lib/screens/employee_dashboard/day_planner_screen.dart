@@ -3680,12 +3680,14 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 }
 
 class _HeaderCell extends StatelessWidget {
-  final double width;
   final String label;
+  final double width;
+  
 
   const _HeaderCell({required this.width, required this.label});
 
-  @override
+
+  @override 
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
