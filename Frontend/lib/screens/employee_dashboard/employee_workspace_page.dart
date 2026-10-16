@@ -15,6 +15,9 @@ import 'content_calendar_screen.dart';
 import 'workspace_my_tasks_section.dart';
 import 'workspace_task_review_section.dart';
 import 'task_actions.dart';
+import 'package:godigital_portal/layouts/admin_layout.dart';
+
+part 'admin_workspace_page.dart';
 
 class EmployeeWorkspacePage extends StatefulWidget {
   final EmployeeRole role;
@@ -2260,6 +2263,7 @@ Color _ribbonColor(String ribbon) => switch (ribbon) {
   'IN REVIEW' => const Color(0xFF7C3AED),
   'TO REVIEW' => const Color(0xFFDC2626),
   'COMPLETED' => const Color(0xFF16A34A),
+  'LATE' => const Color(0xFFB91C1C),
   _ => const Color(0xFF64748B),
 };
 

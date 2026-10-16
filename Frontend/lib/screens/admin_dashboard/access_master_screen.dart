@@ -60,7 +60,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       return [
         {'key': '/employee/dashboard', 'title': 'Dashboard'},
         {'key': '/employee/attendance', 'title': 'Attendance'},
-        {'key': '/employee/clock-log', 'title': 'Check In / Out'},
+        {'key': '/employee/clock-log', 'title': 'Clock In / Out'},
         {'key': '/employee/leave', 'title': 'Leave'},
         {'key': '/employee/permission', 'title': 'Permission'},
         {'key': '/employee/extra-hours', 'title': 'Extra Hours'},
@@ -90,10 +90,15 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         {'key': '/admin-panel', 'title': 'Employee Management'},
         {'key': '/time-manager', 'title': 'Time Manager'},
         {'key': '/emergency-broadcast', 'title': 'Broadcast Master'},
+        // Admin view of every client, every employee's tasks (live), Content
+        // Calendar, Task Review, Live Tracking, Team Chat and the Pending list.
+        {'key': '/admin-workspace', 'title': 'Employee Workspace'},
+        {'key': '/task-deadline-rules', 'title': 'Task Deadline Rules'},
       ];
     } else if (accessType == 'employee') {
       return [
         {'key': 'Dashboard', 'title': 'Dashboard'},
+        {'key': 'Employee Workspace', 'title': 'Employee Workspace'},
         {'key': 'Day Planner', 'title': 'Day Planner'},
         {'key': 'Assigned Task', 'title': 'Assigned Task'},
         {'key': 'Client Credentials', 'title': 'Client Credentials'},
@@ -656,9 +661,38 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
           ),
           if (accessType != 'none') ...[
             const SizedBox(height: 15),
-            const Text(
-              'Allowed Pages',
-              style: TextStyle(color: _ink, fontWeight: FontWeight.w900, fontSize: 12),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Allowed Pages',
+                    style: TextStyle(color: _ink, fontWeight: FontWeight.w900, fontSize: 12),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => setState(() {
+                    final all = currentPagesList.map((p) => p['key']!).toSet();
+                    if (selectedPages.containsAll(all)) {
+                      selectedPages.clear();
+                    } else {
+                      selectedPages.addAll(all);
+                    }
+                  }),
+                  icon: Icon(
+                    selectedPages.containsAll(currentPagesList.map((p) => p['key']!))
+                        ? Icons.remove_done_rounded
+                        : Icons.done_all_rounded,
+                    size: 16,
+                    color: _primary,
+                  ),
+                  label: Text(
+                    selectedPages.containsAll(currentPagesList.map((p) => p['key']!))
+                        ? 'Clear all'
+                        : 'Select all',
+                    style: const TextStyle(color: _primary, fontSize: 11.5, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Wrap(

@@ -114,6 +114,9 @@ function rowState(row) {
   const status = upper(row.status || 'IDLE');
   const review = upper(row.review_status);
   if (review === 'APPROVED') return 'APPROVED';
+  // Rejected by the reviewer: shown as REJECTED until the employee restarts it
+  // (RESTART continues the same timer, like rework).
+  if (review === 'REJECTED' && ['REWORK', 'REJECTED', 'IDLE'].includes(status)) return 'REJECTED';
   if (status === 'REWORK') return 'REWORK';
   // Rework requested: until the employee restarts it, it is still "REWORK"
   // even if an older screen saved the status back to IDLE.
@@ -725,6 +728,8 @@ function reviewState(r) {
   if (r.state === 'APPROVED') return 'APPROVED';
   if (r.state === 'REJECTED') return 'REJECTED';
   if (r.review_status === 'REWORK' || r.state === 'REWORK') return 'REWORK';
+  // Rejected and restarted by the employee → being redone.
+  if (r.review_status === 'REJECTED' && r.state !== 'IN REVIEW') return 'REWORK';
   return 'PENDING';
 }
 
@@ -779,14 +784,17 @@ async function buildReview(employee, client, date) {
         `${ROW_SELECT}
          WHERE ${REVIEW_WHERE}
            AND tl.task_assignment_id IN (?)
-           AND NOT (tl.employee_id <=> ? OR LOWER(TRIM(tl.employee_name)) = LOWER(TRIM(?)))
          ORDER BY COALESCE(tti.complete_time, tti.updated_at) DESC, tti.id DESC`,
-        [assignmentIds, employeeId ?? -1, employee],
+        [assignmentIds],
       );
+      // Page / Ads Handler: the whole team's work AND their own handler work
+      // (a person who is both Page and Ads Handler reviews their own rows too).
+      const me = personKey(employee);
       team = shapeRows(teamRows.filter(byDate)).map((r) => ({
         ...r,
         review_state: reviewState(r),
         can_review: true,
+        own: personKey(r.employee_name) === me,
       }));
     }
   return { data, team, is_reviewer: assignmentIds.length > 0 };
@@ -799,6 +807,28 @@ router.get('/review', async (req, res) => {
   const date = dateKey(req.query.date);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
   try {
+    // Main admin: the whole team's work on this client (any role), all decidable.
+    const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
+    if (String(req.query.admin) === '1' && (userType === 'admin' || await isAdminUser(employee))) {
+      const params = [];
+      let clientSql = '';
+      if (client) {
+        clientSql = 'AND LOWER(TRIM(tl.client_name)) = LOWER(TRIM(?))';
+        params.push(client);
+      }
+      const [rows] = await db.query(
+        `${ROW_SELECT}
+         WHERE ${REVIEW_WHERE} ${clientSql}
+         ORDER BY COALESCE(tti.complete_time, tti.updated_at) DESC, tti.id DESC`,
+        params,
+      );
+      const team = shapeRows(rows.filter((r) => !date || dueKey(r) === date)).map((r) => ({
+        ...r,
+        review_state: reviewState(r),
+        can_review: true,
+      }));
+      return res.json({ success: true, data: [], team, is_reviewer: true, admin: true });
+    }
     return res.json({ success: true, ...(await buildReview(employee, client, date)) });
   } catch (err) {
     console.error('GET /workspace-tasks/review ERROR:', err.message);
@@ -830,7 +860,9 @@ router.post('/review/:id/decision', async (req, res) => {
     );
     if (!item) return res.status(404).json({ success: false, message: 'Task row not found' });
     const allowed = await reviewerAssignmentIds(employee, item.client_name);
-    if (!item.task_assignment_id || !allowed.includes(item.task_assignment_id)) {
+    const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
+    const admin = userType === 'admin' || req.body?.as_admin === true && await isAdminUser(employee);
+    if (!admin && (!item.task_assignment_id || !allowed.includes(item.task_assignment_id))) {
       return res.status(403).json({ success: false, message: 'Only the Ads / Page Handler of this client can review this task' });
     }
     if (upper(item.review_status) === 'APPROVED') {
@@ -838,8 +870,19 @@ router.post('/review/:id/decision', async (req, res) => {
     }
     const status = upper(item.status);
     if (status === 'REWORK') {
-      if (action === 'REWORK') {
-        return res.status(409).json({ success: false, message: 'Rework has already been requested for this task' });
+      const current = upper(item.review_status);
+      if ((action === 'REWORK' && current === 'REJECTED') || (action === 'REJECTED' && current === 'REWORK')) {
+        // Not restarted yet: just switch between Rework and Rejected.
+        await db.query('UPDATE time_tracking_task_items SET review_status = ? WHERE id = ?', [action, item.id]);
+        await db.query(
+          `UPDATE manager_review SET manager_action = ?, manager_comment = ? WHERE tracking_item_id = ?`,
+          [action, comment, item.id],
+        ).catch(() => {});
+        req.app.get('io')?.emit('task_updated', { type: 'MANAGER_REVIEW', trackingItemId: item.id, action });
+        return res.json({ success: true, message: `Marked ${action.toLowerCase()}` });
+      }
+      if (action === 'REWORK' || action === 'REJECTED') {
+        return res.status(409).json({ success: false, message: `This task is already marked ${current.toLowerCase() || 'rework'}` });
       }
       // Rework not started yet → undo it so the new decision applies to the
       // completed work (the completion time comes back from the rework hold).
@@ -939,9 +982,13 @@ router.get('/team', async (req, res) => {
   }
 });
 
-async function isClientMember(client, employee) {
+async function isClientMember(client, employee, req = null) {
   const team = await clientTeam(client);
-  return team.some((t) => personKey(t.employee) === personKey(employee));
+  if (team.some((t) => personKey(t.employee) === personKey(employee))) return true;
+  // Admins can read and post in every client group.
+  const type = String(req?.user?.userType || req?.user?.user_type || '').toLowerCase();
+  if (type === 'admin') return true;
+  return isAdminUser(employee);
 }
 
 // GET /team/chat?client=  → client group messages (latest 300)
@@ -971,7 +1018,7 @@ router.post('/team/chat', async (req, res) => {
     return res.status(400).json({ success: false, message: 'client, employee and message are required' });
   }
   try {
-    if (!(await isClientMember(client, employee))) {
+    if (!(await isClientMember(client, employee, req))) {
       return res.status(403).json({ success: false, message: 'Only employees assigned to this client can post in its group' });
     }
     const [ins] = await db.query(
@@ -1392,6 +1439,386 @@ router.get('/running', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Task deadline rules (compliance) + Admin Employee Workspace
+// ═════════════════════════════════════════════════════════════════════════════
+const { loadRules, matchRule, evaluate } = require('../lib/taskRules');
+
+const splitPeople = (cell) => String(cell || '')
+  .split(/,|&/)
+  .map((p) => p.trim())
+  .filter((p) => p && p.toUpperCase() !== 'NONE');
+
+function windowCutoffKey(months = 3) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return dateKey(d);
+}
+
+/**
+ * Every (assignment, role, person, task) with its tracking rows, plus every
+ * Content Calendar category the Page/Ads Handler has to prepare.
+ * Only assignments whose deadline is inside the last `months` months (or
+ * later) are read.
+ */
+async function collectWork({ client = null, date = '', employee = null, months = 3 } = {}) {
+  const params = [];
+  let where = 'is_assigned = 1';
+  if (client) {
+    where += ' AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))';
+    params.push(client);
+  }
+  const [assignments] = await db.query(
+    `SELECT * FROM task_assignments WHERE ${where} ORDER BY id ASC`,
+    params,
+  );
+  const active = await activeClientSet();
+  const cutoff = windowCutoffKey(months);
+  const picked = assignments.filter((a) => {
+    if (!active.has(norm(a.client_name))) return false;
+    const due = deadlineOf(a);
+    if (date) return due === date;
+    return !due || due >= cutoff;
+  });
+
+  // All Content Calendar rows of these assignments in one query.
+  const ccBySource = new Map();
+  if (picked.length) {
+    const ids = picked.map((a) => Number(a.id)).filter(Boolean);
+    const [cc] = await db.query(
+      `SELECT id, source_assignment_id, source_role, source_task_index, cc_status,
+              cc_handoff_at, cc_started_at, cc_last_activity_at, cc_duration_secs,
+              cc_prepared_by_name, deliverable
+       FROM content_calendar
+       WHERE source_active = 1 AND source_assignment_id IN (${ids.join(',')})`,
+    );
+    for (const r of cc) {
+      const k = `${r.source_assignment_id}:${r.source_role}:${r.source_task_index}`;
+      if (!ccBySource.has(k)) ccBySource.set(k, []);
+      ccBySource.get(k).push(r);
+    }
+  }
+
+  const idCache = new Map();
+  const idOf = async (person) => {
+    const k = personKey(person);
+    if (!idCache.has(k)) idCache.set(k, await employeeIdFor(person));
+    return idCache.get(k);
+  };
+
+  const work = [];
+  const calendar = [];
+  for (const a of picked) {
+    const due = deadlineOf(a);
+    for (const role of ROLES) {
+      const tasks = parseTasks(a[role.tasks]);
+      if (!tasks.length) continue;
+
+      // Handler's preparation of this role's categories (non-direct roles).
+      if (!role.direct) {
+        const handlers = [...splitPeople(a.page_handling), ...splitPeople(a.ads_handling)];
+        for (const task of tasks) {
+          const cc = ccBySource.get(`${a.id}:${role.key}:${task.taskIndex}`) || [];
+          const preparer = cc.find((r) => r.cc_prepared_by_name)?.cc_prepared_by_name || handlers[0] || '';
+          if (!preparer) continue;
+          if (employee && personKey(preparer) !== personKey(employee)) continue;
+          const statuses = cc.map((r) => upper(r.cc_status || 'IDLE'));
+          const handed = cc.length > 0 && cc.every((r) => r.cc_handoff_at);
+          calendar.push({
+            assignment: a,
+            due,
+            role_key: 'content_calendar',
+            role_label: 'Content Calendar',
+            for_role: role.label,
+            person: preparer,
+            task,
+            total: 1,
+            done: handed ? 1 : 0,
+            started: cc.some((r) => r.cc_started_at || Number(r.cc_duration_secs) > 0 ||
+              !['IDLE', ''].includes(upper(r.cc_status || 'IDLE'))),
+            started_at: null,
+            assigned_at: a.created_at,
+            status: handed ? 'ASSIGNED'
+              : statuses.includes('IN PROGRESS') ? 'IN PROGRESS'
+                : statuses.includes('ON HOLD') ? 'ON HOLD'
+                  : statuses.length && statuses.every((s) => s === 'COMPLETED') ? 'COMPLETED' : 'IDLE',
+          });
+        }
+      }
+
+      for (const person of splitPeople(a[role.emp])) {
+        if (employee && personKey(person) !== personKey(employee)) continue;
+        const personId = await idOf(person);
+        for (const task of tasks) {
+          const list = await findTaskList(a.id, task.name, person, personId);
+          const rows = list ? await loadRows(list.id, !role.direct) : [];
+          const parents = rows.filter((r) => !r.parent_item_id);
+          const starts = rows.map((r) => r.start_time).filter(Boolean).map((t) => new Date(t));
+          let assignedAt = a.created_at;
+          if (!role.direct) {
+            const handoffs = (ccBySource.get(`${a.id}:${role.key}:${task.taskIndex}`) || [])
+              .map((r) => r.cc_handoff_at).filter(Boolean).map((t) => new Date(t));
+            assignedAt = handoffs.length ? new Date(Math.min(...handoffs)) : null;
+          }
+          work.push({
+            assignment: a,
+            due,
+            role,
+            person,
+            task,
+            list,
+            rows,
+            total: Math.max(task.count, parents.length),
+            done: parents.filter((r) => r.complete_time ||
+              ['IN REVIEW', 'APPROVED'].includes(rowState(r))).length,
+            started: starts.length > 0,
+            started_at: starts.length ? new Date(Math.min(...starts)) : null,
+            assigned_at: assignedAt,
+          });
+        }
+      }
+    }
+  }
+  return { work, calendar };
+}
+
+function complianceItems({ work, calendar }, rules) {
+  const items = [];
+  const push = (base, metrics) => {
+    const rule = matchRule(rules, base.role_key, base.task, base.count);
+    const ev = evaluate(rule, metrics);
+    items.push({ ...base, ...metrics, ...ev });
+  };
+  for (const w of work) {
+    push({
+      key: `${w.assignment.id}:${w.role.key}:${w.task.taskIndex}`,
+      client: w.assignment.client_name,
+      submission_date: w.due,
+      role_key: w.role.key,
+      role_label: w.role.label,
+      employee: w.person,
+      task: w.task.name,
+      count: w.task.count,
+      awaiting_handoff: !w.role.direct && !w.assigned_at,
+    }, {
+      total: w.total,
+      done: w.done,
+      started: w.started,
+      started_at: w.started_at,
+      assigned_at: w.assigned_at,
+    });
+  }
+  for (const c of calendar) {
+    push({
+      key: `cc:${c.assignment.id}:${c.task.taskIndex}:${c.for_role}`,
+      client: c.assignment.client_name,
+      submission_date: c.due,
+      role_key: 'content_calendar',
+      role_label: `Content Calendar · ${c.for_role}`,
+      employee: c.person,
+      task: c.task.name,
+      count: c.task.count,
+      calendar_status: c.status,
+    }, {
+      total: c.total,
+      done: c.done,
+      started: c.started,
+      started_at: c.started_at,
+      assigned_at: c.assigned_at,
+    });
+  }
+  return items;
+}
+
+// GET /compliance?client=&date=&employee=&late=1
+// Deadline-rule status of every task (or only the late ones).
+router.get('/compliance', async (req, res) => {
+  try {
+    const rules = await loadRules(db);
+    const collected = await collectWork({
+      client: String(req.query.client || '').trim() || null,
+      date: dateKey(req.query.date),
+      employee: String(req.query.employee || '').trim() || null,
+    });
+    let items = complianceItems(collected, rules);
+    if (String(req.query.late) === '1') items = items.filter((i) => i.status === 'LATE');
+    items.sort((a, b) =>
+      (b.status === 'LATE') - (a.status === 'LATE') ||
+      Math.max(0, ...b.issues.map((i) => i.days_late)) - Math.max(0, ...a.issues.map((i) => i.days_late)) ||
+      a.client.localeCompare(b.client));
+    return res.json({ success: true, data: items });
+  } catch (err) {
+    console.error('GET /workspace-tasks/compliance ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /admin/cards  → every client card (client + deadline), last 3 months,
+// with the whole team's counts, team list and late count.
+router.get('/admin/cards', async (req, res) => {
+  try {
+    const rules = await loadRules(db);
+    const collected = await collectWork({});
+    const compliance = complianceItems(collected, rules);
+    const cards = new Map();
+    const cardFor = (client, date) => {
+      const k = `${norm(client)}|${date}`;
+      if (!cards.has(k)) {
+        cards.set(k, {
+          client_name: String(client).trim(),
+          submission_date: date,
+          tasks: [],
+          team: new Map(),
+          late: 0,
+          to_review: 0,
+        });
+      }
+      return cards.get(k);
+    };
+    for (const w of collected.work) {
+      const card = cardFor(w.assignment.client_name, w.due);
+      const created = w.assignment.created_at ? new Date(w.assignment.created_at) : null;
+      if (created && !Number.isNaN(created.getTime()) &&
+          (!card.assigned_at || created > new Date(card.assigned_at))) {
+        card.assigned_at = created.toISOString();
+      }
+      const counts = countStates(w.rows, w.task.count);
+      card.tasks.push({
+        key: `${w.assignment.id}:${w.role.key}:${w.task.taskIndex}:${personKey(w.person)}`,
+        name: w.task.name,
+        role: w.role.label,
+        role_key: w.role.key,
+        employee: w.person,
+        is_additional: false,
+        awaiting_handoff: !w.role.direct && w.rows.length === 0,
+        ...counts,
+      });
+      card.to_review += counts.in_review;
+      const tk = `${w.role.key}|${personKey(w.person)}`;
+      const member = card.team.get(tk) || { role: w.role.label, role_key: w.role.key, employee: w.person, tasks: [] };
+      const parents = w.rows.filter((r) => !r.parent_item_id);
+      member.tasks.push({
+        name: w.task.name,
+        completed: parents.filter((r) => rowState(r) === 'APPROVED').length,
+        total: Math.max(w.task.count, parents.length),
+        running: w.rows.some((r) => upper(r.status) === 'IN PROGRESS'),
+      });
+      card.team.set(tk, member);
+    }
+    for (const c of collected.calendar) {
+      const card = cardFor(c.assignment.client_name, c.due);
+      card.tasks.push({
+        key: `cc:${c.assignment.id}:${c.task.taskIndex}:${c.for_role}`,
+        name: `Content Calendar · ${c.task.name}`,
+        role: 'Content Calendar',
+        role_key: 'content_calendar',
+        employee: c.person,
+        is_additional: false,
+        awaiting_handoff: false,
+        total: 1,
+        approved: c.done,
+        in_progress: c.status === 'IN PROGRESS' ? 1 : 0,
+        on_hold: c.status === 'ON HOLD' ? 1 : 0,
+        in_review: 0,
+        rework: 0,
+        rejected: 0,
+        pending: !c.done && !['IN PROGRESS', 'ON HOLD'].includes(c.status) ? 1 : 0,
+      });
+    }
+    for (const item of compliance) {
+      if (item.status !== 'LATE') continue;
+      const card = cards.get(`${norm(item.client)}|${item.submission_date}`);
+      if (card) card.late += 1;
+    }
+    const data = [...cards.values()]
+      .map((c) => ({ ...c, team: [...c.team.values()] }))
+      .sort((a, b) => a.client_name.localeCompare(b.client_name) ||
+        a.submission_date.localeCompare(b.submission_date));
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /workspace-tasks/admin/cards ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /admin/tasks?client=&date=  → every team member's task groups (same
+// shape as /my-tasks) for this card, with live status and rule compliance.
+router.get('/admin/tasks', async (req, res) => {
+  const client = String(req.query.client || '').trim();
+  const date = dateKey(req.query.date);
+  if (!client) return res.status(400).json({ success: false, message: 'client is required' });
+  try {
+    const rules = await loadRules(db);
+    const collected = await collectWork({ client, date });
+    const compliance = complianceItems(collected, rules);
+    const people = new Map();
+    for (const w of collected.work) {
+      const k = personKey(w.person);
+      const p = people.get(k) || { employee: w.person, roles: [] };
+      if (!p.roles.includes(w.role.label)) p.roles.push(w.role.label);
+      people.set(k, p);
+    }
+    const members = [];
+    for (const p of people.values()) {
+      const groups = await buildMyTasks(p.employee, client, date);
+      for (const g of groups) {
+        const c = compliance.find((i) => i.key === g.key && personKey(i.employee) === personKey(p.employee));
+        g.compliance = c ? { status: c.status, issues: c.issues, start_due: c.start_due,
+          complete_due: c.complete_due, per_week: c.per_week, expected_by_now: c.expected_by_now } : null;
+      }
+      members.push({ ...p, groups });
+    }
+    // Every Content Calendar category of this client (who prepares it, status, timer).
+    const [ccRows] = await db.query(
+      `SELECT id, client_name, deliverable, source_assignment_id, source_role, source_task_index,
+              source_row_number, submit_date, cc_status, cc_duration_secs, cc_started_at,
+              cc_hold_reason, cc_last_activity_at, cc_handoff_at, assigned_to_name,
+              cc_prepared_by_name
+       FROM content_calendar
+       WHERE source_assignment_id IS NOT NULL AND source_active = 1
+         AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))
+       ORDER BY source_assignment_id, source_role, source_task_index, source_row_number`,
+      [client],
+    );
+    const preparedBy = new Map();
+    for (const r of ccRows) {
+      const k = `${r.source_assignment_id}:${r.source_role}:${r.source_task_index}`;
+      if (r.cc_prepared_by_name && !preparedBy.has(k)) preparedBy.set(k, r.cc_prepared_by_name);
+    }
+    const assignmentIds = new Set(collected.work.map((w) => Number(w.assignment.id))
+      .concat(collected.calendar.map((c) => Number(c.assignment.id))));
+    const calendar = groupSheets(ccRows)
+      .filter((s) => !date || assignmentIds.has(Number(s.source_assignment_id)))
+      .map((s) => ({
+        ...s,
+        prepared_by: preparedBy.get(`${s.source_assignment_id}:${s.source_role}:${s.source_task_index}`) || '',
+      }));
+    return res.json({
+      success: true,
+      data: {
+        members,
+        calendar: compliance.filter((i) => i.role_key === 'content_calendar'),
+        sheets: calendar,
+        compliance,
+      },
+    });
+  } catch (err) {
+    console.error('GET /workspace-tasks/admin/tasks ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+async function isAdminUser(name) {
+  if (!name) return false;
+  const [rows] = await db.query(
+    `SELECT id FROM employee_users
+     WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?))
+       AND (LOWER(user_type) = 'admin' OR is_main_admin = 1) LIMIT 1`,
+    [name],
+  ).catch(() => [[]]);
+  return rows.length > 0;
+}
 
 // POST /day-plan/add { employee, task_id } — add ONE My Tasks row to today's
 // Day Planner (row based, not category based). Safe to call twice.

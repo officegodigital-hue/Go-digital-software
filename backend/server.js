@@ -253,6 +253,17 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/timings', timingRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/credentials', credentialRoutes);
+// Client credential history
+app.use(
+  '/api/credential-history',
+  require('./routes/credential_history')
+);
+
+// Employee credential visibility
+app.use(
+  '/api/employee-credential-visibility',
+  require('./routes/employee_credential_visibility')
+);
 app.use('/api/packages', packageRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/invoices', invoiceRoutes); 
@@ -292,7 +303,7 @@ app.use('/api/hrms/payroll', hrmsPayrollRoutes);
 app.use('/api/hrms/tracking', hrmsTrackingRoutes);
 app.use('/api/hrms/announcements', hrmsAnnouncementsRoutes);
 app.use('/api/hrms/payslips', hrmsPayslipRoutes);
-
+   app.use('/api/task-rules', require('./routes/taskRules'));
 
 // Health check
 app.get('/', (req, res) => {

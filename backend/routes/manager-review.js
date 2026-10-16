@@ -34,13 +34,8 @@ async function applyReviewDecision(trackingItemId, action) {
     );
     return;
   }
-  if (action === 'REJECTED') {
-    await db.query(
-      `UPDATE time_tracking_task_items SET review_status = 'REJECTED' WHERE id = ?`,
-      [trackingItemId]
-    );
-    return;
-  }
+  // REJECTED works like REWORK (the employee can RESTART it in My Tasks and the
+  // timer continues) but keeps the REJECTED label until they restart.
   if (action === 'ACTION') {
     await db.query(
       `UPDATE time_tracking_task_items SET review_status = 'PENDING' WHERE id = ? AND status = 'COMPLETED'`,
@@ -48,13 +43,14 @@ async function applyReviewDecision(trackingItemId, action) {
     );
     return;
   }
-  // REWORK
+  // REWORK / REJECTED
+  const label = action === 'REJECTED' ? 'REJECTED' : 'REWORK';
   const [[row]] = await db.query(`SELECT * FROM time_tracking_task_items WHERE id = ?`, [trackingItemId]);
   if (!row) return;
   if (String(row.status).toUpperCase() !== 'COMPLETED') {
     await db.query(
-      `UPDATE time_tracking_task_items SET review_status = 'REWORK' WHERE id = ?`,
-      [trackingItemId]
+      `UPDATE time_tracking_task_items SET review_status = ? WHERE id = ?`,
+      [label, trackingItemId]
     );
     return;
   }
@@ -65,9 +61,9 @@ async function applyReviewDecision(trackingItemId, action) {
   if (slot === null) {
     await db.query(
       `UPDATE time_tracking_task_items
-       SET status = 'REWORK', review_status = 'REWORK', complete_time = NULL
+       SET status = 'REWORK', review_status = ?, complete_time = NULL
        WHERE id = ?`,
-      [trackingItemId]
+      [label, trackingItemId]
     );
     return;
   }
@@ -76,9 +72,9 @@ async function applyReviewDecision(trackingItemId, action) {
      SET hold_time_${slot} = COALESCE(complete_time, NOW()),
          complete_time = NULL,
          status = 'REWORK',
-         review_status = 'REWORK'
+         review_status = ?
      WHERE id = ?`,
-    [trackingItemId]
+    [label, trackingItemId]
   );
 }
 

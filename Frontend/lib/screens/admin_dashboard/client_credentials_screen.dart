@@ -1470,7 +1470,7 @@ final Map<int, bool> _visiblePasswords = {};
             _credentialHorizontalController,
         scrollDirection: Axis.horizontal,
         child: SizedBox(
-          width: 900,
+          width: 980,
           child: Column(
             children: [
               Container(
@@ -1518,7 +1518,7 @@ final Map<int, bool> _visiblePasswords = {};
                       ),
                     ),
                     Expanded(
-                      flex: 2,
+                      flex: 3,
                       child: Align(
                         alignment:
                             Alignment.centerRight,
@@ -1787,7 +1787,7 @@ final Map<int, bool> _visiblePasswords = {};
         // =========================================================
 
         Expanded(
-          flex: 2,
+          flex: 3,
           child: Row(
             mainAxisAlignment:
                 MainAxisAlignment.end,
@@ -1804,6 +1804,19 @@ final Map<int, bool> _visiblePasswords = {};
                   Icons.edit_outlined,
                   size: 17,
                   color: Color(0xFF0052CC),
+                ),
+              ),
+
+              IconButton(
+                tooltip: 'View History',
+                splashRadius: 18,
+                onPressed: credentialId == null
+                    ? null
+                    : () => _showCredentialHistory(credentialId, platform),
+                icon: const Icon(
+                  Icons.history_rounded,
+                  size: 19,
+                  color: Color(0xFF0F766E),
                 ),
               ),
 
@@ -1830,6 +1843,286 @@ final Map<int, bool> _visiblePasswords = {};
   );
 }
 
+
+
+  // ADMIN: EDIT AND PERSONAL-DELETE HISTORY
+  Future<Map<String, dynamic>> _loadCredentialHistory(int credentialId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/credential-history/$credentialId'),
+      headers: await _headers(),
+    );
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Unexpected history response');
+    }
+    if (response.statusCode != 200 || decoded['success'] != true) {
+      throw Exception(decoded['message']?.toString() ?? 'Unable to load history');
+    }
+    return Map<String, dynamic>.from(decoded['data'] ?? {});
+  }
+
+  Map<String, dynamic> _historyChanges(dynamic raw) {
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final parsed = jsonDecode(raw);
+        if (parsed is Map) return Map<String, dynamic>.from(parsed);
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  String _historyFieldLabel(String field) {
+    switch (field) {
+      case 'username': return 'Username';
+      case 'platform': return 'Platform';
+      case 'contact_number': return 'Contact Number';
+      case 'email': return 'Email';
+      case 'password': return 'Password';
+      default: return field.replaceAll('_', ' ');
+    }
+  }
+
+  Widget _historyItemCard({
+    required String name,
+    required String date,
+    required Widget details,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 19),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(name, style: const TextStyle(
+                  fontWeight: FontWeight.w800, fontSize: 13,
+                )),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(date, style: const TextStyle(
+            fontSize: 11, color: Color(0xFF64748B),
+          )),
+          const SizedBox(height: 10),
+          details,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCreationEntries(Map<String, dynamic> data) {
+    final entries = (data['creations'] as List?) ?? [];
+    if (entries.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(28),
+          child: Text(
+            'No creation record is available for this credential. '
+            'Older credentials may predate audit logging.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF64748B)),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = Map<String, dynamic>.from(entries[index] as Map);
+        final name = entry['actor_name']?.toString().trim();
+        final actorName = name == null || name.isEmpty ? 'Unknown user' : name;
+        final actorType = entry['actor_type']?.toString() ?? '';
+        final date = _formatDateTime(entry['created_at']?.toString())
+            .replaceAll('\n', ' • ');
+        final details = _historyChanges(entry['changes_json']);
+        final platform = details['platform']?.toString() ?? '—';
+        final client = details['client_name']?.toString() ??
+            (_selectedClientName ?? '—');
+        return _historyItemCard(
+          name: '$actorName${actorType.isEmpty ? '' : ' ($actorType)'}',
+          date: date,
+          icon: Icons.person_add_alt_1_outlined,
+          color: const Color(0xFF16A34A),
+          details: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Client: $client', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              Text('Platform: $platform', style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryEntries(Map<String, dynamic> data, bool showEdits) {
+    final key = showEdits ? 'edits' : 'deletions';
+    final entries = (data[key] as List?) ?? [];
+    if (entries.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Text(
+            showEdits ? 'No recorded edits for this credential.'
+                : 'No employee deletions recorded for this credential.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF64748B)),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = Map<String, dynamic>.from(entries[index] as Map);
+        final name = entry['actor_name']?.toString().trim();
+        final actorName = name == null || name.isEmpty ? 'Unknown user' : name;
+        final actorType = entry['actor_type']?.toString() ?? '';
+        final date = _formatDateTime(
+          (showEdits ? entry['created_at'] : entry['hidden_at'])?.toString(),
+        ).replaceAll('\n', ' • ');
+        if (!showEdits) {
+          return _historyItemCard(
+            name: '$actorName${actorType.isEmpty ? '' : ' ($actorType)'}',
+            date: date,
+            icon: Icons.delete_outline_rounded,
+            color: const Color(0xFFDC2626),
+            details: Text(
+              'Reason: ${entry['reason']?.toString() ?? 'Not provided'}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          );
+        }
+        final changes = _historyChanges(entry['changes_json']);
+        return _historyItemCard(
+          name: '$actorName${actorType.isEmpty ? '' : ' ($actorType)'}',
+          date: date,
+          icon: Icons.edit_outlined,
+          color: const Color(0xFF0052CC),
+          details: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: changes.entries.map((change) {
+              if (change.key == 'password') {
+                return const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('Password changed (values hidden)',
+                    style: TextStyle(fontSize: 12)),
+                );
+              }
+              final values = change.value is Map
+                  ? Map<String, dynamic>.from(change.value as Map)
+                  : <String, dynamic>{};
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 9),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_historyFieldLabel(change.key),
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                    Text('Before: ${values['old'] ?? '—'}',
+                      style: const TextStyle(fontSize: 12)),
+                    Text('After: ${values['new'] ?? '—'}',
+                      style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showCredentialHistory(int credentialId, String platform) async {
+    final historyFuture = _loadCredentialHistory(credentialId);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 650, maxHeight: 640),
+          child: DefaultTabController(
+            length: 3,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.history_rounded, color: Color(0xFF0052CC)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Credential History', style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w900)),
+                          Text(platform, style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      )),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                const TabBar(tabs: [
+                  Tab(text: 'Created', icon: Icon(Icons.person_add_alt_1_outlined)),
+                  Tab(text: 'Edit History', icon: Icon(Icons.edit_outlined)),
+                  Tab(text: 'Delete History', icon: Icon(Icons.delete_outline)),
+                ]),
+                Flexible(
+                  child: SizedBox(
+                    height: 420,
+                    child: FutureBuilder<Map<String, dynamic>>(
+                      future: historyFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Center(child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Unable to load history: ${snapshot.error}',
+                              textAlign: TextAlign.center),
+                          ));
+                        }
+                        final data = snapshot.data ?? {};
+                        return TabBarView(children: [
+                          _buildCreationEntries(data),
+                          _buildHistoryEntries(data, true),
+                          _buildHistoryEntries(data, false),
+                        ]);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   String _maskedPassword(String password) {
     if (password.isEmpty) return '—';
