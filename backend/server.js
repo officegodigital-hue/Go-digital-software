@@ -314,7 +314,7 @@ app.get('/', (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
-
+app.use(express.json({ limit: '15mb' }));
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ Global error:', err.code, err.message, err.stack);

@@ -378,8 +378,10 @@ async function monthView(req, res) {
       const salaryNumber = payroll ? Number(payroll.monthlySalary || 0) : Number(profile.monthly_salary || 0);
       const lopDays = payroll ? Number(payroll.lopDays || 0) : Math.min(workingDays, unexcused);
       const paidDays = payroll ? Number(payroll.paidDays || 0) : Math.max(0, workingDays - lopDays);
-      const deduction = payroll ? Number(payroll.deductions || 0) : 0;
-      const afterLeaves = payroll ? Number(payroll.netPay || 0) : salaryNumber;
+      const deduction = payroll ? Number(payroll.deductions || 0) : Math.min(salaryNumber, Math.ceil(lopDays * (salaryNumber && workingDays > 0 ? salaryNumber / workingDays : 0)));
+      const dailyRate = salaryNumber && workingDays > 0 ? salaryNumber / workingDays : 0;
+      const earnedToDate = Math.max(0, Math.min(salaryNumber, paidDays * dailyRate));
+      const afterLeaves = payroll ? Number(payroll.netPay || 0) : earnedToDate;
 
       return {
         id: profile.id,

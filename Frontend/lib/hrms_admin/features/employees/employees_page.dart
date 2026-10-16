@@ -2092,12 +2092,11 @@ class _StatusBadge extends StatelessWidget {
 
 class _PageButton extends StatelessWidget {
   const _PageButton({
-    this.text,
     this.icon,
-    this.active = false,
-    this.enabled = true,
-    this.onTap,
-  });
+  }) : text = null,
+        active = false,
+        enabled = true,
+        onTap = null;
   final String? text;
   final IconData? icon;
   final bool active;

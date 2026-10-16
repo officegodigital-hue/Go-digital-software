@@ -347,8 +347,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         if (selectedDate.isNotEmpty) {
           final selectedKey = _dateKey(selectedDate);
           list = list.where((row) {
-            final rowDate = row['submit_date'] ?? row['submission_date'];
-            return _dateKey(rowDate) == selectedKey;
+            // Rows from the admin assignment belong to that assignment's
+            // deadline (the card), even after the handler moves their own
+            // submit date. Hand-added rows still follow their submit date.
+            final cardDate = _str(row['source_deadline']).isNotEmpty
+                ? row['source_deadline']
+                : (row['submit_date'] ?? row['submission_date']);
+            return _dateKey(cardDate) == selectedKey;
           }).toList();
         }
 
@@ -1002,13 +1007,57 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       await _flushSave(id);
     }
     final client = _str(_selectedClient?['client_name']);
-    final uri = Uri.parse(
-      '$_baseUrl/tasks/content-calendar/export'
-      '?client=${Uri.encodeComponent(client)}&deliverable=${Uri.encodeComponent(deliverable)}',
+    // The download opens in the browser, which cannot send the login header,
+    // so the token goes in the link.
+    final uri = Uri.parse('$_baseUrl/tasks/content-calendar/export').replace(
+      queryParameters: {
+        'client': client,
+        'deliverable': deliverable,
+        'format': 'xlsx',
+        if (widget.authToken.isNotEmpty) 'access_token': widget.authToken,
+      },
     );
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) _showMessage('Could not start the download');
+      if (!ok) {
+        _showMessage('Could not start the download');
+        return;
+      }
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: const Row(children: [
+            Icon(Icons.table_view_rounded, color: _kPrimary),
+            SizedBox(width: 10),
+            Expanded(child: Text('Template downloaded', style: TextStyle(fontWeight: FontWeight.w800))),
+          ]),
+          content: const SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _GuideStep(n: 1, text: 'Open Google Drive → New → File upload → choose the .xlsx, then "Open with Google Sheets".'),
+                _GuideStep(n: 2, text: 'Fill only the WHITE columns. Keep ID, S.No and Deliverable as they are.'),
+                _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29).'),
+                _GuideStep(n: 4, text: 'Google Sheets: File → Download → Microsoft Excel (.xlsx).'),
+                _GuideStep(n: 5, text: 'Back here press "Import Sheet" and choose that file.'),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _kPrimary),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
     } catch (_) {
       _showMessage('Could not start the download');
     }
@@ -1018,15 +1067,22 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     if (_blockedReadOnly()) return;
     final picked = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['csv'],
+      allowedExtensions: ['xlsx', 'csv'],
       withData: true,
     );
-    final bytes = picked?.files.single.bytes;
-    if (bytes == null || !mounted) return;
+    final file = picked?.files.single;
+    final bytes = file?.bytes;
+    if (file == null || bytes == null || !mounted) return;
 
-    String csv;
+    final isXlsx = file.name.toLowerCase().endsWith('.xlsx');
+    String? csv;
+    String? xlsxBase64;
     try {
-      csv = utf8.decode(bytes, allowMalformed: true);
+      if (isXlsx) {
+        xlsxBase64 = base64Encode(bytes);
+      } else {
+        csv = utf8.decode(bytes, allowMalformed: true);
+      }
     } catch (_) {
       _showMessage('Could not read that file');
       return;
@@ -1045,8 +1101,9 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         headers: _headers,
         clientName: _str(_selectedClient?['client_name']),
         deliverable: deliverable,
-        fileName: picked!.files.single.name,
+        fileName: file.name,
         csv: csv,
+        xlsxBase64: xlsxBase64,
       ),
     );
     if (applied == null || !mounted) return;
@@ -2265,13 +2322,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
             _sheetButton(
               'Export Template',
               Icons.file_download_outlined,
-              'Download this tab as a sheet.',
+              'Download a blue & white Excel template — opens in Google Sheets.',
               () => _exportSheet(category),
             ),
             _sheetButton(
               'Import Sheet',
               Icons.file_upload_outlined,
-              'Import CSV filled data.',
+              'Upload the filled template (.xlsx from Google Sheets, or .csv).',
               () => _importSheet(category),
               filled: true,
             ),
@@ -3648,6 +3705,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         if (picked == null || !mounted) return;
         setState(() => _onFieldChanged(row, field, _fmtIso(picked)));
         await _flushSave(_asInt(row['id']));
+        if (mounted) {
+          _showMessage(field == 'submit_date'
+              ? 'Submit date changed to ${_fmtSlash(picked)}'
+              : 'Date saved');
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
@@ -4141,7 +4203,8 @@ class _ImportPreviewDialog extends StatefulWidget {
   final String clientName;
   final String deliverable;
   final String fileName;
-  final String csv;
+  final String? csv;
+  final String? xlsxBase64;
 
   const _ImportPreviewDialog({
     required this.baseUrl,
@@ -4149,7 +4212,8 @@ class _ImportPreviewDialog extends StatefulWidget {
     required this.clientName,
     required this.deliverable,
     required this.fileName,
-    required this.csv,
+    this.csv,
+    this.xlsxBase64,
   });
 
   @override
@@ -4157,6 +4221,9 @@ class _ImportPreviewDialog extends StatefulWidget {
 }
 
 class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
+  static const _deep = Color(0xFF0A3D91);
+  static const _blue = Color(0xFF0757D5);
+
   bool _loading = true;
   bool _applying = false;
   int _updateCount = 0;
@@ -4164,10 +4231,28 @@ class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
   List<Map<String, dynamic>> _skipped = [];
   String? _error;
 
+  Map<String, dynamic> get _payload => {
+        'client_name': widget.clientName,
+        'deliverable': widget.deliverable,
+        if (widget.xlsxBase64 != null) 'xlsx_base64': widget.xlsxBase64,
+        if (widget.xlsxBase64 == null) 'csv': widget.csv ?? '',
+      };
+
   @override
   void initState() {
     super.initState();
     _preview();
+  }
+
+  String _message(http.Response res, String fallback) {
+    try {
+      final body = jsonDecode(res.body);
+      return (body['message'] ?? fallback).toString();
+    } catch (_) {
+      return res.statusCode == 413
+          ? 'The file is too large for the server (raise express.json limit).'
+          : fallback;
+    }
   }
 
   Future<void> _preview() async {
@@ -4175,23 +4260,17 @@ class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
       final res = await http.post(
         Uri.parse('${widget.baseUrl}/tasks/content-calendar/import-preview'),
         headers: widget.headers,
-        body: jsonEncode({
-          'client_name': widget.clientName,
-          'deliverable': widget.deliverable,
-          'csv': widget.csv,
-        }),
+        body: jsonEncode(_payload),
       );
+      if (res.statusCode != 200) throw StateError(_message(res, 'Could not read this file'));
       final body = jsonDecode(res.body);
-      if (res.statusCode != 200) {
-        throw StateError(
-          (body['message'] ?? 'Could not preview this CSV file').toString(),
-        );
-      }
       if (!mounted) return;
       setState(() {
         _updateCount = (body['update_count'] as num?)?.toInt() ?? 0;
         _columns = List<String>.from(body['columns'] ?? const []);
-        _skipped = List<Map<String, dynamic>>.from(body['skipped'] ?? const []);
+        _skipped = List<Map<String, dynamic>>.from(
+          (body['skipped'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)),
+        );
         _loading = false;
       });
     } catch (error) {
@@ -4212,21 +4291,11 @@ class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
       final res = await http.post(
         Uri.parse('${widget.baseUrl}/tasks/content-calendar/import'),
         headers: widget.headers,
-        body: jsonEncode({
-          'client_name': widget.clientName,
-          'deliverable': widget.deliverable,
-          'csv': widget.csv,
-        }),
+        body: jsonEncode(_payload),
       );
+      if (res.statusCode != 200) throw StateError(_message(res, 'Could not import this file'));
       final body = jsonDecode(res.body);
-      if (res.statusCode != 200) {
-        throw StateError(
-          (body['message'] ?? 'Could not import this CSV file').toString(),
-        );
-      }
-      if (mounted) {
-        Navigator.pop(context, (body['applied_count'] as num?)?.toInt() ?? 0);
-      }
+      if (mounted) Navigator.pop(context, (body['applied_count'] as num?)?.toInt() ?? 0);
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -4237,82 +4306,216 @@ class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
     }
   }
 
+  Widget _stat(String label, String value, Color color, IconData icon) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Row(children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+              Text(label, style: const TextStyle(fontSize: 11, color: _kMuted, fontWeight: FontWeight.w600)),
+            ]),
+          ]),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Import Sheet'),
-      content: SizedBox(
-        width: 520,
-        child: _loading
-            ? const Padding(
-                padding: EdgeInsets.all(28),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${widget.fileName} · ${widget.deliverable}'),
-                  const SizedBox(height: 8),
-                  if (_error != null)
-                    Text(
-                      _error!,
-                      style: const TextStyle(color: _kRed, fontSize: 12),
-                    )
-                  else ...[
-                    Text(
-                      '$_updateCount row${_updateCount == 1 ? '' : 's'} will be updated for ${_columns.join(', ')}.',
-                    ),
-                    if (_skipped.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        '${_skipped.length} row${_skipped.length == 1 ? '' : 's'} will be skipped:',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 180),
-                        child: ListView(
-                          shrinkWrap: true,
-                          children: [
-                            for (final row in _skipped)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(
-                                  'Row ${row['line']}: ${row['reason']}',
-                                  style: const TextStyle(
-                                    color: _kMuted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ],
+    final isXlsx = widget.xlsxBase64 != null;
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [_deep, _blue, Color(0xFF1E88E5)]),
               ),
+              child: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.upload_file_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Import sheet',
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+                    Text('${widget.clientName} · ${widget.deliverable}',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
+                  ]),
+                ),
+                IconButton(
+                  onPressed: _applying ? null : () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _kTint,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _kTintBorder),
+                          ),
+                          child: Row(children: [
+                            Icon(isXlsx ? Icons.grid_on_rounded : Icons.description_outlined,
+                                size: 18, color: _blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(widget.fileName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.w700, color: _kInk)),
+                            ),
+                            Text(isXlsx ? 'EXCEL' : 'CSV',
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _blue)),
+                          ]),
+                        ),
+                        const SizedBox(height: 14),
+                        if (_error != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF1F2),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFFECACA)),
+                            ),
+                            child: Text(_error!, style: const TextStyle(color: _kRed, fontSize: 12.5)),
+                          )
+                        else ...[
+                          Row(children: [
+                            _stat('rows will update', '$_updateCount', _blue, Icons.sync_rounded),
+                            const SizedBox(width: 10),
+                            _stat('rows skipped', '${_skipped.length}',
+                                _skipped.isEmpty ? _kGreen : const Color(0xFFD97706),
+                                _skipped.isEmpty ? Icons.check_circle_outline : Icons.warning_amber_rounded),
+                          ]),
+                          const SizedBox(height: 12),
+                          if (_updateCount == 0)
+                            const Text('Nothing changed compared with the calendar.',
+                                style: TextStyle(color: _kMuted, fontSize: 12.5))
+                          else
+                            Wrap(spacing: 6, runSpacing: 6, children: [
+                              for (final c in _columns)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _kTint,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(c,
+                                      style: const TextStyle(fontSize: 11, color: _blue, fontWeight: FontWeight.w700)),
+                                ),
+                            ]),
+                          if (_skipped.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            const Text('Skipped rows',
+                                style: TextStyle(fontWeight: FontWeight.w800, color: _kInk, fontSize: 12.5)),
+                            const SizedBox(height: 6),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 160),
+                              child: ListView(
+                                shrinkWrap: true,
+                                children: [
+                                  for (final row in _skipped)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Text('Row ${row['line']}: ${row['reason']}',
+                                          style: const TextStyle(color: _kMuted, fontSize: 12)),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+              child: Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _applying ? null : () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _loading || _applying || _error != null || _updateCount == 0
+                        ? null
+                        : _applyImport,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _blue,
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    icon: _applying
+                        ? const SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_rounded, size: 18),
+                    label: Text(_updateCount > 0 ? 'Apply $_updateCount update${_updateCount == 1 ? '' : 's'}' : 'Apply import'),
+                  ),
+                ),
+              ]),
+            ),
+          ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _applying ? null : () => Navigator.pop(context),
-          child: const Text('CANCEL'),
-        ),
-        ElevatedButton(
-          onPressed:
-              _loading || _applying || _error != null || _updateCount == 0
-              ? null
-              : _applyImport,
-          child: _applying
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('APPLY IMPORT'),
-        ),
-      ],
     );
   }
+}
+
+class _GuideStep extends StatelessWidget {
+  final int n;
+  final String text;
+  const _GuideStep({required this.n, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(color: _kPrimary, shape: BoxShape.circle),
+            child: Text('$n',
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: _kBody, height: 1.35))),
+        ]),
+      );
 }

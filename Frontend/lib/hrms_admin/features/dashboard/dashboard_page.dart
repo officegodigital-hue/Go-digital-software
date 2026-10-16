@@ -772,7 +772,7 @@ class _DashboardPageState extends State<DashboardPage> {
               final e = (s + 6).clamp(1, _daysInMonth);
               return DropdownMenuItem<int>(
                 value: i,
-                child: Text('Week ${i + 1} · $s–$e ${_month}'),
+                child: Text('Week ${i + 1} · $s–$e $_month'),
               );
             }),
             onChanged: (val) {
@@ -1267,8 +1267,7 @@ class _AttendanceTable extends StatelessWidget {
     required this.employees,
     required this.showSummary,
     this.showHeader = true,
-    this.onCellTap,
-  });
+  }) : onCellTap = null;
 
   final ScrollController horizontalController;
   final int year;
@@ -1592,8 +1591,7 @@ class _MobileDashboard extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.onRetry,
-    this.workingDays = 0,
-  });
+  }) : workingDays = 0;
   final bool monthly;
   final ValueChanged<bool> onMonthlyChanged;
   final int year;

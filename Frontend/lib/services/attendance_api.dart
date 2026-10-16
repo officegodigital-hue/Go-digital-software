@@ -80,9 +80,9 @@ class AttendanceApi {
   }) {
     return _post('/attendance/check-in', {
       'method': method,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
-      if (accuracy != null) 'accuracy': accuracy,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      'accuracy': ?accuracy,
       if (capturedAt != null) 'capturedAt': capturedAt.toIso8601String(),
     });
   }
@@ -93,9 +93,9 @@ class AttendanceApi {
     double? accuracy,
   }) {
     return _post('/attendance/check-out', {
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
-      if (accuracy != null) 'accuracy': accuracy,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      'accuracy': ?accuracy,
     });
   }
 
@@ -109,9 +109,9 @@ class AttendanceApi {
     double? accuracy,
   }) {
     return _post('/attendance/break-out', {
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
-      if (accuracy != null) 'accuracy': accuracy,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      'accuracy': ?accuracy,
     });
   }
 

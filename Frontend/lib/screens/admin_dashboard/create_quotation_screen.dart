@@ -14,7 +14,6 @@ import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:async';
 
 class _QuotationItemRow {

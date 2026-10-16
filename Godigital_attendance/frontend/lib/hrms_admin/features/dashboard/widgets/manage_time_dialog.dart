@@ -138,6 +138,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 620;
     return Dialog(

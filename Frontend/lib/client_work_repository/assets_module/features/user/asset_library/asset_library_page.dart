@@ -81,11 +81,11 @@ class _UserAssetLibraryPageState
 
       if (!mounted) return;
 
-      bool _toBool(dynamic v) => v == true || v == 1;
+      bool toBool(dynamic v) => v == true || v == 1;
       setState(() {
-        _canView = _toBool(permissions['can_view']);
-        _canDownload = _toBool(permissions['can_download']);
-        _canCreateCompany = _toBool(permissions['can_create_company']);
+        _canView = toBool(permissions['can_view']);
+        _canDownload = toBool(permissions['can_download']);
+        _canCreateCompany = toBool(permissions['can_create_company']);
       });
     } catch (_) {
       if (!mounted) return;

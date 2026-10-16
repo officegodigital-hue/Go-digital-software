@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:godigital_portal/core/constants/app_colors.dart';
-import 'package:godigital_portal/core/constants/app_text_styles.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import '../../services/api_config.dart';
 

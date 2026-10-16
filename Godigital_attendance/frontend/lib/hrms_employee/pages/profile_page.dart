@@ -69,10 +69,12 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         for (final entry in _fields.entries) {
           entry.value.text = data[_dbKey(entry.key)]?.toString() ?? '';
         }
-        if (_fields['firstName']!.text.isEmpty)
+        if (_fields['firstName']!.text.isEmpty) {
           _fields['firstName']!.text = data['first_name']?.toString() ?? '';
-        if (_fields['lastName']!.text.isEmpty)
+        }
+        if (_fields['lastName']!.text.isEmpty) {
           _fields['lastName']!.text = data['last_name']?.toString() ?? '';
+        }
         _work = data;
       }
     } finally {
@@ -95,19 +97,22 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         body: jsonEncode(data),
       );
       final body = jsonDecode(response.body);
-      if (response.statusCode >= 400 || body is! Map || body['success'] != true)
+      if (response.statusCode >= 400 || body is! Map || body['success'] != true) {
         throw Exception(
           body is Map ? body['message'] : 'Could not save profile',
         );
-      if (mounted)
+      }
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile saved successfully.')),
         );
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -169,13 +174,14 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
     mobile: _body(),
   );
   Widget _body() {
-    if (_loading)
+    if (_loading) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(48),
           child: CircularProgressIndicator(),
         ),
       );
+    }
     return Form(
       key: _form,
       child: Column(

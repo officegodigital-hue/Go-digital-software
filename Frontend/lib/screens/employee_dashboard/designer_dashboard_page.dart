@@ -273,7 +273,7 @@ class _DesignerDashboardPageState extends State<DesignerDashboardPage> with Tick
                     : ListView.separated(
                         padding: const EdgeInsets.all(16),
                         itemCount: cleanItems.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final item = cleanItems[index];
                           final clientName = item['clientName'] ?? item['company_name'] ?? 'Client';

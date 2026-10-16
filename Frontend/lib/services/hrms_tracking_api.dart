@@ -113,12 +113,15 @@ class HrmsTrackingApi {
   }) async {
     final body = <String, dynamic>{};
     if (homeRadiusMeters != null) body['homeRadiusMeters'] = homeRadiusMeters;
-    if (homeOutsideRadiusGraceMinutes != null)
+    if (homeOutsideRadiusGraceMinutes != null) {
       body['homeOutsideRadiusGraceMinutes'] = homeOutsideRadiusGraceMinutes;
-    if (homeNoGpsTimeoutMinutes != null)
+    }
+    if (homeNoGpsTimeoutMinutes != null) {
       body['homeNoGpsTimeoutMinutes'] = homeNoGpsTimeoutMinutes;
-    if (homeTrackingEnabled != null)
+    }
+    if (homeTrackingEnabled != null) {
       body['homeTrackingEnabled'] = homeTrackingEnabled;
+    }
     final response = await http
         .put(
           Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/home-settings'),

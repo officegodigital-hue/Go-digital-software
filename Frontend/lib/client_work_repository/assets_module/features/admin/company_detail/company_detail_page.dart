@@ -688,7 +688,7 @@ class _CompanyDetailPageState
                                 child: pickedLogoBytes != null
                                     ? Image.memory(pickedLogoBytes!, width: 48, height: 48, fit: BoxFit.cover)
                                     : (existingLogo != null && existingLogo.isNotEmpty
-                                        ? Image.network('$serverRoot${existingLogo.startsWith('/') ? existingLogo : '/$existingLogo'}', width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _adminLogoPlaceholder())
+                                        ? Image.network('$serverRoot${existingLogo.startsWith('/') ? existingLogo : '/$existingLogo'}', width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, _, _) => _adminLogoPlaceholder())
                                         : _adminLogoPlaceholder()),
                               ),
                               const SizedBox(width: 12),

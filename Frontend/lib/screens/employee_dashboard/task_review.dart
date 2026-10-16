@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import '../../services/api_config.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class ManagerReviewScreen extends StatefulWidget {

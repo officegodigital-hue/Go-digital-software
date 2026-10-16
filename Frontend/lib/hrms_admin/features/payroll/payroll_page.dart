@@ -239,7 +239,7 @@ class _PayrollPageState extends State<PayrollPage> {
 }
 
 class PayrollPolicyDialog extends StatefulWidget {
-  const PayrollPolicyDialog();
+  const PayrollPolicyDialog({super.key});
   @override State<PayrollPolicyDialog> createState() => _PayrollPolicyDialogState();
 }
 

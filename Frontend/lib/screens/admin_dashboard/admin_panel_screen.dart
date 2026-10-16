@@ -1977,7 +1977,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _filteredEmployees.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             return _buildMobileEmployeeCard(_filteredEmployees[index], index);
           },

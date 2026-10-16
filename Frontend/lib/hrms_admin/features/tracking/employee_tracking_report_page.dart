@@ -236,9 +236,9 @@ class _EmployeeTrackingReportPageState
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(.08),
+                        color: Colors.white.withValues(alpha: .08),
                         borderRadius: BorderRadius.circular(9),
-                        border: Border.all(color: Colors.white.withOpacity(.18)),
+                        border: Border.all(color: Colors.white.withValues(alpha: .18)),
                       ),
                       child: const Icon(
                         Icons.arrow_back_ios_new_rounded,
@@ -255,7 +255,7 @@ class _EmployeeTrackingReportPageState
                     decoration: BoxDecoration(
                       color: _blue,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(.22), width: 2),
+                      border: Border.all(color: Colors.white.withValues(alpha: .22), width: 2),
                     ),
                     alignment: Alignment.center,
                     child: Text(
@@ -290,7 +290,7 @@ class _EmployeeTrackingReportPageState
                             Text(
                               widget.employeeCode,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(.55),
+                                color: Colors.white.withValues(alpha: .55),
                                 fontSize: 11,
                               ),
                             ),
@@ -302,10 +302,10 @@ class _EmployeeTrackingReportPageState
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _blue.withOpacity(.35),
+                                  color: _blue.withValues(alpha: .35),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: _blue.withOpacity(.45),
+                                    color: _blue.withValues(alpha: .45),
                                   ),
                                 ),
                                 child: Text(
@@ -712,7 +712,7 @@ class _DayCard extends StatelessWidget {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: _blue.withOpacity(.12),
+                    color: _blue.withValues(alpha: .12),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -825,7 +825,7 @@ class _DayCard extends StatelessWidget {
                         Icon(
                           Icons.location_on_rounded,
                           size: 10,
-                          color: _blue.withOpacity(.7),
+                          color: _blue.withValues(alpha: .7),
                         ),
                         Text(
                           ' $pingCount',
@@ -1034,7 +1034,7 @@ class _PingTimeline extends StatelessWidget {
             child: Text(
               'PING TIMELINE',
               style: TextStyle(
-                color: _muted.withOpacity(.7),
+                color: _muted.withValues(alpha: .7),
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
                 letterSpacing: .8,
@@ -1074,7 +1074,7 @@ class _PingTimeline extends StatelessWidget {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: dotColor.withOpacity(.3),
+                                color: dotColor.withValues(alpha: .3),
                                 blurRadius: 4,
                               ),
                             ],
@@ -1091,7 +1091,7 @@ class _PingTimeline extends StatelessWidget {
                       Container(
                         width: 28,
                         height: 1.5,
-                        color: _blue.withOpacity(.25),
+                        color: _blue.withValues(alpha: .25),
                         margin: const EdgeInsets.only(bottom: 14),
                       ),
                   ],
@@ -1130,15 +1130,15 @@ class _NavBtn extends StatelessWidget {
         width: 30,
         height: 30,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.07),
+          color: Colors.white.withValues(alpha: .07),
           borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: Colors.white.withOpacity(.15)),
+          border: Border.all(color: Colors.white.withValues(alpha: .15)),
         ),
         child: Icon(
           icon,
           color: onTap != null
-              ? Colors.white.withOpacity(.85)
-              : Colors.white.withOpacity(.25),
+              ? Colors.white.withValues(alpha: .85)
+              : Colors.white.withValues(alpha: .25),
           size: 18,
         ),
       ),
@@ -1160,7 +1160,7 @@ class _StatTile extends StatelessWidget {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
-        color: Colors.white.withOpacity(.06),
+        color: Colors.white.withValues(alpha: .06),
         child: Column(
           children: [
             Text(
@@ -1176,7 +1176,7 @@ class _StatTile extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color: Colors.white.withOpacity(.45),
+                color: Colors.white.withValues(alpha: .45),
                 fontSize: 9,
                 fontWeight: FontWeight.w600,
                 letterSpacing: .5,

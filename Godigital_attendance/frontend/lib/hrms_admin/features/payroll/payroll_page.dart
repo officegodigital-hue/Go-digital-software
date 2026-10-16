@@ -207,12 +207,13 @@ class _PayrollPageState extends State<PayrollPage> {
         ),
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );
+      }
     }
   }
 
@@ -375,12 +376,13 @@ class _PayrollPageState extends State<PayrollPage> {
       );
       if (saved == true) _load();
     } catch (err) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(err.toString().replaceFirst('Exception: ', '')),
           ),
         );
+      }
     }
   }
 }

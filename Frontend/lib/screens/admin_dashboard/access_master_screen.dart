@@ -541,7 +541,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
           const Text('Select Role', style: TextStyle(color: _ink, fontWeight: FontWeight.w900)),
           const SizedBox(height: 9),
           DropdownButtonFormField<int>(
-            value: _selectedRoleId,
+            initialValue: _selectedRoleId,
             isExpanded: true,
             items: _roles.map((role) {
               final id = _toInt(role['id']);
