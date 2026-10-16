@@ -60,6 +60,8 @@ async function ensureWorkspaceTaskSchema(db) {
     for (const [name, definition] of [
       ['description_rich', 'LONGTEXT NULL'],
       ['cc_reassigned', 'TINYINT(1) NOT NULL DEFAULT 0'],
+      // 1 = the handler picked this submit date; the assignment sync keeps it.
+      ['cc_submit_edited', 'TINYINT(1) NOT NULL DEFAULT 0'],
     ]) {
       if (!ccCols.has(name)) {
         await db.query(`ALTER TABLE content_calendar ADD COLUMN \`${name}\` ${definition}`);

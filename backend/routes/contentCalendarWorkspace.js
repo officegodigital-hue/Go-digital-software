@@ -1,11 +1,20 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticateToken } = require('./auth');
-const { planImport, toCsv } = require('./contentCalendarSheet');
+const { toCsv } = require('./contentCalendarSheet');
+const { buildTemplate, parseUpload, planUpdates } = require('../lib/contentCalendarExcel');
 const { autoHoldForEmployee } = require('../lib/autoHold');
 const { syncDayPlanStatus } = require('../lib/dayPlanSync');
 
 const router = express.Router();
+// File downloads open in a new browser tab, which cannot send the
+// Authorization header — accept ?access_token= for those GET requests.
+router.use((req, res, next) => {
+  if (!req.headers.authorization && req.method === 'GET' && req.query.access_token) {
+    req.headers.authorization = `Bearer ${req.query.access_token}`;
+  }
+  next();
+});
 router.use(authenticateToken);
 const { ensureWorkspaceTaskSchemaOnce } = require('../lib/ensureWorkspaceTaskSchema');
 router.use(async (req, res, next) => {
@@ -115,6 +124,25 @@ function planStatus(status) {
   return s || 'NOT START';
 }
 
+// day_plan_rows.maintenance_date is a short text column: always send YYYY-MM-DD
+// (a JS Date would be written as a long datetime and fail with "Data too long").
+function planDateKey(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (!Number.isNaN(d.getTime()) && value instanceof Date) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  const s = String(value).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (!Number.isNaN(d.getTime())) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  return s.slice(0, 10);
+}
+
 async function ensureCalendarDayPlan(connection, row, user, status, insertAlways = false) {
   const employeeName = String(user.fullName || '').trim();
   const marker = `[Calendar Row #${row.id}]`;
@@ -156,7 +184,7 @@ async function ensureCalendarDayPlan(connection, row, user, status, insertAlways
       employeeName,
       roleLabel,
       row.client_name,
-      row.submit_date || null,
+      planDateKey(row.submit_date),
       plan,
       planStatus(status),
       day?.s ? 1 : 0,
@@ -402,7 +430,7 @@ async function syncAssignedTasksToCalendar(clientName) {
            s_no = VALUES(s_no),
            deliverable = VALUES(deliverable),
            hook_headline = IF(hook_headline = deliverable, VALUES(hook_headline), hook_headline),
-           submit_date = VALUES(submit_date),
+           submit_date = IF(cc_submit_edited = 1, submit_date, VALUES(submit_date)),
            assigned_to_id = IF(is_emergency = 1 OR cc_reassigned = 1, assigned_to_id, VALUES(assigned_to_id)),
            assigned_to_name = IF(is_emergency = 1 OR cc_reassigned = 1, assigned_to_name, VALUES(assigned_to_name)),
            assigned_by_name = VALUES(assigned_by_name),
@@ -524,6 +552,8 @@ async function rowsForClient(clientName) {
        cc.description AS description_points,
        DATE_FORMAT(cc.publish_date, '%Y-%m-%d') AS publish_date,
        DATE_FORMAT(cc.submit_date, '%Y-%m-%d') AS submit_date,
+       (SELECT DATE_FORMAT(COALESCE(sa.deadline, sa.maintenance_date), '%Y-%m-%d')
+          FROM task_assignments sa WHERE sa.id = cc.source_assignment_id) AS source_deadline,
        cc.cc_status AS status,
        cc.cc_status,
        cc.cc_duration_secs,
@@ -672,10 +702,13 @@ router.put('/content-calendar/edit-row/:id', async (req, res) => {
         });
       }
     }
-    const assignments = updates.map(([column]) => `\`${column}\` = ?`).join(', ');
+    // A date picked by the handler wins over the admin assignment's deadline.
+    const touchesDate = updates.some(([column]) => column === 'submit_date');
+    const assignments = updates.map(([column]) => `\`${column}\` = ?`).join(', ') +
+      (touchesDate ? ', cc_submit_edited = 1' : '');
     await connection.query(
       `UPDATE content_calendar SET ${assignments} WHERE id = ?`,
-      [...updates.map(([, value]) => value), id],
+      [...updates.map(([, value]) => (value === '' ? null : value)), id],
     );
     await syncAssignedTaskDetails(connection, id);
     if (sharedRow && current.task_employee) {
@@ -1831,58 +1864,76 @@ router.get('/content-calendar/export', async (req, res) => {
       [clientName, deliverable],
     );
     const safeName = `${clientName}-${deliverable}`.replace(/[^a-z0-9_-]+/gi, '-');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.csv"`);
-    return res.send(toCsv(rows));
+    if (String(req.query.format || 'xlsx').toLowerCase() === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.csv"`);
+      return res.send(toCsv(rows));
+    }
+    // Styled blue & white template — opens in Google Sheets / Excel.
+    const buffer = await buildTemplate({
+      clientName,
+      deliverable,
+      rows,
+      exportedBy: req.user?.fullName || '',
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.xlsx"`);
+    return res.send(buffer);
   } catch (error) {
     console.error('GET /tasks/content-calendar/export ERROR:', error.message);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
 
-async function importPlan(clientName, deliverable, csv) {
+// Upload (.xlsx as base64, or .csv text) → { updates, skipped, columns }
+async function importPlan(clientName, deliverable, body) {
   const [rows] = await db.query(
-    `SELECT id, deliverable, s_no FROM content_calendar
+    `SELECT id, deliverable, s_no, submit_date, hook_headline, description, caption, cta,
+            publish_date, notes
+     FROM content_calendar
      WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
        AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))`,
     [clientName, deliverable],
   );
-  return planImport(csv, rows, deliverable);
+  if (!rows.length) return { error: `No ${deliverable} rows for ${clientName}` };
+  const parsed = await parseUpload({ csv: body.csv, xlsx_base64: body.xlsx_base64 });
+  return planUpdates(parsed, rows);
 }
+
+const hasUpload = (b) => typeof b.csv === 'string' || typeof b.xlsx_base64 === 'string';
 
 router.post('/content-calendar/import-preview', async (req, res) => {
   const clientName = String(req.body.client_name || '').trim();
   const deliverable = String(req.body.deliverable || '').trim();
-  const csv = req.body.csv;
-  if (!clientName || !deliverable || typeof csv !== 'string') {
-    return res.status(400).json({ success: false, message: 'client_name, deliverable and csv are required' });
+  if (!clientName || !deliverable || !hasUpload(req.body)) {
+    return res.status(400).json({ success: false, message: 'client_name, deliverable and a file are required' });
   }
   try {
-    const plan = await importPlan(clientName, deliverable, csv);
+    const plan = await importPlan(clientName, deliverable, req.body);
     if (plan.error) return res.status(400).json({ success: false, message: plan.error });
     return res.json({
       success: true,
       update_count: plan.updates.length,
       skipped: plan.skipped,
       columns: plan.columns,
+      changes: plan.updates.slice(0, 50).map((u) => ({ id: u.id, fields: Object.keys(u.fields) })),
     });
   } catch (error) {
     console.error('POST /tasks/content-calendar/import-preview ERROR:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: `Could not read the file: ${error.message}` });
   }
 });
 
 router.post('/content-calendar/import', async (req, res) => {
   const clientName = String(req.body.client_name || '').trim();
   const deliverable = String(req.body.deliverable || '').trim();
-  const csv = req.body.csv;
-  if (!clientName || !deliverable || typeof csv !== 'string') {
-    return res.status(400).json({ success: false, message: 'client_name, deliverable and csv are required' });
+  if (!clientName || !deliverable || !hasUpload(req.body)) {
+    return res.status(400).json({ success: false, message: 'client_name, deliverable and a file are required' });
   }
 
   let connection;
   try {
-    const plan = await importPlan(clientName, deliverable, csv);
+    const plan = await importPlan(clientName, deliverable, req.body);
     if (plan.error) return res.status(400).json({ success: false, message: plan.error });
     connection = await db.getConnection();
     await connection.beginTransaction();
@@ -1897,7 +1948,8 @@ router.post('/content-calendar/import', async (req, res) => {
       if (!existing.length) throw new Error(`Calendar row ${update.id} no longer exists`);
       const fields = Object.entries(update.fields)
         .map(([key, value]) => [editableFields[key], value]);
-      const sets = fields.map(([column]) => `\`${column}\` = ?`).join(', ');
+      const sets = fields.map(([column]) => `\`${column}\` = ?`).join(', ') +
+        (fields.some(([column]) => column === 'submit_date') ? ', cc_submit_edited = 1' : '');
       await connection.query(
         `UPDATE content_calendar SET ${sets}
          WHERE id = ? AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))

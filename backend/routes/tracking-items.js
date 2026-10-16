@@ -197,6 +197,25 @@ async function computePerformance(taskListId, durationSecs) {
 // A task can only start once it is in today's Day Planner. If it isn't, the
 // client is told (409 DAY_PLAN_CONFIRM_REQUIRED) and asks the employee; when
 // they confirm, the row "[Task Row #id] …" is added and the task starts.
+// day_plan_rows.maintenance_date is a short text column: always send YYYY-MM-DD
+// (a JS Date would be written as a long datetime and fail with "Data too long").
+function planDateKey(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (!Number.isNaN(d.getTime()) && value instanceof Date) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  const s = String(value).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (!Number.isNaN(d.getTime())) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  return s.slice(0, 10);
+}
+
 async function ensureTaskInDayPlan(connection, target, confirmed) {
   const employeeName = String(target.employee_name || '').trim();
   if (!employeeName) return;
@@ -246,7 +265,7 @@ async function ensureTaskInDayPlan(connection, target, confirmed) {
       employeeName,
       role?.role || null,
       info?.client_name || null,
-      info?.due || null,
+      planDateKey(info?.due),
       `${marker} ${title}${headline ? ` — ${headline}` : ''}`,
       Number(submitted?.s) === 1 ? 1 : 0,
     ],
