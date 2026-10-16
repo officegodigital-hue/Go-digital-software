@@ -400,7 +400,10 @@ async function monthView(req, res) {
         salary: payroll ? payroll.salary : formatSalary(profile.monthly_salary),
         daysPaid: String(lopDays),
         afterLeaves: payroll ? payroll.deductionsLabel : (salaryNumber ? formatSalary(deduction) : '–'),
-        updatedSalary: payroll ? payroll.netPayLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
+        // The attendance grid is a live, month-to-date view.  Match the
+        // Payroll and Employee Salary screens by showing salary earned through
+        // the current date, not the projected month-end net pay.
+        updatedSalary: payroll ? payroll.earnedToDateLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
         workingDays: payroll ? Number(payroll.workingDays || 0) : workingDays,
         dailySalary: payroll ? Number(payroll.dailyRate || 0) : 0,
         paidDays: paidDays,
