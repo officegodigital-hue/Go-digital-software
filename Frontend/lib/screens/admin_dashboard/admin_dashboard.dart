@@ -718,13 +718,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         Color(0xFF16A34A),
         '/employee-status',
       ),
-      _NavTile(
-        'Manager Review',
-        'Approve / rework / reject',
-        Icons.rate_review_rounded,
-        Color(0xFFD97706),
-        '/manager-review',
-      ),
+      
       _NavTile(
         'Time Manager',
         'Task timing master data',
@@ -772,23 +766,21 @@ class _AdminDashboardState extends State<AdminDashboard>
     ],
   };
 
-  static const List<String> _controllableRoutes = [
-    '/admin',
-    '/client-history',
-    '/client-credentials',
-    '/packages',
-    '/quotations',
-    '/quotation',
-    '/invoice',
-    '/tasks',
-    '/daily-planner',
-    '/employee-status',
-    '/manager-review',
-    '/notifications',
-    '/performance',
-    '/admin-panel',
-    '/time-manager',
-  ];
+ static const List<String> _controllableRoutes = [
+  '/admin',
+  '/client-history',
+  '/client-credentials',
+  '/packages',
+  '/quotations',
+  '/invoice',
+  '/tasks',
+  '/daily-planner',
+  '/employee-status',
+  '/notifications',
+  '/performance',
+  '/admin-panel',
+  '/time-manager',
+];
 
   // ---------------------------------------------------------------------
   // BUILD

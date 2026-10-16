@@ -1,4 +1,4 @@
-// name=admin_layout.dart
+﻿// name=admin_layout.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -234,12 +234,12 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
       {'icon': Icons.vpn_key_rounded, 'title': 'Client Credentials', 'route': '/client-credentials'},
       {'icon': Icons.inventory_2_outlined, 'title': 'Packages', 'route': '/packages'},
       {'icon': Icons.request_quote_outlined, 'title': 'Quotations', 'route': '/quotations'},
-      {'icon': Icons.inventory_2_outlined, 'title': 'Package & Quotation', 'route': '/quotation'},
+      
       {'icon': Icons.receipt_long_outlined, 'title': 'Invoice', 'route': '/invoice'},
       {'icon': Icons.assignment_outlined, 'title': 'Tasks Assign', 'route': '/tasks'},
       {'icon': Icons.assignment_outlined, 'title': 'Daily Planner', 'route': '/daily-planner'},
       {'icon': Icons.people_outline_rounded, 'title': 'Employee Status', 'route': '/employee-status'},
-      {'icon': Icons.rate_review_outlined, 'title': 'Manager Review', 'route': '/manager-review'},
+      
       {'icon': Icons.chat_bubble_rounded, 'title': 'Chat', 'route': '/notifications'},
       {'icon': Icons.show_chart_rounded, 'title': 'Performance', 'route': '/performance'},
       {'icon': Icons.admin_panel_settings_outlined, 'title': 'Employee Management', 'route': '/admin-panel'},
@@ -273,7 +273,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
         final bool isDesktop = constraints.maxWidth >= 900;
         final bool isSmallMobile = constraints.maxWidth < 450;
 
-        // 🟢 Sidebar with Bottom-to-Top Gradient & Animated Floating Bubbles
+        // ðŸŸ¢ Sidebar with Bottom-to-Top Gradient & Animated Floating Bubbles
         final Widget sidebarWidget = AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeInOut,
@@ -427,7 +427,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                                     if (!_isSidebarCollapsed) ...[
                                       const SizedBox(width: 12),
                                       const Text(
-                                        'Home',
+                                        'Workspace',
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
@@ -798,7 +798,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
     );
   }
 
-  // 🟢 Animated Sidebar Nav Item with Heightened Icons and Bright Lighting Hover Effect
+  // ðŸŸ¢ Animated Sidebar Nav Item with Heightened Icons and Bright Lighting Hover Effect
   Widget _navItem(IconData icon, String title, String route, BuildContext context) {
     final bool isActive = widget.currentRoute == route;
     return Padding(
@@ -810,7 +810,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
             if (!isActive) Navigator.pushNamed(context, route);
           },
           borderRadius: BorderRadius.circular(10),
-          hoverColor: Colors.white.withOpacity(0.14), // 💡 Bright Lighting effect on hover
+          hoverColor: Colors.white.withOpacity(0.14), // ðŸ’¡ Bright Lighting effect on hover
           splashColor: Colors.white.withOpacity(0.2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
@@ -832,7 +832,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
               children: [
                 Icon(
                   icon, 
-                  size: 20, // ⬆️ Slightly taller and prominent icon size
+                  size: 20, // â¬†ï¸ Slightly taller and prominent icon size
                   color: isActive ? const Color(0xFF0757D5) : Colors.white70,
                 ),
                 if (!_isSidebarCollapsed) ...[
@@ -857,3 +857,4 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
     );
   }
 }
+

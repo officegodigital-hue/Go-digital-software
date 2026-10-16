@@ -33,7 +33,10 @@ class AdminWorkspaceScreen extends StatelessWidget {
           final h = c.hasBoundedHeight
               ? c.maxHeight
               : MediaQuery.of(context).size.height - 130;
-          return SizedBox(height: h < 560 ? 560 : h, child: const AdminWorkspacePage());
+          return SizedBox(
+            height: h < 560 ? 560 : h,
+            child: const AdminWorkspacePage(),
+          );
         },
       ),
     );
@@ -60,7 +63,8 @@ class _AdminCard {
     return d.year == now.year && d.month == now.month;
   }
 
-  String? get ribbon => (late > 0 && !client.isCompleted) ? 'LATE' : client.ribbon;
+  String? get ribbon =>
+      (late > 0 && !client.isCompleted) ? 'LATE' : client.ribbon;
 }
 
 _WorkspaceClient _clientFromAdminCard(Map<String, dynamic> card) {
@@ -74,31 +78,33 @@ _WorkspaceClient _clientFromAdminCard(Map<String, dynamic> card) {
     final inReview = n(t['in_review']);
     final total = n(t['total']);
     final approved = n(t['approved']);
-    tasks.add(_WorkspaceTask(
-      key: '${t['key']}',
-      name: '${t['name'] ?? ''}',
-      employee: '${t['employee'] ?? ''}',
-      role: '${t['role'] ?? ''}',
-      status: inProgress > 0
-          ? _WorkspaceTaskStatus.inProgress
-          : rework > 0
-              ? _WorkspaceTaskStatus.rework
-              : onHold > 0
-                  ? _WorkspaceTaskStatus.onHold
-                  : inReview > 0
-                      ? _WorkspaceTaskStatus.inReview
-                      : (total > 0 && approved >= total)
-                          ? _WorkspaceTaskStatus.completed
-                          : _WorkspaceTaskStatus.pending,
-      total: total,
-      completedCount: approved,
-      pendingCount: n(t['pending']),
-      inProgressCount: inProgress,
-      onHoldCount: onHold,
-      inReviewCount: inReview,
-      reworkCount: rework,
-      awaitingHandoff: t['awaiting_handoff'] == true,
-    ));
+    tasks.add(
+      _WorkspaceTask(
+        key: '${t['key']}',
+        name: '${t['name'] ?? ''}',
+        employee: '${t['employee'] ?? ''}',
+        role: '${t['role'] ?? ''}',
+        status: inProgress > 0
+            ? _WorkspaceTaskStatus.inProgress
+            : rework > 0
+            ? _WorkspaceTaskStatus.rework
+            : onHold > 0
+            ? _WorkspaceTaskStatus.onHold
+            : inReview > 0
+            ? _WorkspaceTaskStatus.inReview
+            : (total > 0 && approved >= total)
+            ? _WorkspaceTaskStatus.completed
+            : _WorkspaceTaskStatus.pending,
+        total: total,
+        completedCount: approved,
+        pendingCount: n(t['pending']),
+        inProgressCount: inProgress,
+        onHoldCount: onHold,
+        inReviewCount: inReview,
+        reworkCount: rework,
+        awaitingHandoff: t['awaiting_handoff'] == true,
+      ),
+    );
   }
   return _WorkspaceClient(
     name: '${card['client_name'] ?? ''}',
@@ -134,7 +140,11 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     )..connect();
     void refresh(_) {
       _debounce?.cancel();
@@ -142,6 +152,7 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
         if (mounted) _load(silent: true);
       });
     }
+
     _socket!
       ..on('task_updated', refresh)
       ..on('calendar:assigned', refresh);
@@ -164,23 +175,31 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
     try {
       final responses = await Future.wait([
         http.get(Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/admin/cards')),
-        http.get(Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/compliance?late=1')),
+        http.get(
+          Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/compliance?late=1'),
+        ),
       ]);
       if (responses[0].statusCode != 200) {
-        throw Exception('Cards: ${jsonDecode(responses[0].body)['message'] ?? responses[0].statusCode}');
+        throw Exception(
+          'Cards: ${jsonDecode(responses[0].body)['message'] ?? responses[0].statusCode}',
+        );
       }
       final cards = <_AdminCard>[];
-      for (final raw in (jsonDecode(responses[0].body)['data'] as List? ?? []).whereType<Map>()) {
+      for (final raw
+          in (jsonDecode(responses[0].body)['data'] as List? ?? [])
+              .whereType<Map>()) {
         final card = Map<String, dynamic>.from(raw);
         final client = _clientFromAdminCard(card);
         if (client.tasks.isEmpty) continue;
-        cards.add(_AdminCard(client, int.tryParse('${card['late'] ?? 0}') ?? 0));
+        cards.add(
+          _AdminCard(client, int.tryParse('${card['late'] ?? 0}') ?? 0),
+        );
       }
       final pending = responses[1].statusCode == 200
           ? (jsonDecode(responses[1].body)['data'] as List? ?? [])
-              .whereType<Map>()
-              .map((m) => Map<String, dynamic>.from(m))
-              .toList()
+                .whereType<Map>()
+                .map((m) => Map<String, dynamic>.from(m))
+                .toList()
           : <Map<String, dynamic>>[];
       if (!mounted) return;
       setState(() {
@@ -210,7 +229,9 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
-    final adminName = '${auth.user?['fullName'] ?? auth.user?['full_name'] ?? auth.user?['name'] ?? 'Admin'}'.trim();
+    final adminName =
+        '${auth.user?['fullName'] ?? auth.user?['full_name'] ?? auth.user?['name'] ?? 'Admin'}'
+            .trim();
     final selected = _selected;
     return PremiumTheme.wrap(
       context,
@@ -218,15 +239,21 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
         color: const Color(0xFFF4F7FC),
         child: selected != null
             ? _AdminClientView(
-                key: ValueKey('admin-${selected.client.name}-${selected.client.submissionDate}'),
+                key: ValueKey(
+                  'admin-${selected.client.name}-${selected.client.submissionDate}',
+                ),
                 card: selected,
                 adminName: adminName,
                 adminId: int.tryParse('${auth.user?['id'] ?? ''}') ?? 0,
                 token: auth.token ?? '',
                 pending: _pending
-                    .where((p) =>
-                        '${p['client']}'.toLowerCase() == selected.client.name.toLowerCase() &&
-                        '${p['submission_date']}' == selected.client.submissionDate)
+                    .where(
+                      (p) =>
+                          '${p['client']}'.toLowerCase() ==
+                              selected.client.name.toLowerCase() &&
+                          '${p['submission_date']}' ==
+                              selected.client.submissionDate,
+                    )
                     .toList(),
                 onBack: () => setState(() => _selected = null),
               )
@@ -238,29 +265,39 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
                     child: _loading
                         ? const Center(child: CircularProgressIndicator())
                         : _error != null
-                            ? Center(
-                                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                  Text(_error!, style: const TextStyle(color: _aMuted)),
-                                  const SizedBox(height: 10),
-                                  FilledButton.icon(
-                                    onPressed: _load,
-                                    icon: const Icon(Icons.refresh_rounded),
-                                    label: const Text('Try again'),
-                                  ),
-                                ]),
-                              )
-                            : _tab == 0
-                                ? _cardsView()
-                                : _PendingList(
-                                    items: _pending,
-                                    showClient: true,
-                                    onOpenClient: (client, date) {
-                                      final match = _cards.where((c) =>
-                                          c.client.name.toLowerCase() == client.toLowerCase() &&
-                                          c.client.submissionDate == date);
-                                      if (match.isNotEmpty) setState(() => _selected = match.first);
-                                    },
-                                  ),
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _error!,
+                                  style: const TextStyle(color: _aMuted),
+                                ),
+                                const SizedBox(height: 10),
+                                FilledButton.icon(
+                                  onPressed: _load,
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Try again'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : _tab == 0
+                        ? _cardsView()
+                        : _PendingList(
+                            items: _pending,
+                            showClient: true,
+                            onOpenClient: (client, date) {
+                              final match = _cards.where(
+                                (c) =>
+                                    c.client.name.toLowerCase() ==
+                                        client.toLowerCase() &&
+                                    c.client.submissionDate == date,
+                              );
+                              if (match.isNotEmpty)
+                                setState(() => _selected = match.first);
+                            },
+                          ),
                   ),
                 ],
               ),
@@ -272,20 +309,36 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
     final lateCards = _cards.where((c) => c.late > 0).length;
     final running = _cards.where((c) => c.client.inProgress > 0).length;
     Widget stat(String label, String value, IconData icon) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 16, color: Colors.white),
-            const SizedBox(width: 6),
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
-            const SizedBox(width: 5),
-            Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11.5)),
-          ]),
-        );
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 11.5,
+            ),
+          ),
+        ],
+      ),
+    );
     Widget tabButton(int i, String label, IconData icon, {int? badge}) {
       final on = _tab == i;
       return InkWell(
@@ -297,22 +350,42 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
             color: on ? Colors.white : Colors.white.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 16, color: on ? _aBlue : Colors.white),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    color: on ? _aBlue : Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5)),
-            if (badge != null && badge > 0) ...[
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: on ? _aBlue : Colors.white),
               const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(color: const Color(0xFFEF4444), borderRadius: BorderRadius.circular(10)),
-                child: Text('$badge',
-                    style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w900)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: on ? _aBlue : Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                ),
               ),
+              if (badge != null && badge > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$badge',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ]),
+          ),
         ),
       );
     }
@@ -321,62 +394,141 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 10),
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [_aDeep, _aBlue, Color(0xFF1E88E5)]),
+        gradient: const LinearGradient(
+          colors: [_aDeep, _aBlue, Color(0xFF1E88E5)],
+        ),
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: _aBlue.withValues(alpha: 0.22), blurRadius: 20, offset: const Offset(0, 8))],
+        boxShadow: [
+          BoxShadow(
+            color: _aBlue.withValues(alpha: 0.22),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.workspaces_rounded, color: Colors.white, size: 22),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text('Employee Workspace · All clients',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-            ),
-            IconButton(
-              tooltip: 'Refresh',
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            ),
-          ]),
+          Row(
+            children: [
+              const Icon(
+                Icons.workspaces_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Employee Workspace · All clients',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            stat('cards', '${_cards.length}', Icons.dashboard_rounded),
-            stat('working now', '$running', Icons.play_circle_outline_rounded),
-            stat('with late tasks', '$lateCards', Icons.warning_amber_rounded),
-            stat('late tasks', '${_pending.length}', Icons.timer_off_outlined),
-          ]),
-          const SizedBox(height: 12),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            tabButton(0, 'Client cards', Icons.grid_view_rounded),
-            tabButton(1, 'Pending list', Icons.pending_actions_rounded, badge: _pending.length),
-          ]),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stats = Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  stat('cards', '${_cards.length}', Icons.dashboard_rounded),
+                  stat(
+                    'working now',
+                    '$running',
+                    Icons.play_circle_outline_rounded,
+                  ),
+                  stat(
+                    'with late tasks',
+                    '$lateCards',
+                    Icons.warning_amber_rounded,
+                  ),
+                  stat(
+                    'late tasks',
+                    '${_pending.length}',
+                    Icons.timer_off_outlined,
+                  ),
+                ],
+              );
+
+              final buttons = Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                children: [
+                  tabButton(0, 'Client cards', Icons.grid_view_rounded),
+                  tabButton(
+                    1,
+                    'Pending list',
+                    Icons.pending_actions_rounded,
+                    badge: _pending.length,
+                  ),
+                ],
+              );
+
+              if (constraints.maxWidth < 1100) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    stats,
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerRight, child: buttons),
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: stats),
+                  const SizedBox(width: 16),
+                  buttons,
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
+  String _monthKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   List<_AdminCard> _visible() {
     final q = _search.trim().toLowerCase();
     final list = _cards.where((c) {
-      if (q.isNotEmpty && !c.client.name.toLowerCase().contains(q) &&
-          !c.client.team.any((m) => '${m['employee']}'.toLowerCase().contains(q))) {
+      if (q.isNotEmpty &&
+          !c.client.name.toLowerCase().contains(q) &&
+          !c.client.team.any(
+            (m) => '${m['employee']}'.toLowerCase().contains(q),
+          )) {
         return false;
       }
-      if (_month != null && (c.client.dueDate == null || _monthKey(c.client.dueDate!) != _month)) return false;
+      if (_month != null &&
+          (c.client.dueDate == null || _monthKey(c.client.dueDate!) != _month))
+        return false;
       if (_ribbonFilter == 'ALL') return true;
       if (_ribbonFilter == 'CURRENT') return c.isCurrent;
       if (_ribbonFilter == 'PENDING') return c.ribbon == null;
       return c.ribbon == _ribbonFilter;
     }).toList();
     int byDate(_AdminCard a, _AdminCard b) =>
-        (a.client.dueDate ?? DateTime(2100)).compareTo(b.client.dueDate ?? DateTime(2100));
+        (a.client.dueDate ?? DateTime(2100)).compareTo(
+          b.client.dueDate ?? DateTime(2100),
+        );
     list.sort((a, b) {
-      if (a.client.isCompleted != b.client.isCompleted) return a.client.isCompleted ? 1 : -1;
+      if (a.client.isCompleted != b.client.isCompleted)
+        return a.client.isCompleted ? 1 : -1;
       switch (_sort) {
         case 'current':
           if (a.isCurrent != b.isCurrent) return a.isCurrent ? -1 : 1;
@@ -385,7 +537,9 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
         case 'date_desc':
           return byDate(b, a);
         case 'name_asc':
-          return a.client.name.toLowerCase().compareTo(b.client.name.toLowerCase());
+          return a.client.name.toLowerCase().compareTo(
+            b.client.name.toLowerCase(),
+          );
         default:
           return byDate(a, b);
       }
@@ -394,112 +548,190 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
   }
 
   Widget _cardsView() {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    final monthKeys = _cards.map((c) => c.client.dueDate).whereType<DateTime>().map(_monthKey).toSet().toList()..sort();
-    const ribbons = ['ALL', 'CURRENT', 'LATE', 'NEW', 'PROCESSING', 'HOLD', 'REWORK', 'OVERDUE', 'IN REVIEW', 'PENDING', 'COMPLETED'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final monthKeys =
+        _cards
+            .map((c) => c.client.dueDate)
+            .whereType<DateTime>()
+            .map(_monthKey)
+            .toSet()
+            .toList()
+          ..sort();
+    const ribbons = [
+      'ALL',
+      'CURRENT',
+      'LATE',
+      'NEW',
+      'PROCESSING',
+      'HOLD',
+      'REWORK',
+      'OVERDUE',
+      'IN REVIEW',
+      'PENDING',
+      'COMPLETED',
+    ];
     int countFor(String f) => switch (f) {
-          'ALL' => _cards.length,
-          'CURRENT' => _cards.where((c) => c.isCurrent).length,
-          'PENDING' => _cards.where((c) => c.ribbon == null).length,
-          _ => _cards.where((c) => c.ribbon == f).length,
-        };
+      'ALL' => _cards.length,
+      'CURRENT' => _cards.where((c) => c.isCurrent).length,
+      'PENDING' => _cards.where((c) => c.ribbon == null).length,
+      _ => _cards.where((c) => c.ribbon == f).length,
+    };
     final visible = _visible();
     InputDecoration deco(String label, {Widget? prefix}) => InputDecoration(
-          labelText: label,
-          prefixIcon: prefix,
-          isDense: true,
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        );
+      labelText: label,
+      prefixIcon: prefix,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
-          child: Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            SizedBox(
-              width: 240,
-              child: TextField(
-                decoration: deco('Search client / employee', prefix: const Icon(Icons.search_rounded, size: 18)),
-                onChanged: (v) => setState(() => _search = v),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 240,
+                child: TextField(
+                  decoration: deco(
+                    'Search client / employee',
+                    prefix: const Icon(Icons.search_rounded, size: 18),
+                  ),
+                  onChanged: (v) => setState(() => _search = v),
+                ),
               ),
-            ),
-            SizedBox(
-              width: 200,
-              child: DropdownButtonFormField<String>(
-                value: _sort,
-                isExpanded: true,
-                decoration: deco('Sort'),
-                items: const [
-                  DropdownMenuItem(value: 'current', child: Text('Current & late first')),
-                  DropdownMenuItem(value: 'date_asc', child: Text('Submit date ↑')),
-                  DropdownMenuItem(value: 'date_desc', child: Text('Submit date ↓')),
-                  DropdownMenuItem(value: 'name_asc', child: Text('Client A → Z')),
-                ],
-                onChanged: (v) => setState(() => _sort = v ?? 'current'),
-              ),
-            ),
-            SizedBox(
-              width: 170,
-              child: DropdownButtonFormField<String?>(
-                value: monthKeys.contains(_month) ? _month : null,
-                isExpanded: true,
-                decoration: deco('Month'),
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('Last 3 months')),
-                  for (final k in monthKeys)
-                    DropdownMenuItem<String?>(
-                      value: k,
-                      child: Text('${months[int.parse(k.substring(5)) - 1]} ${k.substring(0, 4)}'),
+              SizedBox(
+                width: 200,
+                child: DropdownButtonFormField<String>(
+                  value: _sort,
+                  isExpanded: true,
+                  decoration: deco('Sort'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'current',
+                      child: Text('Current & late first'),
                     ),
-                ],
-                onChanged: (v) => setState(() => _month = v),
+                    DropdownMenuItem(
+                      value: 'date_asc',
+                      child: Text('Submit date ↑'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'date_desc',
+                      child: Text('Submit date ↓'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'name_asc',
+                      child: Text('Client A → Z'),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _sort = v ?? 'current'),
+                ),
               ),
-            ),
-          ]),
+              SizedBox(
+                width: 170,
+                child: DropdownButtonFormField<String?>(
+                  value: monthKeys.contains(_month) ? _month : null,
+                  isExpanded: true,
+                  decoration: deco('Month'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Last 3 months'),
+                    ),
+                    for (final k in monthKeys)
+                      DropdownMenuItem<String?>(
+                        value: k,
+                        child: Text(
+                          '${months[int.parse(k.substring(5)) - 1]} ${k.substring(0, 4)}',
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => _month = v),
+                ),
+              ),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final f in ribbons)
-              if (f == 'ALL' || countFor(f) > 0)
-                ChoiceChip(
-                  avatar: f == 'ALL'
-                      ? null
-                      : CircleAvatar(
-                          radius: 5,
-                          backgroundColor: f == 'CURRENT' ? _aBlue : _ribbonColor(f),
-                        ),
-                  label: Text('${f == 'ALL' ? 'All' : f[0] + f.substring(1).toLowerCase()} (${countFor(f)})'),
-                  selected: _ribbonFilter == f,
-                  onSelected: (_) => setState(() => _ribbonFilter = f),
-                ),
-          ]),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final f in ribbons)
+                if (f == 'ALL' || countFor(f) > 0)
+                  ChoiceChip(
+                    avatar: f == 'ALL'
+                        ? null
+                        : CircleAvatar(
+                            radius: 5,
+                            backgroundColor: f == 'CURRENT'
+                                ? _aBlue
+                                : _ribbonColor(f),
+                          ),
+                    label: Text(
+                      '${f == 'ALL' ? 'All' : f[0] + f.substring(1).toLowerCase()} (${countFor(f)})',
+                    ),
+                    selected: _ribbonFilter == f,
+                    onSelected: (_) => setState(() => _ribbonFilter = f),
+                  ),
+            ],
+          ),
         ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
             child: visible.isEmpty
-                ? ListView(children: const [
-                    SizedBox(height: 80),
-                    Center(child: Text('No client cards match these filters.', style: TextStyle(color: _aMuted))),
-                  ])
-                : LayoutBuilder(builder: (context, constraints) {
-                    final columns = constraints.maxWidth >= 1200 ? 3 : constraints.maxWidth >= 760 ? 2 : 1;
-                    return GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        mainAxisExtent: 364,
+                ? ListView(
+                    children: const [
+                      SizedBox(height: 80),
+                      Center(
+                        child: Text(
+                          'No client cards match these filters.',
+                          style: TextStyle(color: _aMuted),
+                        ),
                       ),
-                      itemCount: visible.length,
-                      itemBuilder: (context, i) => _adminCard(visible[i]),
-                    );
-                  }),
+                    ],
+                  )
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 1200
+                          ? 3
+                          : constraints.maxWidth >= 760
+                          ? 2
+                          : 1;
+                      return GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          mainAxisExtent: 364,
+                        ),
+                        itemCount: visible.length,
+                        itemBuilder: (context, i) => _adminCard(visible[i]),
+                      );
+                    },
+                  ),
           ),
         ),
       ],
@@ -509,26 +741,54 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
   Widget _adminCard(_AdminCard card) {
     final running = card.client.inProgress;
     Widget tag(String text, Color bg, Color fg, IconData icon) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 12, color: fg),
-            const SizedBox(width: 4),
-            Text(text, style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w900)),
-          ]),
-        );
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: fg,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
           height: 26,
-          child: Row(children: [
-            if (card.isCurrent) tag('CURRENT', _aBlue, Colors.white, Icons.star_rounded),
-            if (card.isCurrent) const SizedBox(width: 6),
-            if (running > 0) tag('$running working now', const Color(0xFFDCFCE7), const Color(0xFF15803D), Icons.circle),
-            if (running > 0) const SizedBox(width: 6),
-            if (card.late > 0) tag('${card.late} late', const Color(0xFFFEE2E2), _aLate, Icons.warning_amber_rounded),
-          ]),
+          child: Row(
+            children: [
+              if (card.isCurrent)
+                tag('CURRENT', _aBlue, Colors.white, Icons.star_rounded),
+              if (card.isCurrent) const SizedBox(width: 6),
+              if (running > 0)
+                tag(
+                  '$running working now',
+                  const Color(0xFFDCFCE7),
+                  const Color(0xFF15803D),
+                  Icons.circle,
+                ),
+              if (running > 0) const SizedBox(width: 6),
+              if (card.late > 0)
+                tag(
+                  '${card.late} late',
+                  const Color(0xFFFEE2E2),
+                  _aLate,
+                  Icons.warning_amber_rounded,
+                ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         Expanded(
@@ -537,7 +797,13 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
                 ? BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: _aBlue, width: 2),
-                    boxShadow: [BoxShadow(color: _aBlue.withValues(alpha: 0.22), blurRadius: 18, offset: const Offset(0, 6))],
+                    boxShadow: [
+                      BoxShadow(
+                        color: _aBlue.withValues(alpha: 0.22),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   )
                 : null,
             child: _RibbonedCard(
@@ -598,7 +864,11 @@ class _AdminClientViewState extends State<_AdminClientView> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     )..connect();
     _socket!.on('task_updated', (_) {
       _debounce?.cancel();
@@ -612,13 +882,15 @@ class _AdminClientViewState extends State<_AdminClientView> {
       var changed = false;
       for (final row in _allRows()) {
         if (row['state'] == 'IN PROGRESS') {
-          row['current_secs'] = (int.tryParse('${row['current_secs'] ?? 0}') ?? 0) + 1;
+          row['current_secs'] =
+              (int.tryParse('${row['current_secs'] ?? 0}') ?? 0) + 1;
           changed = true;
         }
       }
       for (final s in _sheets) {
         if (s['running'] == true) {
-          s['duration_secs'] = (int.tryParse('${s['duration_secs'] ?? 0}') ?? 0) + 1;
+          s['duration_secs'] =
+              (int.tryParse('${s['duration_secs'] ?? 0}') ?? 0) + 1;
           changed = true;
         }
       }
@@ -647,14 +919,22 @@ class _AdminClientViewState extends State<_AdminClientView> {
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     try {
-      final res = await http.get(Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/admin/tasks').replace(
-        queryParameters: {'client': client.name, 'date': client.submissionDate},
-      ));
+      final res = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/admin/tasks').replace(
+          queryParameters: {
+            'client': client.name,
+            'date': client.submissionDate,
+          },
+        ),
+      );
       final body = jsonDecode(res.body);
-      if (res.statusCode != 200) throw Exception(body['message'] ?? 'Server ${res.statusCode}');
+      if (res.statusCode != 200)
+        throw Exception(body['message'] ?? 'Server ${res.statusCode}');
       final data = Map<String, dynamic>.from(body['data'] as Map);
-      List<Map<String, dynamic>> maps(dynamic v) =>
-          (v as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      List<Map<String, dynamic>> maps(dynamic v) => (v as List? ?? [])
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
       final members = maps(data['members']);
       for (final m in members) {
         final groups = maps(m['groups']);
@@ -674,10 +954,13 @@ class _AdminClientViewState extends State<_AdminClientView> {
         if (_selectedGroup == null) {
           String? first;
           for (final m in members) {
-            for (final g in (m['groups'] as List).cast<Map<String, dynamic>>()) {
+            for (final g
+                in (m['groups'] as List).cast<Map<String, dynamic>>()) {
               final key = '${m['employee']}|${g['key']}';
               first ??= key;
-              if ((g['rows'] as List).cast<Map<String, dynamic>>().any((r) => r['state'] == 'IN PROGRESS')) {
+              if ((g['rows'] as List).cast<Map<String, dynamic>>().any(
+                (r) => r['state'] == 'IN PROGRESS',
+              )) {
                 _selectedGroup = key;
                 break;
               }
@@ -700,9 +983,17 @@ class _AdminClientViewState extends State<_AdminClientView> {
   Widget build(BuildContext context) {
     final lateItems = _compliance.where((c) => c['status'] == 'LATE').toList();
     final tabs = <(String, IconData, int)>[
-      ('Employee Tasks', Icons.groups_2_rounded, _allRows().where((r) => r['state'] == 'IN PROGRESS').length),
+      (
+        'Employee Tasks',
+        Icons.groups_2_rounded,
+        _allRows().where((r) => r['state'] == 'IN PROGRESS').length,
+      ),
       ('Content Calendar', Icons.calendar_month_rounded, 0),
-      ('Task Review', Icons.fact_check_rounded, _allRows().where((r) => r['state'] == 'IN REVIEW').length),
+      (
+        'Task Review',
+        Icons.fact_check_rounded,
+        _allRows().where((r) => r['state'] == 'IN REVIEW').length,
+      ),
       ('Live Tracking', Icons.timer_rounded, 0),
       ('Team Chat', Icons.forum_rounded, 0),
       ('Pending', Icons.pending_actions_rounded, lateItems.length),
@@ -738,23 +1029,40 @@ class _AdminClientViewState extends State<_AdminClientView> {
                 tabs: [
                   for (final t in tabs)
                     Tab(
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(t.$2, size: 17),
-                        const SizedBox(width: 6),
-                        Text(t.$1, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        if (t.$3 > 0) ...[
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(t.$2, size: 17),
                           const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: t.$1 == 'Pending' ? const Color(0xFFEF4444) : _aBlue,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text('${t.$3}',
-                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
+                          Text(
+                            t.$1,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
+                          if (t.$3 > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: t.$1 == 'Pending'
+                                    ? const Color(0xFFEF4444)
+                                    : _aBlue,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${t.$3}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ]),
+                      ),
                     ),
                 ],
               ),
@@ -765,60 +1073,68 @@ class _AdminClientViewState extends State<_AdminClientView> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          Text(_error!, style: const TextStyle(color: _aMuted)),
-                          const SizedBox(height: 8),
-                          FilledButton(onPressed: _load, child: const Text('Try again')),
-                        ]),
-                      )
-                    : TabBarView(
-                        children: [
-                          _WorkspaceTabKeepAlive(child: _employeeTasks()),
-                          _WorkspaceTabKeepAlive(
-                            child: ContentCalendarScreen(
-                              key: ValueKey('admin-cc-${client.name}'),
-                              apiBaseUrl: ApiConfig.baseUrl,
-                              authToken: widget.token,
-                              currentUserId: widget.adminId,
-                              currentUserName: widget.adminName,
-                              currentUserRole: 'admin',
-                              initialClient: {
-                                'client_name': client.name,
-                                'submission_date': client.submissionDate,
-                              },
-                              myTasksMode: false,
-                              readOnly: true,
-                            ),
-                          ),
-                          // Main admin: Approve / Pending / Rework / Reject any row.
-                          _WorkspaceTabKeepAlive(
-                            child: WorkspaceTaskReviewSection(
-                              key: ValueKey('admin-review-${client.name}-${client.submissionDate}'),
-                              clientName: client.name,
-                              submissionDate: client.submissionDate,
-                              employeeName: widget.adminName,
-                              authToken: widget.token,
-                              adminMode: true,
-                            ),
-                          ),
-                          _WorkspaceTabKeepAlive(child: _live()),
-                          _WorkspaceTabKeepAlive(
-                            child: _WorkspaceTeamChat(
-                              key: ValueKey('admin-chat-${client.name}'),
-                              employeeName: widget.adminName,
-                              clientName: client.name,
-                            ),
-                          ),
-                          _WorkspaceTabKeepAlive(
-                            child: _PendingList(
-                              items: _compliance,
-                              showClient: false,
-                              showAll: true,
-                            ),
-                          ),
-                        ],
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, style: const TextStyle(color: _aMuted)),
+                        const SizedBox(height: 8),
+                        FilledButton(
+                          onPressed: _load,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    ),
+                  )
+                : TabBarView(
+                    children: [
+                      _WorkspaceTabKeepAlive(child: _employeeTasks()),
+                      _WorkspaceTabKeepAlive(
+                        child: ContentCalendarScreen(
+                          key: ValueKey('admin-cc-${client.name}'),
+                          apiBaseUrl: ApiConfig.baseUrl,
+                          authToken: widget.token,
+                          currentUserId: widget.adminId,
+                          currentUserName: widget.adminName,
+                          currentUserRole: 'admin',
+                          initialClient: {
+                            'client_name': client.name,
+                            'submission_date': client.submissionDate,
+                          },
+                          myTasksMode: false,
+                          readOnly: true,
+                        ),
                       ),
+                      // Main admin: Approve / Pending / Rework / Reject any row.
+                      _WorkspaceTabKeepAlive(
+                        child: WorkspaceTaskReviewSection(
+                          key: ValueKey(
+                            'admin-review-${client.name}-${client.submissionDate}',
+                          ),
+                          clientName: client.name,
+                          submissionDate: client.submissionDate,
+                          employeeName: widget.adminName,
+                          authToken: widget.token,
+                          adminMode: true,
+                        ),
+                      ),
+                      _WorkspaceTabKeepAlive(child: _live()),
+                      _WorkspaceTabKeepAlive(
+                        child: _WorkspaceTeamChat(
+                          key: ValueKey('admin-chat-${client.name}'),
+                          employeeName: widget.adminName,
+                          clientName: client.name,
+                        ),
+                      ),
+                      _WorkspaceTabKeepAlive(
+                        child: _PendingList(
+                          items: _compliance,
+                          showClient: false,
+                          showAll: true,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -826,14 +1142,22 @@ class _AdminClientViewState extends State<_AdminClientView> {
   }
 
   // ── Employee Tasks ─────────────────────────────────────────────────────────
-  Map<String, dynamic>? _complianceFor(Map<String, dynamic> member, Map<String, dynamic> g) {
+  Map<String, dynamic>? _complianceFor(
+    Map<String, dynamic> member,
+    Map<String, dynamic> g,
+  ) {
     final c = g['compliance'];
     return c is Map ? Map<String, dynamic>.from(c) : null;
   }
 
   Widget _employeeTasks() {
     if (_members.isEmpty) {
-      return const Center(child: Text('No tasks are assigned on this client yet.', style: TextStyle(color: _aMuted)));
+      return const Center(
+        child: Text(
+          'No tasks are assigned on this client yet.',
+          style: TextStyle(color: _aMuted),
+        ),
+      );
     }
     final chips = <Widget>[];
     Map<String, dynamic>? selMember;
@@ -843,8 +1167,13 @@ class _AdminClientViewState extends State<_AdminClientView> {
         final key = '${m['employee']}|${g['key']}';
         final rows = (g['rows'] as List).cast<Map<String, dynamic>>();
         final running = rows.any((r) => r['state'] == 'IN PROGRESS');
-        final done = rows.where((r) => r['parent_item_id'] == null && r['state'] == 'APPROVED').length;
-        final total = (int.tryParse('${g['assigned_count'] ?? 0}') ?? 0) >
+        final done = rows
+            .where(
+              (r) => r['parent_item_id'] == null && r['state'] == 'APPROVED',
+            )
+            .length;
+        final total =
+            (int.tryParse('${g['assigned_count'] ?? 0}') ?? 0) >
                 rows.where((r) => r['parent_item_id'] == null).length
             ? int.tryParse('${g['assigned_count'] ?? 0}') ?? 0
             : rows.where((r) => r['parent_item_id'] == null).length;
@@ -854,65 +1183,130 @@ class _AdminClientViewState extends State<_AdminClientView> {
           selMember = m;
           selGroup = g;
         }
-        chips.add(InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => setState(() => _selectedGroup = key),
-          child: Container(
-            width: 230,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: selected ? _aBlue : (late ? const Color(0xFFFFF1F2) : Colors.white),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected ? _aBlue : late ? const Color(0xFFFCA5A5) : _aLine,
-                width: late && !selected ? 1.5 : 1,
+        chips.add(
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => _selectedGroup = key),
+            child: Container(
+              width: 230,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: selected
+                    ? _aBlue
+                    : (late ? const Color(0xFFFFF1F2) : Colors.white),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected
+                      ? _aBlue
+                      : late
+                      ? const Color(0xFFFCA5A5)
+                      : _aLine,
+                  width: late && !selected ? 1.5 : 1,
+                ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: _aBlue.withValues(alpha: 0.25),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
               ),
-              boxShadow: selected
-                  ? [BoxShadow(color: _aBlue.withValues(alpha: 0.25), blurRadius: 12, offset: const Offset(0, 4))]
-                  : null,
-            ),
-            child: Row(children: [
-              CircleAvatar(
-                radius: 15,
-                backgroundColor: selected ? Colors.white : const Color(0xFFEAF2FF),
-                child: Text(_clientInitials('${m['employee']}'),
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _aBlue)),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${g['deliverable'] ?? ''}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 12.5, fontWeight: FontWeight.w800, color: selected ? Colors.white : _aInk)),
-                  Text('${m['employee']} · ${g['role_label'] ?? ''}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 10.5, color: selected ? Colors.white70 : _aMuted)),
-                ]),
-              ),
-              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text('$done/$total',
-                    style: TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w900, color: selected ? Colors.white : _aBlue)),
-                if (running)
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.circle, size: 7, color: selected ? const Color(0xFF86EFAC) : const Color(0xFF16A34A)),
-                    const SizedBox(width: 3),
-                    Text('LIVE',
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: selected
+                        ? Colors.white
+                        : const Color(0xFFEAF2FF),
+                    child: Text(
+                      _clientInitials('${m['employee']}'),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: _aBlue,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${g['deliverable'] ?? ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: selected ? Colors.white : _aInk,
+                          ),
+                        ),
+                        Text(
+                          '${m['employee']} · ${g['role_label'] ?? ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: selected ? Colors.white70 : _aMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$done/$total',
                         style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: selected ? Colors.white : _aBlue,
+                        ),
+                      ),
+                      if (running)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              size: 7,
+                              color: selected
+                                  ? const Color(0xFF86EFAC)
+                                  : const Color(0xFF16A34A),
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              'LIVE',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: selected
+                                    ? Colors.white
+                                    : const Color(0xFF15803D),
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (late)
+                        Text(
+                          'LATE',
+                          style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w900,
-                            color: selected ? Colors.white : const Color(0xFF15803D))),
-                  ])
-                else if (late)
-                  Text('LATE',
-                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: selected ? Colors.white : _aLate)),
-              ]),
-            ]),
+                            color: selected ? Colors.white : _aLate,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-        ));
+        );
       }
     }
     return ListView(
@@ -920,25 +1314,52 @@ class _AdminClientViewState extends State<_AdminClientView> {
       children: [
         Wrap(spacing: 10, runSpacing: 10, children: chips),
         const SizedBox(height: 16),
-        if (selGroup != null && selMember != null) _groupDetail(selMember!, selGroup!),
+        if (selGroup != null && selMember != null)
+          _groupDetail(selMember!, selGroup!),
       ],
     );
   }
 
   Widget _stateBadge(String state) {
     final (label, bg, fg) = switch (state) {
-      'IN PROGRESS' => ('WORKING', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
-      'ON HOLD' => ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFF92400E)),
-      'IN REVIEW' => ('IN REVIEW', const Color(0xFFEDE9FE), const Color(0xFF6D28D9)),
+      'IN PROGRESS' => (
+        'WORKING',
+        const Color(0xFFDCFCE7),
+        const Color(0xFF15803D),
+      ),
+      'ON HOLD' => (
+        'ON HOLD',
+        const Color(0xFFFEF3C7),
+        const Color(0xFF92400E),
+      ),
+      'IN REVIEW' => (
+        'IN REVIEW',
+        const Color(0xFFEDE9FE),
+        const Color(0xFF6D28D9),
+      ),
       'REWORK' => ('REWORK', const Color(0xFFFFEDD5), const Color(0xFFC2410C)),
-      'APPROVED' => ('APPROVED', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
-      'REJECTED' => ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFB91C1C)),
+      'APPROVED' => (
+        'APPROVED',
+        const Color(0xFFDCFCE7),
+        const Color(0xFF15803D),
+      ),
+      'REJECTED' => (
+        'REJECTED',
+        const Color(0xFFFEE2E2),
+        const Color(0xFFB91C1C),
+      ),
       _ => ('NOT STARTED', const Color(0xFFF1F5F9), _aMuted),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: fg)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: fg),
+      ),
     );
   }
 
@@ -971,7 +1392,8 @@ class _AdminClientViewState extends State<_AdminClientView> {
           PremiumTheme.dialogHeader(
             '${g['deliverable'] ?? ''}',
             icon: Icons.task_alt_rounded,
-            subtitle: '${m['employee']} · ${g['role_label'] ?? ''} · '
+            subtitle:
+                '${m['employee']} · ${g['role_label'] ?? ''} · '
                 '${rows.where((r) => r['parent_item_id'] == null).length} rows',
           ),
           if (workingNow.isNotEmpty)
@@ -983,18 +1405,30 @@ class _AdminClientViewState extends State<_AdminClientView> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFBBF7D0)),
               ),
-              child: Row(children: [
-                const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${m['employee']} is working now on row ${workingNow.map((r) => r['display_no']).join(', ')}',
-                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
+              child: Row(
+                children: [
+                  const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${m['employee']} is working now on row ${workingNow.map((r) => r['display_no']).join(', ')}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF15803D),
+                      ),
+                    ),
                   ),
-                ),
-                Text(_timer(workingNow.first['current_secs']),
-                    style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w900, color: Color(0xFF15803D))),
-              ]),
+                  Text(
+                    _timer(workingNow.first['current_secs']),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF15803D),
+                    ),
+                  ),
+                ],
+              ),
             ),
           if (issues.isNotEmpty)
             Container(
@@ -1005,20 +1439,36 @@ class _AdminClientViewState extends State<_AdminClientView> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFFECACA)),
               ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                for (final i in issues)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Icon(Icons.warning_amber_rounded, size: 15, color: _aLate),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text('${i['message']}',
-                            style: const TextStyle(fontSize: 12, color: _aLate, fontWeight: FontWeight.w700)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final i in issues)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            size: 15,
+                            color: _aLate,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${i['message']}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: _aLate,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ]),
-                  ),
-              ]),
+                    ),
+                ],
+              ),
             ),
           if (rows.isEmpty)
             Padding(
@@ -1038,7 +1488,11 @@ class _AdminClientViewState extends State<_AdminClientView> {
                 headingRowHeight: 38,
                 dataRowMinHeight: 44,
                 dataRowMaxHeight: 64,
-                headingTextStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _aMuted),
+                headingTextStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: _aMuted,
+                ),
                 columns: const [
                   DataColumn(label: Text('ROW')),
                   DataColumn(label: Text('TASK')),
@@ -1053,36 +1507,81 @@ class _AdminClientViewState extends State<_AdminClientView> {
                   for (final r in rows)
                     DataRow(
                       color: WidgetStatePropertyAll(
-                        r['state'] == 'IN PROGRESS' ? const Color(0xFFF0FDF4) : null,
+                        r['state'] == 'IN PROGRESS'
+                            ? const Color(0xFFF0FDF4)
+                            : null,
                       ),
                       cells: [
-                        DataCell(Text('${r['display_no']}', style: const TextStyle(fontWeight: FontWeight.w800))),
-                        DataCell(SizedBox(
-                          width: 260,
-                          child: Text(
-                            '${(r['hook_headline'] ?? '').toString().isNotEmpty ? r['hook_headline'] : r['task_description'] ?? ''}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                        DataCell(
+                          Text(
+                            '${r['display_no']}',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
-                        )),
+                        ),
+                        DataCell(
+                          SizedBox(
+                            width: 260,
+                            child: Text(
+                              '${(r['hook_headline'] ?? '').toString().isNotEmpty ? r['hook_headline'] : r['task_description'] ?? ''}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ),
                         DataCell(_stateBadge('${r['state']}')),
-                        DataCell(Text(_timer(r['current_secs']),
+                        DataCell(
+                          Text(
+                            _timer(r['current_secs']),
                             style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.w800,
-                                color: r['state'] == 'IN PROGRESS' ? const Color(0xFF15803D) : _aInk))),
-                        DataCell(Text(_when(r['start_time']), style: const TextStyle(fontSize: 11.5))),
-                        DataCell(Text(_when(r['complete_time']), style: const TextStyle(fontSize: 11.5))),
-                        DataCell(Text(_formatDate('${r['submit_date'] ?? ''}'), style: const TextStyle(fontSize: 11.5))),
-                        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (r['state'] == 'IN PROGRESS') ...[
-                            const Icon(Icons.circle, size: 8, color: Color(0xFF16A34A)),
-                            const SizedBox(width: 4),
-                          ],
-                          Text('${(r['employee_name'] ?? '').toString().isNotEmpty ? r['employee_name'] : m['employee']}',
-                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700)),
-                        ])),
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w800,
+                              color: r['state'] == 'IN PROGRESS'
+                                  ? const Color(0xFF15803D)
+                                  : _aInk,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            _when(r['start_time']),
+                            style: const TextStyle(fontSize: 11.5),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            _when(r['complete_time']),
+                            style: const TextStyle(fontSize: 11.5),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            _formatDate('${r['submit_date'] ?? ''}'),
+                            style: const TextStyle(fontSize: 11.5),
+                          ),
+                        ),
+                        DataCell(
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (r['state'] == 'IN PROGRESS') ...[
+                                const Icon(
+                                  Icons.circle,
+                                  size: 8,
+                                  color: Color(0xFF16A34A),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Text(
+                                '${(r['employee_name'] ?? '').toString().isNotEmpty ? r['employee_name'] : m['employee']}',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                 ],
@@ -1102,71 +1601,120 @@ class _AdminClientViewState extends State<_AdminClientView> {
       required String sub,
       required String state,
       required dynamic secs,
-    }) =>
-        Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: state == 'IN PROGRESS' ? const Color(0xFFF0FDF4) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: state == 'IN PROGRESS' ? const Color(0xFFBBF7D0) : _aLine),
+    }) => Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: state == 'IN PROGRESS' ? const Color(0xFFF0FDF4) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: state == 'IN PROGRESS' ? const Color(0xFFBBF7D0) : _aLine,
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: state == 'IN PROGRESS'
+                ? const Color(0xFF16A34A)
+                : const Color(0xFFF59E0B),
+            child: Text(
+              _clientInitials(who),
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
           ),
-          child: Row(children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: state == 'IN PROGRESS' ? const Color(0xFF16A34A) : const Color(0xFFF59E0B),
-              child: Text(_clientInitials(who),
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: _aInk,
+                  ),
+                ),
+                Text(
+                  sub,
+                  style: const TextStyle(fontSize: 11.5, color: _aMuted),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: _aInk)),
-                Text(sub, style: const TextStyle(fontSize: 11.5, color: _aMuted)),
-              ]),
+          ),
+          _stateBadge(state),
+          const SizedBox(width: 10),
+          Text(
+            _timer(secs),
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+              color: state == 'IN PROGRESS' ? const Color(0xFF15803D) : _aInk,
             ),
-            _stateBadge(state),
-            const SizedBox(width: 10),
-            Text(_timer(secs),
-                style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
-                    color: state == 'IN PROGRESS' ? const Color(0xFF15803D) : _aInk)),
-          ]),
-        );
+          ),
+        ],
+      ),
+    );
 
-    final rows = <(Map<String, dynamic>, Map<String, dynamic>, Map<String, dynamic>)>[];
+    final rows =
+        <(Map<String, dynamic>, Map<String, dynamic>, Map<String, dynamic>)>[];
     for (final m in _members) {
       for (final g in (m['groups'] as List).cast<Map<String, dynamic>>()) {
         for (final r in (g['rows'] as List).cast<Map<String, dynamic>>()) {
-          if (r['state'] == 'IN PROGRESS' || r['state'] == 'ON HOLD') rows.add((m, g, r));
+          if (r['state'] == 'IN PROGRESS' || r['state'] == 'ON HOLD')
+            rows.add((m, g, r));
         }
       }
     }
-    rows.sort((a, b) => (a.$3['state'] == 'IN PROGRESS' ? 0 : 1).compareTo(b.$3['state'] == 'IN PROGRESS' ? 0 : 1));
+    rows.sort(
+      (a, b) => (a.$3['state'] == 'IN PROGRESS' ? 0 : 1).compareTo(
+        b.$3['state'] == 'IN PROGRESS' ? 0 : 1,
+      ),
+    );
     for (final (m, g, r) in rows) {
-      live.add(tile(
-        who: '${m['employee']}',
-        title: '${g['deliverable']} · Row ${r['display_no']}',
-        sub: '${m['employee']} · ${g['role_label']} · started ${_when(r['start_time'])}',
-        state: '${r['state']}',
-        secs: r['current_secs'],
-      ));
+      live.add(
+        tile(
+          who: '${m['employee']}',
+          title: '${g['deliverable']} · Row ${r['display_no']}',
+          sub:
+              '${m['employee']} · ${g['role_label']} · started ${_when(r['start_time'])}',
+          state: '${r['state']}',
+          secs: r['current_secs'],
+        ),
+      );
     }
-    for (final s in _sheets.where((s) => s['status'] == 'IN PROGRESS' || s['status'] == 'ON HOLD')) {
-      live.add(tile(
-        who: '${s['prepared_by'] ?? ''}',
-        title: 'Content Calendar · ${s['deliverable']}',
-        sub: '${s['prepared_by'] ?? ''} · preparing ${s['calendar_ids'] is List ? (s['calendar_ids'] as List).length : ''} rows',
-        state: '${s['status']}',
-        secs: s['duration_secs'],
-      ));
+    for (final s in _sheets.where(
+      (s) => s['status'] == 'IN PROGRESS' || s['status'] == 'ON HOLD',
+    )) {
+      live.add(
+        tile(
+          who: '${s['prepared_by'] ?? ''}',
+          title: 'Content Calendar · ${s['deliverable']}',
+          sub:
+              '${s['prepared_by'] ?? ''} · preparing ${s['calendar_ids'] is List ? (s['calendar_ids'] as List).length : ''} rows',
+          state: '${s['status']}',
+          secs: s['duration_secs'],
+        ),
+      );
     }
     if (live.isEmpty) {
-      return const Center(child: Text('Nobody is working on this client right now.', style: TextStyle(color: _aMuted)));
+      return const Center(
+        child: Text(
+          'Nobody is working on this client right now.',
+          style: TextStyle(color: _aMuted),
+        ),
+      );
     }
-    return ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: live);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      children: live,
+    );
   }
 }
 
@@ -1208,9 +1756,12 @@ class _PendingListState extends State<_PendingList> {
       if (!widget.showAll && i['status'] != 'LATE') return false;
       if (widget.showAll && i['status'] == 'NO RULE') return false;
       final issues = (i['issues'] as List? ?? []).whereType<Map>();
-      if (_type != 'ALL' && !issues.any((x) => x['type'] == _type)) return false;
+      if (_type != 'ALL' && !issues.any((x) => x['type'] == _type))
+        return false;
       if (q.isNotEmpty &&
-          !'${i['client']} ${i['employee']} ${i['task']} ${i['role_label']}'.toLowerCase().contains(q)) {
+          !'${i['client']} ${i['employee']} ${i['task']} ${i['role_label']}'
+              .toLowerCase()
+              .contains(q)) {
         return false;
       }
       return true;
@@ -1221,38 +1772,61 @@ class _PendingListState extends State<_PendingList> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            SizedBox(
-              width: 240,
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: widget.showClient ? 'Search client, employee, task' : 'Search employee, task',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                  isDense: true,
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 240,
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: widget.showClient
+                        ? 'Search client, employee, task'
+                        : 'Search employee, task',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onChanged: (v) => setState(() => _search = v),
                 ),
-                onChanged: (v) => setState(() => _search = v),
               ),
-            ),
-            for (final e in _types.entries)
-              ChoiceChip(
-                label: Text(e.value),
-                selected: _type == e.key,
-                onSelected: (_) => setState(() => _type = e.key),
-              ),
-          ]),
+              for (final e in _types.entries)
+                ChoiceChip(
+                  label: Text(e.value),
+                  selected: _type == e.key,
+                  onSelected: (_) => setState(() => _type = e.key),
+                ),
+            ],
+          ),
         ),
         Expanded(
           child: list.isEmpty
               ? Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.verified_rounded, size: 40, color: Color(0xFF16A34A)),
-                    const SizedBox(height: 8),
-                    Text(widget.showAll ? 'No deadline rules apply here yet.' : 'Nothing is late. 🎉',
-                        style: const TextStyle(color: _aMuted, fontWeight: FontWeight.w700)),
-                  ]),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.verified_rounded,
+                        size: 40,
+                        color: Color(0xFF16A34A),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.showAll
+                            ? 'No deadline rules apply here yet.'
+                            : 'Nothing is late. 🎉',
+                        style: const TextStyle(
+                          color: _aMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
@@ -1268,7 +1842,11 @@ class _PendingListState extends State<_PendingList> {
     final late = i['status'] == 'LATE';
     final done = i['status'] == 'DONE';
     final issues = (i['issues'] as List? ?? []).whereType<Map>().toList();
-    final color = late ? _aLate : done ? const Color(0xFF15803D) : _aBlue;
+    final color = late
+        ? _aLate
+        : done
+        ? const Color(0xFF15803D)
+        : _aBlue;
     String d(dynamic v) {
       final t = DateTime.tryParse('${v ?? ''}');
       return t == null ? '—' : DateFormat('d MMM').format(t.toLocal());
@@ -1281,81 +1859,166 @@ class _PendingListState extends State<_PendingList> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: late ? const Color(0xFFFECACA) : _aLine),
         boxShadow: late
-            ? [BoxShadow(color: _aLate.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4))]
+            ? [
+                BoxShadow(
+                  color: _aLate.withValues(alpha: 0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
             : null,
       ),
       child: IntrinsicHeight(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Container(
-            width: 5,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 5,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(14),
+                ),
+              ),
             ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(
-                      '${i['task']} · ${i['role_label']}',
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: _aInk),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${i['task']} · ${i['role_label']}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13.5,
+                              color: _aInk,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${i['status']}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-                    child: Text('${i['status']}',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: color)),
-                  ),
-                ]),
-                const SizedBox(height: 4),
-                Wrap(spacing: 12, runSpacing: 4, children: [
-                  _meta(Icons.person_rounded, '${i['employee']}'),
-                  if (widget.showClient) _meta(Icons.business_rounded, '${i['client']}'),
-                  _meta(Icons.event_rounded, 'Assigned ${d(i['assigned_at'])}'),
-                  if (i['start_due'] != null) _meta(Icons.play_arrow_rounded, 'Start by ${d(i['start_due'])}'),
-                  if (i['complete_due'] != null) _meta(Icons.flag_rounded, 'Complete by ${d(i['complete_due'])}'),
-                  if (i['per_week'] != null) _meta(Icons.date_range_rounded, '${i['per_week']} / week'),
-                  _meta(Icons.task_alt_rounded, '${i['done']}/${i['total']} done'),
-                  _meta(i['started'] == true ? Icons.check_circle_outline : Icons.radio_button_unchecked,
-                      i['started'] == true ? 'Started' : 'Not started'),
-                ]),
-                for (final x in issues) ...[
-                  const SizedBox(height: 6),
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Icon(Icons.warning_amber_rounded, size: 15, color: _aLate),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text('${x['message']}',
-                          style: const TextStyle(fontSize: 12, color: _aLate, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        _meta(Icons.person_rounded, '${i['employee']}'),
+                        if (widget.showClient)
+                          _meta(Icons.business_rounded, '${i['client']}'),
+                        _meta(
+                          Icons.event_rounded,
+                          'Assigned ${d(i['assigned_at'])}',
+                        ),
+                        if (i['start_due'] != null)
+                          _meta(
+                            Icons.play_arrow_rounded,
+                            'Start by ${d(i['start_due'])}',
+                          ),
+                        if (i['complete_due'] != null)
+                          _meta(
+                            Icons.flag_rounded,
+                            'Complete by ${d(i['complete_due'])}',
+                          ),
+                        if (i['per_week'] != null)
+                          _meta(
+                            Icons.date_range_rounded,
+                            '${i['per_week']} / week',
+                          ),
+                        _meta(
+                          Icons.task_alt_rounded,
+                          '${i['done']}/${i['total']} done',
+                        ),
+                        _meta(
+                          i['started'] == true
+                              ? Icons.check_circle_outline
+                              : Icons.radio_button_unchecked,
+                          i['started'] == true ? 'Started' : 'Not started',
+                        ),
+                      ],
                     ),
-                  ]),
-                ],
-                if (widget.onOpenClient != null) ...[
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => widget.onOpenClient!('${i['client']}', '${i['submission_date']}'),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 15),
-                      label: const Text('Open client'),
-                    ),
-                  ),
-                ],
-              ]),
+                    for (final x in issues) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            size: 15,
+                            color: _aLate,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${x['message']}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: _aLate,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (widget.onOpenClient != null) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => widget.onOpenClient!(
+                            '${i['client']}',
+                            '${i['submission_date']}',
+                          ),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 15),
+                          label: const Text('Open client'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _meta(IconData icon, String text) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 13, color: _aMuted),
-        const SizedBox(width: 3),
-        Text(text, style: const TextStyle(fontSize: 11.5, color: _aMuted, fontWeight: FontWeight.w600)),
-      ]);
+  Widget _meta(IconData icon, String text) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 13, color: _aMuted),
+      const SizedBox(width: 3),
+      Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11.5,
+          color: _aMuted,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  );
 }

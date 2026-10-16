@@ -664,7 +664,7 @@ final draftCount = quotationsData
 
     return AdminLayout(
       pageTitle: "Quotations Management",
-      currentRoute: "/quotation",
+      currentRoute: "/quotations",
       onSearch: (query) {
         setState(() {
           _searchQuery = query;

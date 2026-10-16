@@ -1,4 +1,4 @@
-﻿// name=admin_panel_screen.dart
+// name=admin_panel_screen.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -56,7 +56,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   final TextEditingController _emailCtrl = TextEditingController();
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
-  
+
   final TextEditingController _phoneCtrl = TextEditingController();
   final TextEditingController _aadharCtrl = TextEditingController();
   final TextEditingController _panCtrl = TextEditingController();
@@ -79,12 +79,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Client Credentials', 'route': '/client-credentials'},
     {'title': 'Packages', 'route': '/packages'},
     {'title': 'Quotations', 'route': '/quotations'},
-    {'title': 'Package & Quotation', 'route': '/quotation'},
+
     {'title': 'Invoice', 'route': '/invoice'},
     {'title': 'Tasks Assign', 'route': '/tasks'},
     {'title': 'Daily Planner', 'route': '/daily-planner'},
     {'title': 'Employee Status', 'route': '/employee-status'},
-    {'title': 'Manager Review', 'route': '/manager-review'},
+
     {'title': 'Notifications', 'route': '/notifications'},
     {'title': 'Performance', 'route': '/performance'},
     {'title': 'Employee Management', 'route': '/admin-panel'},
@@ -101,7 +101,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     {'title': 'Tasks Assign', 'route': '/tasks'},
     {'title': 'Daily Planner', 'route': '/daily-planner'},
     {'title': 'Employee Status', 'route': '/employee-status'},
-    {'title': 'Manager Review', 'route': '/manager-review'},
+
     {'title': 'Chat', 'route': '/notifications'},
     {'title': 'Performance', 'route': '/performance'},
     {'title': 'Employee Management', 'route': '/admin-panel'},
@@ -181,7 +181,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           return decoded.map((e) => e.toString()).toList();
         }
       } catch (_) {
-        return text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+        return text
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
       }
     }
     return [];
@@ -216,7 +220,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       '/tasks': 'Tasks Assign',
       '/daily-planner': 'Daily Planner',
       '/employee-status': 'Employee Status',
-      '/manager-review': 'Manager Review',
+
       '/notifications': 'Chat',
       '/performance': 'Performance',
       '/admin-panel': 'Employee Management',
@@ -233,7 +237,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'employees': 'Employees',
       'task_assignment': 'Task Assignment',
       'employee_status': 'Employee Status',
-      'manager_review': 'Manager Review',
+
       'invoice': 'Invoice',
       'quotations': 'Quotations',
       'clients': 'Clients',
@@ -270,7 +274,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         } else if (decoded is Map) {
           rows = decoded['data'] ?? decoded['access'] ?? [];
         }
-        
+
         final mapAccess = <String, dynamic>{};
         for (final row in rows) {
           if (row is Map) {
@@ -284,7 +288,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         if (mounted) {
           setState(() {
             _currentRoleApplicationAccess = mapAccess;
-            _currentRoleAccessRows = rows.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+            _currentRoleAccessRows = rows
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
           });
         }
       }
@@ -297,13 +304,28 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(18),
-        backgroundColor: success ? const Color(0xFF0F9D73) : const Color(0xFFDC2626),
+        backgroundColor: success
+            ? const Color(0xFF0F9D73)
+            : const Color(0xFFDC2626),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
-            Icon(success ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: Colors.white),
+            Icon(
+              success
+                  ? Icons.check_circle_rounded
+                  : Icons.error_outline_rounded,
+              color: Colors.white,
+            ),
             const SizedBox(width: 10),
-            Expanded(child: Text(msg, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+            Expanded(
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -311,85 +333,98 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   List<String> _getActiveRoleOptions() {
-    return _selectedUserType == 'admin' ? adminRoleOptions : employeeRoleOptions;
+    return _selectedUserType == 'admin'
+        ? adminRoleOptions
+        : employeeRoleOptions;
   }
 
-  int get _activeCount => employeeUsers.where((e) => _isTrue(e['is_active'])).length;
-  int get _adminCount => employeeUsers.where((e) => _normalizeUserType(e['user_type']) == 'admin').length;
-  int get _employeeCount => employeeUsers.where((e) => _normalizeUserType(e['user_type']) == 'employee').length;
+  int get _activeCount =>
+      employeeUsers.where((e) => _isTrue(e['is_active'])).length;
+  int get _adminCount => employeeUsers
+      .where((e) => _normalizeUserType(e['user_type']) == 'admin')
+      .length;
+  int get _employeeCount => employeeUsers
+      .where((e) => _normalizeUserType(e['user_type']) == 'employee')
+      .length;
 
- void _openForm({Map<String, dynamic>? employee}) async {
-  await _fetchUserRolesMaster();
-  
-  String generatedStaffId = '';
-  if (employee == null) {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/employees/next-staff-id'));
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        generatedStaffId = body['staffId']?.toString() ?? '90046067';
-      } else {
+  void _openForm({Map<String, dynamic>? employee}) async {
+    await _fetchUserRolesMaster();
+
+    String generatedStaffId = '';
+    if (employee == null) {
+      try {
+        final response = await http.get(
+          Uri.parse('$_baseUrl/employees/next-staff-id'),
+        );
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          generatedStaffId = body['staffId']?.toString() ?? '90046067';
+        } else {
+          generatedStaffId = '90046067';
+        }
+      } catch (_) {
         generatedStaffId = '90046067';
       }
-    } catch (_) {
-      generatedStaffId = '90046067';
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _editingEmployee = employee;
+
+      _firstNameCtrl.text = employee?['first_name']?.toString() ?? '';
+      _middleNameCtrl.text = employee?['middle_name']?.toString() ?? '';
+      _lastNameCtrl.text = employee?['last_name']?.toString() ?? '';
+
+      _staffIdCtrl.text = employee?['staff_id']?.toString() ?? generatedStaffId;
+
+      _emailCtrl.text = employee?['email']?.toString() ?? '';
+      _usernameCtrl.text = employee?['username']?.toString() ?? '';
+      _passwordCtrl.text = employee?['password']?.toString() ?? '';
+
+      _phoneCtrl.text = employee?['phone_number']?.toString() ?? '';
+      _aadharCtrl.text = employee?['aadhar_number']?.toString() ?? '';
+      _panCtrl.text = employee?['pan_card_number']?.toString() ?? '';
+      _bankAccountNameCtrl.text =
+          employee?['bank_account_name']?.toString() ?? '';
+      _bankAccountNumberCtrl.text =
+          employee?['bank_account_number']?.toString() ?? '';
+      _bankIfscCtrl.text = employee?['bank_ifsc_code']?.toString() ?? '';
+      _bankNameCtrl.text = employee?['bank_name']?.toString() ?? '';
+      _permAddressCtrl.text = employee?['permanent_address']?.toString() ?? '';
+      _tempAddressCtrl.text = employee?['temporary_address']?.toString() ?? '';
+
+      _selectedUserType = _normalizeUserType(employee?['user_type']);
+      _isMainAdmin = _isTrue(employee?['is_main_admin']);
+
+      final activeRoles = _getActiveRoleOptions();
+      _selectedRole = employee?['role']?.toString() ?? '';
+      if (!activeRoles.contains(_selectedRole)) {
+        _selectedRole = activeRoles.isNotEmpty ? activeRoles.first : '';
+      }
+
+      _selectedPermissions = _parseAllowedPages(employee?['allowed_pages']);
+      if (_isMainAdmin) {
+        _selectedPermissions = availablePages.map((p) => p['route']!).toList();
+      }
+
+      _modalError = null;
+      _isFormView = true;
+    });
+
+    if (_selectedRole.isNotEmpty) {
+      final matchedRole = allUserRolesMaster.firstWhere(
+        (r) =>
+            r['role_name'].toString().toLowerCase() ==
+            _selectedRole.toLowerCase(),
+        orElse: () => {},
+      );
+      final rId = _toInt(matchedRole['id']);
+      if (rId != null) {
+        await _fetchRoleAccessForForm(rId);
+      }
     }
   }
-
-  if (!mounted) return;
-
-  setState(() {
-    _editingEmployee = employee;
-
-    _firstNameCtrl.text = employee?['first_name']?.toString() ?? '';
-    _middleNameCtrl.text = employee?['middle_name']?.toString() ?? '';
-    _lastNameCtrl.text = employee?['last_name']?.toString() ?? '';
-    
-    _staffIdCtrl.text = employee?['staff_id']?.toString() ?? generatedStaffId;
-
-    _emailCtrl.text = employee?['email']?.toString() ?? '';
-    _usernameCtrl.text = employee?['username']?.toString() ?? '';
-    _passwordCtrl.text = employee?['password']?.toString() ?? '';
-
-    _phoneCtrl.text = employee?['phone_number']?.toString() ?? '';
-    _aadharCtrl.text = employee?['aadhar_number']?.toString() ?? '';
-    _panCtrl.text = employee?['pan_card_number']?.toString() ?? '';
-    _bankAccountNameCtrl.text = employee?['bank_account_name']?.toString() ?? '';
-    _bankAccountNumberCtrl.text = employee?['bank_account_number']?.toString() ?? '';
-    _bankIfscCtrl.text = employee?['bank_ifsc_code']?.toString() ?? '';
-    _bankNameCtrl.text = employee?['bank_name']?.toString() ?? '';
-    _permAddressCtrl.text = employee?['permanent_address']?.toString() ?? '';
-    _tempAddressCtrl.text = employee?['temporary_address']?.toString() ?? '';
-
-    _selectedUserType = _normalizeUserType(employee?['user_type']);
-    _isMainAdmin = _isTrue(employee?['is_main_admin']);
-
-    final activeRoles = _getActiveRoleOptions();
-    _selectedRole = employee?['role']?.toString() ?? '';
-    if (!activeRoles.contains(_selectedRole)) {
-      _selectedRole = activeRoles.isNotEmpty ? activeRoles.first : '';
-    }
-
-    _selectedPermissions = _parseAllowedPages(employee?['allowed_pages']);
-    if (_isMainAdmin) {
-      _selectedPermissions = availablePages.map((p) => p['route']!).toList();
-    }
-
-    _modalError = null;
-    _isFormView = true;
-  });
-
-  if (_selectedRole.isNotEmpty) {
-    final matchedRole = allUserRolesMaster.firstWhere(
-      (r) => r['role_name'].toString().toLowerCase() == _selectedRole.toLowerCase(),
-      orElse: () => {},
-    );
-    final rId = _toInt(matchedRole['id']);
-    if (rId != null) {
-      await _fetchRoleAccessForForm(rId);
-    }
-  }
-}
 
   void _closeForm() {
     setState(() {
@@ -416,33 +451,46 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (decoded is List) {
         rows = decoded;
       } else if (decoded is Map<String, dynamic>) {
-        if (decoded['data'] is List) rows = decoded['data'];
-        else if (decoded['roles'] is List) rows = decoded['roles'];
+        if (decoded['data'] is List)
+          rows = decoded['data'];
+        else if (decoded['roles'] is List)
+          rows = decoded['roles'];
       }
 
-      final normalizedRoles = rows.whereType<Map>().map<Map<String, dynamic>>((item) {
+      final normalizedRoles = rows.whereType<Map>().map<Map<String, dynamic>>((
+        item,
+      ) {
         final map = Map<String, dynamic>.from(item);
         return {
           ...map,
           'id': _toInt(map['id']),
-          'role_name': (map['role_name'] ?? map['roleName'] ?? '').toString().trim(),
-          'user_type': (map['user_type'] ?? map['userType'] ?? 'employee').toString().trim().toLowerCase(),
+          'role_name': (map['role_name'] ?? map['roleName'] ?? '')
+              .toString()
+              .trim(),
+          'user_type': (map['user_type'] ?? map['userType'] ?? 'employee')
+              .toString()
+              .trim()
+              .toLowerCase(),
         };
       }).toList();
 
-      final employeeRoles = normalizedRoles
-          .where((role) => role['user_type'] == 'employee')
-          .map((role) => role['role_name'].toString())
-          .where((name) => name.isNotEmpty)
-          .toSet()
-          .toList()..sort();
+      final employeeRoles =
+          normalizedRoles
+              .where((role) => role['user_type'] == 'employee')
+              .map((role) => role['role_name'].toString())
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
 
-      final adminRoles = normalizedRoles
-          .where((role) => role['user_type'] == 'admin')
-          .map((role) => role['role_name'].toString())
-          .where((name) => name.isNotEmpty)
-          .toSet()
-          .toList()..sort();
+      final adminRoles =
+          normalizedRoles
+              .where((role) => role['user_type'] == 'admin')
+              .map((role) => role['role_name'].toString())
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
 
       if (!mounted) return;
       setState(() {
@@ -473,7 +521,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
-  Future<bool> _updateUserRole(int roleId, String roleName, String userType) async {
+  Future<bool> _updateUserRole(
+    int roleId,
+    String roleName,
+    String userType,
+  ) async {
     try {
       final response = await http.put(
         Uri.parse('$_baseUrl/employees/user-roles/$roleId'),
@@ -547,8 +599,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     Container(
                       padding: const EdgeInsets.all(22),
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(colors: [_primary, _primaryDark]),
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                        gradient: LinearGradient(
+                          colors: [_primary, _primaryDark],
+                        ),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(24),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -559,18 +615,30 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                               color: Colors.white.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.white),
+                            child: const Icon(
+                              Icons.admin_panel_settings_rounded,
+                              color: Colors.white,
+                            ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              isEditingRole ? 'Edit User Role' : 'User Role Master',
-                              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800),
+                              isEditingRole
+                                  ? 'Edit User Role'
+                                  : 'User Role Master',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                           IconButton(
                             onPressed: () => Navigator.pop(dialogContext),
-                            icon: const Icon(Icons.close_rounded, color: Colors.white),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                            ),
                           ),
                         ],
                       ),
@@ -581,18 +649,29 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _sectionLabel('Role Configuration', Icons.tune_rounded),
+                            _sectionLabel(
+                              'Role Configuration',
+                              Icons.tune_rounded,
+                            ),
                             const SizedBox(height: 16),
                             _buildDialogDropdown(
                               label: 'User Type',
                               value: selectedDialogUserType,
                               items: const [
-                                DropdownMenuItem(value: 'employee', child: Text('Employee Role')),
-                                DropdownMenuItem(value: 'admin', child: Text('Admin Role')),
+                                DropdownMenuItem(
+                                  value: 'employee',
+                                  child: Text('Employee Role'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'admin',
+                                  child: Text('Admin Role'),
+                                ),
                               ],
                               onChanged: (value) {
                                 if (value == null) return;
-                                setDialogState(() => selectedDialogUserType = value);
+                                setDialogState(
+                                  () => selectedDialogUserType = value,
+                                );
                               },
                             ),
                             const SizedBox(height: 14),
@@ -614,9 +693,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                   }
                                   bool success = false;
                                   if (isEditingRole && editingRoleId != null) {
-                                    success = await _updateUserRole(editingRoleId!, name, selectedDialogUserType);
+                                    success = await _updateUserRole(
+                                      editingRoleId!,
+                                      name,
+                                      selectedDialogUserType,
+                                    );
                                   } else {
-                                    success = await _addNewUserRole(name, selectedDialogUserType);
+                                    success = await _addNewUserRole(
+                                      name,
+                                      selectedDialogUserType,
+                                    );
                                   }
                                   if (!mounted) return;
                                   if (success) {
@@ -625,24 +711,42 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                       isEditingRole = false;
                                       editingRoleId = null;
                                     });
-                                    _showSnack('Operation successful', success: true);
+                                    _showSnack(
+                                      'Operation successful',
+                                      success: true,
+                                    );
                                   } else {
                                     _showSnack('Operation failed');
                                   }
                                 },
-                                icon: Icon(isEditingRole ? Icons.update_rounded : Icons.add_rounded),
-                                label: Text(isEditingRole ? 'Update Role' : 'Add New Role'),
+                                icon: Icon(
+                                  isEditingRole
+                                      ? Icons.update_rounded
+                                      : Icons.add_rounded,
+                                ),
+                                label: Text(
+                                  isEditingRole
+                                      ? 'Update Role'
+                                      : 'Add New Role',
+                                ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: _primary,
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 24),
-                            _sectionLabel('Existing Roles', Icons.folder_shared_outlined),
+                            _sectionLabel(
+                              'Existing Roles',
+                              Icons.folder_shared_outlined,
+                            ),
                             const SizedBox(height: 12),
                             Container(
                               height: 250,
@@ -652,89 +756,156 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                 border: Border.all(color: _border),
                               ),
                               child: _loadingRoles
-                                  ? const Center(child: CircularProgressIndicator(color: _primary))
+                                  ? const Center(
+                                      child: CircularProgressIndicator(
+                                        color: _primary,
+                                      ),
+                                    )
                                   : allUserRolesMaster.isEmpty
-                                      ? const Center(child: Text('No roles found', style: TextStyle(color: _muted)))
-                                      : ListView.separated(
-                                          padding: const EdgeInsets.all(10),
-                                          itemCount: allUserRolesMaster.length,
-                                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                                          itemBuilder: (context, index) {
-                                            final roleItem = allUserRolesMaster[index];
-                                            final roleId = _toInt(roleItem['id']);
-                                            final isAdmin = _normalizeUserType(roleItem['user_type']) == 'admin';
-                                            return Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(color: _border),
+                                  ? const Center(
+                                      child: Text(
+                                        'No roles found',
+                                        style: TextStyle(color: _muted),
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      padding: const EdgeInsets.all(10),
+                                      itemCount: allUserRolesMaster.length,
+                                      separatorBuilder: (_, __) =>
+                                          const SizedBox(height: 8),
+                                      itemBuilder: (context, index) {
+                                        final roleItem =
+                                            allUserRolesMaster[index];
+                                        final roleId = _toInt(roleItem['id']);
+                                        final isAdmin =
+                                            _normalizeUserType(
+                                              roleItem['user_type'],
+                                            ) ==
+                                            'admin';
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(color: _border),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 36,
+                                                height: 36,
+                                                decoration: BoxDecoration(
+                                                  color: isAdmin
+                                                      ? const Color(0xFFFFF3E0)
+                                                      : _primaryLight,
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                                child: Icon(
+                                                  isAdmin
+                                                      ? Icons.shield_outlined
+                                                      : Icons
+                                                            .person_outline_rounded,
+                                                  size: 18,
+                                                  color: isAdmin
+                                                      ? const Color(0xFFE67E22)
+                                                      : _primary,
+                                                ),
                                               ),
-                                              child: Row(
-                                                children: [
-                                                  Container(
-                                                    width: 36,
-                                                    height: 36,
-                                                    decoration: BoxDecoration(
-                                                      color: isAdmin ? const Color(0xFFFFF3E0) : _primaryLight,
-                                                      borderRadius: BorderRadius.circular(10),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      roleItem['role_name']
+                                                          .toString(),
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color: _ink,
+                                                      ),
                                                     ),
-                                                    child: Icon(
-                                                      isAdmin ? Icons.shield_outlined : Icons.person_outline_rounded,
-                                                      size: 18,
-                                                      color: isAdmin ? const Color(0xFFE67E22) : _primary,
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      isAdmin
+                                                          ? 'ADMIN'
+                                                          : 'EMPLOYEE',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        letterSpacing: 0.8,
+                                                        color: isAdmin
+                                                            ? const Color(
+                                                                0xFFE67E22,
+                                                              )
+                                                            : _primary,
+                                                      ),
                                                     ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Text(roleItem['role_name'].toString(),
-                                                            style: const TextStyle(fontWeight: FontWeight.w700, color: _ink)),
-                                                        const SizedBox(height: 2),
-                                                        Text(isAdmin ? 'ADMIN' : 'EMPLOYEE',
-                                                            style: TextStyle(
-                                                                fontSize: 10,
-                                                                fontWeight: FontWeight.w800,
-                                                                letterSpacing: 0.8,
-                                                                color: isAdmin ? const Color(0xFFE67E22) : _primary)),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  IconButton(
-                                                    tooltip: 'Edit',
-                                                    onPressed: () {
-                                                      setDialogState(() {
-                                                        isEditingRole = true;
-                                                        editingRoleId = roleId;
-                                                        roleNameController.text = roleItem['role_name'].toString();
-                                                        selectedDialogUserType = _normalizeUserType(roleItem['user_type']);
-                                                      });
-                                                    },
-                                                    icon: const Icon(Icons.edit_outlined, size: 19, color: _primary),
-                                                  ),
-                                                  IconButton(
-                                                    tooltip: 'Delete',
-                                                    onPressed: roleId == null
-                                                        ? null
-                                                        : () async {
-                                                            final confirm = await _showConfirmDialog(
-                                                              title: 'Delete Role',
-                                                              message: 'Are you sure you want to delete this role?',
-                                                              confirmText: 'Delete',
+                                                  ],
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Edit',
+                                                onPressed: () {
+                                                  setDialogState(() {
+                                                    isEditingRole = true;
+                                                    editingRoleId = roleId;
+                                                    roleNameController.text =
+                                                        roleItem['role_name']
+                                                            .toString();
+                                                    selectedDialogUserType =
+                                                        _normalizeUserType(
+                                                          roleItem['user_type'],
+                                                        );
+                                                  });
+                                                },
+                                                icon: const Icon(
+                                                  Icons.edit_outlined,
+                                                  size: 19,
+                                                  color: _primary,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Delete',
+                                                onPressed: roleId == null
+                                                    ? null
+                                                    : () async {
+                                                        final confirm =
+                                                            await _showConfirmDialog(
+                                                              title:
+                                                                  'Delete Role',
+                                                              message:
+                                                                  'Are you sure you want to delete this role?',
+                                                              confirmText:
+                                                                  'Delete',
                                                             );
-                                                            if (confirm != true) return;
-                                                            await _deleteUserRole(roleId);
-                                                            if (mounted) setDialogState(() {});
-                                                          },
-                                                    icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Color(0xFFDC2626)),
-                                                  ),
-                                                ],
+                                                        if (confirm != true)
+                                                          return;
+                                                        await _deleteUserRole(
+                                                          roleId,
+                                                        );
+                                                        if (mounted)
+                                                          setDialogState(() {});
+                                                      },
+                                                icon: const Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  size: 19,
+                                                  color: Color(0xFFDC2626),
+                                                ),
                                               ),
-                                            );
-                                          },
-                                        ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
                             ),
                           ],
                         ),
@@ -743,7 +914,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
-                      decoration: const BoxDecoration(border: Border(top: BorderSide(color: _border))),
+                      decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: _border)),
+                      ),
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
@@ -796,7 +969,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       records.sort((a, b) {
         final aName = (a['full_name'] ?? '').toString().toLowerCase();
         final bName = (b['full_name'] ?? '').toString().toLowerCase();
-        return _isTeamMemberAscending ? aName.compareTo(bName) : bName.compareTo(aName);
+        return _isTeamMemberAscending
+            ? aName.compareTo(bName)
+            : bName.compareTo(aName);
       });
     } else {
       records.sort((a, b) {
@@ -872,7 +1047,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
     if (_selectedRole.trim().isEmpty) {
       setState(() {
-        _modalError = 'Please select a role. Add a role in User Role Master first.';
+        _modalError =
+            'Please select a role. Add a role in User Role Master first.';
       });
       return;
     }
@@ -912,8 +1088,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'role': _selectedRole.trim(),
       'userType': _selectedUserType,
       'isMainAdmin': _isMainAdmin ? 1 : 0,
-      'allowedPages': (_selectedUserType == 'admin' && _isMainAdmin) 
-          ? availablePages.map((page) => page['route']!).toList() 
+      'allowedPages': (_selectedUserType == 'admin' && _isMainAdmin)
+          ? availablePages.map((page) => page['route']!).toList()
           : [],
       'applicationAccess': _currentRoleApplicationAccess,
       if (_passwordCtrl.text.trim().isNotEmpty) 'password': _passwordCtrl.text,
@@ -953,7 +1129,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       await _fetchEmployees();
       _closeForm();
       _showSnack(
-        isEditMode ? 'Employee updated successfully' : 'Employee created successfully',
+        isEditMode
+            ? 'Employee updated successfully'
+            : 'Employee created successfully',
         success: true,
       );
     } else {
@@ -1017,7 +1195,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (response.statusCode == 200) {
         _fetchEmployees();
         _showSnack(
-          currentStatus ? 'User deactivated successfully' : 'User activated successfully',
+          currentStatus
+              ? 'User deactivated successfully'
+              : 'User activated successfully',
           success: true,
         );
       } else {
@@ -1051,8 +1231,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
           content: Text(message, style: const TextStyle(color: _muted)),
           actions: [
             TextButton(
@@ -1065,7 +1250,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 backgroundColor: const Color(0xFFDC2626),
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               child: Text(confirmText),
             ),
@@ -1095,17 +1282,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
- @override
-Widget build(BuildContext context) {
-  return AdminLayout(
-    pageTitle: 'Admin Panel',
-    currentRoute: '/admin-panel',
-    onSearch: (query) {
-      setState(() => _searchQuery = query);
-    },
-    child: _isFormView ? _buildFormView() : _buildTableView(),
-  );
-}
+  @override
+  Widget build(BuildContext context) {
+    return AdminLayout(
+      pageTitle: 'Admin Panel',
+      currentRoute: '/admin-panel',
+      onSearch: (query) {
+        setState(() => _searchQuery = query);
+      },
+      child: _isFormView ? _buildFormView() : _buildTableView(),
+    );
+  }
 
   Widget _buildTableView() {
     return LayoutBuilder(
@@ -1120,9 +1307,15 @@ Widget build(BuildContext context) {
               const SizedBox(height: 20),
               _buildStats(isMobile),
               const SizedBox(height: 20),
-              if (isMobile) _buildMobileActionPanel() else _buildDesktopActionPanel(),
+              if (isMobile)
+                _buildMobileActionPanel()
+              else
+                _buildDesktopActionPanel(),
               const SizedBox(height: 20),
-              if (isMobile) _buildMobileEmployees() else _buildDesktopEmployees(),
+              if (isMobile)
+                _buildMobileEmployees()
+              else
+                _buildDesktopEmployees(),
               const SizedBox(height: 30),
             ],
           ),
@@ -1164,9 +1357,15 @@ Widget build(BuildContext context) {
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.20),
+                  ),
                 ),
-                child: Icon(Icons.groups_rounded, size: isMobile ? 27 : 32, color: Colors.white),
+                child: Icon(
+                  Icons.groups_rounded,
+                  size: isMobile ? 27 : 32,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(width: 16),
               Flexible(
@@ -1220,10 +1419,30 @@ Widget build(BuildContext context) {
 
   Widget _buildStats(bool isMobile) {
     final stats = [
-      {'label': 'Total Users', 'value': '${employeeUsers.length}', 'icon': Icons.groups_rounded, 'color': _primary},
-      {'label': 'Active Users', 'value': '$_activeCount', 'icon': Icons.verified_user_rounded, 'color': const Color(0xFF10B981)},
-      {'label': 'Administrators', 'value': '$_adminCount', 'icon': Icons.admin_panel_settings_rounded, 'color': const Color(0xFFF59E0B)},
-      {'label': 'Employees', 'value': '$_employeeCount', 'icon': Icons.badge_rounded, 'color': const Color(0xFF8B5CF6)},
+      {
+        'label': 'Total Users',
+        'value': '${employeeUsers.length}',
+        'icon': Icons.groups_rounded,
+        'color': _primary,
+      },
+      {
+        'label': 'Active Users',
+        'value': '$_activeCount',
+        'icon': Icons.verified_user_rounded,
+        'color': const Color(0xFF10B981),
+      },
+      {
+        'label': 'Administrators',
+        'value': '$_adminCount',
+        'icon': Icons.admin_panel_settings_rounded,
+        'color': const Color(0xFFF59E0B),
+      },
+      {
+        'label': 'Employees',
+        'value': '$_employeeCount',
+        'icon': Icons.badge_rounded,
+        'color': const Color(0xFF8B5CF6),
+      },
     ];
 
     return GridView.builder(
@@ -1262,7 +1481,11 @@ Widget build(BuildContext context) {
                   color: color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(13),
                 ),
-                child: Icon(stat['icon'] as IconData, color: color, size: isMobile ? 20 : 24),
+                child: Icon(
+                  stat['icon'] as IconData,
+                  color: color,
+                  size: isMobile ? 20 : 24,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1270,9 +1493,25 @@ Widget build(BuildContext context) {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(stat['value'] as String, style: TextStyle(fontSize: isMobile ? 19 : 24, fontWeight: FontWeight.w900, color: _ink)),
+                    Text(
+                      stat['value'] as String,
+                      style: TextStyle(
+                        fontSize: isMobile ? 19 : 24,
+                        fontWeight: FontWeight.w900,
+                        color: _ink,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(stat['label'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 10 : 11, color: _muted, fontWeight: FontWeight.w600)),
+                    Text(
+                      stat['label'] as String,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isMobile ? 10 : 11,
+                        color: _muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1295,8 +1534,14 @@ Widget build(BuildContext context) {
         children: [
           Expanded(
             child: Text(
-              _searchQuery.isEmpty ? 'Manage team accounts and platform access' : 'Showing results for "$_searchQuery"',
-              style: const TextStyle(color: _muted, fontSize: 13, fontWeight: FontWeight.w600),
+              _searchQuery.isEmpty
+                  ? 'Manage team accounts and platform access'
+                  : 'Showing results for "$_searchQuery"',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           IconButton(
@@ -1305,7 +1550,9 @@ Widget build(BuildContext context) {
             style: IconButton.styleFrom(
               backgroundColor: _primaryLight,
               foregroundColor: _primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -1318,19 +1565,25 @@ Widget build(BuildContext context) {
               foregroundColor: const Color(0xFFE67E22),
               side: const BorderSide(color: Color(0xFFFCD9A6)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
           const SizedBox(width: 10),
           OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccessMasterScreen())),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccessMasterScreen()),
+            ),
             icon: const Icon(Icons.lock_person_rounded, size: 18),
             label: const Text('Access Master'),
             style: OutlinedButton.styleFrom(
               foregroundColor: _primary,
               side: BorderSide(color: _primary.withValues(alpha: 0.25)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
           const SizedBox(width: 10),
@@ -1343,7 +1596,9 @@ Widget build(BuildContext context) {
               foregroundColor: Colors.white,
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ],
@@ -1371,21 +1626,29 @@ Widget build(BuildContext context) {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFE67E22),
                     padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccessMasterScreen())),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const AccessMasterScreen(),
+                    ),
+                  ),
                   icon: const Icon(Icons.lock_person_rounded, size: 17),
                   label: const Text('Access Master'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _primary,
                     side: BorderSide(color: _primary.withValues(alpha: 0.25)),
                     padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -1413,7 +1676,9 @@ Widget build(BuildContext context) {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
               ),
             ),
           ),
@@ -1474,14 +1739,13 @@ Widget build(BuildContext context) {
                     label: 'USER TYPE',
                     value: _tableUserTypeFilter,
                     items: const ['all', 'employee', 'admin'],
-                    onChanged: (value) => setState(() => _tableUserTypeFilter = value),
+                    onChanged: (value) =>
+                        setState(() => _tableUserTypeFilter = value),
                   ),
                 ),
                 const Expanded(
                   flex: 3,
-                  child: Center(
-                    child: Text('ROLE', style: _tableHeading),
-                  ),
+                  child: Center(child: Text('ROLE', style: _tableHeading)),
                 ),
                 SizedBox(
                   width: 132,
@@ -1489,12 +1753,17 @@ Widget build(BuildContext context) {
                     label: 'STATUS',
                     value: _tableStatusFilter,
                     items: const ['active', 'inactive', 'all'],
-                    onChanged: (value) => setState(() => _tableStatusFilter = value),
+                    onChanged: (value) =>
+                        setState(() => _tableStatusFilter = value),
                   ),
                 ),
                 const SizedBox(
                   width: 110,
-                  child: Text('ACTIONS', textAlign: TextAlign.center, style: _tableHeading),
+                  child: Text(
+                    'ACTIONS',
+                    textAlign: TextAlign.center,
+                    style: _tableHeading,
+                  ),
                 ),
               ],
             ),
@@ -1513,8 +1782,10 @@ Widget build(BuildContext context) {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredEmployees.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
-              itemBuilder: (_, index) => _buildDesktopEmployeeRow(_filteredEmployees[index], index),
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1, color: _border),
+              itemBuilder: (_, index) =>
+                  _buildDesktopEmployeeRow(_filteredEmployees[index], index),
             ),
         ],
       ),
@@ -1548,7 +1819,9 @@ Widget build(BuildContext context) {
           ),
           const SizedBox(width: 2),
           Icon(
-            ascending ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded,
+            ascending
+                ? Icons.arrow_drop_up_rounded
+                : Icons.arrow_drop_down_rounded,
             size: 18,
             color: active ? _primary : _muted,
           ),
@@ -1575,12 +1848,20 @@ Widget build(BuildContext context) {
               child: Row(
                 children: [
                   Icon(
-                    item == value ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    item == value
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
                     size: 16,
                     color: item == value ? _primary : _muted,
                   ),
                   const SizedBox(width: 8),
-                  Text(item.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                  Text(
+                    item.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1603,7 +1884,11 @@ Widget build(BuildContext context) {
             ),
           ),
           const SizedBox(width: 3),
-          Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: value == 'all' ? _muted : _primary),
+          Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 16,
+            color: value == 'all' ? _muted : _primary,
+          ),
         ],
       ),
     );
@@ -1626,7 +1911,11 @@ Widget build(BuildContext context) {
               alignment: Alignment.centerLeft,
               child: Text(
                 '${index + 1}',
-                style: const TextStyle(color: _muted, fontSize: 12, fontWeight: FontWeight.w800),
+                style: const TextStyle(
+                  color: _muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -1637,7 +1926,10 @@ Widget build(BuildContext context) {
               alignment: Alignment.centerLeft,
               child: Text(
                 item['staff_id']?.toString() ?? '-',
-                style: const TextStyle(color: _muted, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: _muted,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -1647,7 +1939,10 @@ Widget build(BuildContext context) {
             child: Center(
               child: Text(
                 item['role']?.toString() ?? '-',
-                style: const TextStyle(color: _ink, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: _ink,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -1658,12 +1953,7 @@ Widget build(BuildContext context) {
               child: _statusButton(id: id, active: active),
             ),
           ),
-          SizedBox(
-            width: 110,
-            child: Center(
-              child: _actionButtons(item, id),
-            ),
-          ),
+          SizedBox(width: 110, child: Center(child: _actionButtons(item, id))),
         ],
       ),
     );
@@ -1712,8 +2002,13 @@ Widget build(BuildContext context) {
                 child: _buildMobileFilterDropdown(
                   value: _tableUserTypeFilter,
                   icon: Icons.badge_outlined,
-                  items: const {'all': 'All Types', 'employee': 'Employee', 'admin': 'Admin'},
-                  onChanged: (value) => setState(() => _tableUserTypeFilter = value),
+                  items: const {
+                    'all': 'All Types',
+                    'employee': 'Employee',
+                    'admin': 'Admin',
+                  },
+                  onChanged: (value) =>
+                      setState(() => _tableUserTypeFilter = value),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1721,8 +2016,13 @@ Widget build(BuildContext context) {
                 child: _buildMobileFilterDropdown(
                   value: _tableStatusFilter,
                   icon: Icons.verified_outlined,
-                  items: const {'active': 'Active', 'inactive': 'Inactive', 'all': 'All Status'},
-                  onChanged: (value) => setState(() => _tableStatusFilter = value),
+                  items: const {
+                    'active': 'Active',
+                    'inactive': 'Inactive',
+                    'all': 'All Status',
+                  },
+                  onChanged: (value) =>
+                      setState(() => _tableStatusFilter = value),
                 ),
               ),
             ],
@@ -1784,7 +2084,11 @@ Widget build(BuildContext context) {
                         child: Text(
                           entry.value,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _ink),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: _ink,
+                          ),
                         ),
                       ),
                     ],
@@ -1808,11 +2112,16 @@ Widget build(BuildContext context) {
   }) {
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(ascending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 15),
+      icon: Icon(
+        ascending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+        size: 15,
+      ),
       label: Text(label),
       style: OutlinedButton.styleFrom(
         foregroundColor: active ? _primary : _muted,
-        side: BorderSide(color: active ? _primary.withValues(alpha: 0.35) : _border),
+        side: BorderSide(
+          color: active ? _primary.withValues(alpha: 0.35) : _border,
+        ),
         padding: const EdgeInsets.symmetric(vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
         textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
@@ -1849,8 +2158,18 @@ Widget build(BuildContext context) {
                 width: 34,
                 height: 34,
                 alignment: Alignment.center,
-                decoration: BoxDecoration(color: _primaryLight, borderRadius: BorderRadius.circular(11)),
-                child: Text('${index + 1}', style: const TextStyle(color: _primary, fontSize: 11, fontWeight: FontWeight.w900)),
+                decoration: BoxDecoration(
+                  color: _primaryLight,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    color: _primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(child: _employeeIdentity(item)),
@@ -1861,9 +2180,17 @@ Widget build(BuildContext context) {
           const SizedBox(height: 16),
           Container(height: 1, color: _border),
           const SizedBox(height: 14),
-          _mobileInfoRow(Icons.badge_outlined, 'Staff ID', item['staff_id']?.toString() ?? '-'),
+          _mobileInfoRow(
+            Icons.badge_outlined,
+            'Staff ID',
+            item['staff_id']?.toString() ?? '-',
+          ),
           const SizedBox(height: 10),
-          _mobileInfoRow(Icons.work_outline_rounded, 'Role', item['role']?.toString() ?? '-'),
+          _mobileInfoRow(
+            Icons.work_outline_rounded,
+            'Role',
+            item['role']?.toString() ?? '-',
+          ),
           const SizedBox(height: 12),
           _userTypeBadge(userType, isMain),
           const SizedBox(height: 14),
@@ -1896,7 +2223,11 @@ Widget build(BuildContext context) {
           alignment: Alignment.center,
           child: Text(
             initials,
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ),
         const SizedBox(width: 11),
@@ -1908,7 +2239,11 @@ Widget build(BuildContext context) {
                 name.isEmpty ? 'Unknown User' : name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800, color: _ink, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: _ink,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 3),
               Text(
@@ -1939,7 +2274,12 @@ Widget build(BuildContext context) {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -1953,13 +2293,17 @@ Widget build(BuildContext context) {
         decoration: BoxDecoration(
           color: active ? const Color(0xFFE9F9F2) : const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: active ? const Color(0xFFB7EFD8) : const Color(0xFFE2E8F0)),
+          border: Border.all(
+            color: active ? const Color(0xFFB7EFD8) : const Color(0xFFE2E8F0),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              active ? Icons.check_circle_rounded : Icons.pause_circle_outline_rounded,
+              active
+                  ? Icons.check_circle_rounded
+                  : Icons.pause_circle_outline_rounded,
               size: 13,
               color: active ? const Color(0xFF059669) : _muted,
             ),
@@ -1979,7 +2323,11 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _actionButtons(Map<String, dynamic> item, int id, {bool mobile = false}) {
+  Widget _actionButtons(
+    Map<String, dynamic> item,
+    int id, {
+    bool mobile = false,
+  }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2033,14 +2381,25 @@ Widget build(BuildContext context) {
       children: [
         Icon(icon, size: 16, color: _primary),
         const SizedBox(width: 9),
-        Text('$label:', style: const TextStyle(color: _muted, fontSize: 11, fontWeight: FontWeight.w700)),
+        Text(
+          '$label:',
+          style: const TextStyle(
+            color: _muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: _ink, fontSize: 12, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: _ink,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -2051,18 +2410,33 @@ Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+      ),
       child: Column(
         children: [
-          const Icon(Icons.cloud_off_rounded, size: 50, color: Color(0xFFCBD5E1)),
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 50,
+            color: Color(0xFFCBD5E1),
+          ),
           const SizedBox(height: 14),
-          Text(_error ?? 'Something went wrong', textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontWeight: FontWeight.w600)),
+          Text(
+            _error ?? 'Something went wrong',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _muted, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _fetchEmployees,
             icon: const Icon(Icons.refresh_rounded),
             label: const Text('Retry'),
-            style: ElevatedButton.styleFrom(backgroundColor: _primary, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primary,
+              foregroundColor: Colors.white,
+            ),
           ),
         ],
       ),
@@ -2073,19 +2447,41 @@ Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(45),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+      ),
       child: Column(
         children: [
           Container(
             width: 68,
             height: 68,
-            decoration: const BoxDecoration(color: _primaryLight, shape: BoxShape.circle),
-            child: const Icon(Icons.person_search_rounded, color: _primary, size: 32),
+            decoration: const BoxDecoration(
+              color: _primaryLight,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.person_search_rounded,
+              color: _primary,
+              size: 32,
+            ),
           ),
           const SizedBox(height: 16),
-          const Text('No users found', style: TextStyle(color: _ink, fontSize: 17, fontWeight: FontWeight.w800)),
+          const Text(
+            'No users found',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const SizedBox(height: 6),
-          const Text('Create a new employee account to get started.', textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12)),
+          const Text(
+            'Create a new employee account to get started.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _muted, fontSize: 12),
+          ),
         ],
       ),
     );
@@ -2125,61 +2521,136 @@ Widget build(BuildContext context) {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _sectionLabel('Personal Information', Icons.person_outline_rounded),
+                    _sectionLabel(
+                      'Personal Information',
+                      Icons.person_outline_rounded,
+                    ),
                     const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _firstNameCtrl, label: 'First Name *', hint: 'Enter first name', icon: Icons.person_outline_rounded),
-                        _modernTextField(controller: _middleNameCtrl, label: 'Middle Name', hint: 'Optional', icon: Icons.person_outline_rounded),
-                        _modernTextField(controller: _lastNameCtrl, label: 'Last Name *', hint: 'Enter last name', icon: Icons.person_outline_rounded),
+                        _modernTextField(
+                          controller: _firstNameCtrl,
+                          label: 'First Name *',
+                          hint: 'Enter first name',
+                          icon: Icons.person_outline_rounded,
+                        ),
+                        _modernTextField(
+                          controller: _middleNameCtrl,
+                          label: 'Middle Name',
+                          hint: 'Optional',
+                          icon: Icons.person_outline_rounded,
+                        ),
+                        _modernTextField(
+                          controller: _lastNameCtrl,
+                          label: 'Last Name *',
+                          hint: 'Enter last name',
+                          icon: Icons.person_outline_rounded,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 28),
 
-                    _sectionLabel('Additional Identification & Contact', Icons.badge_outlined),
+                    _sectionLabel(
+                      'Additional Identification & Contact',
+                      Icons.badge_outlined,
+                    ),
                     const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _phoneCtrl, label: 'Phone Number', hint: 'Optional', icon: Icons.phone_outlined),
-                        _modernTextField(controller: _aadharCtrl, label: 'Aadhaar Number', hint: 'Optional', icon: Icons.badge_outlined),
-                        _modernTextField(controller: _panCtrl, label: 'PAN Card Number', hint: 'Optional', icon: Icons.credit_card_outlined),
+                        _modernTextField(
+                          controller: _phoneCtrl,
+                          label: 'Phone Number',
+                          hint: 'Optional',
+                          icon: Icons.phone_outlined,
+                        ),
+                        _modernTextField(
+                          controller: _aadharCtrl,
+                          label: 'Aadhaar Number',
+                          hint: 'Optional',
+                          icon: Icons.badge_outlined,
+                        ),
+                        _modernTextField(
+                          controller: _panCtrl,
+                          label: 'PAN Card Number',
+                          hint: 'Optional',
+                          icon: Icons.credit_card_outlined,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 28),
 
-                    _sectionLabel('Bank Details (For Pay Slip)', Icons.account_balance_outlined),
+                    _sectionLabel(
+                      'Bank Details (For Pay Slip)',
+                      Icons.account_balance_outlined,
+                    ),
                     const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _bankAccountNameCtrl, label: 'Account Holder Name', hint: 'Optional', icon: Icons.person_outline),
-                        _modernTextField(controller: _bankAccountNumberCtrl, label: 'Account Number', hint: 'Optional', icon: Icons.numbers_outlined),
+                        _modernTextField(
+                          controller: _bankAccountNameCtrl,
+                          label: 'Account Holder Name',
+                          hint: 'Optional',
+                          icon: Icons.person_outline,
+                        ),
+                        _modernTextField(
+                          controller: _bankAccountNumberCtrl,
+                          label: 'Account Number',
+                          hint: 'Optional',
+                          icon: Icons.numbers_outlined,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _bankIfscCtrl, label: 'IFSC Code', hint: 'Optional', icon: Icons.code_outlined),
-                        _modernTextField(controller: _bankNameCtrl, label: 'Bank Name & Branch', hint: 'Optional', icon: Icons.account_balance_wallet_outlined),
+                        _modernTextField(
+                          controller: _bankIfscCtrl,
+                          label: 'IFSC Code',
+                          hint: 'Optional',
+                          icon: Icons.code_outlined,
+                        ),
+                        _modernTextField(
+                          controller: _bankNameCtrl,
+                          label: 'Bank Name & Branch',
+                          hint: 'Optional',
+                          icon: Icons.account_balance_wallet_outlined,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 28),
 
-                    _sectionLabel('Address Details', Icons.location_on_outlined),
+                    _sectionLabel(
+                      'Address Details',
+                      Icons.location_on_outlined,
+                    ),
                     const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _permAddressCtrl, label: 'Permanent Address', hint: 'Optional', icon: Icons.home_outlined),
-                        _modernTextField(controller: _tempAddressCtrl, label: 'Temporary Address', hint: 'Optional', icon: Icons.location_city_outlined),
+                        _modernTextField(
+                          controller: _permAddressCtrl,
+                          label: 'Permanent Address',
+                          hint: 'Optional',
+                          icon: Icons.home_outlined,
+                        ),
+                        _modernTextField(
+                          controller: _tempAddressCtrl,
+                          label: 'Temporary Address',
+                          hint: 'Optional',
+                          icon: Icons.location_city_outlined,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 28),
 
-                    _sectionLabel('Account Configuration', Icons.manage_accounts_outlined),
+                    _sectionLabel(
+                      'Account Configuration',
+                      Icons.manage_accounts_outlined,
+                    ),
                     const SizedBox(height: 18),
                     _responsiveFields(
                       isMobile: isMobile,
@@ -2188,15 +2659,21 @@ Widget build(BuildContext context) {
                         _modernDropdown(
                           label: 'Role *',
                           icon: Icons.work_outline_rounded,
-                          value: activeRoles.contains(_selectedRole) ? _selectedRole : null,
-                          hint: activeRoles.isEmpty ? 'No roles available' : 'Select role',
+                          value: activeRoles.contains(_selectedRole)
+                              ? _selectedRole
+                              : null,
+                          hint: activeRoles.isEmpty
+                              ? 'No roles available'
+                              : 'Select role',
                           items: activeRoles,
                           onChanged: (value) async {
                             if (value == null) return;
                             setState(() => _selectedRole = value);
-                            
+
                             final matchedRole = allUserRolesMaster.firstWhere(
-                              (r) => r['role_name'].toString().toLowerCase() == value.toLowerCase(),
+                              (r) =>
+                                  r['role_name'].toString().toLowerCase() ==
+                                  value.toLowerCase(),
                               orElse: () => {},
                             );
                             final rId = _toInt(matchedRole['id']);
@@ -2217,12 +2694,24 @@ Widget build(BuildContext context) {
                     _responsiveFields(
                       isMobile: isMobile,
                       children: [
-                        _modernTextField(controller: _emailCtrl, label: 'Email Address *', hint: 'employee@godigital.in', icon: Icons.email_outlined),
-                        _modernTextField(controller: _usernameCtrl, label: 'Username *', hint: 'Enter username', icon: Icons.alternate_email_rounded),
+                        _modernTextField(
+                          controller: _emailCtrl,
+                          label: 'Email Address *',
+                          hint: 'employee@godigital.in',
+                          icon: Icons.email_outlined,
+                        ),
+                        _modernTextField(
+                          controller: _usernameCtrl,
+                          label: 'Username *',
+                          hint: 'Enter username',
+                          icon: Icons.alternate_email_rounded,
+                        ),
                         _modernTextField(
                           controller: _passwordCtrl,
                           label: isEditMode ? 'Password' : 'Password *',
-                          hint: isEditMode ? 'Leave blank to keep current' : 'Minimum 6 characters',
+                          hint: isEditMode
+                              ? 'Leave blank to keep current'
+                              : 'Minimum 6 characters',
                           icon: Icons.lock_outline_rounded,
                           isPassword: true,
                         ),
@@ -2232,7 +2721,7 @@ Widget build(BuildContext context) {
                       const SizedBox(height: 20),
                       _buildMainAdminToggle(),
                     ],
-                  const SizedBox(height: 30),
+                    const SizedBox(height: 30),
                     _sectionLabel(
                       'Role-Based Access Control (From Access Master)',
                       Icons.security_rounded,
@@ -2240,7 +2729,11 @@ Widget build(BuildContext context) {
                     const SizedBox(height: 6),
                     const Text(
                       'The permissions and allowed modules below are automatically inherited from the selected Role in Access Master.',
-                      style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
+                      style: TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     Container(
@@ -2252,39 +2745,73 @@ Widget build(BuildContext context) {
                         border: Border.all(color: _border),
                       ),
                       child: _currentRoleAccessRows.isEmpty
-                          ? const Text('No access configured for this role in Access Master yet.', style: TextStyle(color: _muted, fontSize: 12))
+                          ? const Text(
+                              'No access configured for this role in Access Master yet.',
+                              style: TextStyle(color: _muted, fontSize: 12),
+                            )
                           : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: _currentRoleAccessRows.map((row) {
-                                final app = (row['application'] ?? '').toString();
-                                final accessType = (row['access_type'] ?? row['accessType'] ?? 'none').toString();
-                                final pages = _parseAllowedPages(row['allowed_pages'] ?? row['allowedPages']);
-                                
-                                String appTitle = app == 'task_manager' ? 'Task Manager' : app == 'client_repository' ? 'Client Repository' : 'Attendance';
-                                
+                                final app = (row['application'] ?? '')
+                                    .toString();
+                                final accessType =
+                                    (row['access_type'] ??
+                                            row['accessType'] ??
+                                            'none')
+                                        .toString();
+                                final pages = _parseAllowedPages(
+                                  row['allowed_pages'] ?? row['allowedPages'],
+                                );
+
+                                String appTitle = app == 'task_manager'
+                                    ? 'Task Manager'
+                                    : app == 'client_repository'
+                                    ? 'Client Repository'
+                                    : 'Attendance';
+
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
-                                          const Icon(Icons.apps_rounded, size: 16, color: _primary),
+                                          const Icon(
+                                            Icons.apps_rounded,
+                                            size: 16,
+                                            color: _primary,
+                                          ),
                                           const SizedBox(width: 8),
-                                          Text(appTitle, style: const TextStyle(fontWeight: FontWeight.w800, color: _ink, fontSize: 13)),
+                                          Text(
+                                            appTitle,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              color: _ink,
+                                              fontSize: 13,
+                                            ),
+                                          ),
                                           const Spacer(),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
                                             decoration: BoxDecoration(
-                                              color: accessType == 'none' ? const Color(0xFFF1F5F9) : _primaryLight,
-                                              borderRadius: BorderRadius.circular(6),
+                                              color: accessType == 'none'
+                                                  ? const Color(0xFFF1F5F9)
+                                                  : _primaryLight,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
                                             ),
                                             child: Text(
                                               accessType.toUpperCase(),
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w800,
-                                                color: accessType == 'none' ? _muted : _primary,
+                                                color: accessType == 'none'
+                                                    ? _muted
+                                                    : _primary,
                                               ),
                                             ),
                                           ),
@@ -2296,15 +2823,32 @@ Widget build(BuildContext context) {
                                           spacing: 6,
                                           runSpacing: 6,
                                           children: pages.map((p) {
-                                            final displayTitle = _getFriendlyPageTitle(p); // 🟢 Route-ku pathila friendly title
+                                            final displayTitle =
+                                                _getFriendlyPageTitle(
+                                                  p,
+                                                ); // 🟢 Route-ku pathila friendly title
                                             return Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
                                               decoration: BoxDecoration(
                                                 color: Colors.white,
-                                                borderRadius: BorderRadius.circular(6),
-                                                border: Border.all(color: _border),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: _border,
+                                                ),
                                               ),
-                                              child: Text(displayTitle, style: const TextStyle(fontSize: 11, color: _ink, fontWeight: FontWeight.w600)),
+                                              child: Text(
+                                                displayTitle,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: _ink,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
                                             );
                                           }).toList(),
                                         ),
@@ -2328,14 +2872,21 @@ Widget build(BuildContext context) {
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: _muted,
                                     side: const BorderSide(color: _border),
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
                                   ),
                                   child: const Text('Cancel'),
                                 ),
                               ),
                               const SizedBox(height: 10),
-                              SizedBox(width: double.infinity, child: _buildSubmitButton(isEditMode)),
+                              SizedBox(
+                                width: double.infinity,
+                                child: _buildSubmitButton(isEditMode),
+                              ),
                             ],
                           )
                         : Row(
@@ -2346,8 +2897,13 @@ Widget build(BuildContext context) {
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: _muted,
                                   side: const BorderSide(color: _border),
-                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                    vertical: 16,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
                                 ),
                                 child: const Text('Cancel'),
                               ),
@@ -2390,7 +2946,9 @@ Widget build(BuildContext context) {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
-                  isEditMode ? Icons.edit_rounded : Icons.person_add_alt_1_rounded,
+                  isEditMode
+                      ? Icons.edit_rounded
+                      : Icons.person_add_alt_1_rounded,
                   color: Colors.white,
                   size: 27,
                 ),
@@ -2401,12 +2959,21 @@ Widget build(BuildContext context) {
                 children: [
                   Text(
                     isEditMode ? 'Edit Employee' : 'Create Employee',
-                    style: TextStyle(color: Colors.white, fontSize: isMobile ? 21 : 25, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isMobile ? 21 : 25,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    isEditMode ? 'Update account details and permissions.' : 'Configure a new secure employee account.',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.78), fontSize: 12),
+                    isEditMode
+                        ? 'Update account details and permissions.'
+                        : 'Configure a new secure employee account.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -2419,7 +2986,9 @@ Widget build(BuildContext context) {
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.white,
               side: BorderSide(color: Colors.white.withValues(alpha: 0.40)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ],
@@ -2443,7 +3012,11 @@ Widget build(BuildContext context) {
           Expanded(
             child: Text(
               _modalError!,
-              style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700, fontSize: 12),
+              style: const TextStyle(
+                color: Color(0xFFDC2626),
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -2457,7 +3030,11 @@ Widget build(BuildContext context) {
       children: [
         const Text(
           'User Type *',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+          ),
         ),
         const SizedBox(height: 8),
         Container(
@@ -2528,7 +3105,11 @@ Widget build(BuildContext context) {
             const SizedBox(width: 6),
             Text(
               label,
-              style: TextStyle(color: selected ? Colors.white : _muted, fontSize: 12, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: selected ? Colors.white : _muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
@@ -2560,9 +3141,15 @@ Widget build(BuildContext context) {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Main Administrator', style: TextStyle(color: _ink, fontWeight: FontWeight.w800)),
+                Text(
+                  'Main Administrator',
+                  style: TextStyle(color: _ink, fontWeight: FontWeight.w800),
+                ),
                 SizedBox(height: 3),
-                Text('Full access to all platform modules', style: TextStyle(color: _muted, fontSize: 11)),
+                Text(
+                  'Full access to all platform modules',
+                  style: TextStyle(color: _muted, fontSize: 11),
+                ),
               ],
             ),
           ),
@@ -2574,7 +3161,9 @@ Widget build(BuildContext context) {
               setState(() {
                 _isMainAdmin = value;
                 if (_isMainAdmin) {
-                  _selectedPermissions = availablePages.map((page) => page['route']!).toList();
+                  _selectedPermissions = availablePages
+                      .map((page) => page['route']!)
+                      .toList();
                 } else {
                   _selectedPermissions.clear();
                 }
@@ -2587,7 +3176,9 @@ Widget build(BuildContext context) {
   }
 
   Widget _buildPermissionGrid(bool isMobile) {
-    final currentPagesList = _selectedUserType == 'admin' ? adminPages : employeePages;
+    final currentPagesList = _selectedUserType == 'admin'
+        ? adminPages
+        : employeePages;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2621,18 +3212,25 @@ Widget build(BuildContext context) {
               borderRadius: BorderRadius.circular(12),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 11,
+                ),
                 decoration: BoxDecoration(
                   color: isChecked ? _primaryLight : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isChecked ? _primary.withValues(alpha: 0.35) : _border,
+                    color: isChecked
+                        ? _primary.withValues(alpha: 0.35)
+                        : _border,
                   ),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      isChecked ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                      isChecked
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
                       size: 18,
                       color: isChecked ? _primary : const Color(0xFF94A3B8),
                     ),
@@ -2648,7 +3246,11 @@ Widget build(BuildContext context) {
                       ),
                     ),
                     if (isLocked)
-                      const Icon(Icons.lock_rounded, size: 14, color: Color(0xFFE67E22)),
+                      const Icon(
+                        Icons.lock_rounded,
+                        size: 14,
+                        color: Color(0xFFE67E22),
+                      ),
                   ],
                 ),
               ),
@@ -2673,12 +3275,20 @@ Widget build(BuildContext context) {
           ? const SizedBox(
               width: 20,
               height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(isEditMode ? Icons.save_as_rounded : Icons.person_add_alt_1_rounded, size: 18),
+                Icon(
+                  isEditMode
+                      ? Icons.save_as_rounded
+                      : Icons.person_add_alt_1_rounded,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   isEditMode ? 'Update Employee' : 'Create Employee',
@@ -2689,7 +3299,10 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _responsiveFields({required bool isMobile, required List<Widget> children}) {
+  Widget _responsiveFields({
+    required bool isMobile,
+    required List<Widget> children,
+  }) {
     if (isMobile) {
       return Column(
         children: [
@@ -2724,7 +3337,14 @@ Widget build(BuildContext context) {
           child: Icon(icon, size: 18, color: _primary),
         ),
         const SizedBox(width: 10),
-        Text(text, style: const TextStyle(color: _ink, fontSize: 15, fontWeight: FontWeight.w900)),
+        Text(
+          text,
+          style: const TextStyle(
+            color: _ink,
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ],
     );
   }
@@ -2739,12 +3359,23 @@ Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           obscureText: isPassword ? _obscurePassword : false,
-          style: const TextStyle(fontSize: 13, color: _ink, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 13,
+            color: _ink,
+            fontWeight: FontWeight.w600,
+          ),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
@@ -2752,16 +3383,22 @@ Widget build(BuildContext context) {
             suffixIcon: isPassword
                 ? IconButton(
                     icon: Icon(
-                      _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                       color: _muted,
                       size: 19,
                     ),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
                   )
                 : null,
             filled: true,
             fillColor: _surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 16,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: const BorderSide(color: _border),
@@ -2787,7 +3424,14 @@ Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+          ),
+        ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: value,
@@ -2797,7 +3441,10 @@ Widget build(BuildContext context) {
             prefixIcon: Icon(icon, size: 19, color: _primary),
             filled: true,
             fillColor: _surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 15,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: const BorderSide(color: _border),
@@ -2807,8 +3454,21 @@ Widget build(BuildContext context) {
               borderSide: const BorderSide(color: _primary, width: 1.5),
             ),
           ),
-          hint: Text(hint, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-          items: items.map((role) => DropdownMenuItem<String>(value: role, child: Text(role, style: const TextStyle(fontSize: 13, color: _ink)))).toList(),
+          hint: Text(
+            hint,
+            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+          ),
+          items: items
+              .map(
+                (role) => DropdownMenuItem<String>(
+                  value: role,
+                  child: Text(
+                    role,
+                    style: const TextStyle(fontSize: 13, color: _ink),
+                  ),
+                ),
+              )
+              .toList(),
           onChanged: items.isEmpty ? null : onChanged,
         ),
       ],
@@ -2825,7 +3485,14 @@ Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _ink)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+            color: _ink,
+          ),
+        ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: value,
@@ -2850,7 +3517,11 @@ Widget build(BuildContext context) {
   }
 
   String _getInitials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
@@ -2863,4 +3534,3 @@ Widget build(BuildContext context) {
     letterSpacing: 0.7,
   );
 }
-
