@@ -23,6 +23,12 @@ class EmployeeSidebar extends StatefulWidget {
 }
 
 class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderStateMixin {
+  // Pages that should not appear in the employee sidebar.
+  static const Set<String> _hiddenMenus = {
+    'Content Assigned',
+    'Client Assigned Tasks',
+  };
+
   bool _isSidebarCollapsed = false;
   late AnimationController _bubbleController;
 
@@ -42,10 +48,12 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
   }
 
   IconData _iconForMenu(String title) {
-    switch (title) { 
+    switch (title) {
       case 'Dashboard': return Icons.dashboard_rounded;
+      case 'Employee Workspace': return Icons.workspaces_rounded;
       case 'Day Planner': return Icons.task_alt_rounded;
       case 'Chat': return Icons.chat_bubble_rounded;
+      case 'Additional Task': return Icons.playlist_add_check_rounded;
       case 'Client Credentials': return Icons.vpn_key_rounded;
       case 'Daily Reports': return Icons.checklist_outlined;
       case 'Assigned Task': return Icons.assignment_rounded;
@@ -62,6 +70,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    final visibleMenus = widget.menuItems
+        .where((menu) => !_hiddenMenus.contains(menu.trim()))
+        .toList();
+
     final Widget sidebarWidget = AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
@@ -95,10 +107,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                       height: 125,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.09),
+                        color: Colors.white.withOpacity(0.09),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.06),
+                            color: Colors.white.withOpacity(0.06),
                             blurRadius: 40,
                             spreadRadius: 10,
                           ),
@@ -117,10 +129,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                       height: 140,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.06),
+                        color: Colors.white.withOpacity(0.06),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.04),
+                            color: Colors.white.withOpacity(0.04),
                             blurRadius: 45,
                             spreadRadius: 8,
                           ),
@@ -163,7 +175,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             )
                           else
                             Material(
-                              color: Colors.white.withValues(alpha: 0.15),
+                              color: Colors.white.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(8),
                               child: IconButton(
                                 tooltip: _isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar',
@@ -184,14 +196,14 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                         ],
                       ),
                     ),
-                    Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
+                    Container(height: 1, color: Colors.white.withOpacity(0.2)),
                     const SizedBox(height: 10),
                     Expanded(
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: widget.menuItems.map(
+                          children: visibleMenus.map(
                             (menu) => _SidebarItem(
                               icon: _iconForMenu(menu),
                               title: menu,
@@ -208,8 +220,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                         ),
                       ),
                     ),
-                    Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
-                    
+                    Container(height: 1, color: Colors.white.withOpacity(0.2)),
+
                     // Settings Button
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -223,8 +235,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             }
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withValues(alpha: 0.14),
-                          splashColor: Colors.white.withValues(alpha: 0.2),
+                          hoverColor: Colors.white.withOpacity(0.14),
+                          splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -261,8 +273,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withValues(alpha: 0.14),
-                          splashColor: Colors.white.withValues(alpha: 0.2),
+                          hoverColor: Colors.white.withOpacity(0.14),
+                          splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -299,8 +311,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withValues(alpha: 0.14),
-                          splashColor: Colors.white.withValues(alpha: 0.2),
+                          hoverColor: Colors.white.withOpacity(0.14),
+                          splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -349,7 +361,7 @@ class _SidebarItem extends StatelessWidget {
   final String title;
   final bool isActive;
   final bool isCollapsed;
-  final VoidCallback onTap; 
+  final VoidCallback onTap;
 
   const _SidebarItem({
     required this.icon,
@@ -368,8 +380,8 @@ class _SidebarItem extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
-          hoverColor: Colors.white.withValues(alpha: 0.14), // 💡 Bright Lighting effect on hover
-          splashColor: Colors.white.withValues(alpha: 0.2),
+          hoverColor: Colors.white.withOpacity(0.14), // 💡 Bright Lighting effect on hover
+          splashColor: Colors.white.withOpacity(0.2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             padding: EdgeInsets.symmetric(horizontal: isCollapsed ? 16 : 12, vertical: 11),
@@ -379,7 +391,7 @@ class _SidebarItem extends StatelessWidget {
               boxShadow: isActive
                   ? [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
+                        color: Colors.black.withOpacity(0.15),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       )
@@ -389,7 +401,7 @@ class _SidebarItem extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  icon, 
+                  icon,
                   size: 20, // ⬆️ Slightly taller and prominent icon size
                   color: isActive ? const Color(0xFF0757D5) : Colors.white70,
                 ),
@@ -415,4 +427,3 @@ class _SidebarItem extends StatelessWidget {
     );
   }
 }
-

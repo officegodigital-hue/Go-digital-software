@@ -889,8 +889,9 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
   // Open work first (in S.No order); finished work sinks to the bottom.
   static int _rank(String state) => switch (state) {
         'IN REVIEW' => 1,
+        'REJECTED' => 2,
         'APPROVED' => 3,
-        _ => 0, // IDLE / IN PROGRESS / ON HOLD / REWORK / REJECTED (can be redone)
+        _ => 0, // IDLE / IN PROGRESS / ON HOLD / REWORK
       };
 
   List<Map<String, dynamic>> _orderedRows(List<Map<String, dynamic>> rows) {
@@ -1444,11 +1445,6 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
       case 'REWORK':
         // Continues the same timer from where it stopped at completion.
         actions.add(_actionButton('RESTART', const Color(0xFFB45309), Icons.replay_rounded,
-            busy ? null : () => _runAction(row, 'restart')));
-        break;
-      case 'REJECTED':
-        // Rejected work can be redone: RESTART continues the same timer.
-        actions.add(_actionButton('REWORK', const Color(0xFFB91C1C), Icons.replay_rounded,
             busy ? null : () => _runAction(row, 'restart')));
         break;
       case 'IN REVIEW':
