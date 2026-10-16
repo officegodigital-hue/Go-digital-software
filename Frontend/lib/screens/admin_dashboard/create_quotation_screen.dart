@@ -1058,7 +1058,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
     if (_loadingExisting) {
       return AdminLayout(
         pageTitle: "Quotation",
-        currentRoute: "/quotation",
+        currentRoute: "/quotations",
         child: const Center(
           child: CircularProgressIndicator(color: Color(0xFF0052CC)),
         ),
@@ -1120,7 +1120,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
 
     return AdminLayout(
       pageTitle: pageTitle,
-      currentRoute: "/quotation",
+      currentRoute: "/quotations",
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < 700;

@@ -84,7 +84,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         {'key': '/tasks', 'title': 'Tasks Assign'},
         {'key': '/daily-planner', 'title': 'Daily Planner'},
         {'key': '/employee-status', 'title': 'Employee Status'},
-        {'key': '/manager-review', 'title': 'Manager Review'},
+        
         {'key': '/notifications', 'title': 'Chat'},
         {'key': '/performance', 'title': 'Performance'},
         {'key': '/admin-panel', 'title': 'Employee Management'},

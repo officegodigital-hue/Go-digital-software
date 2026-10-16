@@ -1247,7 +1247,7 @@ class _RequestStatus extends StatelessWidget {
 }
 
 class _PaginationButton extends StatelessWidget {
-  const _PaginationButton({this.icon}) : text = null : active = false;
+  const _PaginationButton({this.icon}) : text = null, active = false;
   final String? text;
   final IconData? icon;
   final bool active;
