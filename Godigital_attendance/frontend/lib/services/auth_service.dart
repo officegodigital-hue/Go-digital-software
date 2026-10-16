@@ -106,8 +106,7 @@ class AuthService extends ChangeNotifier {
               'userType': selectedUserType,
               'deviceId': deviceId,
               'deviceLabel': 'Browser device',
-              if (deviceChangeReason != null)
-                'deviceChangeReason': deviceChangeReason,
+              'deviceChangeReason': ?deviceChangeReason,
             }),
           )
           .timeout(const Duration(seconds: 15));
@@ -337,12 +336,12 @@ class AuthService extends ChangeNotifier {
         _user = {
           ...oldUser,
           ...refreshedUser,
-          if (profilePhoto != null) 'profile_photo': profilePhoto,
-          if (profilePhoto != null) 'profilePhoto': profilePhoto,
-          if (avatarColor != null) 'avatar_color': avatarColor,
-          if (avatarColor != null) 'avatarColor': avatarColor,
-          if (fullName != null) 'fullName': fullName,
-          if (fullName != null) 'name': fullName,
+          'profile_photo': ?profilePhoto,
+          'profilePhoto': ?profilePhoto,
+          'avatar_color': ?avatarColor,
+          'avatarColor': ?avatarColor,
+          'fullName': ?fullName,
+          'name': ?fullName,
         };
 
         await AuthStorage.setString('user_data', jsonEncode(_user));

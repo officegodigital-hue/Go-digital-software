@@ -1023,7 +1023,7 @@ row.contentController.addListener(row.saveListener!);
                               scrollDirection: Axis.horizontal,
                               itemCount: employees.length,
                               padding: const EdgeInsets.symmetric(horizontal: 4),
-                              separatorBuilder: (_, __) => const SizedBox(width: 8),
+                              separatorBuilder: (_, _) => const SizedBox(width: 8),
                               itemBuilder: (context, index) {
                                 final employee = employees[index];
                                 return _employeeAvatarButton(

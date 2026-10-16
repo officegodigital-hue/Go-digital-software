@@ -1849,11 +1849,13 @@ class _LiveMapState extends State<_LiveMap> {
     if (widget.highlightedEmployee == null && _officeCenter != null) {
       return _officeCenter!;
     }
-    if (_located.isNotEmpty)
+    if (_located.isNotEmpty) {
       return LatLng(_located.first.lat!, _located.first.lng!);
+    }
     final h = widget.highlightedEmployee;
-    if (h?.homeLat != null && h?.homeLng != null)
+    if (h?.homeLat != null && h?.homeLng != null) {
       return LatLng(h!.homeLat!, h.homeLng!);
+    }
     return _officeCenter ?? _fallbackCenter;
   }
 
@@ -2806,8 +2808,9 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
   @override
   void didUpdateWidget(covariant _AdminRoutePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId)
+    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId) {
       _load();
+    }
   }
 
   Future<void> _load() async {
@@ -2822,17 +2825,19 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
         employeeUserId: id,
         date: DateFormat('yyyy-MM-dd').format(_date),
       );
-      if (mounted)
+      if (mounted) {
         setState(() {
           _data = data;
           _loading = false;
         });
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = e.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
+      }
     }
   }
 
@@ -2854,8 +2859,9 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
     if (timestamp == null) return 'No updates yet';
     final difference = DateTime.now().difference(timestamp);
     if (difference.inMinutes < 1) return 'Updated just now';
-    if (difference.inMinutes < 60)
+    if (difference.inMinutes < 60) {
       return 'Updated ${difference.inMinutes}m ago';
+    }
     if (difference.inHours < 24) return 'Updated ${difference.inHours}h ago';
     return 'Updated ${difference.inDays}d ago';
   }
@@ -3342,7 +3348,7 @@ class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
                       )
                     : ListView.separated(
                         itemCount: _activities.length,
-                        separatorBuilder: (_, __) =>
+                        separatorBuilder: (_, _) =>
                             const Divider(height: 1, color: Color(0xFFE2E6ED)),
                         itemBuilder: (_, index) {
                           final item = _activities[index];
@@ -3709,8 +3715,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _matches = matches;
-        if (matches.isEmpty)
+        if (matches.isEmpty) {
           _searchError = 'No matches. Add a city or postcode and search again.';
+        }
       });
     } catch (error) {
       if (!mounted || version != _searchVersion) return;
@@ -3718,8 +3725,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         () => _searchError = error.toString().replaceFirst('Exception: ', ''),
       );
     } finally {
-      if (mounted && version == _searchVersion)
+      if (mounted && version == _searchVersion) {
         setState(() => _searching = false);
+      }
     }
   }
 
@@ -3732,8 +3740,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       if (address != null) _address.text = address;
       _matches = [];
     });
-    if (address != null)
+    if (address != null) {
       _mapController?.animateCamera(CameraUpdate.newLatLngZoom(point, 17));
+    }
   }
 
   Future<void> _save() async {

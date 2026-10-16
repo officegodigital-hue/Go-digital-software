@@ -2,10 +2,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
-import 'package:godigital_portal/services/api_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

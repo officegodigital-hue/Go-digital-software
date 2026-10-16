@@ -99,8 +99,7 @@ class _TrackingPageState extends State<TrackingPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final action =
-        (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
+    final action = (ModalRoute.of(context)?.settings.arguments as Map?)?['settingsAction'];
     if (_openedSettingsAction || action == null) return;
     _openedSettingsAction = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -881,17 +880,19 @@ class _RouteActivityDialogState extends State<_RouteActivityDialog> {
           .whereType<Map>()
           .map((item) => _RoutePoint.fromApi(Map<String, dynamic>.from(item)))
           .toList();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _points = items;
           _loading = false;
         });
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
+      }
     }
   }
 
@@ -1074,18 +1075,20 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
       _adminRouteMarkerIcon(HrmsColors.blue, 'S'),
       _adminRouteMarkerIcon(const Color(0xFF7E20E8), 'E'),
     ]);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _startMarker = icons[0];
         _endMarker = icons[1];
       });
+    }
   }
 
   @override
   void didUpdateWidget(covariant _SelectedRouteMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId)
+    if (oldWidget.employee.employeeUserId != widget.employee.employeeUserId) {
       _load();
+    }
   }
 
   Future<void> _load() async {
@@ -1104,18 +1107,20 @@ class _SelectedRouteMapState extends State<_SelectedRouteMap> {
           .whereType<Map>()
           .map((item) => _RoutePoint.fromApi(Map<String, dynamic>.from(item)))
           .toList();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _points = points;
           _roadSnapped = data['roadSnapped'] == true;
           _loading = false;
         });
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = error.toString().replaceFirst('Exception: ', '');
           _loading = false;
         });
+      }
     }
   }
 
@@ -2045,14 +2050,15 @@ class _EmployeeTrackingDetailsDialogState
   String? _error;
   int _tab = 0;
   List<_RoutePoint> _mapPoints = const [];
-  List<LatLng> _routePoints = const [];
-  double? _cachedDistanceKm;
   List<_RoutePoint> _activityPoints = const [];
   bool _roadSnapped = false;
   List<Map<String, dynamic>> _waitingReasons = const [];
   List<Map<String, dynamic>> _comments = const [];
 
-  List<LatLng> get _route => _routePoints;
+  List<LatLng> get _route => _mapPoints
+      .where((point) => point.latitude != null && point.longitude != null)
+      .map((point) => LatLng(point.latitude!, point.longitude!))
+      .toList();
 
   @override
   void initState() {
@@ -2088,15 +2094,8 @@ class _EmployeeTrackingDetailsDialogState
               .map((item) => Map<String, dynamic>.from(item))
               .toList();
       if (!mounted) return;
-      final mapPoints = pointsFor('points');
-      final routePoints = mapPoints
-          .where((point) => point.latitude != null && point.longitude != null)
-          .map((point) => LatLng(point.latitude!, point.longitude!))
-          .toList(growable: false);
       setState(() {
-        _mapPoints = mapPoints;
-        _routePoints = routePoints;
-        _cachedDistanceKm = null;
+        _mapPoints = pointsFor('points');
         _activityPoints = pointsFor('activityPoints');
         _roadSnapped = data['roadSnapped'] == true;
         _waitingReasons = entriesFor('waitingReasons');
@@ -2132,7 +2131,6 @@ class _EmployeeTrackingDetailsDialogState
   }
 
   double get _distanceKm {
-    if (_cachedDistanceKm != null) return _cachedDistanceKm!;
     var metres = 0.0;
     for (var index = 1; index < _route.length; index++) {
       final a = _route[index - 1];
@@ -2147,8 +2145,7 @@ class _EmployeeTrackingDetailsDialogState
           cos(latA) * cos(latB) * sin(dLng / 2) * sin(dLng / 2);
       metres += radius * 2 * atan2(sqrt(h), sqrt(1 - h));
     }
-    _cachedDistanceKm = metres / 1000;
-    return _cachedDistanceKm!;
+    return metres / 1000;
   }
 
   Duration get _duration {
@@ -2634,7 +2631,7 @@ class _EmployeeTrackingDetailsDialogState
           )
         : ListView.separated(
             itemCount: rows.length,
-            separatorBuilder: (_, __) =>
+            separatorBuilder: (_, _) =>
                 const Divider(height: 1, color: Color(0xFFE9EDF3)),
             itemBuilder: (_, index) => rows[index],
           ),
@@ -2756,11 +2753,12 @@ class _RouteDialogState extends State<_RouteDialog> {
       _adminRouteMarkerIcon(HrmsColors.blue, 'S'),
       _adminRouteMarkerIcon(const Color(0xFF7E20E8), 'E'),
     ]);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _startMarker = icons[0];
         _endMarker = icons[1];
       });
+    }
   }
 
   Future<void> _load() async {
@@ -3119,8 +3117,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _matches = matches;
-        if (matches.isEmpty)
+        if (matches.isEmpty) {
           _searchError = 'No matches. Add a city or postcode and search again.';
+        }
       });
     } catch (error) {
       if (!mounted || version != _searchVersion) return;
@@ -3128,8 +3127,9 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
         () => _searchError = error.toString().replaceFirst('Exception: ', ''),
       );
     } finally {
-      if (mounted && version == _searchVersion)
+      if (mounted && version == _searchVersion) {
         setState(() => _searching = false);
+      }
     }
   }
 
@@ -3431,16 +3431,10 @@ class _FieldWaitingSettingsDialogState
   final _waitingController = TextEditingController();
   final _radiusController = TextEditingController();
   final _pingController = TextEditingController();
-  final _popupAlertRepeatController = TextEditingController();
-  final _autoConfirmationController = TextEditingController();
-  final _autoWarningController = TextEditingController();
-  final _autoBufferController = TextEditingController();
-  final _autoSnoozeController = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
   bool _homeTrackingEnabled = false;
-  bool _autoClockOutEnabled = false;
   String? _error;
 
   @override
@@ -3454,11 +3448,6 @@ class _FieldWaitingSettingsDialogState
     _waitingController.dispose();
     _radiusController.dispose();
     _pingController.dispose();
-    _popupAlertRepeatController.dispose();
-    _autoConfirmationController.dispose();
-    _autoWarningController.dispose();
-    _autoBufferController.dispose();
-    _autoSnoozeController.dispose();
     super.dispose();
   }
 
@@ -3472,24 +3461,10 @@ class _FieldWaitingSettingsDialogState
         _waitingController.text = '${data['field_waiting_minutes'] ?? 60}';
         _radiusController.text = '${data['stationary_radius_meters'] ?? 50}';
         _pingController.text = '${data['field_ping_interval_minutes'] ?? 15}';
-        _popupAlertRepeatController.text =
-            '${data['popup_alert_repeat_seconds'] ?? 5}';
         _homeTrackingEnabled =
             data['home_tracking_enabled'] == true ||
             data['home_tracking_enabled'] == 1 ||
             data['home_tracking_enabled'] == '1';
-        _autoClockOutEnabled =
-            data['auto_clock_out_enabled'] == true ||
-            data['auto_clock_out_enabled'] == 1 ||
-            data['auto_clock_out_enabled'] == '1';
-        _autoConfirmationController.text =
-            '${data['auto_clock_out_confirmation_minutes'] ?? 3}';
-        _autoWarningController.text =
-            '${data['auto_clock_out_warning_seconds'] ?? 60}';
-        _autoBufferController.text =
-            '${data['auto_clock_out_boundary_buffer_meters'] ?? 50}';
-        _autoSnoozeController.text =
-            '${data['auto_clock_out_snooze_minutes'] ?? 15}';
         _loading = false;
       });
     } catch (error) {
@@ -3506,35 +3481,15 @@ class _FieldWaitingSettingsDialogState
     final waitingMinutes = int.tryParse(_waitingController.text.trim());
     final stationaryRadius = int.tryParse(_radiusController.text.trim());
     final pingInterval = int.tryParse(_pingController.text.trim());
-    final popupAlertRepeatSeconds = int.tryParse(
-      _popupAlertRepeatController.text.trim(),
-    );
-    final autoConfirmation = int.tryParse(
-      _autoConfirmationController.text.trim(),
-    );
-    final autoWarning = int.tryParse(_autoWarningController.text.trim());
-    final autoBuffer = int.tryParse(_autoBufferController.text.trim());
-    final autoSnooze = int.tryParse(_autoSnoozeController.text.trim());
 
     if (waitingMinutes == null ||
         stationaryRadius == null ||
         pingInterval == null ||
-        popupAlertRepeatSeconds == null ||
         waitingMinutes < 1 ||
         stationaryRadius < 1 ||
-        pingInterval < 1 ||
-        popupAlertRepeatSeconds < 1 ||
-        popupAlertRepeatSeconds > 30 ||
-        autoConfirmation == null ||
-        autoConfirmation < 1 ||
-        autoWarning == null ||
-        autoWarning < 10 ||
-        autoBuffer == null ||
-        autoBuffer < 0 ||
-        autoSnooze == null ||
-        autoSnooze < 1) {
+        pingInterval < 1) {
       setState(() {
-        _error = 'Use valid values. Popup alert repeat must be 1–30 seconds.';
+        _error = 'Enter valid numbers greater than zero.';
       });
       return;
     }
@@ -3549,13 +3504,7 @@ class _FieldWaitingSettingsDialogState
         fieldWaitingMinutes: waitingMinutes,
         stationaryRadiusMeters: stationaryRadius,
         fieldPingIntervalMinutes: pingInterval,
-        popupAlertRepeatSeconds: popupAlertRepeatSeconds,
         homeTrackingEnabled: _homeTrackingEnabled,
-        autoClockOutEnabled: _autoClockOutEnabled,
-        autoClockOutConfirmationMinutes: autoConfirmation,
-        autoClockOutWarningSeconds: autoWarning,
-        autoClockOutBoundaryBufferMeters: autoBuffer,
-        autoClockOutSnoozeMinutes: autoSnooze,
       );
 
       if (!mounted) return;
@@ -3602,20 +3551,15 @@ class _FieldWaitingSettingsDialogState
     ),
     content: SizedBox(
       width: 400,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * .62,
-        ),
-        child: _loading
+      child: _loading
           ? const SizedBox(
               height: 180,
               child: Center(child: CircularProgressIndicator()),
             )
-          : SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 const Text(
                   'Configure Field tracking and optional Home work functionality.',
                   style: TextStyle(color: Color(0xFF657087), fontSize: 12),
@@ -3639,12 +3583,6 @@ class _FieldWaitingSettingsDialogState
                   hint: 'Example: 15',
                 ),
                 const SizedBox(height: 12),
-                _numberField(
-                  controller: _popupAlertRepeatController,
-                  label: 'Popup alert repeat (seconds)',
-                  hint: '1–30 (default: 5)',
-                ),
-                const SizedBox(height: 12),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   value: _homeTrackingEnabled,
@@ -3659,44 +3597,6 @@ class _FieldWaitingSettingsDialogState
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
-                const Divider(height: 24),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _autoClockOutEnabled,
-                  onChanged: _saving
-                      ? null
-                      : (value) => setState(() => _autoClockOutEnabled = value),
-                  title: const Text('Enable Safe Auto Clock-out'),
-                  subtitle: const Text(
-                    'Office + Home only; disabled by default. Breaks and invalid GPS are always protected.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-                if (_autoClockOutEnabled) ...[
-                  _numberField(
-                    controller: _autoConfirmationController,
-                    label: 'Outside confirmation (minutes)',
-                    hint: '3',
-                  ),
-                  const SizedBox(height: 10),
-                  _numberField(
-                    controller: _autoWarningController,
-                    label: 'Warning countdown (seconds)',
-                    hint: '60',
-                  ),
-                  const SizedBox(height: 10),
-                  _numberField(
-                    controller: _autoBufferController,
-                    label: 'Boundary safety buffer (metres)',
-                    hint: '50',
-                  ),
-                  const SizedBox(height: 10),
-                  _numberField(
-                    controller: _autoSnoozeController,
-                    label: 'Still working snooze (minutes)',
-                    hint: '15',
-                  ),
-                ],
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -3704,10 +3604,8 @@ class _FieldWaitingSettingsDialogState
                     style: const TextStyle(color: Colors.red, fontSize: 12),
                   ),
                 ],
-                ],
-              ),
+              ],
             ),
-      ),
     ),
     actions: [
       TextButton(

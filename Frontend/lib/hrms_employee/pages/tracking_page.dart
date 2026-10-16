@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:ui' as ui;
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
@@ -134,6 +135,7 @@ class _TrackingViewState extends State<_TrackingView> {
   bool _isHybridEmployee = false;
   bool _clockInPromptShown = false;
   Timer? _locationTimer;
+  Timer? _waitingAlertTimer;
   Timer? _radiusHeartbeatTimer;
   StreamSubscription<Position>? _androidBackgroundLocationSubscription;
   Position? _lastPosition;
@@ -167,16 +169,23 @@ class _TrackingViewState extends State<_TrackingView> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadHybridSession();
+      _checkWaitingAlert();
       _loadHomeLocation();
       _loadOfficeSettings();
       _loadRoute();
       _loadRouteMarkerIcons();
     });
+
+    _waitingAlertTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkWaitingAlert(),
+    );
   }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _waitingAlertTimer?.cancel();
     _radiusHeartbeatTimer?.cancel();
     _androidBackgroundLocationSubscription?.cancel();
     super.dispose();
@@ -569,7 +578,6 @@ class _TrackingViewState extends State<_TrackingView> {
 
         _startLocationTimer();
         await _loadRoute(silent: true);
-        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
@@ -599,7 +607,7 @@ class _TrackingViewState extends State<_TrackingView> {
           ];
         });
         await _loadRoute(silent: true);
-        if (!mounted) return;
+
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Live tracking stopped.')));
@@ -932,6 +940,103 @@ class _TrackingViewState extends State<_TrackingView> {
     );
   }
 
+  Future<void> _checkWaitingAlert() async {
+    if (_homeDialogOpen) return;
+    try {
+      final alert = await HrmsTrackingApi.waitingAlert();
+
+      debugPrint('Waiting alert response: $alert');
+
+      if (!mounted || _homeDialogOpen || alert == null) return;
+
+      final reasonId = int.tryParse('${alert['id']}');
+
+      if (reasonId == null) {
+        debugPrint('Waiting alert has no valid ID');
+        return;
+      }
+
+      await _showWaitingReasonDialog(
+        reasonId: reasonId,
+        waitingMinutes: alert['waiting_minutes'] ?? 0,
+      );
+    } catch (error) {
+      debugPrint('Waiting alert check failed: $error');
+    }
+  }
+
+  Future<void> _showWaitingReasonDialog({
+    required int reasonId,
+    required dynamic waitingMinutes,
+  }) async {
+    final controller = TextEditingController();
+    // Play alert sound to get the hybrid employee's attention
+    try {
+      final player = AudioPlayer();
+      await player.play(AssetSource('sounds/notification.mp3'));
+    } catch (_) {}
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Hybrid waiting reason'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'You have been at this location for $waitingMinutes minutes. '
+                'Please enter the reason for waiting.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for waiting',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                final reason = controller.text.trim();
+
+                if (reason.isEmpty) return;
+
+                try {
+                  await HrmsTrackingApi.submitWaitingReason(
+                    reasonId: reasonId,
+                    reason: reason,
+                  );
+
+                  if (mounted) {
+                    Navigator.of(context, rootNavigator: true).pop();
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Waiting reason submitted')),
+                    );
+                  }
+                } catch (error) {
+                  debugPrint('Waiting reason submit failed: $error');
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                }
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _RouteHistoryView extends StatefulWidget {

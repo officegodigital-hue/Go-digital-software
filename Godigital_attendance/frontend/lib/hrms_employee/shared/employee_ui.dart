@@ -10,7 +10,7 @@ import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
 import '../../screens/login_screen.dart';
 
-const employeeBlue = Color(0xFFE3162A);
+const employeeBlue = Color(0xFF0767F2);
 const employeeNavy = Color(0xFF07143F);
 const employeeMuted = Color(0xFF66738F);
 const employeeLine = Color(0xFFDCE4F0);
@@ -101,33 +101,31 @@ class EmployeeMobileBottomNav extends StatelessWidget {
   const EmployeeMobileBottomNav({super.key, required this.route});
   final String route;
 
-  static const _primaryItems = <_NavItem>[
+  static const _items = <_NavItem>[
     _NavItem('/employee/dashboard', 'Dashboard', Icons.grid_view_rounded),
     _NavItem(
       '/employee/attendance',
       'Attendance',
       Icons.calendar_month_outlined,
     ),
-    _NavItem('/employee/tracking', 'Tracking', Icons.location_on_rounded),
-  ];
-
-  static const _moreItems = <_NavItem>[
     _NavItem('/employee/leave', 'Leave', Icons.description_outlined),
-    _NavItem('/employee/permission', 'Permission', Icons.verified_user_outlined),
+    _NavItem(
+      '/employee/permission',
+      'Permission',
+      Icons.verified_user_outlined,
+    ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
-    _NavItem('/employee/clock-log', 'Clock In / Out', Icons.schedule_rounded),
+    _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
   ];
-
-  static const _allItems = <_NavItem>[..._primaryItems, ..._moreItems];
 
   @override
   Widget build(BuildContext context) => SafeArea(
     top: false,
     minimum: const EdgeInsets.fromLTRB(14, 4, 14, 12),
     child: Container(
-      height: 74,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF172554),
         borderRadius: BorderRadius.circular(34),
@@ -139,48 +137,36 @@ class EmployeeMobileBottomNav extends StatelessWidget {
           ),
         ],
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(
-          children: _allItems.map((item) {
-            final active = item.route == route;
-            return SizedBox(
-              width: 82,
-              child: Tooltip(
-                message: item.label,
-                child: InkWell(
-                  onTap: active
-                      ? null
-                      : () => Navigator.of(context).pushReplacementNamed(item.route),
-                  borderRadius: BorderRadius.circular(25),
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: active ? employeeBlue : Colors.transparent,
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(item.icon, color: Colors.white, size: 21),
-                          const SizedBox(height: 2),
-                          Text(
-                            item.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
-                          ),
-                        ],
-                      ),
+      child: Row(
+        children: _items.map((item) {
+          final active = item.route == route;
+          return Expanded(
+            child: Tooltip(
+              message: item.label,
+              child: InkWell(
+                onTap: active
+                    ? null
+                    : () => Navigator.of(
+                        context,
+                      ).pushReplacementNamed(item.route),
+                borderRadius: BorderRadius.circular(25),
+                child: Center(
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF2563EB)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
                     ),
+                    child: Icon(item.icon, color: Colors.white, size: 22),
                   ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
+            ),
+          );
+        }).toList(),
       ),
     ),
   );
@@ -211,7 +197,7 @@ class EmployeeSidebar extends StatelessWidget {
     ),
     _NavItem('/employee/extra-hours', 'Extra Hours', Icons.more_time_rounded),
     _NavItem('/employee/salary', 'Salary', Icons.currency_rupee_rounded),
-    _NavItem('/employee/tracking', 'Tracking', Icons.location_on_rounded),
+    _NavItem('/employee/tracking', 'Tracking', Icons.my_location_rounded),
   ];
 
   @override
@@ -487,8 +473,9 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
           body is! Map ||
           body['success'] != true ||
           body['data'] is! Map ||
-          !mounted)
+          !mounted) {
         return;
+      }
       final profile = Map<String, dynamic>.from(body['data'] as Map);
       setState(
         () => _applyIdentity(
@@ -1007,10 +994,11 @@ class EmployeeProfileMenu extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Password updated.')),
                   );
-                } else
+                } else {
                   ScaffoldMessenger.of(
                     context,
                   ).showSnackBar(SnackBar(content: Text(message)));
+                }
               },
               child: const Text('Update password'),
             ),
@@ -1395,7 +1383,7 @@ class MobileEmployeeHeader extends StatelessWidget {
       if (showGreeting) ...[
         const SizedBox(height: 22),
         Consumer<AuthService>(
-          builder: (_, auth, __) {
+          builder: (_, auth, _) {
             final name =
                 (auth.user?['fullName'] ?? auth.user?['name'] ?? 'Employee')
                     .toString()

@@ -609,8 +609,9 @@ class _DesktopEmployeeRow extends StatelessWidget {
 
   Widget _secondCell() {
     if (mode == 'Hybrid') return _trackingStatus(employee);
-    if (employee.checkInAt == null)
+    if (employee.checkInAt == null) {
       return const Text('-', style: TextStyle(color: _desktopMuted));
+    }
     final color = employee.isLate ? const Color(0xFFFF6A00) : _desktopGreen;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -887,8 +888,7 @@ class _DailyRecords extends StatelessWidget {
   const _DailyRecords({
     required this.employee,
     required this.mode,
-    this.onDayTap,
-  });
+  }) : onDayTap = null;
   final _TrackedEmployee employee;
   final String mode;
   final ValueChanged<_AttendanceDay>? onDayTap;
@@ -934,7 +934,7 @@ class _DailyRecords extends StatelessWidget {
                 )
               : ListView.separated(
                   itemCount: employee.recentAttendance.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const Divider(height: 1, color: _desktopBorder),
                   itemBuilder: (_, index) {
                     final day = employee.recentAttendance[index];

@@ -19,8 +19,9 @@ class HrmsPayslipApi {
       headers: await _headers(),
     );
     final body = jsonDecode(response.body);
-    if (response.statusCode >= 400 || body['success'] != true)
+    if (response.statusCode >= 400 || body['success'] != true) {
       throw Exception(body['message'] ?? 'Unable to load payslips');
+    }
     final data = body['data'];
     if (data is! List) return const [];
     return data
@@ -35,8 +36,9 @@ class HrmsPayslipApi {
       headers: await _headers(),
     );
     final body = jsonDecode(response.body);
-    if (response.statusCode >= 400 || body['success'] != true)
+    if (response.statusCode >= 400 || body['success'] != true) {
       throw Exception(body['message'] ?? 'Unable to load salary');
+    }
     final data = body['data'];
     return data is Map ? Map<String, dynamic>.from(data) : const {};
   }
@@ -47,8 +49,9 @@ class HrmsPayslipApi {
       headers: await _headers(),
     );
     final body = jsonDecode(response.body);
-    if (response.statusCode >= 400 || body['success'] != true)
+    if (response.statusCode >= 400 || body['success'] != true) {
       throw Exception(body['message'] ?? 'Unable to load deduction history');
+    }
     final data = body['data'];
     if (data is! List) return const [];
     return data
@@ -63,8 +66,9 @@ class HrmsPayslipApi {
       headers: await _headers(),
     );
     final body = jsonDecode(response.body);
-    if (response.statusCode >= 400 || body['success'] != true)
+    if (response.statusCode >= 400 || body['success'] != true) {
       throw Exception(body['message'] ?? 'Unable to send request');
+    }
   }
 
   static Future<void> download(int payrollId) async {

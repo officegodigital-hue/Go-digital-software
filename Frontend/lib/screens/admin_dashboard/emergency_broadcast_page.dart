@@ -550,7 +550,7 @@ class _EmergencyBroadcastPageState extends State<EmergencyBroadcastPage>
                           key: const ValueKey('employee-selector'),
                           padding: const EdgeInsets.only(top: 8),
                           child: DropdownButtonFormField<String>(
-                            value: _selectedEmployeeId,
+                            initialValue: _selectedEmployeeId,
                             hint: const Text('Select Target Employee'),
                             items: _employees.map((emp) {
                               return DropdownMenuItem<String>(

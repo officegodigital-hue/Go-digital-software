@@ -66,9 +66,15 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
 
   @override
   void dispose() {
-    for (final c in names.values) c.dispose();
-    for (final c in allowances.values) c.dispose();
-    for (final c in abbrs.values) c.dispose();
+    for (final c in names.values) {
+      c.dispose();
+    }
+    for (final c in allowances.values) {
+      c.dispose();
+    }
+    for (final c in abbrs.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 

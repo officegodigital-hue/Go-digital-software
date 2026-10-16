@@ -529,7 +529,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
     child: Row(children: [
       Switch(
         value: _homeTrackingEnabled,
-        activeColor: Colors.white,
+        activeThumbColor: Colors.white,
         activeTrackColor: _green,
         inactiveThumbColor: Colors.white,
         inactiveTrackColor: const Color(0xFFCBD5E1),

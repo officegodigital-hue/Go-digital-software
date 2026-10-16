@@ -95,10 +95,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                       height: 125,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.09),
+                        color: Colors.white.withValues(alpha: 0.09),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.white.withOpacity(0.06),
+                            color: Colors.white.withValues(alpha: 0.06),
                             blurRadius: 40,
                             spreadRadius: 10,
                           ),
@@ -117,10 +117,10 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                       height: 140,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.06),
+                        color: Colors.white.withValues(alpha: 0.06),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.white.withOpacity(0.04),
+                            color: Colors.white.withValues(alpha: 0.04),
                             blurRadius: 45,
                             spreadRadius: 8,
                           ),
@@ -163,7 +163,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             )
                           else
                             Material(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.white.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                               child: IconButton(
                                 tooltip: _isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar',
@@ -184,7 +184,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                         ],
                       ),
                     ),
-                    Container(height: 1, color: Colors.white.withOpacity(0.2)),
+                    Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
                     const SizedBox(height: 10),
                     Expanded(
                       child: SingleChildScrollView(
@@ -208,7 +208,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                         ),
                       ),
                     ),
-                    Container(height: 1, color: Colors.white.withOpacity(0.2)),
+                    Container(height: 1, color: Colors.white.withValues(alpha: 0.2)),
                     
                     // Settings Button
                     Padding(
@@ -223,8 +223,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             }
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withOpacity(0.14),
-                          splashColor: Colors.white.withOpacity(0.2),
+                          hoverColor: Colors.white.withValues(alpha: 0.14),
+                          splashColor: Colors.white.withValues(alpha: 0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -261,8 +261,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withOpacity(0.14),
-                          splashColor: Colors.white.withOpacity(0.2),
+                          hoverColor: Colors.white.withValues(alpha: 0.14),
+                          splashColor: Colors.white.withValues(alpha: 0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -299,8 +299,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                             Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
                           },
                           borderRadius: BorderRadius.circular(10),
-                          hoverColor: Colors.white.withOpacity(0.14),
-                          splashColor: Colors.white.withOpacity(0.2),
+                          hoverColor: Colors.white.withValues(alpha: 0.14),
+                          splashColor: Colors.white.withValues(alpha: 0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
                             child: Row(
@@ -368,8 +368,8 @@ class _SidebarItem extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
-          hoverColor: Colors.white.withOpacity(0.14), // 💡 Bright Lighting effect on hover
-          splashColor: Colors.white.withOpacity(0.2),
+          hoverColor: Colors.white.withValues(alpha: 0.14), // 💡 Bright Lighting effect on hover
+          splashColor: Colors.white.withValues(alpha: 0.2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             padding: EdgeInsets.symmetric(horizontal: isCollapsed ? 16 : 12, vertical: 11),
@@ -379,7 +379,7 @@ class _SidebarItem extends StatelessWidget {
               boxShadow: isActive
                   ? [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
+                        color: Colors.black.withValues(alpha: 0.15),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       )

@@ -1247,7 +1247,7 @@ class _RequestStatus extends StatelessWidget {
 }
 
 class _PaginationButton extends StatelessWidget {
-  const _PaginationButton({this.text, this.icon, this.active = false});
+  const _PaginationButton({this.icon}) : text = null : active = false;
   final String? text;
   final IconData? icon;
   final bool active;
@@ -1457,7 +1457,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
         Row(children: [
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: _statusFilter,
+              initialValue: _statusFilter,
               onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
               decoration: _fieldDecoration(),
               items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
@@ -1496,7 +1496,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
             label: 'Status',
             width: 200,
             child: DropdownButtonFormField<String>(
-              value: _statusFilter,
+              initialValue: _statusFilter,
               onChanged: (v) => setState(() => _statusFilter = v ?? 'All Status'),
               decoration: _fieldDecoration(),
               items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),

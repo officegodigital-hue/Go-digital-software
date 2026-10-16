@@ -282,7 +282,7 @@ class _SalaryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    decoration: highlight ? BoxDecoration(color: employeeBlue.withOpacity(0.06)) : null,
+    decoration: highlight ? BoxDecoration(color: employeeBlue.withValues(alpha: 0.06)) : null,
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label, style: const TextStyle(fontSize: 11, color: employeeMuted, fontWeight: FontWeight.w500)),
       const SizedBox(height: 4),

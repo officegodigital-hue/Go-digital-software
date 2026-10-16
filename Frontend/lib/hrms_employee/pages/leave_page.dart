@@ -836,12 +836,13 @@ class _LeaveFormState extends State<_LeaveForm> {
               ),
             )
             .toList();
-        if (mounted)
+        if (mounted) {
           setState(() {
             _types = list;
             _selectedType = list.isEmpty ? null : list.first;
             _loadingTypes = false;
           });
+        }
       } else {
         if (mounted) setState(() => _loadingTypes = false);
       }
@@ -959,10 +960,11 @@ class _LeaveFormState extends State<_LeaveForm> {
   @override
   Widget build(BuildContext context) {
     if (_loadingTypes) return const Center(child: CircularProgressIndicator());
-    if (_types.isEmpty)
+    if (_types.isEmpty) {
       return const EmployeeCard(
         child: Text('No active leave types are configured by Admin.'),
       );
+    }
     final fromStr = DateFormat('dd/MM/yyyy').format(fromDate);
     final toStr = DateFormat('dd/MM/yyyy').format(toDate);
 
@@ -1194,7 +1196,7 @@ class _LeaveTypeDropdown extends StatelessWidget {
       ),
       const SizedBox(height: 6),
       DropdownButtonFormField<_LeaveTypeOption>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           filled: true,
           fillColor: const Color(0xFFFBFCFE),
