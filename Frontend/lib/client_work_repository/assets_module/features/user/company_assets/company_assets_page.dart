@@ -304,7 +304,7 @@ class _CompanyAssetsPageState
                                           ? Image.network(
                                               '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${widget.company.logoUrl!.startsWith('/') ? widget.company.logoUrl! : '/${widget.company.logoUrl!}'}',
                                               width: 48, height: 48, fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => _logoPlaceholder(),
+                                              errorBuilder: (_, _, _) => _logoPlaceholder(),
                                             )
                                           : _logoPlaceholder()),
                                 ),
@@ -1084,7 +1084,7 @@ class _CompanyAssetsPageState
         child: Image.network(
           imageUrl,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
+          errorBuilder: (_, _, _) => Container(
             alignment: Alignment.center,
             color: lightColor,
             child: Text(firstLetter, style: TextStyle(fontSize: mobile ? 22 : 26, fontWeight: FontWeight.w800, color: color)),
@@ -2692,7 +2692,7 @@ class _AssetPreviewPageState
       child: Image.network(
         link,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => _buildLinkFallbackCard(link),
+        errorBuilder: (_, _, _) => _buildLinkFallbackCard(link),
       ),
     );
   }
@@ -2778,7 +2778,7 @@ class _AssetPreviewPageState
                       : null,
                 ),
               ),
-        errorBuilder: (_, __, ___) => _buildPlaceholderPreview(),
+        errorBuilder: (_, _, _) => _buildPlaceholderPreview(),
       ),
     );
   }

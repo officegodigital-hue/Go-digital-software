@@ -789,7 +789,7 @@ class _MobileAdminAppBarState extends State<_MobileAdminAppBar> {
   ) {
     return ListView.separated(
       itemCount: _notifications.length,
-      separatorBuilder: (_, __) {
+      separatorBuilder: (_, _) {
         return const Divider(height: 1);
       },
       itemBuilder: (

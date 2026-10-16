@@ -353,7 +353,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   decoration: const InputDecoration(hintText: 'Choose correction type'),
                   items: const [
                     DropdownMenuItem(value: 'missed_check_in', child: Text('Missed check-in')),
@@ -1172,9 +1172,9 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                     width: 46, height: 46,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(.18),
+                      color: Colors.white.withValues(alpha: .18),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withOpacity(.25)),
+                      border: Border.all(color: Colors.white.withValues(alpha: .25)),
                     ),
                     child: const Icon(Icons.calendar_today_outlined, color: Colors.white, size: 20),
                   ),
@@ -1186,13 +1186,13 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                         style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 2),
-                      Text(weekday, style: TextStyle(color: Colors.white.withOpacity(.72), fontSize: 12)),
+                      Text(weekday, style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)),
                       const SizedBox(height: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(.15),
-                          border: Border.all(color: Colors.white.withOpacity(.2)),
+                          color: Colors.white.withValues(alpha: .15),
+                          border: Border.all(color: Colors.white.withValues(alpha: .2)),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1215,7 +1215,7 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close, color: Colors.white, size: 20),
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(.15),
+                      backgroundColor: Colors.white.withValues(alpha: .15),
                       shape: const CircleBorder(),
                       padding: const EdgeInsets.all(6),
                     ),

@@ -974,7 +974,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       ),
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: companies.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           const SizedBox(height: 10),
       itemBuilder: (context, index) {
         return _buildCompanyCard(

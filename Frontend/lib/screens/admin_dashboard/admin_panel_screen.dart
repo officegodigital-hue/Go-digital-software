@@ -416,8 +416,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (decoded is List) {
         rows = decoded;
       } else if (decoded is Map<String, dynamic>) {
-        if (decoded['data'] is List) rows = decoded['data'];
-        else if (decoded['roles'] is List) rows = decoded['roles'];
+        if (decoded['data'] is List) {
+          rows = decoded['data'];
+        } else if (decoded['roles'] is List) rows = decoded['roles'];
       }
 
       final normalizedRoles = rows.whereType<Map>().map<Map<String, dynamic>>((item) {
@@ -658,7 +659,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                       : ListView.separated(
                                           padding: const EdgeInsets.all(10),
                                           itemCount: allUserRolesMaster.length,
-                                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                                           itemBuilder: (context, index) {
                                             final roleItem = allUserRolesMaster[index];
                                             final roleId = _toInt(roleItem['id']);
@@ -1513,7 +1514,7 @@ Widget build(BuildContext context) {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredEmployees.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: _border),
+              separatorBuilder: (_, _) => const Divider(height: 1, color: _border),
               itemBuilder: (_, index) => _buildDesktopEmployeeRow(_filteredEmployees[index], index),
             ),
         ],
@@ -1687,7 +1688,7 @@ Widget build(BuildContext context) {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _filteredEmployees.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             return _buildMobileEmployeeCard(_filteredEmployees[index], index);
           },

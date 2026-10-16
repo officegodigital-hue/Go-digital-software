@@ -7,10 +7,8 @@ import 'package:http/http.dart' as http;
 import '../../../layouts/admin_layout.dart';
 import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart'; 
-import 'package:flutter/gestures.dart';
 import '../../services/api_config.dart';
 import 'package:intl/intl.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class TasksAssignScreen extends StatefulWidget {
   const TasksAssignScreen({super.key});
@@ -2897,6 +2895,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
           InkWell(
             onTap: () => _showEmployeePicker(
               current: employee,
+              roleField: employeeKey,
               onChanged: (value) {
                 setState(() => row[employeeKey] = value);
                 _saveRow(row);
@@ -3402,19 +3401,19 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             ),
           ),
         ),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, roleField: 'ads_handling', onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ads_handler_task', 'ads_platform')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, roleField: 'page_handling', onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, roleField: 'designer', onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, roleField: 'videographer', onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, roleField: 'video_editor', onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, roleField: 'ui_ux_designer', onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, roleField: 'developer', onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
         SizedBox(
           width: 140,
@@ -3422,6 +3421,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             140,
             empVal('website_designer'),
             empItems,
+            roleField: 'website_designer',
             onChanged: (v) {
               setState(() {
                 row['website_designer'] = v;
@@ -3549,12 +3549,75 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     );
   }
 
-  Future<void> _showEmployeePicker({
-    required String current,
-    required ValueChanged<String> onChanged,
-  }) async {
+  // Count distinct active clients for each employee and selected position.
+  // Only the newest assigned task for each client is considered.
+  Map<String, Map<String, int>> _buildEmployeeRoleCounts(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final activeClients = allClientsData
+        .where((c) => c['is_active'] == 1 || c['is_active'] == true)
+        .map((c) => (c['company_name'] ?? '').toString().trim().toUpperCase())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    final latestByClient = <String, Map<String, dynamic>>{};
+    for (final row in rows) {
+      if (row['is_assigned'] != 1 && row['is_assigned'] != true) continue;
+      final client = (row['client_name'] ?? '').toString().trim().toUpperCase();
+      if (client.isEmpty || !activeClients.contains(client)) continue;
+      final previous = latestByClient[client];
+      final id = int.tryParse('${row['id']}') ?? 0;
+      final previousId = previous == null ? -1 : (int.tryParse('${previous['id']}') ?? 0);
+      if (previous == null || id > previousId) latestByClient[client] = row;
+    }
+
+    const roleFields = [
+      'ads_handling', 'page_handling', 'designer', 'videographer',
+      'video_editor', 'ui_ux_designer', 'developer', 'website_designer',
+    ];
+    final distinctClients = <String, Map<String, Set<String>>>{};
+    for (final entry in latestByClient.entries) {
+      final client = entry.key;
+      final row = entry.value;
+      for (final field in roleFields) {
+        final employee = (row[field] ?? '').toString().trim().toUpperCase();
+        if (employee.isEmpty || employee == 'NONE') continue;
+        distinctClients.putIfAbsent(employee, () => <String, Set<String>>{});
+        distinctClients[employee]!.putIfAbsent(field, () => <String>{}).add(client);
+      }
+    }
+    return distinctClients.map(
+      (name, counts) => MapEntry(
+        name,
+        counts.map((field, clients) => MapEntry(field, clients.length)),
+      ),
+    );
+  }
+
+ Future<void> _showEmployeePicker({
+  required String current,
+  required String roleField,
+  required ValueChanged<String> onChanged,
+}) async {
     final searchController = TextEditingController();
     String query = '';
+
+    // Refresh assignments so badges reflect recent changes by other admins.
+    List<Map<String, dynamic>> countRows = taskRows;
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/tasks'));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        countRows = List<Map<String, dynamic>>.from(body['data'] ?? []);
+      }
+    } catch (error) {
+      debugPrint('Employee role count refresh failed: $error');
+    }
+    if (!mounted) {
+      searchController.dispose();
+      return;
+    }
+    final employeeRoleCounts = _buildEmployeeRoleCounts(countRows);
 
     final result = await showDialog<String>(
       context: context,
@@ -3669,6 +3732,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                 final name = filtered[index];
                                 final isNone = name == 'NONE';
                                 final selected = current.toUpperCase() == name.toUpperCase();
+                                final clientCount = isNone
+                                    ? 0
+                                    : (employeeRoleCounts[name.trim().toUpperCase()]?[roleField] ?? 0);
 
                                 return InkWell(
                                   borderRadius: BorderRadius.circular(12),
@@ -3726,6 +3792,28 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                             ],
                                           ),
                                         ),
+                                        if (!isNone) ...[
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: clientCount > 0
+                                                  ? const Color(0xFFEFF6FF)
+                                                  : const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              '$clientCount clients',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                                color: clientCount > 0
+                                                    ? const Color(0xFF0052CC)
+                                                    : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                         if (selected)
                                           const Icon(Icons.check_circle_rounded, size: 20, color: Color(0xFF0052CC)),
                                         const SizedBox(width: 3),
@@ -3776,13 +3864,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     double width,
     String current,
     List<DropdownMenuItem<String>> items, {
+    required String roleField,
     required ValueChanged<String> onChanged,
   }) {
     final isUnselected = current.isEmpty || current.toUpperCase() == 'NONE';
     final display = current.isEmpty || current.toUpperCase() == 'NONE' ? '— Select —' : current;
 
     return InkWell(
-      onTap: () => _showEmployeePicker(current: current, onChanged: onChanged),
+      onTap: () => _showEmployeePicker(current: current, roleField: roleField, onChanged: onChanged),
       child: Container(
         width: width,
         height: 54,
