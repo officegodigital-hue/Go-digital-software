@@ -415,3 +415,4 @@ class _SidebarItem extends StatelessWidget {
     );
   }
 }
+
