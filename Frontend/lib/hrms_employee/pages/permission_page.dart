@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/attendance_location.dart';
+import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
 
 class EmployeePermissionPage extends StatefulWidget {
@@ -70,8 +73,8 @@ class _EmployeePermissionPageState extends State<EmployeePermissionPage> {
           ),
         ),
       ),
-      desktop: _PermissionContent(logOnly: logOnly, history: _history, historyLoading: _historyLoading),
-      mobile: _PermissionContent(mobile: true, logOnly: logOnly, history: _history, historyLoading: _historyLoading),
+      desktop: _PermissionContent(logOnly: logOnly, history: _history, historyLoading: _historyLoading, onSubmitted: _fetchHistory),
+      mobile: _PermissionContent(mobile: true, logOnly: logOnly, history: _history, historyLoading: _historyLoading, onSubmitted: _fetchHistory),
     );
   }
 }
@@ -174,11 +177,12 @@ void _showPermissionHistoryDialog(BuildContext context, List<dynamic> history, b
 }
 
 class _PermissionContent extends StatefulWidget {
-  const _PermissionContent({this.mobile = false, this.logOnly = false, this.history = const [], this.historyLoading = false});
+  const _PermissionContent({this.mobile = false, this.logOnly = false, this.history = const [], this.historyLoading = false, this.onSubmitted});
   final bool mobile;
   final bool logOnly;
   final List<dynamic> history;
   final bool historyLoading;
+  final VoidCallback? onSubmitted;
 
   @override
   State<_PermissionContent> createState() => _PermissionContentState();
@@ -187,9 +191,11 @@ class _PermissionContent extends StatefulWidget {
 class _PermissionContentState extends State<_PermissionContent> {
   final _reasonCtrl = TextEditingController();
   final _dateCtrl = TextEditingController();
+  final _endDateCtrl = TextEditingController();
   final _timeCtrl = TextEditingController();
 
   DateTime _selectedDate = DateTime.now();
+  DateTime _selectedEndDate = DateTime.now();
   TimeOfDay _startTime = const TimeOfDay(hour: 14, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 16, minute: 0);
 
@@ -197,6 +203,10 @@ class _PermissionContentState extends State<_PermissionContent> {
   String _requestType = 'permission';
 
   bool _submitting = false;
+  bool _homeLoading = false;
+  bool _hasApprovedHome = false;
+  Position? _capturedHomePosition;
+  bool _capturingHome = false;
 
   Widget _buildMobileRequest(BuildContext context) {
     InputDecoration input(String hint, IconData icon) => InputDecoration(
@@ -234,9 +244,14 @@ class _PermissionContentState extends State<_PermissionContent> {
           Expanded(child: _TypeToggleButton(label: 'Work From Home', icon: Icons.home_work_outlined, selected: _requestType == 'wfh', onTap: () => setState(() => _requestType = 'wfh'))),
         ]),
         const SizedBox(height: 22),
-        Text(_requestType == 'wfh' ? 'WFH Date' : 'Permission Date', style: const TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
+        Text(_requestType == 'wfh' ? 'WFH Date Range' : 'Permission Date', style: const TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
         const SizedBox(height: 10),
         TextField(controller: _dateCtrl, readOnly: true, onTap: _pickDate, style: const TextStyle(color: employeeNavy, fontSize: 18, fontWeight: FontWeight.w700), decoration: input('Select date', Icons.calendar_today_outlined)),
+        if (_requestType == 'wfh') ...[
+          const SizedBox(height: 12),
+          TextField(controller: _endDateCtrl, readOnly: true, onTap: _pickEndDate, style: const TextStyle(color: employeeNavy, fontSize: 18, fontWeight: FontWeight.w700), decoration: input('End date', Icons.event_available_outlined)),
+          _wfhHomeCapture(),
+        ],
         if (_requestType == 'permission') ...[
           const SizedBox(height: 22),
           const Text('Time Away', style: TextStyle(color: employeeNavy, fontSize: 17, fontWeight: FontWeight.w800)),
@@ -256,13 +271,16 @@ class _PermissionContentState extends State<_PermissionContent> {
   void initState() {
     super.initState();
     _dateCtrl.text = DateFormat('dd/MM/yyyy').format(_selectedDate);
+    _endDateCtrl.text = DateFormat('dd/MM/yyyy').format(_selectedEndDate);
     _updateTimeText();
+    _loadHomeStatus();
   }
 
   @override
   void dispose() {
     _reasonCtrl.dispose();
     _dateCtrl.dispose();
+    _endDateCtrl.dispose();
     _timeCtrl.dispose();
     super.dispose();
   }
@@ -289,9 +307,67 @@ class _PermissionContentState extends State<_PermissionContent> {
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
+        if (_selectedEndDate.isBefore(picked)) _selectedEndDate = picked;
         _dateCtrl.text = DateFormat('dd/MM/yyyy').format(picked);
+        _endDateCtrl.text = DateFormat('dd/MM/yyyy').format(_selectedEndDate);
       });
     }
+  }
+
+  Future<void> _pickEndDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedEndDate.isBefore(_selectedDate) ? _selectedDate : _selectedEndDate,
+      firstDate: _selectedDate,
+      lastDate: DateTime(2028),
+    );
+    if (picked != null) setState(() {
+      _selectedEndDate = picked;
+      _endDateCtrl.text = DateFormat('dd/MM/yyyy').format(picked);
+    });
+  }
+
+  Future<void> _loadHomeStatus() async {
+    setState(() => _homeLoading = true);
+    try {
+      final home = await HrmsTrackingApi.myHomeLocation();
+      if (mounted) setState(() => _hasApprovedHome = home?['approval_status'] == 'approved');
+    } catch (_) {}
+    if (mounted) setState(() => _homeLoading = false);
+  }
+
+  Future<void> _captureHome() async {
+    setState(() => _capturingHome = true);
+    try {
+      final position = await AttendanceLocation.currentPosition();
+      if (mounted) setState(() => _capturedHomePosition = position);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+    if (mounted) setState(() => _capturingHome = false);
+  }
+
+  Widget _wfhHomeCapture() {
+    if (_hasApprovedHome) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 12),
+        child: Text('Your approved Home Location will be used for this request.', style: TextStyle(color: employeeGreen, fontWeight: FontWeight.w600)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Home Location is required for WFH approval. Capture it below; this request will be sent to Admin once.', style: TextStyle(color: employeeMuted, fontSize: 13)),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _capturingHome || _homeLoading ? null : _captureHome,
+          icon: const Icon(Icons.my_location_outlined),
+          label: Text(_capturingHome ? 'Capturing Home GPS…' : 'Capture Home GPS'),
+        ),
+        if (_capturedHomePosition != null)
+          Text('Captured GPS: ${_capturedHomePosition!.latitude.toStringAsFixed(6)}, ${_capturedHomePosition!.longitude.toStringAsFixed(6)} · accuracy ${_capturedHomePosition!.accuracy.toStringAsFixed(0)} m', style: const TextStyle(color: employeeGreen, fontSize: 12)),
+      ]),
+    );
   }
 
   Future<void> _pickTimeRange() async {
@@ -326,12 +402,19 @@ class _PermissionContentState extends State<_PermissionContent> {
       );
       return;
     }
+    if (_requestType == 'wfh' && !_hasApprovedHome && _capturedHomePosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Capture your Home GPS before submitting a WFH request.')),
+      );
+      return;
+    }
 
     setState(() => _submitting = true);
 
     if (_requestType == 'permission' &&
         _startTime.hour == _endTime.hour &&
         _startTime.minute == _endTime.minute) {
+      setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Choose an end time later than the start time.')),
       );
@@ -343,7 +426,14 @@ class _PermissionContentState extends State<_PermissionContent> {
         ? {
             'type': 'wfh',
             'date': dateStr,
+            'end_date': DateFormat('yyyy-MM-dd').format(_selectedEndDate),
             'reason': _reasonCtrl.text.trim(),
+            if (_capturedHomePosition != null) ...{
+              'latitude': _capturedHomePosition!.latitude,
+              'longitude': _capturedHomePosition!.longitude,
+              'accuracy': _capturedHomePosition!.accuracy,
+              'capturedAt': _capturedHomePosition!.timestamp.toUtc().toIso8601String(),
+            },
           }
         : {
             'type': 'permission',
@@ -366,9 +456,15 @@ class _PermissionContentState extends State<_PermissionContent> {
     if (mounted) {
       setState(() => _submitting = false);
       if (ok) {
-        _reasonCtrl.clear();
+        setState(() {
+          _reasonCtrl.clear();
+          _capturedHomePosition = null;
+        });
+        widget.onSubmitted?.call();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Permission request submitted successfully!')),
+          SnackBar(content: Text(_requestType == 'wfh'
+              ? 'WFH request submitted for one Admin approval.'
+              : 'Permission request submitted successfully!')),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -481,7 +577,12 @@ class _PermissionContentState extends State<_PermissionContent> {
                       ),
                     );
                     if (_requestType == 'wfh') {
-                      return dateField;
+                      final endDateField = InkWell(
+                        onTap: _pickEndDate,
+                        child: IgnorePointer(child: TextField(controller: _endDateCtrl, decoration: const InputDecoration(labelText: 'WFH end date', prefixIcon: Icon(Icons.event_available_outlined), border: OutlineInputBorder()))),
+                      );
+                      if (constraints.maxWidth < 620) return Column(children: [dateField, const SizedBox(height: 14), endDateField]);
+                      return Row(children: [Expanded(child: dateField), const SizedBox(width: 14), Expanded(child: endDateField)]);
                     }
                     final timeField = InkWell(
                       onTap: _pickTimeRange,
@@ -497,6 +598,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                     }
                     return Row(children: [Expanded(child: dateField), const SizedBox(width: 14), Expanded(child: timeField)]);
                   }),
+                  if (_requestType == 'wfh') _wfhHomeCapture(),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _reasonCtrl,
@@ -569,7 +671,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                         ? 'Work From Home'
                         : _formatStoredTime(r['start_time']?.toString(), r['end_time']?.toString());
                     return _row(
-                      _formatHistoryDate(r['date']?.toString() ?? ''),
+                      _formatHistoryDateRange(r['date']?.toString() ?? '', r['end_date']?.toString()),
                       r['reason']?.toString() ?? '',
                       timeLabel,
                       status,
@@ -588,6 +690,12 @@ class _PermissionContentState extends State<_PermissionContent> {
   String _formatHistoryDate(String value) {
     final date = DateTime.tryParse(value);
     return date == null ? value : DateFormat('dd/MM/yyyy').format(date);
+  }
+
+  String _formatHistoryDateRange(String start, String? end) {
+    final first = _formatHistoryDate(start);
+    final last = end == null || end.isEmpty ? first : _formatHistoryDate(end);
+    return first == last ? first : '$first – $last';
   }
 
   String _formatStoredTime(String? start, String? end) {

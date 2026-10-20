@@ -107,7 +107,7 @@ async function settingsFor(db, lock = false) {
 
 async function getCheckInPolicy(db, employeeId, lock = false) {
   const profile = await profileFor(db, employeeId, lock);
-  const workMode = profile.work_mode;
+  const workMode = await effectiveWorkMode(db, employeeId, undefined, lock, profile);
   if (workMode === 'Hybrid') {
     const [sessions] = await db.query(
       `SELECT id FROM hrms_field_tracking_sessions
@@ -156,6 +156,37 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
   return { workMode, requiresLocation: true, radiusMeters, center };
 }
 
+// A WFH permission is a temporary location rule, never a change to the
+// employee's configured work mode.  The range test makes it expire naturally
+// after its final approved day without a nightly reset job.
+async function effectiveWorkMode(db, employeeId, date, lock = false, profile) {
+  const permanent = profile || await profileFor(db, employeeId, lock);
+  const day = date || require('../lib/attendancePolicy').todayIstDate();
+  try {
+    const [rows] = await db.query(
+      `SELECT id FROM attendance_permission_requests
+       WHERE employee_id = ? AND request_type = 'wfh' AND status = 'approved'
+         AND request_date <= ?
+         AND COALESCE(wfh_end_date, request_date) >= ?
+       LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+      [employeeId, day, day]
+    );
+    if (rows.length) return 'Home';
+  } catch (error) {
+    // Older installations do not have the range column until their first WFH
+    // request. Their existing single-day WFH requests still work.
+    if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+    const [rows] = await db.query(
+      `SELECT id FROM attendance_permission_requests
+       WHERE employee_id = ? AND request_type = 'wfh' AND status = 'approved'
+         AND request_date = ? LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+      [employeeId, day]
+    );
+    if (rows.length) return 'Home';
+  }
+  return permanent.work_mode;
+}
+
 function validateCheckIn(locationPolicy, body, now) {
   if (!locationPolicy.requiresLocation) return null;
   const fix = validateFix(body, locationPolicy.radiusMeters, now);
@@ -170,5 +201,5 @@ function validateCheckIn(locationPolicy, body, now) {
 
 module.exports = {
   LocationPolicyError, coordinates, distanceMeters, validateFix,
-  profileFor, settingsFor, getCheckInPolicy, validateCheckIn
+  profileFor, settingsFor, getCheckInPolicy, validateCheckIn, effectiveWorkMode
 };

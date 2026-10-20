@@ -352,8 +352,8 @@ async function monthView(req, res) {
           }
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
-        } else if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+        } else if (record && (record.check_in_at || String(record.attendance_status) === 'present')) {
+          if (Number(record.is_late) && !record.admin_status_override) {
             days.push('LT');
             late += 1;
             lateDays += 1;
@@ -445,8 +445,8 @@ async function monthView(req, res) {
         const record = userId ? todayRecordMap.get(userId) : null;
         if (record && String(record.attendance_status) === 'absent') {
           if (payrollRules.deductExplicitAbsence) todayAbsent += 1;
-        } else if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+        } else if (record && (record.check_in_at || String(record.attendance_status) === 'present')) {
+          if (Number(record.is_late) && !record.admin_status_override) {
             todayLate += 1;
           } else {
             todayPresent += 1;

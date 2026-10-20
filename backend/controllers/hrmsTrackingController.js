@@ -880,13 +880,9 @@ async function reviewHomeLocation(req, res) {
         employeeUserId,
       ]
     );
-    if (approvalStatus === 'approved') {
-      await connection.query(
-        "UPDATE hrms_employee_profiles SET work_mode = 'Home' WHERE id = ?", [profile.id]);
-    }
     await connection.commit();
     return ok(res, null, approvalStatus === 'approved'
-      ? 'Home location approved. Employee work mode is now Home.'
+      ? 'Home location approved. The employee’s permanent work mode is unchanged.'
       : 'Home location rejected');
   } catch (error) {
     if (connection) await connection.rollback();
