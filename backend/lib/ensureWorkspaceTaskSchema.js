@@ -70,6 +70,24 @@ async function ensureWorkspaceTaskSchema(db) {
     }
   }
 
+  // day_plan_rows.maintenance_date: on some servers this is a short text
+  // column and MySQL strict mode (usually on in production) rejects longer
+  // values with "Data too long for column 'maintenance_date'". Widen it once.
+  try {
+    const [[mcol]] = await db.query(
+      `SELECT DATA_TYPE AS t, CHARACTER_MAXIMUM_LENGTH AS len, IS_NULLABLE AS n
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'day_plan_rows'
+         AND COLUMN_NAME = 'maintenance_date'`,
+    );
+    if (mcol && ['varchar', 'char'].includes(String(mcol.t).toLowerCase()) && Number(mcol.len) < 40) {
+      await db.query('ALTER TABLE day_plan_rows MODIFY maintenance_date VARCHAR(40) NULL');
+      console.log('Workspace schema: day_plan_rows.maintenance_date widened to VARCHAR(40)');
+    }
+  } catch (err) {
+    console.warn('Workspace schema: maintenance_date check skipped:', err.message);
+  }
+
   // Client group chat (Employee Workspace → Team Chat)
   await db.query(
     `CREATE TABLE IF NOT EXISTS workspace_client_chat (

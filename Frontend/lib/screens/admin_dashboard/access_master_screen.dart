@@ -84,7 +84,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         {'key': '/tasks', 'title': 'Tasks Assign'},
         {'key': '/daily-planner', 'title': 'Daily Planner'},
         {'key': '/employee-status', 'title': 'Employee Status'},
-        
+        {'key': '/manager-review', 'title': 'Manager Review'},
         {'key': '/notifications', 'title': 'Chat'},
         {'key': '/performance', 'title': 'Performance'},
         {'key': '/admin-panel', 'title': 'Employee Management'},
@@ -541,7 +541,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
           const Text('Select Role', style: TextStyle(color: _ink, fontWeight: FontWeight.w900)),
           const SizedBox(height: 9),
           DropdownButtonFormField<int>(
-            initialValue: _selectedRoleId,
+            value: _selectedRoleId,
             isExpanded: true,
             items: _roles.map((role) {
               final id = _toInt(role['id']);
