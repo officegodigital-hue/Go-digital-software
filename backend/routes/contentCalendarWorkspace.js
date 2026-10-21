@@ -1,8 +1,7 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticateToken } = require('./auth');
-const { toCsv } = require('./contentCalendarSheet');
-const { buildTemplate, parseUpload, planUpdates } = require('../lib/contentCalendarExcel');
+const { buildTemplate, parseUpload, planUpdates, toCsv } = require('../lib/contentCalendarExcel');
 const { autoHoldForEmployee } = require('../lib/autoHold');
 const { syncDayPlanStatus } = require('../lib/dayPlanSync');
 
@@ -1853,6 +1852,9 @@ router.get('/content-calendar/export', async (req, res) => {
   if (!clientName || !deliverable) {
     return res.status(400).json({ success: false, message: 'client and deliverable are required' });
   }
+  // Only the rows of the card + category open on screen (ids from the app).
+  const ids = parseIds(req.query.ids);
+  const cardDate = String(req.query.date || '').trim().slice(0, 10);
   try {
     const [rows] = await db.query(
       `SELECT id, deliverable, s_no, submit_date, hook_headline, description AS description_points,
@@ -1860,10 +1862,12 @@ router.get('/content-calendar/export', async (req, res) => {
        FROM content_calendar
        WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
          AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))
+         ${ids.length ? 'AND id IN (?)' : ''}
        ORDER BY s_no ASC, id ASC`,
-      [clientName, deliverable],
+      ids.length ? [clientName, deliverable, ids] : [clientName, deliverable],
     );
-    const safeName = `${clientName}-${deliverable}`.replace(/[^a-z0-9_-]+/gi, '-');
+    const safeName = `${clientName}-${deliverable}${cardDate ? `-${cardDate}` : ''}`
+      .replace(/[^a-z0-9_-]+/gi, '-');
     if (String(req.query.format || 'xlsx').toLowerCase() === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.csv"`);
@@ -1875,6 +1879,7 @@ router.get('/content-calendar/export', async (req, res) => {
       deliverable,
       rows,
       exportedBy: req.user?.fullName || '',
+      cardDate,
     });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.xlsx"`);
@@ -1885,22 +1890,31 @@ router.get('/content-calendar/export', async (req, res) => {
   }
 });
 
+// "12,13,14" or [12,13,14] → [12, 13, 14]
+function parseIds(value) {
+  const list = Array.isArray(value) ? value : String(value ?? '').split(',');
+  return [...new Set(list.map((v) => Number(v)).filter((n) => Number.isSafeInteger(n) && n > 0))];
+}
+
 // Upload (.xlsx as base64, or .csv text) → { updates, skipped, columns }
+// body.ids = rows of the card open on screen; other rows in the file are skipped.
 async function importPlan(clientName, deliverable, body) {
+  const ids = parseIds(body.ids);
   const [rows] = await db.query(
     `SELECT id, deliverable, s_no, submit_date, hook_headline, description, caption, cta,
             publish_date, notes
      FROM content_calendar
      WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
-       AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))`,
-    [clientName, deliverable],
+       AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))
+       ${ids.length ? 'AND id IN (?)' : ''}`,
+    ids.length ? [clientName, deliverable, ids] : [clientName, deliverable],
   );
-  if (!rows.length) return { error: `No ${deliverable} rows for ${clientName}` };
-  const parsed = await parseUpload({ csv: body.csv, xlsx_base64: body.xlsx_base64 });
+  if (!rows.length) return { error: `No ${deliverable} rows for ${clientName} in this card` };
+  const parsed = await parseUpload({ csv: body.csv, html: body.html, xlsx_base64: body.xlsx_base64 });
   return planUpdates(parsed, rows);
 }
 
-const hasUpload = (b) => typeof b.csv === 'string' || typeof b.xlsx_base64 === 'string';
+const hasUpload = (b) => typeof b.csv === 'string' || typeof b.html === 'string' || typeof b.xlsx_base64 === 'string';
 
 router.post('/content-calendar/import-preview', async (req, res) => {
   const clientName = String(req.body.client_name || '').trim();

@@ -37,6 +37,11 @@ async function ensureWorkspaceTaskSchema(db) {
     ['sub_no', 'INT NOT NULL DEFAULT 0'],
     ['review_status', 'VARCHAR(20) NULL'],
     ['content_calendar_assigned', 'TINYINT(1) NOT NULL DEFAULT 0'],
+    // "Confirm & Share All" (Content Calendar → employee) writes these.
+    ['content_calendar_assigned_to', 'VARCHAR(255) NULL'],
+    ['cc_assigned_to_id', 'INT NULL'],
+    ['cc_assigned_by_name', 'VARCHAR(255) NULL'],
+    ['cc_assigned_at', 'DATETIME NULL'],
     ['hook_headline', 'TEXT NULL'],
     ['description_points', 'TEXT NULL'],
     ['caption', 'TEXT NULL'],

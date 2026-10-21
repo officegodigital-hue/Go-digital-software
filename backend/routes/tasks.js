@@ -432,35 +432,90 @@ router.put('/:id', async (req, res) => {
     // Re-point each role's task_list rows at that role's employee only.
     // (The old loop set EVERY task_list of this assignment to the last
     // employee in the list, so one person's tasks showed up for another.)
+    // Admin changed who does a role → move that role's work (task_list rows,
+    // handed-off Content Calendar rows) from the OLD person to the NEW person.
+    // Lists that a Page/Ads Handler moved to someone else (reassign / emergency)
+    // belong to that other person and are left alone.
+    const personKey = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const peopleIn = (cell) => String(cell ?? '')
+      .split(/,|&|\//)
+      .map((p) => p.trim())
+      .filter((p) => p && p.toUpperCase() !== 'NONE');
     const roleTaskPairs = [
-      [adsHandling, adsPlatform],
-      [pageHandling, pagesPlatform],
-      [designer, designerTasks],
-      [videographer, videographerTasks],
-      [videoEditor, videoEditorTask],
-      [uiUxDesigner, uiUxTasks],
-      [developer, developerTasks],
-      [websiteDesigner, websiteDesignerTasks],
+      ['ads_handling', existing.ads_handling, adsHandling, adsPlatform],
+      ['page_handling', existing.page_handling, pageHandling, pagesPlatform],
+      ['designer', existing.designer, designer, designerTasks],
+      ['videographer', existing.videographer, videographer, videographerTasks],
+      ['video_editor', existing.video_editor, videoEditor, videoEditorTask],
+      ['ui_ux_designer', existing.ui_ux_designer, uiUxDesigner, uiUxTasks],
+      ['developer', existing.developer, developer, developerTasks],
+      ['website_designer', existing.website_designer, websiteDesigner, websiteDesignerTasks],
     ];
-    for (const [empName, taskText] of roleTaskPairs) {
-      const name = String(empName || '').trim();
-      if (!name || name.toUpperCase() === 'NONE') continue;
-      const taskNames = String(taskText || '')
+    const [lists] = await db.query(
+      `SELECT id, employee_name, deliverables FROM task_list
+       WHERE task_assignment_id = ? AND additional_task_id IS NULL`,
+      [req.params.id]
+    );
+    let moved = 0;
+    for (const [roleKey, oldCell, newCell, taskText] of roleTaskPairs) {
+      const newPeople = peopleIn(newCell);
+      if (newPeople.length !== 1) continue; // only a clear one-person change
+      const name = newPeople[0];
+      const oldKeys = new Set(peopleIn(oldCell).map(personKey));
+      if (oldKeys.has(personKey(name)) && oldKeys.size === 1) continue; // unchanged
+      const taskNames = new Set(String(taskText || '')
         .split(',')
         .map((t) => t.trim().replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase())
-        .filter(Boolean);
-      if (!taskNames.length) continue;
-      await db.query(
-        `UPDATE task_list
-         SET employee_name = ?,
-             employee_id = COALESCE(
-               (SELECT id FROM employee_users
-                WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1),
-               employee_id)
-         WHERE task_assignment_id = ?
-           AND LOWER(TRIM(deliverables)) IN (?)`,
-        [name, name, req.params.id, taskNames]
-      );
+        .filter(Boolean));
+      if (!taskNames.size) continue;
+      const ids = lists
+        .filter((l) => taskNames.has(String(l.deliverables || '').trim().toLowerCase()))
+        // the old person's list (or a list with no owner yet)
+        .filter((l) => !l.employee_name || !oldKeys.size || oldKeys.has(personKey(l.employee_name)))
+        .map((l) => l.id);
+      if (ids.length) {
+        await db.query(
+          `UPDATE task_list
+           SET employee_name = ?,
+               employee_id = COALESCE(
+                 (SELECT id FROM employee_users
+                  WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1),
+                 employee_id)
+           WHERE id IN (?)`,
+          [name, name, ids]
+        );
+        moved += ids.length;
+        try {
+          // Rows already handed off by the Page/Ads Handler follow the new person.
+          await db.query(
+            `UPDATE time_tracking_task_items tti
+             JOIN task_list tl ON tl.id = tti.task_list_id
+             SET tti.content_calendar_assigned_to = tl.employee_name,
+                 tti.cc_assigned_to_id = tl.employee_id
+             WHERE tl.id IN (?) AND tti.content_calendar_assigned = 1`,
+            [ids]
+          );
+        } catch (e) {
+          console.warn('PUT /tasks/:id: handed-off rows not updated:', e.message);
+        }
+      }
+      try {
+        // Content Calendar rows of this role show the new person
+        // (rows a handler reassigned / emergency-moved keep their person).
+        await db.query(
+          `UPDATE content_calendar
+           SET assigned_to_name = ?,
+               assigned_to_id = COALESCE(
+                 (SELECT id FROM employee_users
+                  WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1),
+                 assigned_to_id)
+           WHERE source_assignment_id = ? AND source_role = ?
+             AND COALESCE(is_emergency, 0) = 0 AND COALESCE(cc_reassigned, 0) = 0`,
+          [name, name, req.params.id, roleKey]
+        );
+      } catch (e) {
+        // content_calendar may not exist on very old databases
+      }
     }
 
     try {
@@ -468,8 +523,11 @@ router.put('/:id', async (req, res) => {
       if (io) {
         io.emit('task_updated', {
           type: 'TASK_ASSIGNED',
-          message: 'Task updated'
+          message: 'Task updated',
+          assignment_id: Number(req.params.id),
+          moved_lists: moved,
         });
+        io.emit('taskAssigned', { refresh: true });
       }
     } catch (socketErr) {
       console.error('Socket emit error:', socketErr);

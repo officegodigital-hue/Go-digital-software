@@ -71,7 +71,7 @@ const HEADER_ALIASES = {
 };
 
 // ─── Export ────────────────────────────────────────────────────────────────
-async function buildTemplate({ clientName, deliverable, rows, exportedBy = '' }) {
+async function buildTemplate({ clientName, deliverable, rows, exportedBy = '', cardDate = '' }) {
   const wb = new (excel().Workbook)();
   wb.creator = 'GoDigital';
   wb.created = new Date();
@@ -95,7 +95,7 @@ async function buildTemplate({ clientName, deliverable, rows, exportedBy = '' })
 
   const today = new Date();
   band(1, 'GoDigital  ·  Content Calendar', { fill: NAVY, size: 18, bold: true, height: 38 });
-  band(2, `Client:  ${clientName}     ·     Deliverable:  ${deliverable}     ·     ${rows.length} row${rows.length === 1 ? '' : 's'}`,
+  band(2, `Client:  ${clientName}${cardDate ? `     ·     Card:  ${cardDate}` : ''}     ·     Deliverable:  ${deliverable}     ·     ${rows.length} row${rows.length === 1 ? '' : 's'}`,
     { fill: BLUE, size: 12, bold: true, height: 26 });
   band(3, `Exported ${ymd(today)}${exportedBy ? ` by ${exportedBy}` : ''}`,
     { fill: DEEP, size: 10, color: 'FFDCE8FF', height: 20 });
@@ -209,13 +209,34 @@ async function buildTemplate({ clientName, deliverable, rows, exportedBy = '' })
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+// ─── CSV export (same columns as the .xlsx, so it imports back as-is) ─────
+function csvCell(v) {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCsv(rows) {
+  const lines = [COLUMNS.map((c) => csvCell(c.header)).join(',')];
+  for (const r of rows) {
+    lines.push(COLUMNS.map((c) => {
+      const v = r[c.key];
+      return csvCell(c.date ? ymd(v) : v ?? '');
+    }).join(','));
+  }
+  // BOM → Excel opens Tamil / emoji text correctly.
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
+}
+
 // ─── Import ────────────────────────────────────────────────────────────────
 function parseCsv(text) {
   const rows = [];
   let row = [];
   let cell = '';
   let quoted = false;
-  const s = String(text || '').replace(/^﻿/, '');
+  const s = String(text || '').replace(/^\uFEFF/, '');
+  // Excel in some regions saves CSV with ";" or tabs instead of ",".
+  const firstLine = s.split(/\r?\n/, 1)[0] || '';
+  const count = (ch) => firstLine.split(ch).length - 1;
+  const sep = [',', ';', '\t'].sort((a, b) => count(b) - count(a))[0];
   for (let i = 0; i < s.length; i += 1) {
     const ch = s[i];
     if (quoted) {
@@ -223,7 +244,7 @@ function parseCsv(text) {
         if (s[i + 1] === '"') { cell += '"'; i += 1; } else quoted = false;
       } else cell += ch;
     } else if (ch === '"') quoted = true;
-    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === sep) { row.push(cell); cell = ''; }
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && s[i + 1] === '\n') i += 1;
       row.push(cell); rows.push(row); row = []; cell = '';
@@ -232,6 +253,48 @@ function parseCsv(text) {
   if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
   return rows;
 }
+
+// The app's "GoDigital theme" export is an Excel-HTML table saved as .xls
+// (same as the invoice ledger export). Read its <tr>/<td> cells back.
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+function decodeEntities(text) {
+  return String(text).replace(/&(#x[0-9a-f]+|#\d+|[a-z0-9]+);/gi, (m, e) => {
+    const k = e.toLowerCase();
+    if (k.startsWith('#x')) return String.fromCodePoint(parseInt(k.slice(2), 16));
+    if (k.startsWith('#') && k !== '#39') return String.fromCodePoint(Number(k.slice(1)));
+    return ENTITIES[k] ?? m;
+  });
+}
+function parseHtmlTable(html) {
+  const src = String(html || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '');
+  const rows = [];
+  const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let tr;
+  while ((tr = trRe.exec(src))) {
+    const cells = [];
+    const tdRe = /<t([dh])\b([^>]*)>([\s\S]*?)<\/t\1>/gi;
+    let td;
+    while ((td = tdRe.exec(tr[1]))) {
+      const text = decodeEntities(
+        td[3]
+          .replace(/<br\b[^>]*>/gi, '\n')
+          .replace(/<\/(p|div)>/gi, '\n')
+          .replace(/<[^>]+>/g, '')
+          .replace(/\r/g, '')
+          .replace(/[ \t]*\n[ \t]*/g, '\n')
+          .replace(/[ \t]{2,}/g, ' '),
+      ).trim();
+      cells.push(text);
+      const span = Number((td[2].match(/colspan\s*=\s*"?(\d+)/i) || [])[1] || 1);
+      for (let k = 1; k < span; k += 1) cells.push('');
+    }
+    rows.push(cells);
+  }
+  return rows;
+}
+const looksLikeHtml = (text) => /<table[\s>]/i.test(String(text || '').slice(0, 20000));
 
 function cellText(v) {
   if (v === null || v === undefined) return '';
@@ -282,8 +345,14 @@ function parseDate(text) {
   if (!s) return { value: null };
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return { value: `${m[1]}-${pad(m[2])}-${pad(m[3])}` };
-  m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); // DD/MM/YYYY
-  if (m) return { value: `${m[3]}-${pad(m[2])}-${pad(m[1])}` };
+  m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/); // DD/MM/YYYY (Excel re-saves CSV dates)
+  if (m) {
+    let [day, month] = [Number(m[1]), Number(m[2])];
+    if (month > 12 && day <= 12) [day, month] = [month, day]; // US MM/DD/YYYY
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { value: `${m[3]}-${pad(month)}-${pad(day)}` };
+    }
+  }
   if (/^\d{5}$/.test(s)) { // spreadsheet serial number
     const d = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000);
     return { value: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` };
@@ -310,7 +379,7 @@ function planUpdates(parsed, dbRows) {
     const id = Number(v.id);
     const target = (id && byId.get(id)) || (!v.id && Number(v.s_no) && bySno.get(Number(v.s_no))) || null;
     if (!target) {
-      skipped.push({ line: rec.line, reason: v.id ? `ID ${v.id} is not in this ${dbRows[0]?.deliverable || 'sheet'}` : 'No matching ID / S.No' });
+      skipped.push({ line: rec.line, reason: v.id ? `ID ${v.id} is not in this card / ${dbRows[0]?.deliverable || "category"} — skipped` : "No matching ID / S.No" });
       continue;
     }
     if (seen.has(target.id)) {
@@ -339,10 +408,26 @@ function planUpdates(parsed, dbRows) {
   return { updates, skipped, columns: labels };
 }
 
-async function parseUpload({ csv, xlsx_base64: xlsx }) {
-  if (xlsx) return toRecords(await readXlsx(xlsx));
-  if (typeof csv === 'string') return toRecords(parseCsv(csv));
-  return { error: 'Upload an .xlsx or .csv file' };
+async function parseUpload({ csv, html, xlsx_base64: xlsx }) {
+  if (xlsx) {
+    const buf = Buffer.from(String(xlsx), 'base64');
+    // Old binary .xls (Excel 97-2003) cannot be read — ask for .xlsx / .csv.
+    if (buf[0] === 0xd0 && buf[1] === 0xcf) {
+      return { error: 'This is an old Excel 97-2003 file. In Excel use File → Save As → Excel Workbook (.xlsx) or CSV, then import.' };
+    }
+    // A themed .xls export is really HTML.
+    if (buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      const text = buf.toString('utf8');
+      if (looksLikeHtml(text)) return toRecords(parseHtmlTable(text));
+      return toRecords(parseCsv(text));
+    }
+    return toRecords(await readXlsx(xlsx));
+  }
+  if (typeof html === 'string') return toRecords(parseHtmlTable(html));
+  if (typeof csv === 'string') {
+    return toRecords(looksLikeHtml(csv) ? parseHtmlTable(csv) : parseCsv(csv));
+  }
+  return { error: 'Upload the exported .xls, .xlsx or .csv file' };
 }
 
-module.exports = { buildTemplate, parseUpload, planUpdates, COLUMNS };
+module.exports = { buildTemplate, parseUpload, planUpdates, toCsv, COLUMNS };
