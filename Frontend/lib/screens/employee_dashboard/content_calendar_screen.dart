@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_config.dart';
 import 'rich_description.dart';
+import 'helpers/calendar_file_save.dart';
+import 'helpers/content_calendar_export_template.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Palette
@@ -1081,8 +1082,8 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              option(ctx, 'xlsx', Icons.table_view_rounded, 'Excel / Google Sheets (.xlsx)',
-                  'Blue & white template. Edit, download as .xlsx, import back.'),
+              option(ctx, 'xls', Icons.table_view_rounded, 'Excel – GoDigital theme (.xls)',
+                  'Blue & white sheet like the invoice export. Edit in Excel, save, import back.'),
               option(ctx, 'csv', Icons.description_outlined, 'CSV (.csv)',
                   'Same columns. Edit in Excel / Sheets, save as .csv, import back.'),
             ],
@@ -1107,83 +1108,102 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     final format = await _pickExportFormat(deliverable, ids.split(',').length);
     if (format == null || !mounted) return;
     final client = _str(_selectedClient?['client_name']);
-    // The download opens in the browser, which cannot send the login header,
-    // so the token goes in the link. Only this card's rows (ids) are exported.
-    final uri = Uri.parse('$_baseUrl/tasks/content-calendar/export').replace(
-      queryParameters: {
-        'client': client,
-        'deliverable': deliverable,
-        'format': format,
-        'ids': ids,
-        if (_cardDateKey.isNotEmpty) 'date': _cardDateKey,
-        if (widget.authToken.isNotEmpty) 'access_token': widget.authToken,
-      },
-    );
     final isCsv = format == 'csv';
+    // Built here in the app from the rows on screen (this card + category
+    // only), then saved straight to Downloads (web / PC) or shared (phone).
+    final rows = _rowsFor(deliverable)
+        .where((r) => _asInt(r['id']) > 0)
+        .toList()
+      ..sort((a, b) {
+        final r = _asInt(a['s_no']).compareTo(_asInt(b['s_no']));
+        return r != 0 ? r : _asInt(a['id']).compareTo(_asInt(b['id']));
+      });
+    final bytes = isCsv
+        ? buildCalendarCsv(rows)
+        : buildCalendarXls(
+            clientName: client,
+            deliverable: deliverable,
+            rows: rows,
+            cardDate: _cardDateKey,
+            exportedBy: widget.currentUserName.trim(),
+          );
+    final fileName = calendarExportFileName(client, deliverable, _cardDateKey, isCsv ? 'csv' : 'xls');
+    String? savedTo;
     try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) {
-        _showMessage('Could not start the download');
-        return;
-      }
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Row(children: [
-            Icon(isCsv ? Icons.description_outlined : Icons.table_view_rounded, color: _kPrimary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                isCsv ? 'CSV downloaded' : 'Template downloaded',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ]),
-          content: SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: isCsv
-                  ? const [
-                      _GuideStep(n: 1, text: 'Open the .csv in Excel or Google Sheets (File → Import).'),
-                      _GuideStep(n: 2, text: 'Edit only Submit Date, Hook / Headline, Description, Caption, CTA, Publish Date, Notes. Keep ID, S.No and Deliverable as they are.'),
-                      _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29). DD-MM-YYYY also works.'),
-                      _GuideStep(n: 4, text: 'Save / download it again as .csv (do not change the header row).'),
-                      _GuideStep(n: 5, text: 'Open this same card + category, press "Import Sheet" and choose that file.'),
-                    ]
-                  : const [
-                      _GuideStep(n: 1, text: 'Open Google Drive → New → File upload → choose the .xlsx, then "Open with Google Sheets".'),
-                      _GuideStep(n: 2, text: 'Fill only the WHITE columns. Keep ID, S.No and Deliverable as they are.'),
-                      _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29).'),
-                      _GuideStep(n: 4, text: 'Google Sheets: File → Download → Microsoft Excel (.xlsx) (or .csv).'),
-                      _GuideStep(n: 5, text: 'Open this same card + category, press "Import Sheet" and choose that file.'),
-                    ],
+      savedTo = await saveCalendarFile(
+        bytes,
+        fileName,
+        mimeType: isCsv ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel',
+      );
+    } catch (e) {
+      _showMessage('Could not export: $e');
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(children: [
+          const Icon(Icons.check_circle_rounded, color: _kGreen),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${rows.length} row${rows.length == 1 ? '' : 's'} exported',
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
-          actions: [
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _kPrimary),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Got it'),
-            ),
-          ],
+        ]),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: _kTint,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _kTintBorder),
+                ),
+                child: Text(
+                  savedTo == null ? fileName : '$fileName\nSaved to: $savedTo',
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: _kPrimary, fontSize: 12.5),
+                ),
+              ),
+              _GuideStep(n: 1, text: isCsv
+                  ? 'Open the .csv in Excel or Google Sheets.'
+                  : 'Open the .xls in Excel (if Excel asks "format and extension don\'t match", press Yes).'),
+              const _GuideStep(n: 2, text: 'Edit only Submit Date, Hook / Headline, Description, Caption, CTA, Publish Date, Notes. Keep S.No, ID and Deliverable as they are.'),
+              const _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29). DD-MM-YYYY also works.'),
+              _GuideStep(n: 4, text: isCsv
+                  ? 'Save it again as .csv (keep the header row).'
+                  : 'Press Save (keep the same file), or Save As .xlsx / .csv – all three import.'),
+              const _GuideStep(n: 5, text: 'Open this same card + category, press "Import Sheet" and choose the file.'),
+            ],
+          ),
         ),
-      );
-    } catch (_) {
-      _showMessage('Could not start the download');
-    }
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _kPrimary),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _importSheet(String deliverable) async {
     if (_blockedReadOnly()) return;
     final picked = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'csv'],
+      allowedExtensions: ['xls', 'xlsx', 'csv'],
       withData: true,
     );
     final file = picked?.files.single;
@@ -1191,11 +1211,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     if (file == null || bytes == null || !mounted) return;
 
     final lower = file.name.toLowerCase();
-    if (!lower.endsWith('.xlsx') && !lower.endsWith('.csv')) {
-      _showMessage('Choose the exported .xlsx or .csv file');
+    if (!lower.endsWith('.xls') && !lower.endsWith('.xlsx') && !lower.endsWith('.csv')) {
+      _showMessage('Choose the exported .xls, .xlsx or .csv file');
       return;
     }
-    final isXlsx = lower.endsWith('.xlsx');
+    // .xls / .xlsx go as base64 — the server detects the GoDigital-theme
+    // sheet (.xls), a real .xlsx, or an old Excel 97-2003 file.
+    final isXlsx = lower.endsWith('.xlsx') || lower.endsWith('.xls');
     String? csv;
     String? xlsxBase64;
     try {
@@ -2444,13 +2466,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
             _sheetButton(
               'Export Template',
               Icons.file_download_outlined,
-              'Download this card\'s rows as Excel (.xlsx) or CSV — edit and import back.',
+              'Download this card\'s rows as an Excel sheet (GoDigital theme) or CSV — edit and import back.',
               () => _exportSheet(category),
             ),
             _sheetButton(
               'Import Sheet',
               Icons.file_upload_outlined,
-              'Upload the exported file after editing (.xlsx or .csv).',
+              'Upload the exported file after editing (.xls, .xlsx or .csv).',
               () => _importSheet(category),
               filled: true,
             ),

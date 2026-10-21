@@ -93,6 +93,40 @@ async function ensureWorkspaceTaskSchema(db) {
     console.warn('Workspace schema: maintenance_date check skipped:', err.message);
   }
 
+  // Older "Add content" rows (not from the admin's Task Assignment) were put
+  // in a plain list, so Employee Workspace never showed them. Mark those lists
+  // as additional work (once; safe to repeat).
+  try {
+    const [fixed] = await db.query(
+      `UPDATE task_list tl
+       SET tl.additional_task_id = tl.id,
+           tl.submission_date = COALESCE(tl.submission_date, (
+             SELECT MIN(cc.submit_date) FROM content_calendar cc
+             JOIN time_tracking_task_items tti ON tti.id = cc.task_item_id
+             WHERE tti.task_list_id = tl.id), DATE(NOW()))
+       WHERE tl.task_assignment_id IS NULL AND tl.additional_task_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM time_tracking_task_items tti
+           JOIN content_calendar cc ON cc.task_item_id = tti.id
+           WHERE tti.task_list_id = tl.id AND cc.source_assignment_id IS NULL)`,
+    );
+    if (fixed.affectedRows) {
+      console.log(`Workspace schema: ${fixed.affectedRows} "Add content" list(s) marked as additional tasks`);
+    }
+    await db.query(
+      `UPDATE time_tracking_task_items tti
+       JOIN content_calendar cc ON cc.task_item_id = tti.id
+       SET tti.content_calendar_assigned = 1,
+           tti.content_calendar_assigned_to = COALESCE(tti.content_calendar_assigned_to, cc.assigned_to_name),
+           tti.cc_assigned_by_name = COALESCE(tti.cc_assigned_by_name, cc.assigned_by_name),
+           tti.hook_headline = COALESCE(NULLIF(tti.hook_headline, ''), cc.hook_headline)
+       WHERE cc.source_assignment_id IS NULL AND cc.assigned_to_id IS NOT NULL
+         AND COALESCE(tti.content_calendar_assigned, 0) = 0`,
+    );
+  } catch (err) {
+    console.warn('Workspace schema: additional-list fix skipped:', err.message);
+  }
+
   // Client group chat (Employee Workspace → Team Chat)
   await db.query(
     `CREATE TABLE IF NOT EXISTS workspace_client_chat (

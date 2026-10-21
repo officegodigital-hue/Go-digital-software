@@ -1947,7 +1947,13 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
         for (final rawTask in (card['tasks'] as List? ?? []).whereType<Map>()) {
           final t = Map<String, dynamic>.from(rawTask);
           final isAdditional = t['is_additional'] == true;
-          if (isAdditional && !widget.showAdditionalTasks) continue;
+          // Work a Page / Ads Handler gave this employee from the Content
+          // Calendar always shows; admin-only additional tasks follow the
+          // "Additional Task" page permission.
+          if (isAdditional && !widget.showAdditionalTasks &&
+              t['handler_assigned'] != true) {
+            continue;
+          }
           if (!isAdditional && !widget.showAssignedTasks) continue;
           final counts = (
             total: n(t['total']),

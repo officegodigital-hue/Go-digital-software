@@ -447,19 +447,33 @@ async function syncAssignedTasksToCalendar(clientName) {
   }
 }
 
+// Rows a Page / Ads Handler adds with "Add content" (not from the admin's
+// Task Assignment) are ADDITIONAL work for the employee they assign: keep
+// them in their own additional list per client + deliverable + submit date,
+// so they show in Employee Workspace with the "ADDITIONAL TASK" tag (and never
+// mix into an admin-assigned list of the same deliverable).
 async function getOrCreateTaskList(connection, row, employee) {
+  const due = row.submit_date || null;
   const [taskLists] = await connection.query(
     `SELECT id FROM task_list
-     WHERE client_name = ? AND employee_id = ? AND deliverables = ?
+     WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?)) AND employee_id = ?
+       AND LOWER(TRIM(deliverables)) = LOWER(TRIM(?))
+       AND task_assignment_id IS NULL AND additional_task_id IS NOT NULL
+       AND (DATE(submission_date) <=> DATE(COALESCE(?, CURDATE())))
      ORDER BY id DESC LIMIT 1 FOR UPDATE`,
-    [row.client_name, employee.id, row.deliverable],
+    [row.client_name, employee.id, row.deliverable, due],
   );
   if (taskLists.length) return taskLists[0].id;
 
   const [result] = await connection.query(
-    `INSERT INTO task_list (client_name, employee_id, employee_name, deliverables)
-     VALUES (?, ?, ?, ?)`,
-    [row.client_name, employee.id, employee.full_name, row.deliverable],
+    `INSERT INTO task_list
+       (client_name, employee_id, employee_name, deliverables, submission_date, no_of_rows)
+     VALUES (?, ?, ?, ?, COALESCE(?, CURDATE()), 0)`,
+    [row.client_name, employee.id, employee.full_name, row.deliverable, due],
+  );
+  await connection.query(
+    'UPDATE task_list SET additional_task_id = ? WHERE id = ?',
+    [result.insertId, result.insertId],
   );
   return result.insertId;
 }
@@ -512,6 +526,37 @@ async function assignCalendarRow(
       [taskListId, row.submit_date || null, taskDescription, taskItemId],
     );
   }
+
+  // Same details the employee sees for admin-assigned rows (headline, caption …)
+  // + who gave it (shown as "By VIJI (Page Handler)" on the workspace card).
+  await connection.query(
+    `UPDATE time_tracking_task_items
+     SET content_calendar_assigned = 1, content_calendar_assigned_to = ?,
+         cc_assigned_to_id = ?, cc_assigned_by_name = ?, cc_assigned_at = NOW(),
+         hook_headline = ?, description_points = ?, caption = ?, cta = ?,
+         publish_date = ?, notes = ?, description_rich = ?
+     WHERE id = ?`,
+    [
+      employee.full_name,
+      employee.id,
+      assignedByName,
+      row.hook_headline || '',
+      row.description || '',
+      row.caption || '',
+      row.cta || '',
+      row.publish_date || null,
+      row.notes || '',
+      row.description_rich || null,
+      taskItemId,
+    ],
+  );
+  await connection.query(
+    `UPDATE task_list SET no_of_rows = (
+       SELECT COUNT(*) FROM time_tracking_task_items
+       WHERE task_list_id = ? AND parent_item_id IS NULL)
+     WHERE id = ?`,
+    [taskListId, taskListId],
+  );
 
   await connection.query(
     `UPDATE content_calendar
