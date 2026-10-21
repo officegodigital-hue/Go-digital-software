@@ -64,6 +64,7 @@ dependencies:
   hrms_responsive:
     path: hrms_packages/hrms_responsive
   file_picker: ^11.0.3
+  flutter_quill: ^11.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
