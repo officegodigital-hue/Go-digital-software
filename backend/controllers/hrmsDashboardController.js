@@ -352,8 +352,8 @@ async function monthView(req, res) {
           }
         // A recorded clock-in is the final decision for that date. Leave is
         // shown only when the employee has no attendance record.
-        } else if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+        } else if (record && (record.check_in_at || String(record.attendance_status) === 'present')) {
+          if (Number(record.is_late) && !record.admin_status_override) {
             days.push('LT');
             late += 1;
             lateDays += 1;
@@ -400,7 +400,10 @@ async function monthView(req, res) {
         salary: payroll ? payroll.salary : formatSalary(profile.monthly_salary),
         daysPaid: String(lopDays),
         afterLeaves: payroll ? payroll.deductionsLabel : (salaryNumber ? formatSalary(deduction) : '–'),
-        updatedSalary: payroll ? payroll.netPayLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
+        // The attendance grid is a live, month-to-date view.  Match the
+        // Payroll and Employee Salary screens by showing salary earned through
+        // the current date, not the projected month-end net pay.
+        updatedSalary: payroll ? payroll.earnedToDateLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
         workingDays: payroll ? Number(payroll.workingDays || 0) : workingDays,
         dailySalary: payroll ? Number(payroll.dailyRate || 0) : 0,
         paidDays: paidDays,
@@ -442,8 +445,8 @@ async function monthView(req, res) {
         const record = userId ? todayRecordMap.get(userId) : null;
         if (record && String(record.attendance_status) === 'absent') {
           if (payrollRules.deductExplicitAbsence) todayAbsent += 1;
-        } else if (record && record.check_in_at) {
-          if (Number(record.is_late)) {
+        } else if (record && (record.check_in_at || String(record.attendance_status) === 'present')) {
+          if (Number(record.is_late) && !record.admin_status_override) {
             todayLate += 1;
           } else {
             todayPresent += 1;

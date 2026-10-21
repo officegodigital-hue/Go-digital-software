@@ -442,6 +442,10 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
       _fetchProfile();
       _fetchHeaderStatus();
     });
+    _pollingTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _fetchHeaderStatus(),
+    );
   }
 
   @override
@@ -530,7 +534,9 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
     if (token == null) return;
 
     final configured = ApiConfig.baseUrl;
-    final urls = ['$configured/attendance/header-status'];
+    // attendance/dashboard reads attendance_records, the same source used by
+    // Dashboard, Clock Log and Admin Tracking. A location ping cannot alter it.
+    final urls = ['$configured/attendance/dashboard'];
 
     for (final raw in urls) {
       try {
@@ -549,23 +555,11 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
           if (body['success'] == true && mounted) {
             final data = body['data'];
             setState(() {
-              _isCheckedIn = data['is_checked_in'] == true;
+              _isCheckedIn = data['status']?.toString() == 'checked_in';
               _applyIdentity(
-                data['full_name']?.toString(),
-                data['staff_id']?.toString(),
+                data['employee'] is Map ? data['employee']['name']?.toString() : null,
+                data['employee'] is Map ? data['employee']['staff_id']?.toString() : null,
               );
-              _unreadNotifications = data['unread_count'] ?? 0;
-
-              if (data['notifications'] is List) {
-                _notifications = (data['notifications'] as List)
-                    .map(
-                      (item) => {
-                        'title': item['title']?.toString() ?? '',
-                        'subtitle': item['subtitle']?.toString() ?? '',
-                      },
-                    )
-                    .toList();
-              }
             });
             break;
           }
@@ -650,7 +644,7 @@ class _EmployeeTopNavigationState extends State<EmployeeTopNavigation> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _isCheckedIn ? 'Checked In' : 'Checked Out',
+                      _isCheckedIn ? 'Checked In' : 'Not Checked In',
                       style: const TextStyle(
                         color: employeeBlue,
                         fontWeight: FontWeight.w700,

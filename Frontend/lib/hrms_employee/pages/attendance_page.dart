@@ -136,8 +136,9 @@ class _AttendanceViewState extends State<_AttendanceView> {
                 final isLate = item['is_late'] == 1 || item['is_late'] == true || item['isLate'] == true;
                 final statusStr = (item['attendance_status']?.toString() ?? item['status']?.toString() ?? '').toLowerCase();
                 final isAbsent = statusStr == 'absent';
+                final corrected = item['admin_status_override']?.toString();
                 daysMap[dayNum] = {
-                  'status': isAbsent ? 'A' : (isLate ? 'LT' : 'P'),
+                  'status': corrected == 'present' ? 'P' : corrected == 'absent' ? 'A' : isAbsent ? 'A' : (isLate ? 'LT' : 'P'),
                   'clock_in': item['clock_in_at'] ?? item['checkInAt'],
                 };
               }
@@ -1132,6 +1133,9 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
     }
 
     final remarks = _detail?['remarks']?.toString();
+    final adminCorrection = _detail?['adminCorrection'] is Map
+        ? Map<String, dynamic>.from(_detail!['adminCorrection'] as Map)
+        : null;
 
     Color statusColor;
     String statusLabel;
@@ -1254,6 +1258,28 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                       const SizedBox(height: 14),
                     ],
 
+                    if (adminCorrection != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF1FF),
+                          border: Border.all(color: const Color(0xFFB9D2FF)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Admin attendance correction',
+                              style: TextStyle(fontWeight: FontWeight.w700, color: employeeNavy)),
+                            const SizedBox(height: 4),
+                            Text('Status: ${adminCorrection['status']?.toString() == 'present' ? 'Present' : 'Absent'}'),
+                            Text('Reason: ${adminCorrection['reason'] ?? '—'}'),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (remarks != null && remarks.isNotEmpty) ...[
                       Container(
                         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),

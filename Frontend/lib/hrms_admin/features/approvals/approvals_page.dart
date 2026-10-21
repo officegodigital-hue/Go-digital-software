@@ -1299,6 +1299,7 @@ class _ApprovalRequest {
     required this.status,
     required this.icon,
     required this.color,
+    this.homeDetails,
   });
 
   final int requestId;
@@ -1307,12 +1308,17 @@ class _ApprovalRequest {
   String status;
   final IconData icon;
   final int color;
+  final String? homeDetails;
 
   factory _ApprovalRequest.fromApi(Map<String, dynamic> json) {
     int asInt(dynamic value) =>
         value is int ? value : int.tryParse('$value') ?? 0;
     final iconKey = (json['icon'] ?? '').toString();
     final abbr = json['abbreviation']?.toString();
+    final home = json['homeLocation'];
+    final homeDetails = home is Map
+        ? '${home['latitude']}, ${home['longitude']} · accuracy ${home['accuracyMeters']} m${home['address'] == null ? '' : ' · ${home['address']}'}'
+        : null;
     return _ApprovalRequest(
       requestId: asInt(json['id']),
       name: (json['name'] ?? '').toString(),
@@ -1328,9 +1334,11 @@ class _ApprovalRequest {
         'medical' => Icons.medical_services_outlined,
         'event_busy' => Icons.event_busy_outlined,
         'more_time' => Icons.more_time_rounded,
+        'home' => Icons.home_work_outlined,
         _ => Icons.beach_access_outlined,
       },
       color: json['color'] is int ? json['color'] as int : 0xFF7137E8,
+      homeDetails: homeDetails,
     );
   }
 }
@@ -1751,6 +1759,17 @@ void _showReasonDialog(
                   style: const TextStyle(fontSize: 14, height: 1.65,
                     color: Color(0xFF1a2340))),
               ),
+              if (request.homeDetails != null) ...[
+                const SizedBox(height: 16),
+                const Text('CAPTURED HOME LOCATION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF8A94A6), letterSpacing: .06)),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: const Color(0xFFEAF2FF), borderRadius: BorderRadius.circular(10)),
+                  child: Text(request.homeDetails!, style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFF1a2340))),
+                ),
+              ],
               if (request.status == 'Pending') ...[
                 const SizedBox(height: 20),
                 Row(

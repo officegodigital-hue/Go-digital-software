@@ -21,6 +21,8 @@ router.get('/dashboard', function (req, res, next) {
   return attendance.employeeDashboard(req, res, next);
 });
 router.get('/clock-logs', attendance.requireAdmin, attendance.clockLogs);
+router.get('/clock-logs/calendar', attendance.requireAdmin, attendance.employeeCalendar);
+router.patch('/clock-logs/status', attendance.requireAdmin, attendance.correctStatus);
 router.get('/policies', attendance.requireAdmin, attendancePolicies.list);
 router.put('/policies', attendance.requireAdmin, attendancePolicies.save);
 router.get('/export', attendance.requireAdmin, attendance.exportCsv);

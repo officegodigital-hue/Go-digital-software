@@ -6,6 +6,56 @@ import 'api_config.dart';
 import 'auth_storage.dart';
 
 abstract final class HrmsClockLogsApi {
+  static Future<Map<String, dynamic>> calendar({
+    required int employeeId,
+    required DateTime month,
+  }) async {
+    final token = await AuthStorage.getString('auth_token');
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/attendance/clock-logs/calendar').replace(
+        queryParameters: {
+          'employeeId': '$employeeId',
+          'month': '${month.year}-${month.month.toString().padLeft(2, '0')}',
+        },
+      ),
+      headers: {if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token'},
+    );
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Could not load employee calendar');
+    }
+    return map['data'] is Map ? Map<String, dynamic>.from(map['data']) : map;
+  }
+
+  static Future<Map<String, dynamic>> correctStatus({
+    required int employeeId,
+    required String date,
+    required String status,
+    required String reason,
+  }) async {
+    final token = await AuthStorage.getString('auth_token');
+    final response = await http.patch(
+      Uri.parse('${ApiConfig.baseUrl}/attendance/clock-logs/status'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'employeeId': employeeId,
+        'date': date,
+        'status': status,
+        'reason': reason,
+      }),
+    );
+    final decoded = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    final map = decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+    if (response.statusCode >= 400 || map['success'] == false) {
+      throw Exception(map['message']?.toString() ?? 'Could not correct attendance');
+    }
+    return map['data'] is Map ? Map<String, dynamic>.from(map['data']) : map;
+  }
+
   static Future<Map<String, dynamic>> list({
     required DateTime date,
     required bool monthly,

@@ -1,8 +1,7 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticateToken } = require('./auth');
-const { toCsv } = require('./contentCalendarSheet');
-const { buildTemplate, parseUpload, planUpdates } = require('../lib/contentCalendarExcel');
+const { buildTemplate, parseUpload, planUpdates, toCsv } = require('../lib/contentCalendarExcel');
 const { autoHoldForEmployee } = require('../lib/autoHold');
 const { syncDayPlanStatus } = require('../lib/dayPlanSync');
 
@@ -448,19 +447,33 @@ async function syncAssignedTasksToCalendar(clientName) {
   }
 }
 
+// Rows a Page / Ads Handler adds with "Add content" (not from the admin's
+// Task Assignment) are ADDITIONAL work for the employee they assign: keep
+// them in their own additional list per client + deliverable + submit date,
+// so they show in Employee Workspace with the "ADDITIONAL TASK" tag (and never
+// mix into an admin-assigned list of the same deliverable).
 async function getOrCreateTaskList(connection, row, employee) {
+  const due = row.submit_date || null;
   const [taskLists] = await connection.query(
     `SELECT id FROM task_list
-     WHERE client_name = ? AND employee_id = ? AND deliverables = ?
+     WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?)) AND employee_id = ?
+       AND LOWER(TRIM(deliverables)) = LOWER(TRIM(?))
+       AND task_assignment_id IS NULL AND additional_task_id IS NOT NULL
+       AND (DATE(submission_date) <=> DATE(COALESCE(?, CURDATE())))
      ORDER BY id DESC LIMIT 1 FOR UPDATE`,
-    [row.client_name, employee.id, row.deliverable],
+    [row.client_name, employee.id, row.deliverable, due],
   );
   if (taskLists.length) return taskLists[0].id;
 
   const [result] = await connection.query(
-    `INSERT INTO task_list (client_name, employee_id, employee_name, deliverables)
-     VALUES (?, ?, ?, ?)`,
-    [row.client_name, employee.id, employee.full_name, row.deliverable],
+    `INSERT INTO task_list
+       (client_name, employee_id, employee_name, deliverables, submission_date, no_of_rows)
+     VALUES (?, ?, ?, ?, COALESCE(?, CURDATE()), 0)`,
+    [row.client_name, employee.id, employee.full_name, row.deliverable, due],
+  );
+  await connection.query(
+    'UPDATE task_list SET additional_task_id = ? WHERE id = ?',
+    [result.insertId, result.insertId],
   );
   return result.insertId;
 }
@@ -513,6 +526,37 @@ async function assignCalendarRow(
       [taskListId, row.submit_date || null, taskDescription, taskItemId],
     );
   }
+
+  // Same details the employee sees for admin-assigned rows (headline, caption …)
+  // + who gave it (shown as "By VIJI (Page Handler)" on the workspace card).
+  await connection.query(
+    `UPDATE time_tracking_task_items
+     SET content_calendar_assigned = 1, content_calendar_assigned_to = ?,
+         cc_assigned_to_id = ?, cc_assigned_by_name = ?, cc_assigned_at = NOW(),
+         hook_headline = ?, description_points = ?, caption = ?, cta = ?,
+         publish_date = ?, notes = ?, description_rich = ?
+     WHERE id = ?`,
+    [
+      employee.full_name,
+      employee.id,
+      assignedByName,
+      row.hook_headline || '',
+      row.description || '',
+      row.caption || '',
+      row.cta || '',
+      row.publish_date || null,
+      row.notes || '',
+      row.description_rich || null,
+      taskItemId,
+    ],
+  );
+  await connection.query(
+    `UPDATE task_list SET no_of_rows = (
+       SELECT COUNT(*) FROM time_tracking_task_items
+       WHERE task_list_id = ? AND parent_item_id IS NULL)
+     WHERE id = ?`,
+    [taskListId, taskListId],
+  );
 
   await connection.query(
     `UPDATE content_calendar
@@ -1853,6 +1897,9 @@ router.get('/content-calendar/export', async (req, res) => {
   if (!clientName || !deliverable) {
     return res.status(400).json({ success: false, message: 'client and deliverable are required' });
   }
+  // Only the rows of the card + category open on screen (ids from the app).
+  const ids = parseIds(req.query.ids);
+  const cardDate = String(req.query.date || '').trim().slice(0, 10);
   try {
     const [rows] = await db.query(
       `SELECT id, deliverable, s_no, submit_date, hook_headline, description AS description_points,
@@ -1860,10 +1907,12 @@ router.get('/content-calendar/export', async (req, res) => {
        FROM content_calendar
        WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
          AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))
+         ${ids.length ? 'AND id IN (?)' : ''}
        ORDER BY s_no ASC, id ASC`,
-      [clientName, deliverable],
+      ids.length ? [clientName, deliverable, ids] : [clientName, deliverable],
     );
-    const safeName = `${clientName}-${deliverable}`.replace(/[^a-z0-9_-]+/gi, '-');
+    const safeName = `${clientName}-${deliverable}${cardDate ? `-${cardDate}` : ''}`
+      .replace(/[^a-z0-9_-]+/gi, '-');
     if (String(req.query.format || 'xlsx').toLowerCase() === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.csv"`);
@@ -1875,6 +1924,7 @@ router.get('/content-calendar/export', async (req, res) => {
       deliverable,
       rows,
       exportedBy: req.user?.fullName || '',
+      cardDate,
     });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}-content-calendar.xlsx"`);
@@ -1885,22 +1935,31 @@ router.get('/content-calendar/export', async (req, res) => {
   }
 });
 
+// "12,13,14" or [12,13,14] → [12, 13, 14]
+function parseIds(value) {
+  const list = Array.isArray(value) ? value : String(value ?? '').split(',');
+  return [...new Set(list.map((v) => Number(v)).filter((n) => Number.isSafeInteger(n) && n > 0))];
+}
+
 // Upload (.xlsx as base64, or .csv text) → { updates, skipped, columns }
+// body.ids = rows of the card open on screen; other rows in the file are skipped.
 async function importPlan(clientName, deliverable, body) {
+  const ids = parseIds(body.ids);
   const [rows] = await db.query(
     `SELECT id, deliverable, s_no, submit_date, hook_headline, description, caption, cta,
             publish_date, notes
      FROM content_calendar
      WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
-       AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))`,
-    [clientName, deliverable],
+       AND UPPER(TRIM(deliverable)) = UPPER(TRIM(?))
+       ${ids.length ? 'AND id IN (?)' : ''}`,
+    ids.length ? [clientName, deliverable, ids] : [clientName, deliverable],
   );
-  if (!rows.length) return { error: `No ${deliverable} rows for ${clientName}` };
-  const parsed = await parseUpload({ csv: body.csv, xlsx_base64: body.xlsx_base64 });
+  if (!rows.length) return { error: `No ${deliverable} rows for ${clientName} in this card` };
+  const parsed = await parseUpload({ csv: body.csv, html: body.html, xlsx_base64: body.xlsx_base64 });
   return planUpdates(parsed, rows);
 }
 
-const hasUpload = (b) => typeof b.csv === 'string' || typeof b.xlsx_base64 === 'string';
+const hasUpload = (b) => typeof b.csv === 'string' || typeof b.html === 'string' || typeof b.xlsx_base64 === 'string';
 
 router.post('/content-calendar/import-preview', async (req, res) => {
   const clientName = String(req.body.client_name || '').trim();

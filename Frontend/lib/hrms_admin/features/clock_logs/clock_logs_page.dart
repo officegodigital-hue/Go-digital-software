@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
 import '../../../../services/hrms_clock_logs_api.dart';
+import 'employee_clock_calendar_drawer.dart';
 import '../employees/employee_profile_page.dart';
 
 const _blue = Color(0xFF1264F5);
@@ -30,6 +31,8 @@ class _MobileClockLogs extends StatelessWidget {
     required this.onPeriodChanged,
     required this.onPickDate,
     required this.onRetry,
+    required this.onEdit,
+    required this.onOpenCalendar,
   });
 
   final TextEditingController searchController;
@@ -38,6 +41,8 @@ class _MobileClockLogs extends StatelessWidget {
   final bool monthly, loading;
   final String? error;
   final VoidCallback onSearch, onPickDate, onRetry;
+  final ValueChanged<Map<String, dynamic>> onEdit;
+  final VoidCallback onOpenCalendar;
   final ValueChanged<bool> onPeriodChanged;
 
   @override
@@ -153,6 +158,13 @@ class _MobileClockLogs extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  SizedBox(width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: onOpenCalendar,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('Employee attendance calendar'),
+                    )),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -196,9 +208,9 @@ class _MobileClockLogs extends StatelessWidget {
                       ),
                     )
                   else if (searchController.text.trim().isEmpty)
-                    _MobileDateHistory(logs: logs)
+                    _MobileDateHistory(logs: logs, onEdit: onEdit)
                   else
-                    _MobileEmployeeHistory(logs: logs),
+                    _MobileEmployeeHistory(logs: logs, onEdit: onEdit),
                 ],
               ),
             ),
@@ -310,6 +322,8 @@ class _MobileLogCard extends StatelessWidget {
         ? const Color(0xFFF04438)
         : lower.contains('late')
         ? const Color(0xFFFF9200)
+        : lower == 'no record'
+        ? const Color(0xFF667085)
         : const Color(0xFF149B2B);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
@@ -490,8 +504,9 @@ class _LogTime extends StatelessWidget {
 }
 
 class _MobileDateHistory extends StatelessWidget {
-  const _MobileDateHistory({required this.logs});
+  const _MobileDateHistory({required this.logs, required this.onEdit});
   final List<Map<String, dynamic>> logs;
+  final ValueChanged<Map<String, dynamic>> onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -527,7 +542,7 @@ class _MobileDateHistory extends StatelessWidget {
                 ),
               ),
             ),
-            ...entry.value.asMap().entries.map((e) => _MobileDailyLogRow(item: e.value, index: e.key + 1)),
+            ...entry.value.asMap().entries.map((e) => _MobileDailyLogRow(item: e.value, index: e.key + 1, onEdit: onEdit)),
             const SizedBox(height: 5),
           ],
         ),
@@ -557,8 +572,9 @@ class _MobileDateHistory extends StatelessWidget {
 }
 
 class _MobileEmployeeHistory extends StatelessWidget {
-  const _MobileEmployeeHistory({required this.logs});
+  const _MobileEmployeeHistory({required this.logs, required this.onEdit});
   final List<Map<String, dynamic>> logs;
+  final ValueChanged<Map<String, dynamic>> onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -573,15 +589,16 @@ class _MobileEmployeeHistory extends StatelessWidget {
     }
     return Column(
       children: groups.values
-          .map((records) => _MobileEmployeeHistoryCard(records: records))
+          .map((records) => _MobileEmployeeHistoryCard(records: records, onEdit: onEdit))
           .toList(),
     );
   }
 }
 
 class _MobileEmployeeHistoryCard extends StatelessWidget {
-  const _MobileEmployeeHistoryCard({required this.records});
+  const _MobileEmployeeHistoryCard({required this.records, required this.onEdit});
   final List<Map<String, dynamic>> records;
+  final ValueChanged<Map<String, dynamic>> onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -703,7 +720,7 @@ class _MobileEmployeeHistoryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          ...sorted.map((item) => _MobileHistoryRow(item: item)),
+          ...sorted.map((item) => _MobileHistoryRow(item: item, onEdit: onEdit)),
         ],
       ),
     );
@@ -749,9 +766,10 @@ class _HistoryCount extends StatelessWidget {
 }
 
 class _MobileDailyLogRow extends StatelessWidget {
-  const _MobileDailyLogRow({required this.item, required this.index});
+  const _MobileDailyLogRow({required this.item, required this.index, required this.onEdit});
   final Map<String, dynamic> item;
   final int index;
+  final ValueChanged<Map<String, dynamic>> onEdit;
   @override
   Widget build(BuildContext context) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
@@ -809,6 +827,14 @@ class _MobileDailyLogRow extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _ClockValues(item: item),
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: () => onEdit(item),
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit attendance',
+            ),
+          ),
         ],
       ),
     );
@@ -816,8 +842,9 @@ class _MobileDailyLogRow extends StatelessWidget {
 }
 
 class _MobileHistoryRow extends StatelessWidget {
-  const _MobileHistoryRow({required this.item});
+  const _MobileHistoryRow({required this.item, required this.onEdit});
   final Map<String, dynamic> item;
+  final ValueChanged<Map<String, dynamic>> onEdit;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 11),
@@ -843,6 +870,14 @@ class _MobileHistoryRow extends StatelessWidget {
         ),
         const SizedBox(height: 9),
         _ClockValues(item: item),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            onPressed: () => onEdit(item),
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit attendance',
+          ),
+        ),
       ],
     ),
   );
@@ -858,6 +893,8 @@ class _StatusBadge extends StatelessWidget {
         ? const Color(0xFFF04438)
         : lower.contains('late')
         ? const Color(0xFFFF9200)
+        : lower == 'no record'
+        ? const Color(0xFF667085)
         : const Color(0xFF149B2B);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -1012,6 +1049,82 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     }
   }
 
+  void _openEmployeeCalendar(Map<String, dynamic> employee) {
+    final id = (employee['employeeId'] as num?)?.toInt() ??
+        (employee['id'] as num?)?.toInt();
+    if (id == null) return;
+    final name = employee['employeeName']?.toString() ?? 'Employee';
+    final staffId = employee['staffId']?.toString() ?? '$id';
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close employee calendar',
+      barrierColor: Colors.black38,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, _, _) => Align(
+        alignment: Alignment.centerRight,
+        child: SizedBox(
+          width: MediaQuery.sizeOf(dialogContext).width < 600
+              ? MediaQuery.sizeOf(dialogContext).width
+              : 530,
+          height: MediaQuery.sizeOf(dialogContext).height,
+          child: EmployeeClockCalendarDrawer(
+            employeeId: id,
+            employeeName: name,
+            staffId: staffId,
+            initialMonth: _date,
+            onSaved: () => _load(silent: true),
+          ),
+        ),
+      ),
+      transitionBuilder: (context, animation, _, child) => SlideTransition(
+        position: Tween(begin: const Offset(1, 0), end: Offset.zero)
+            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+        child: child,
+      ),
+    );
+  }
+
+  Future<void> _chooseEmployeeCalendar() async {
+    if (_employees.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active employees are available.')));
+      return;
+    }
+    final query = _employeeSearchController.text.trim().toLowerCase();
+    final matches = _employees.where((employee) {
+      if (query.isEmpty) return true;
+      return (employee['employeeName']?.toString().toLowerCase() ?? '').contains(query) ||
+          (employee['staffId']?.toString().toLowerCase() ?? '').contains(query);
+    }).toList();
+    final choices = matches.isEmpty ? _employees : matches;
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Select employee'),
+        content: SizedBox(
+          width: 400,
+          height: 360,
+          child: ListView.builder(
+            itemCount: choices.length,
+            itemBuilder: (context, index) {
+              final person = choices[index];
+              return ListTile(
+                title: Text(person['employeeName']?.toString() ?? 'Employee'),
+                subtitle: Text(person['staffId']?.toString() ?? ''),
+                trailing: const Icon(Icons.calendar_month_outlined, color: _blue),
+                onTap: () => Navigator.pop(dialogContext, person),
+              );
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'))],
+      ),
+    );
+    if (selected != null && mounted) _openEmployeeCalendar(selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (MediaQuery.sizeOf(context).width < 600) {
@@ -1031,6 +1144,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         },
         onPickDate: _pickDate,
         onRetry: _load,
+        onEdit: _openEmployeeCalendar,
+        onOpenCalendar: _chooseEmployeeCalendar,
       );
     }
     final narrow = MediaQuery.sizeOf(context).width < 700;
@@ -1121,6 +1236,12 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         onPressed: _pickDate,
         icon: const Icon(Icons.calendar_month_outlined),
         label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
+        style: _fieldStyle(),
+      ),
+      OutlinedButton.icon(
+        onPressed: _chooseEmployeeCalendar,
+        icon: const Icon(Icons.calendar_view_month_outlined),
+        label: const Text('Employee calendar'),
         style: _fieldStyle(),
       ),
     ],
@@ -1378,6 +1499,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                   'Status',
                   'Work Location',
                   'Method',
+                  'Action',
                 ], header: true),
               ),
             ),
@@ -1438,6 +1560,11 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       _status(item['status']?.toString() ?? 'Absent'),
       item['workMode']?.toString() ?? 'Not set',
       item['method']?.toString() ?? '-',
+      IconButton(
+        onPressed: () => _openEmployeeCalendar(item),
+        icon: const Icon(Icons.edit_outlined, size: 19),
+        tooltip: 'Edit attendance',
+      ),
     ]);
   }
 
@@ -1450,7 +1577,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       children: List.generate(
         values.length,
         (i) => Expanded(
-          flex: const [5, 22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10][i],
+          flex: const [5, 22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10, 10][i],
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Align(
@@ -1615,11 +1742,15 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ? const Color(0xFFF04438)
         : lower.contains('late')
         ? const Color(0xFFFF9200)
+        : lower == 'no record'
+        ? const Color(0xFF667085)
         : const Color(0xFF3BB95A);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
         : lower.contains('late')
         ? const Color(0xFFFFF1DB)
+        : lower == 'no record'
+        ? const Color(0xFFF1F3F5)
         : const Color(0xFFE9F6EC);
 
     return Container(

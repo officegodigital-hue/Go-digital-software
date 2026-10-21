@@ -1733,6 +1733,10 @@ class _WorkspaceClient {
   final DateTime? assignedAt;
   // Everyone assigned on this client: [{role, employee, tasks:[{name, completed, total}]}]
   final List<Map<String, dynamic>> team;
+  // Work given by a Page / Ads Handler (Content Calendar) or an additional
+  // task → "ADDITIONAL TASK" ribbon. e.g. ['VIJI (Page Handler)']
+  final bool isAdditional;
+  final List<String> additionalBy;
 
   const _WorkspaceClient({
     required this.name,
@@ -1742,6 +1746,8 @@ class _WorkspaceClient {
     this.toReview = 0,
     this.assignedAt,
     this.team = const [],
+    this.isAdditional = false,
+    this.additionalBy = const [],
   });
 
   DateTime? get dueDate {
@@ -1811,6 +1817,9 @@ class _WorkspaceTask {
   final int reworkCount;
   final bool awaitingHandoff;
   final bool isAdditional;
+  // Rows a Page / Ads Handler gave to this employee from the Content Calendar.
+  final bool handlerAssigned;
+  final String assignedBy;
 
   const _WorkspaceTask({
     required this.key,
@@ -1827,6 +1836,8 @@ class _WorkspaceTask {
     this.reworkCount = 0,
     this.awaitingHandoff = false,
     this.isAdditional = false,
+    this.handlerAssigned = false,
+    this.assignedBy = '',
   });
 }
 
@@ -1936,7 +1947,13 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
         for (final rawTask in (card['tasks'] as List? ?? []).whereType<Map>()) {
           final t = Map<String, dynamic>.from(rawTask);
           final isAdditional = t['is_additional'] == true;
-          if (isAdditional && !widget.showAdditionalTasks) continue;
+          // Work a Page / Ads Handler gave this employee from the Content
+          // Calendar always shows; admin-only additional tasks follow the
+          // "Additional Task" page permission.
+          if (isAdditional && !widget.showAdditionalTasks &&
+              t['handler_assigned'] != true) {
+            continue;
+          }
           if (!isAdditional && !widget.showAssignedTasks) continue;
           final counts = (
             total: n(t['total']),
@@ -1974,6 +1991,12 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
               reworkCount: counts.rework,
               awaitingHandoff: t['awaiting_handoff'] == true,
               isAdditional: isAdditional,
+              handlerAssigned: t['handler_assigned'] == true,
+              assignedBy: [
+                '${t['assigned_by'] ?? ''}'.trim(),
+                if ('${t['assigned_by_role'] ?? ''}'.trim().isNotEmpty)
+                  '(${t['assigned_by_role']})',
+              ].where((e) => e.isNotEmpty).join(' '),
             ),
           );
         }
@@ -1990,6 +2013,12 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
             team: (card['team'] as List? ?? [])
                 .whereType<Map>()
                 .map((t) => Map<String, dynamic>.from(t))
+                .toList(),
+            isAdditional: card['additional'] == true ||
+                tasks.any((t) => t.isAdditional || t.handlerAssigned),
+            additionalBy: (card['additional_by'] as List? ?? [])
+                .map((e) => '$e'.trim())
+                .where((e) => e.isNotEmpty)
                 .toList(),
           ),
         );
@@ -2091,6 +2120,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                         itemCount: visible.length,
                         itemBuilder: (context, index) => _RibbonedCard(
                           ribbon: visible[index].ribbon,
+                          additional: visible[index].isAdditional,
                           child: _ClientCard(
                             client: visible[index],
                             onOpen: () => widget.onSelectClient(visible[index]),
@@ -2128,6 +2158,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       if (_ribbonFilter == 'ALL') return true;
       if (_ribbonFilter == 'PENDING') return c.ribbon == null;
       if (_ribbonFilter == 'TO REVIEW') return c.toReview > 0;
+      if (_ribbonFilter == 'ADDITIONAL') return c.isAdditional;
       return c.ribbon == _ribbonFilter;
     }).toList();
     int byDate(_WorkspaceClient a, _WorkspaceClient b) {
@@ -2156,7 +2187,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
 
   static const _ribbonOrder = [
     'ALL', 'NEW', 'PROCESSING', 'HOLD', 'REWORK', 'OVERDUE', 'IN REVIEW',
-    'TO REVIEW', 'PENDING', 'COMPLETED',
+    'TO REVIEW', 'ADDITIONAL', 'PENDING', 'COMPLETED',
   ];
 
   Widget _filterBar(List<_WorkspaceClient> windowed) {
@@ -2172,6 +2203,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       'ALL' => windowed.length,
       'PENDING' => windowed.where((c) => c.ribbon == null).length,
       'TO REVIEW' => windowed.where((c) => c.toReview > 0).length,
+      'ADDITIONAL' => windowed.where((c) => c.isAdditional).length,
       _ => windowed.where((c) => c.ribbon == f).length,
     };
     final ribbons = _ribbonOrder.where((f) => f == 'ALL' || countFor(f) > 0).toList();
@@ -2264,18 +2296,33 @@ Color _ribbonColor(String ribbon) => switch (ribbon) {
   'TO REVIEW' => const Color(0xFFDC2626),
   'COMPLETED' => const Color(0xFF16A34A),
   'LATE' => const Color(0xFFB91C1C),
+  'ADDITIONAL' => const Color(0xFF7C3AED),
   _ => const Color(0xFF64748B),
 };
 
-/// Corner ribbon (NEW / PROCESSING / HOLD / …) on a client card.
+/// Corner ribbon (NEW / PROCESSING / HOLD / …) on a client card, plus an
+/// "ADDITIONAL TASK" tag on the top-left when the work came from a Page /
+/// Ads Handler (Content Calendar) or is an additional task.
 class _RibbonedCard extends StatelessWidget {
   final String? ribbon;
+  final bool additional;
   final Widget child;
 
-  const _RibbonedCard({required this.ribbon, required this.child});
+  const _RibbonedCard({required this.ribbon, required this.child, this.additional = false});
 
   @override
   Widget build(BuildContext context) {
+    if (!additional) return _corner();
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _corner(),
+        const Positioned(top: 0, left: 18, child: _AdditionalTag()),
+      ],
+    );
+  }
+
+  Widget _corner() {
     if (ribbon == null) return child;
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
@@ -2290,6 +2337,42 @@ class _RibbonedCard extends StatelessWidget {
           letterSpacing: 0.6,
         ),
         child: child,
+      ),
+    );
+  }
+}
+
+/// Purple bookmark tag hanging from the card's top edge.
+class _AdditionalTag extends StatelessWidget {
+  const _AdditionalTag();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(9, 3, 9, 4),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF9333EA)]),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(8),
+          bottomRight: Radius.circular(8),
+        ),
+        boxShadow: [BoxShadow(color: Color(0x337C3AED), blurRadius: 6, offset: Offset(0, 2))],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.add_task_rounded, size: 11, color: Colors.white),
+          SizedBox(width: 4),
+          Text(
+            'ADDITIONAL TASK',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2464,7 +2547,8 @@ class _ClientCard extends StatelessWidget {
         side: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        // Extra top space for the "ADDITIONAL TASK" tag.
+        padding: EdgeInsets.fromLTRB(18, client.isAdditional ? 24 : 18, 18, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2527,10 +2611,40 @@ class _ClientCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Submit date: ${_formatDate(client.submissionDate)}',
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+            SizedBox(height: client.isAdditional ? 6 : 10),
+            Row(
+              children: [
+                Text(
+                  'Submit date: ${_formatDate(client.submissionDate)}',
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                ),
+                if (client.additionalBy.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Tooltip(
+                      message: 'Assigned by ${client.additionalBy.join(', ')}',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3E8FF),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFD8B4FE)),
+                        ),
+                        child: Text(
+                          'By ${client.additionalBy.join(', ')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF6D28D9),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 12),
             _ClientStatTiles(client: client, compact: true),

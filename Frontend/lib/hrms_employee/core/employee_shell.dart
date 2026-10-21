@@ -323,8 +323,36 @@ class _NavPill extends StatelessWidget {
 /// desktop/tablet (see images 14-20) — not present on Admin or on the
 /// employee mobile app, which shows check-in state on the Dashboard card
 /// instead.
-class _StatusChips extends StatelessWidget {
+class _StatusChips extends StatefulWidget {
   const _StatusChips();
+
+  @override
+  State<_StatusChips> createState() => _StatusChipsState();
+}
+
+class _StatusChipsState extends State<_StatusChips> {
+  Timer? _timer;
+  bool _checkedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _timer = Timer.periodic(const Duration(seconds: 20), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final dashboard = await AttendanceApi.dashboard(DateTime.now());
+      if (mounted) setState(() => _checkedIn = dashboard['status'] == 'checked_in');
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -335,7 +363,7 @@ class _StatusChips extends StatelessWidget {
       children: [
         _chip(label, HrmsColors.infoBg, HrmsColors.info),
         const SizedBox(width: 8),
-        _chip('Checked In', HrmsColors.infoBg, HrmsColors.primary, dot: true),
+        _chip(_checkedIn ? 'Checked In' : 'Not Checked In', HrmsColors.infoBg, HrmsColors.primary, dot: true),
       ],
     );
   }

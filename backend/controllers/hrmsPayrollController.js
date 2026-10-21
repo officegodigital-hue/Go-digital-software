@@ -220,7 +220,7 @@ async function computeRows(year, month, today) {
   const [records] = userIds.length
     ? await db.query(
         `SELECT employee_id, DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
-                check_in_at, is_late, attendance_status
+                check_in_at, is_late, attendance_status, admin_status_override
          FROM attendance_records
          WHERE attendance_date BETWEEN ? AND ?
            AND employee_id IN (?)`,
@@ -331,9 +331,9 @@ async function computeRows(year, month, today) {
         // An explicit absence is visible in the summary even when the policy
         // treats it as paid time.
         absent += 1;
-      } else if (record && record.check_in_at) {
+      } else if (record && (record.check_in_at || attStatus === 'present')) {
         // Punched in
-        if (Number(record.is_late) || attStatus === 'late') late += 1;
+        if (!record.admin_status_override && (Number(record.is_late) || attStatus === 'late')) late += 1;
         else present += 1;
       } else if (key && leaveMap.has(key)) {
         // Approved leave — half-day counts as 0.5, full day as 1.0
@@ -616,11 +616,17 @@ async function markPaid(req, res) {
       return fail(res, 400, 'status must be paid or pending');
     }
     const at = status === 'paid' ? policy.nowIstDateTime() : null;
-    const [[payroll]] = await db.query(`SELECT p.id, p.monthly_salary FROM hrms_payroll_items p
+    const [[payroll]] = await db.query(`SELECT p.id, p.monthly_salary, p.employee_user_id,
+      p.pay_year, p.pay_month, p.period_start FROM hrms_payroll_items p
       JOIN hrms_employee_profiles e ON e.id = p.profile_id AND e.employee_user_id = p.employee_user_id
       JOIN employee_users u ON u.id = e.employee_user_id WHERE p.id = ?`, [id]);
     if (!payroll) return fail(res, 404, 'Payroll row not found. Generate payroll for this month first.');
     if (Number(payroll.monthly_salary) <= 0) return fail(res, 400, 'Compensation must be configured before payroll can be paid.');
+    if (status === 'paid') {
+      const periodDate = isoDate(payroll.period_start) ||
+        ymd(Number(payroll.pay_year), Number(payroll.pay_month), 1);
+      await refreshUnpaidForAttendance(Number(payroll.employee_user_id), periodDate);
+    }
     const [result] = await db.query(
       `UPDATE hrms_payroll_items
        SET status = ?, paid_at = ?
@@ -636,6 +642,36 @@ async function markPaid(req, res) {
     console.error('PATCH /hrms/payroll/:id', error);
     return fail(res, 500, error.message);
   }
+}
+
+// Attendance corrections must refresh only this employee's saved, unpaid
+// payroll rows. Paid rows are intentionally immutable until Admin reopens them.
+async function refreshUnpaidForAttendance(employeeId, date) {
+  const [savedRows] = await db.query(
+    `SELECT p.id, p.pay_year, p.pay_month, p.status, p.period_start, p.period_end
+     FROM hrms_payroll_items p
+     JOIN hrms_employee_profiles e ON e.id = p.profile_id
+     WHERE e.employee_user_id = ? AND p.status <> 'paid'`, [employeeId]);
+  let updated = 0;
+  for (const saved of savedRows) {
+    const start = isoDate(saved.period_start);
+    const end = isoDate(saved.period_end);
+    if (start && end && (date < start || date > end)) continue;
+    const rows = await computeRows(Number(saved.pay_year), Number(saved.pay_month), policy.todayIstDate());
+    const item = rows.find(function (entry) {
+      return Number(entry.id) === Number(saved.id) && Number(entry.employeeUserId) === Number(employeeId);
+    });
+    if (!item || item.integrityError || !Number(item.monthlySalary) ||
+        date < item.periodStart || date > item.periodEnd) continue;
+    const [result] = await db.query(
+      `UPDATE hrms_payroll_items SET monthly_salary = ?, working_days = ?, daily_rate = ?,
+       paid_days = ?, lop_days = ?, deductions = ?, net_pay = ?, period_start = ?, period_end = ?
+       WHERE id = ? AND status <> 'paid'`,
+      [item.monthlySalary, item.workingDays, item.dailyRate, item.paidDays,
+        item.lopDays, item.deductions, item.netPay, item.periodStart, item.periodEnd, saved.id]);
+    updated += Number(result.affectedRows || 0);
+  }
+  return updated;
 }
 
 async function getCustomCycle(req, res) {
@@ -692,6 +728,7 @@ module.exports = {
   computeRows,
   payrollPolicy,
   generatePayrollRun,
+  refreshUnpaidForAttendance,
   getCustomCycle,
   setCustomCycle,
 };

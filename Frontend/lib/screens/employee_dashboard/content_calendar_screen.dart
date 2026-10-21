@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_config.dart';
 import 'rich_description.dart';
+import 'helpers/calendar_file_save.dart';
+import 'helpers/content_calendar_export_template.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Palette
@@ -1002,79 +1003,221 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     await _reloadCurrentClient();
   }
 
+  /// The opened card's date (Client + Submit date card), '' for the global view.
+  String get _cardDateKey {
+    final raw = _str(
+      _selectedClient?['submission_date'] ??
+          _selectedClient?['submit_date'] ??
+          _selectedClient?['date'],
+    ).trim();
+    return raw.isEmpty ? '' : _dateKey(raw);
+  }
+
+  /// Ids of the rows shown on screen for this category (this card only).
+  String _visibleIds(String deliverable) => _rowsFor(deliverable)
+      .map((r) => _asInt(r['id']))
+      .where((id) => id > 0)
+      .join(',');
+
+  Future<String?> _pickExportFormat(String deliverable, int count) {
+    Widget option(BuildContext ctx, String value, IconData icon, String title, String sub) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => Navigator.pop(ctx, value),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _kTint,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _kTintBorder),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _kPrimary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800, color: _kInk, fontSize: 14)),
+                      const SizedBox(height: 2),
+                      Text(sub, style: const TextStyle(color: _kMuted, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: _kPrimary),
+              ]),
+            ),
+          ),
+        );
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(children: [
+          const Icon(Icons.file_download_outlined, color: _kPrimary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Export $deliverable · $count row${count == 1 ? '' : 's'}',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+            ),
+          ),
+        ]),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              option(ctx, 'xls', Icons.table_view_rounded, 'Excel – GoDigital theme (.xls)',
+                  'Blue & white sheet like the invoice export. Edit in Excel, save, import back.'),
+              option(ctx, 'csv', Icons.description_outlined, 'CSV (.csv)',
+                  'Same columns. Edit in Excel / Sheets, save as .csv, import back.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _exportSheet(String deliverable) async {
     for (final id in _saveDebouncers.keys.toList()) {
       await _flushSave(id);
     }
+    final ids = _visibleIds(deliverable);
+    if (ids.isEmpty) {
+      _showMessage('No $deliverable rows in this card to export');
+      return;
+    }
+    final format = await _pickExportFormat(deliverable, ids.split(',').length);
+    if (format == null || !mounted) return;
     final client = _str(_selectedClient?['client_name']);
-    // The download opens in the browser, which cannot send the login header,
-    // so the token goes in the link.
-    final uri = Uri.parse('$_baseUrl/tasks/content-calendar/export').replace(
-      queryParameters: {
-        'client': client,
-        'deliverable': deliverable,
-        'format': 'xlsx',
-        if (widget.authToken.isNotEmpty) 'access_token': widget.authToken,
-      },
-    );
+    final isCsv = format == 'csv';
+    // Built here in the app from the rows on screen (this card + category
+    // only), then saved straight to Downloads (web / PC) or shared (phone).
+    final rows = _rowsFor(deliverable)
+        .where((r) => _asInt(r['id']) > 0)
+        .toList()
+      ..sort((a, b) {
+        final r = _asInt(a['s_no']).compareTo(_asInt(b['s_no']));
+        return r != 0 ? r : _asInt(a['id']).compareTo(_asInt(b['id']));
+      });
+    final bytes = isCsv
+        ? buildCalendarCsv(rows)
+        : buildCalendarXls(
+            clientName: client,
+            deliverable: deliverable,
+            rows: rows,
+            cardDate: _cardDateKey,
+            exportedBy: widget.currentUserName.trim(),
+          );
+    final fileName = calendarExportFileName(client, deliverable, _cardDateKey, isCsv ? 'csv' : 'xls');
+    String? savedTo;
     try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) {
-        _showMessage('Could not start the download');
-        return;
-      }
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Row(children: [
-            Icon(Icons.table_view_rounded, color: _kPrimary),
-            SizedBox(width: 10),
-            Expanded(child: Text('Template downloaded', style: TextStyle(fontWeight: FontWeight.w800))),
-          ]),
-          content: const SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _GuideStep(n: 1, text: 'Open Google Drive → New → File upload → choose the .xlsx, then "Open with Google Sheets".'),
-                _GuideStep(n: 2, text: 'Fill only the WHITE columns. Keep ID, S.No and Deliverable as they are.'),
-                _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29).'),
-                _GuideStep(n: 4, text: 'Google Sheets: File → Download → Microsoft Excel (.xlsx).'),
-                _GuideStep(n: 5, text: 'Back here press "Import Sheet" and choose that file.'),
-              ],
+      savedTo = await saveCalendarFile(
+        bytes,
+        fileName,
+        mimeType: isCsv ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel',
+      );
+    } catch (e) {
+      _showMessage('Could not export: $e');
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(children: [
+          const Icon(Icons.check_circle_rounded, color: _kGreen),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${rows.length} row${rows.length == 1 ? '' : 's'} exported',
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
-          actions: [
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _kPrimary),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Got it'),
-            ),
-          ],
+        ]),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: _kTint,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _kTintBorder),
+                ),
+                child: Text(
+                  savedTo == null ? fileName : '$fileName\nSaved to: $savedTo',
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: _kPrimary, fontSize: 12.5),
+                ),
+              ),
+              _GuideStep(n: 1, text: isCsv
+                  ? 'Open the .csv in Excel or Google Sheets.'
+                  : 'Open the .xls in Excel (if Excel asks "format and extension don\'t match", press Yes).'),
+              const _GuideStep(n: 2, text: 'Edit only Submit Date, Hook / Headline, Description, Caption, CTA, Publish Date, Notes. Keep S.No, ID and Deliverable as they are.'),
+              const _GuideStep(n: 3, text: 'Dates as YYYY-MM-DD (e.g. 2026-10-29). DD-MM-YYYY also works.'),
+              _GuideStep(n: 4, text: isCsv
+                  ? 'Save it again as .csv (keep the header row).'
+                  : 'Press Save (keep the same file), or Save As .xlsx / .csv – all three import.'),
+              const _GuideStep(n: 5, text: 'Open this same card + category, press "Import Sheet" and choose the file.'),
+            ],
+          ),
         ),
-      );
-    } catch (_) {
-      _showMessage('Could not start the download');
-    }
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _kPrimary),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _importSheet(String deliverable) async {
     if (_blockedReadOnly()) return;
     final picked = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'csv'],
+      allowedExtensions: ['xls', 'xlsx', 'csv'],
       withData: true,
     );
     final file = picked?.files.single;
     final bytes = file?.bytes;
     if (file == null || bytes == null || !mounted) return;
 
-    final isXlsx = file.name.toLowerCase().endsWith('.xlsx');
+    final lower = file.name.toLowerCase();
+    if (!lower.endsWith('.xls') && !lower.endsWith('.xlsx') && !lower.endsWith('.csv')) {
+      _showMessage('Choose the exported .xls, .xlsx or .csv file');
+      return;
+    }
+    // .xls / .xlsx go as base64 — the server detects the GoDigital-theme
+    // sheet (.xls), a real .xlsx, or an old Excel 97-2003 file.
+    final isXlsx = lower.endsWith('.xlsx') || lower.endsWith('.xls');
     String? csv;
     String? xlsxBase64;
     try {
@@ -1104,6 +1247,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         fileName: file.name,
         csv: csv,
         xlsxBase64: xlsxBase64,
+        ids: _visibleIds(deliverable),
       ),
     );
     if (applied == null || !mounted) return;
@@ -2322,13 +2466,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
             _sheetButton(
               'Export Template',
               Icons.file_download_outlined,
-              'Download a blue & white Excel template — opens in Google Sheets.',
+              'Download this card\'s rows as an Excel sheet (GoDigital theme) or CSV — edit and import back.',
               () => _exportSheet(category),
             ),
             _sheetButton(
               'Import Sheet',
               Icons.file_upload_outlined,
-              'Upload the filled template (.xlsx from Google Sheets, or .csv).',
+              'Upload the exported file after editing (.xls, .xlsx or .csv).',
               () => _importSheet(category),
               filled: true,
             ),
@@ -4205,6 +4349,8 @@ class _ImportPreviewDialog extends StatefulWidget {
   final String fileName;
   final String? csv;
   final String? xlsxBase64;
+  /// Rows of the card open on screen — other rows in the file are skipped.
+  final String ids;
 
   const _ImportPreviewDialog({
     required this.baseUrl,
@@ -4214,6 +4360,7 @@ class _ImportPreviewDialog extends StatefulWidget {
     required this.fileName,
     this.csv,
     this.xlsxBase64,
+    this.ids = '',
   });
 
   @override
@@ -4234,6 +4381,7 @@ class _ImportPreviewDialogState extends State<_ImportPreviewDialog> {
   Map<String, dynamic> get _payload => {
         'client_name': widget.clientName,
         'deliverable': widget.deliverable,
+        if (widget.ids.isNotEmpty) 'ids': widget.ids,
         if (widget.xlsxBase64 != null) 'xlsx_base64': widget.xlsxBase64,
         if (widget.xlsxBase64 == null) 'csv': widget.csv ?? '',
       };

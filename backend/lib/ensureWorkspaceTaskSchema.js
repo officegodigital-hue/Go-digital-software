@@ -37,6 +37,11 @@ async function ensureWorkspaceTaskSchema(db) {
     ['sub_no', 'INT NOT NULL DEFAULT 0'],
     ['review_status', 'VARCHAR(20) NULL'],
     ['content_calendar_assigned', 'TINYINT(1) NOT NULL DEFAULT 0'],
+    // "Confirm & Share All" (Content Calendar → employee) writes these.
+    ['content_calendar_assigned_to', 'VARCHAR(255) NULL'],
+    ['cc_assigned_to_id', 'INT NULL'],
+    ['cc_assigned_by_name', 'VARCHAR(255) NULL'],
+    ['cc_assigned_at', 'DATETIME NULL'],
     ['hook_headline', 'TEXT NULL'],
     ['description_points', 'TEXT NULL'],
     ['caption', 'TEXT NULL'],
@@ -68,6 +73,58 @@ async function ensureWorkspaceTaskSchema(db) {
         console.log(`Workspace schema: added content_calendar.${name}`);
       }
     }
+  }
+
+  // day_plan_rows.maintenance_date: on some servers this is a short text
+  // column and MySQL strict mode (usually on in production) rejects longer
+  // values with "Data too long for column 'maintenance_date'". Widen it once.
+  try {
+    const [[mcol]] = await db.query(
+      `SELECT DATA_TYPE AS t, CHARACTER_MAXIMUM_LENGTH AS len, IS_NULLABLE AS n
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'day_plan_rows'
+         AND COLUMN_NAME = 'maintenance_date'`,
+    );
+    if (mcol && ['varchar', 'char'].includes(String(mcol.t).toLowerCase()) && Number(mcol.len) < 40) {
+      await db.query('ALTER TABLE day_plan_rows MODIFY maintenance_date VARCHAR(40) NULL');
+      console.log('Workspace schema: day_plan_rows.maintenance_date widened to VARCHAR(40)');
+    }
+  } catch (err) {
+    console.warn('Workspace schema: maintenance_date check skipped:', err.message);
+  }
+
+  // Older "Add content" rows (not from the admin's Task Assignment) were put
+  // in a plain list, so Employee Workspace never showed them. Mark those lists
+  // as additional work (once; safe to repeat).
+  try {
+    const [fixed] = await db.query(
+      `UPDATE task_list tl
+       SET tl.additional_task_id = tl.id,
+           tl.submission_date = COALESCE(tl.submission_date, (
+             SELECT MIN(cc.submit_date) FROM content_calendar cc
+             JOIN time_tracking_task_items tti ON tti.id = cc.task_item_id
+             WHERE tti.task_list_id = tl.id), DATE(NOW()))
+       WHERE tl.task_assignment_id IS NULL AND tl.additional_task_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM time_tracking_task_items tti
+           JOIN content_calendar cc ON cc.task_item_id = tti.id
+           WHERE tti.task_list_id = tl.id AND cc.source_assignment_id IS NULL)`,
+    );
+    if (fixed.affectedRows) {
+      console.log(`Workspace schema: ${fixed.affectedRows} "Add content" list(s) marked as additional tasks`);
+    }
+    await db.query(
+      `UPDATE time_tracking_task_items tti
+       JOIN content_calendar cc ON cc.task_item_id = tti.id
+       SET tti.content_calendar_assigned = 1,
+           tti.content_calendar_assigned_to = COALESCE(tti.content_calendar_assigned_to, cc.assigned_to_name),
+           tti.cc_assigned_by_name = COALESCE(tti.cc_assigned_by_name, cc.assigned_by_name),
+           tti.hook_headline = COALESCE(NULLIF(tti.hook_headline, ''), cc.hook_headline)
+       WHERE cc.source_assignment_id IS NULL AND cc.assigned_to_id IS NOT NULL
+         AND COALESCE(tti.content_calendar_assigned, 0) = 0`,
+    );
+  } catch (err) {
+    console.warn('Workspace schema: additional-list fix skipped:', err.message);
   }
 
   // Client group chat (Employee Workspace → Team Chat)

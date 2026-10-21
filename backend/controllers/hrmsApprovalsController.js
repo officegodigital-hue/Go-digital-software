@@ -33,6 +33,7 @@ function displayType(requestType) {
   if (value === 'extra_hours') return 'Extra Hours';
   if (value === 'late_entry') return 'Late Entry';
   if (value === 'early_exit') return 'Early Exit';
+  if (value === 'wfh') return 'Work From Home';
   return String(requestType || '').replace(/_/g, ' ');
 }
 
@@ -42,6 +43,7 @@ function iconMeta(typeLabel) {
   if (typeLabel === 'Extra Hours' || typeLabel === 'Late Entry' || typeLabel === 'Early Exit') {
     return { icon: 'more_time', color: 0xFFFF6500 };
   }
+  if (typeLabel === 'Work From Home') return { icon: 'home', color: 0xFF0B72F5 };
   return { icon: 'beach', color: 0xFF7137E8 };
 }
 
@@ -92,6 +94,10 @@ function toUi(row) {
   const extra = EXTRA_TYPES.indexOf(requestType) !== -1;
   const leave = LEAVE_TYPES.indexOf(requestType) !== -1;
   const meta = iconMeta(type);
+  const wfhEnd = toIsoDate(row.wfh_end_date);
+  const wfhDays = requestType === 'wfh' && wfhEnd
+    ? Math.max(1, Math.round((Date.parse(wfhEnd + 'T00:00:00Z') - Date.parse(start.iso + 'T00:00:00Z')) / 86400000) + 1)
+    : 0;
   return {
     id: row.id,
     name: String(row.full_name || 'Unknown employee').trim(),
@@ -99,14 +105,21 @@ function toUi(row) {
     type: type,
     abbreviation: abbreviation,
     requestType: row.request_type,
-    dates: start.pretty || '—',
+    dates: requestType === 'wfh' && wfhEnd ? `${start.pretty} – ${formatDay(wfhEnd).pretty}` : (start.pretty || '—'),
     dayRange: start.weekday && start.weekday !== '—' ? '(' + start.weekday + ')' : '',
-    duration: extra ? '—' : leaveDuration(row),
+    duration: extra ? '—' : requestType === 'wfh' && wfhDays ? `${wfhDays} ${wfhDays === 1 ? 'Day' : 'Days'}` : leaveDuration(row),
     reason: row.reason || '',
     status: String(row.status || 'pending').replace(/^./, function (c) { return c.toUpperCase(); }),
     icon: meta.icon,
     color: meta.color,
     tab: extra ? 'extra' : leave ? 'leave' : 'permission',
+    endDate: toIsoDate(row.wfh_end_date) || null,
+    homeLocation: row.home_latitude == null ? null : {
+      latitude: Number(row.home_latitude),
+      longitude: Number(row.home_longitude),
+      accuracyMeters: Number(row.home_accuracy_meters),
+      address: row.home_address || null,
+    },
   };
 }
 
@@ -137,6 +150,21 @@ async function syncPendingNotifications() {
     LEFT JOIN employee_users u ON u.id = p.employee_id
     WHERE p.status = 'pending'
   `);
+}
+
+async function ensureWfhRequestColumns() {
+  const columns = [
+    ['wfh_end_date', 'DATE NULL AFTER request_date'],
+    ['home_latitude', 'DECIMAL(10,7) NULL AFTER wfh_end_date'],
+    ['home_longitude', 'DECIMAL(10,7) NULL AFTER home_latitude'],
+    ['home_accuracy_meters', 'DECIMAL(10,2) NULL AFTER home_longitude'],
+    ['home_captured_at', 'DATETIME NULL AFTER home_accuracy_meters'],
+    ['home_address', 'VARCHAR(500) NULL AFTER home_captured_at'],
+  ];
+  for (const [name, definition] of columns) {
+    const [found] = await db.query(`SHOW COLUMNS FROM attendance_permission_requests LIKE '${name}'`);
+    if (!found.length) await db.query(`ALTER TABLE attendance_permission_requests ADD COLUMN ${name} ${definition}`);
+  }
 }
 
 async function notifications(req, res) {
@@ -185,6 +213,7 @@ async function markAllNotificationsRead(req, res) {
 }
 async function list(req, res) {
   try {
+    await ensureWfhRequestColumns();
     const tab = String(req.query.tab || 'leave').toLowerCase();
     const status = String(req.query.status || '').trim();
     const employee = String(req.query.employee || '').trim();
@@ -214,7 +243,8 @@ async function list(req, res) {
     }
 
     const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.wfh_end_date,
+              p.home_latitude, p.home_longitude, p.home_accuracy_meters, p.home_address,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date,
@@ -263,6 +293,19 @@ async function review(req, res) {
     if (status !== 'approved' && status !== 'rejected') {
       return fail(res, 400, 'status must be approved or rejected');
     }
+    await ensureWfhRequestColumns();
+    const [[request]] = await db.query(
+      `SELECT p.*, h.approval_status AS current_home_status
+       FROM attendance_permission_requests p
+       LEFT JOIN hrms_employee_home_locations h ON h.employee_user_id = p.employee_id
+       WHERE p.id = ? AND p.status = 'pending'`, [id]
+    );
+    if (!request) return fail(res, 404, 'Pending request not found');
+    if (status === 'approved' && request.request_type === 'wfh' &&
+        request.current_home_status !== 'approved' &&
+        (request.home_latitude == null || request.home_longitude == null)) {
+      return fail(res, 409, 'This WFH request has no approved or captured Home location. Ask the employee to submit a new request.');
+    }
     const at = policy.nowIstDateTime();
     const [result] = await db.query(
       `UPDATE attendance_permission_requests
@@ -272,6 +315,19 @@ async function review(req, res) {
     );
     if (!result.affectedRows) {
       return fail(res, 404, 'Pending request not found');
+    }
+    if (status === 'approved' && request.request_type === 'wfh' && request.home_latitude != null) {
+      await db.query(
+        `INSERT INTO hrms_employee_home_locations
+          (employee_user_id, latitude, longitude, address, approval_status, reviewed_by, reviewed_at)
+         VALUES (?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE
+           latitude = VALUES(latitude), longitude = VALUES(longitude), address = VALUES(address),
+           approval_status = 'approved', reviewed_by = VALUES(reviewed_by), reviewed_at = VALUES(reviewed_at),
+           rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP`,
+        [request.employee_id, request.home_latitude, request.home_longitude,
+          request.home_address || null, req.user.id]
+      );
     }
     await db.query(`
       CREATE TABLE IF NOT EXISTS hrms_leave_approval_links (
@@ -295,7 +351,8 @@ async function review(req, res) {
       for (const leave of leaveRows) await leaveSystem.reconcileApprovedAbsences(db, leave);
     }
     const [rows] = await db.query(
-      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status,
+      `SELECT p.id, p.employee_id, p.request_type, p.reason, p.status, p.wfh_end_date,
+              p.home_latitude, p.home_longitude, p.home_accuracy_meters, p.home_address,
               DATE_FORMAT(p.request_date, '%Y-%m-%d') AS request_date,
               DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
               DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date,

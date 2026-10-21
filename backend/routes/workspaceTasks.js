@@ -353,6 +353,60 @@ async function reassignedLists(employee, employeeId, coveredIds, clientName = nu
   return rows.filter((r) => !coveredIds.has(r.id) && active.has(norm(r.client_name)));
 }
 
+// Who gave this employee the rows of a list that is NOT theirs on the admin
+// assignment (Content Calendar reassign / emergency assign / Assign All by a
+// Page or Ads Handler). → { name, role } e.g. { name: 'VIJI', role: 'Page Handler' }
+const SYSTEM_ASSIGNERS = new Set(['', 'task assignment', 'admin', 'system']);
+async function assignedByFor(listId, clientName) {
+  let name = '';
+  try {
+    const [[r]] = await db.query(
+      `SELECT cc.assigned_by_name AS cc_by, tti.cc_assigned_by_name AS tti_by
+       FROM time_tracking_task_items tti
+       LEFT JOIN content_calendar cc ON cc.task_item_id = tti.id
+       WHERE tti.task_list_id = ?
+       ORDER BY (cc.assigned_by_name IS NULL), tti.id DESC
+       LIMIT 1`,
+      [listId],
+    );
+    for (const v of [r?.cc_by, r?.tti_by]) {
+      if (!SYSTEM_ASSIGNERS.has(norm(v))) { name = String(v).trim(); break; }
+    }
+  } catch (err) {
+    // content_calendar / cc_assigned_by_name missing on an old database
+  }
+  if (!name) return null;
+  let role = '';
+  const [assignments] = await db.query(
+    `SELECT page_handling, ads_handling FROM task_assignments
+     WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))`,
+    [clientName],
+  );
+  for (const a of assignments) {
+    if (namesEmployee(a.page_handling, name)) { role = 'Page Handler'; break; }
+    if (namesEmployee(a.ads_handling, name)) { role = 'Ads Handler'; break; }
+  }
+  if (!role) {
+    const [[u]] = await db.query(
+      `SELECT * FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1`,
+      [name],
+    );
+    const text = norm(u?.role || u?.designation || u?.department || '');
+    if (text.includes('ads')) role = 'Ads Handler';
+    else if (text.includes('page') || text.includes('handler')) role = 'Page Handler';
+  }
+  return { name, role };
+}
+
+// Card flag for the "ADDITIONAL TASK" ribbon + "Assigned by …" line.
+function markAdditional(card, by) {
+  card.additional = true;
+  if (!by) return;
+  const label = by.role ? `${by.name} (${by.role})` : by.name;
+  card.additional_by = card.additional_by || [];
+  if (!card.additional_by.includes(label)) card.additional_by.push(label);
+}
+
 const emit = (req, payload) => req.app.get('io')?.emit('task_updated', payload);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -438,12 +492,18 @@ router.get('/cards', async (req, res) => {
     for (const card of cards.values()) for (const t of card.tasks) if (t.task_list_id) coveredIds.add(t.task_list_id);
     for (const list of await reassignedLists(employee, employeeId, coveredIds)) {
       const rows = await loadRows(list.id, true);
-      cardFor(list.client_name, dateKey(list.due)).tasks.push({
+      const card = cardFor(list.client_name, dateKey(list.due));
+      const by = await assignedByFor(list.id, list.client_name);
+      markAdditional(card, by);
+      card.tasks.push({
         key: `reassigned:${list.id}`,
         name: list.deliverables,
         role: 'Reassigned task',
         role_key: 'reassigned',
         is_additional: false,
+        handler_assigned: true,
+        assigned_by: by?.name || '',
+        assigned_by_role: by?.role || '',
         awaiting_handoff: false,
         ...countStates(rows, rows.length),
       });
@@ -451,12 +511,18 @@ router.get('/cards', async (req, res) => {
 
     for (const list of await additionalLists(employee, employeeId)) {
       const rows = await loadRows(list.id, false);
-      cardFor(list.client_name, dateKey(list.submission_date)).tasks.push({
+      const card = cardFor(list.client_name, dateKey(list.submission_date));
+      const by = await assignedByFor(list.id, list.client_name);
+      markAdditional(card, by || { name: 'Admin', role: '' });
+      card.tasks.push({
         key: `additional:${list.id}`,
         name: list.deliverables,
         role: 'Additional task',
         role_key: 'additional',
         is_additional: true,
+        handler_assigned: !!by,
+        assigned_by: by?.name || 'Admin',
+        assigned_by_role: by?.role || '',
         awaiting_handoff: false,
         ...countStates(rows, Number(list.no_of_rows) || 1),
       });
