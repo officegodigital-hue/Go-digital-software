@@ -25,13 +25,17 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   bool _showReminderBanner = true;
   bool _filterByReminderToday = false; // Banner click pannum pothu filter panna
 
-  int _selectedMonth = 0; 
+  int _selectedMonth = 0;
   final int _selectedYear = DateTime.now().year;
 
   DateTime? _fromMaintenanceDate;
   DateTime? _toMaintenanceDate;
 
   List<Map<String, dynamic>> invoiceLedger = [];
+  List<Map<String, dynamic>> _eligibleAssignees = [];
+  bool _loadingAssignees = false;
+  final Set<int> _assigningInvoiceIds = {};
+
   bool _loadingInvoices = true;
   String? _invoicesError;
 
@@ -45,16 +49,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   int _currentPage = 1;
 
   static const Map<String, Color> _statusBg = {
-    'NEW':     Color(0xFFDBEAFE),
-    'DRAFT':   Color(0xFFF1F5F9),
+    'NEW': Color(0xFFDBEAFE),
+    'DRAFT': Color(0xFFF1F5F9),
     'PENDING': Color(0xFFFEF3C7),
-    'PAID':    Color(0xFFDCFCE7),
+    'PAID': Color(0xFFDCFCE7),
   };
   static const Map<String, Color> _statusText = {
-    'NEW':     Color(0xFF1D4ED8),
-    'DRAFT':   Color(0xFF475569),
+    'NEW': Color(0xFF1D4ED8),
+    'DRAFT': Color(0xFF475569),
     'PENDING': Color(0xFFD97706),
-    'PAID':    Color(0xFF16A34A),
+    'PAID': Color(0xFF16A34A),
   };
 
   final ScrollController _verticalController = ScrollController();
@@ -73,6 +77,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     _triggerRecurringCheck();
     _fetchInvoices();
     _fetchMetrics();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final user = Provider.of<AuthService>(context, listen: false).user;
+      final admin =
+          user?["isMainAdmin"] == true ||
+          user?["isMainAdmin"].toString() == "1" ||
+          user?["is_main_admin"] == true ||
+          user?["is_main_admin"].toString() == "1";
+      if (admin) _fetchEligibleAssignees();
+    });
   }
 
   Future<void> _triggerRecurringCheck() async {
@@ -121,7 +135,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(reminderDate.isEmpty ? 'Reminder date removed successfully' : 'Reminder date updated successfully'),
+              content: Text(
+                reminderDate.isEmpty
+                    ? 'Reminder date removed successfully'
+                    : 'Reminder date updated successfully',
+              ),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -130,14 +148,20 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to update reminder date'), backgroundColor: Colors.redAccent),
+            const SnackBar(
+              content: Text('Failed to update reminder date'),
+              backgroundColor: Colors.redAccent,
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot connect to server'), backgroundColor: Colors.redAccent),
+          const SnackBar(
+            content: Text('Cannot connect to server'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     }
@@ -146,16 +170,24 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   Widget _buildReminderCell(Map<String, dynamic> row) {
     final int id = row["id"];
     final dynamic rawReminder = row["reminder_date"] ?? row["reminderDate"];
-    
-    final bool isNullOrEmpty = rawReminder == null || 
-                               rawReminder.toString().trim().isEmpty || 
-                               rawReminder.toString().toLowerCase() == 'null';
+
+    final bool isNullOrEmpty =
+        rawReminder == null ||
+        rawReminder.toString().trim().isEmpty ||
+        rawReminder.toString().toLowerCase() == 'null';
 
     if (isNullOrEmpty) {
       return TextButton.icon(
         onPressed: () => _pickAndSaveReminderDate(id),
         icon: const Icon(Icons.add_rounded, size: 14, color: Color(0xFF0052CC)),
-        label: const Text("Add", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0052CC))),
+        label: const Text(
+          "Add",
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0052CC),
+          ),
+        ),
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           backgroundColor: const Color(0xFFEFF6FF),
@@ -181,7 +213,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 reminderDate,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: Color(0xFFB45309), fontWeight: FontWeight.w800),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFFB45309),
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
             const SizedBox(width: 4),
@@ -190,7 +226,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
               borderRadius: BorderRadius.circular(4),
               child: const Padding(
                 padding: EdgeInsets.all(2),
-                child: Icon(Icons.edit_outlined, size: 13, color: Color(0xFF0052CC)),
+                child: Icon(
+                  Icons.edit_outlined,
+                  size: 13,
+                  color: Color(0xFF0052CC),
+                ),
               ),
             ),
             InkWell(
@@ -198,7 +238,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
               borderRadius: BorderRadius.circular(4),
               child: const Padding(
                 padding: EdgeInsets.all(2),
-                child: Icon(Icons.close_rounded, size: 13, color: Color(0xFFDC2626)),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 13,
+                  color: Color(0xFFDC2626),
+                ),
               ),
             ),
           ],
@@ -215,9 +259,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
     // Previous and today reminders (where reminder_date <= today and invoice is not fully paid)
     final dueReminders = invoiceLedger.where((row) {
-      final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '').toString().trim();
+      final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '')
+          .toString()
+          .trim();
       if (rDateStr.isEmpty || rDateStr == 'null') return false;
-      
+
       String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
       if (status == 'PAID') return false; // Paid aanathu exclude pannidalam
 
@@ -225,7 +271,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         final rDate = DateFormat('dd/MM/yyyy').parse(rDateStr);
         final normalizedR = DateTime(rDate.year, rDate.month, rDate.day);
         final normalizedToday = DateTime(now.year, now.month, now.day);
-        return normalizedR.isBefore(normalizedToday) || normalizedR.isAtSameMomentAs(normalizedToday);
+        return normalizedR.isBefore(normalizedToday) ||
+            normalizedR.isAtSameMomentAs(normalizedToday);
       } catch (_) {
         return false;
       }
@@ -243,7 +290,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.notifications_active_rounded, color: Color(0xFFD97706), size: 20),
+          const Icon(
+            Icons.notifications_active_rounded,
+            color: Color(0xFFD97706),
+            size: 20,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: InkWell(
@@ -253,10 +304,14 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 });
               },
               child: Text(
-                _filterByReminderToday 
-                    ? 'Showing reminders due up to today (${dueReminders.length}). Click to reset filter.' 
+                _filterByReminderToday
+                    ? 'Showing reminders due up to today (${dueReminders.length}). Click to reset filter.'
                     : 'Reminder Alert: ${dueReminders.length} client(s) have pending collections due (previous & today). Click here to filter!',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF92400E),
+                ),
               ),
             ),
           ),
@@ -267,7 +322,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 _filterByReminderToday = false;
               });
             },
-            icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF92400E)),
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: Color(0xFF92400E),
+            ),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
             tooltip: 'Dismiss',
@@ -277,8 +336,172 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
+  Future<void> _fetchEligibleAssignees() async {
+    if (_loadingAssignees) return;
+
+    setState(() => _loadingAssignees = true);
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final response = await http.get(
+        Uri.parse('$_baseUrl/invoices/eligible-assignees'),
+        headers: {'Authorization': 'Bearer ${auth.token}'},
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('Eligible assignees: ${response.statusCode}');
+        return;
+      }
+
+      final decoded = jsonDecode(response.body);
+      final dynamic records = decoded is List
+          ? decoded
+          : decoded is Map
+          ? (decoded['users'] ??
+                decoded['data'] ??
+                decoded['employees'] ??
+                decoded['assignees'])
+          : null;
+
+      if (records is List && mounted) {
+        setState(() {
+          _eligibleAssignees = records
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Loading invoice assignees failed: $e');
+    } finally {
+      if (mounted) setState(() => _loadingAssignees = false);
+    }
+  }
+
+  Future<void> _assignInvoice(int invoiceId, int employeeId) async {
+    if (_assigningInvoiceIds.contains(invoiceId)) return;
+
+    setState(() => _assigningInvoiceIds.add(invoiceId));
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/invoices/$invoiceId/assign'),
+        headers: {
+          'Authorization': 'Bearer ${auth.token}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'assigned_to': employeeId}),
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          'Assignment failed (${response.statusCode}): ${response.body}',
+        );
+      }
+
+      await _fetchInvoices();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invoice assigned successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _assigningInvoiceIds.remove(invoiceId));
+      }
+    }
+  }
+
+  Widget _buildInvoiceAssignee(Map<String, dynamic> row, bool isMainAdmin) {
+    final invoiceId = int.tryParse('${row['id']}');
+    final assignedId = int.tryParse('${row['assigned_to']}');
+    final assignedName = (row['assigned_to_name'] ?? '').toString();
+
+    final displayName = assignedName.trim().isEmpty
+        ? 'Unassigned'
+        : assignedName;
+
+    const nameStyle = TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+    );
+
+    if (!isMainAdmin || invoiceId == null) {
+      return Text(
+        displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: nameStyle,
+      );
+    }
+
+    final options = <int, String>{};
+
+    for (final employee in _eligibleAssignees) {
+      final id = int.tryParse('${employee['id']}');
+      if (id == null) continue;
+
+      options[id] =
+          (employee['full_name'] ?? employee['name'] ?? 'Employee $id')
+              .toString();
+    }
+
+    if (assignedId != null && !options.containsKey(assignedId)) {
+      options[assignedId] = displayName;
+    }
+
+    final busy = _assigningInvoiceIds.contains(invoiceId);
+
+    final selectedName = assignedId != null
+        ? (options[assignedId] ?? displayName)
+        : displayName;
+
+    return PopupMenuButton<int>(
+      enabled: !busy && !_loadingAssignees && options.isNotEmpty,
+      tooltip: 'Assign invoice',
+      onSelected: (value) {
+        if (value != assignedId) {
+          _assignInvoice(invoiceId, value);
+        }
+      },
+      itemBuilder: (context) {
+        return options.entries.map((entry) {
+          return PopupMenuItem<int>(
+            value: entry.key,
+            child: Text(entry.value, style: nameStyle),
+          );
+        }).toList();
+      },
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              selectedName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: nameStyle,
+            ),
+          ),
+          const Icon(Icons.arrow_drop_down, color: Color(0xFF000000), size: 20),
+        ],
+      ),
+    );
+  }
+
   Future<void> _fetchInvoices() async {
-    setState(() { _loadingInvoices = true; _invoicesError = null; });
+    setState(() {
+      _loadingInvoices = true;
+      _invoicesError = null;
+    });
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final token = authService.token;
@@ -298,10 +521,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           _loadingInvoices = false;
         });
       } else {
-        setState(() { _invoicesError = 'Server returned ${response.statusCode}'; _loadingInvoices = false; });
+        setState(() {
+          _invoicesError = 'Server returned ${response.statusCode}';
+          _loadingInvoices = false;
+        });
       }
     } catch (e) {
-      setState(() { _invoicesError = 'Cannot connect to server'; _loadingInvoices = false; });
+      setState(() {
+        _invoicesError = 'Cannot connect to server';
+        _loadingInvoices = false;
+      });
     }
   }
 
@@ -313,7 +542,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
       final monthParam = _selectedMonth > 0 ? 'month=$_selectedMonth&' : '';
       final response = await http.get(
-        Uri.parse('$_baseUrl/invoices/metrics?${monthParam}year=$_selectedYear'),
+        Uri.parse(
+          '$_baseUrl/invoices/metrics?${monthParam}year=$_selectedYear',
+        ),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -324,9 +555,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         final body = jsonDecode(response.body);
         final data = body['data'];
         setState(() {
-          _totalInvoiced = double.tryParse(data['total_invoiced'].toString()) ?? 0;
-          _collectedAmount = double.tryParse(data['collected_amount'].toString()) ?? 0;
-          _outstandingBalance = double.tryParse(data['outstanding_balance'].toString()) ?? 0;
+          _totalInvoiced =
+              double.tryParse(data['total_invoiced'].toString()) ?? 0;
+          _collectedAmount =
+              double.tryParse(data['collected_amount'].toString()) ?? 0;
+          _outstandingBalance =
+              double.tryParse(data['outstanding_balance'].toString()) ?? 0;
           _loadingMetrics = false;
         });
       } else {
@@ -354,16 +588,20 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         await _fetchInvoices();
         await _fetchMetrics();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Failed to update status'),
-          backgroundColor: Colors.redAccent,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update status'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Cannot connect to server'),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot connect to server'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -382,21 +620,27 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       if (response.statusCode == 200) {
         await _fetchInvoices();
         await _fetchMetrics();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Invoice deleted'),
-          backgroundColor: Color(0xFFDC2626),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invoice deleted'),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Failed to delete invoice'),
-          backgroundColor: Colors.redAccent,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to delete invoice'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Cannot connect to server'),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot connect to server'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -420,7 +664,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       }
 
       if (_filterByReminderToday) {
-        final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '').toString().trim();
+        final rDateStr = (row['reminder_date'] ?? row['reminderDate'] ?? '')
+            .toString()
+            .trim();
         if (rDateStr.isEmpty || rDateStr == 'null') return false;
         try {
           final rDate = DateFormat('dd/MM/yyyy').parse(rDateStr);
@@ -435,32 +681,41 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         final query = _searchQuery.trim().toLowerCase();
         final invNo = (row['invoice_no'] ?? '').toString().toLowerCase();
         final clientName = (row['client_name'] ?? '').toString().toLowerCase();
-        final packageType = (row['package_type'] ?? '').toString().toLowerCase();
+        final packageType = (row['package_type'] ?? '')
+            .toString()
+            .toLowerCase();
 
-        if (!invNo.contains(query) && !clientName.contains(query) && !packageType.contains(query)) {
+        if (!invNo.contains(query) &&
+            !clientName.contains(query) &&
+            !packageType.contains(query)) {
           return false;
         }
       }
 
       if (!_isFilterMenuOpen || activeFilter == "All Logs") return true;
-      
+
       String rawStatus = (row["status"] ?? 'DRAFT').toString().toUpperCase();
       if (rawStatus == 'PARTIAL' || rawStatus == 'OVERDUE') {
         rawStatus = 'PENDING';
       }
 
       if (activeFilter.toUpperCase() == "NEW") return rawStatus == "NEW";
-      if (activeFilter.toUpperCase() == "PENDING") return rawStatus == "PENDING";
+      if (activeFilter.toUpperCase() == "PENDING")
+        return rawStatus == "PENDING";
       if (activeFilter.toUpperCase() == "DRAFT") return rawStatus == "DRAFT";
       if (activeFilter.toUpperCase() == "PAID") return rawStatus == "PAID";
-      
+
       return rawStatus == activeFilter.toUpperCase();
     }).toList();
 
     filtered.sort((a, b) {
       // Bring reminders due today or past to the very top
-      final rAStr = (a["reminder_date"] ?? a["reminderDate"] ?? '').toString().trim();
-      final rBStr = (b["reminder_date"] ?? b["reminderDate"] ?? '').toString().trim();
+      final rAStr = (a["reminder_date"] ?? a["reminderDate"] ?? '')
+          .toString()
+          .trim();
+      final rBStr = (b["reminder_date"] ?? b["reminderDate"] ?? '')
+          .toString()
+          .trim();
 
       bool isDueA = false;
       bool isDueB = false;
@@ -469,7 +724,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         if (rAStr.isNotEmpty && rAStr != 'null') {
           final d = DateFormat('dd/MM/yyyy').parse(rAStr);
           final nd = DateTime(d.year, d.month, d.day);
-          if (nd.isBefore(normalizedToday) || nd.isAtSameMomentAs(normalizedToday)) isDueA = true;
+          if (nd.isBefore(normalizedToday) ||
+              nd.isAtSameMomentAs(normalizedToday))
+            isDueA = true;
         }
       } catch (_) {}
 
@@ -477,7 +734,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         if (rBStr.isNotEmpty && rBStr != 'null') {
           final d = DateFormat('dd/MM/yyyy').parse(rBStr);
           final nd = DateTime(d.year, d.month, d.day);
-          if (nd.isBefore(normalizedToday) || nd.isAtSameMomentAs(normalizedToday)) isDueB = true;
+          if (nd.isBefore(normalizedToday) ||
+              nd.isAtSameMomentAs(normalizedToday))
+            isDueB = true;
         }
       } catch (_) {}
 
@@ -486,10 +745,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
       String statusA = (a["status"] ?? 'DRAFT').toString().toUpperCase();
       String statusB = (b["status"] ?? 'DRAFT').toString().toUpperCase();
-      
+
       if (statusA == 'PARTIAL' || statusA == 'OVERDUE') statusA = 'PENDING';
       if (statusB == 'PARTIAL' || statusB == 'OVERDUE') statusB = 'PENDING';
-      
+
       int getPriority(String status) {
         if (status == 'NEW') return 1;
         if (status == 'DRAFT') return 2;
@@ -504,7 +763,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       if (pA != pB) {
         return pA.compareTo(pB);
       }
-      
+
       try {
         final dateA = DateFormat('dd/MM/yyyy').parse(a['invoice_date'] ?? '');
         final dateB = DateFormat('dd/MM/yyyy').parse(b['invoice_date'] ?? '');
@@ -527,7 +786,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   Future<void> _callPhone(String phone) async {
     if (phone.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No phone number available for this client'), backgroundColor: Colors.redAccent),
+        const SnackBar(
+          content: Text('No phone number available for this client'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
@@ -537,7 +799,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open the phone dialer'), backgroundColor: Colors.redAccent),
+        const SnackBar(
+          content: Text('Could not open the phone dialer'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
     }
   }
@@ -545,7 +810,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   Future<void> _openWhatsApp(String phone) async {
     if (phone.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No phone number available for this client'), backgroundColor: Colors.redAccent),
+        const SnackBar(
+          content: Text('No phone number available for this client'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
@@ -556,7 +824,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open WhatsApp'), backgroundColor: Colors.redAccent),
+        const SnackBar(
+          content: Text('Could not open WhatsApp'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
     }
   }
@@ -585,10 +856,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final invoices = _getFilteredAndSortedInvoices();
 
     if (invoices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No invoices to export'),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No invoices to export'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
       return;
     }
 
@@ -642,7 +915,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       final phone = (row['client_phone'] ?? '').toString();
       final invoiceDate = (row['invoice_date'] ?? '').toString();
       final maintenanceDate = (row['maintenance_date'] ?? '').toString();
-      
+
       final total = _parseAmount(row['total_amount']);
       final paid = _parseAmount(row['paid_amount']);
       final pending = _parseAmount(row['balance_amount']);
@@ -678,30 +951,45 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       </html>
     ''');
 
-    final fileName = 'GoDigital_Invoice_Template_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
+    final fileName =
+        'GoDigital_Invoice_Template_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.xls';
 
     try {
-      final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(htmlBuffer.toString())];
+      final bytes = <int>[
+        0xEF,
+        0xBB,
+        0xBF,
+        ...utf8.encode(htmlBuffer.toString()),
+      ];
       await saveAndShareCsv(bytes, fileName);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('✓ Professional Colorful Template exported successfully!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '✓ Professional Colorful Template exported successfully!',
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error exporting: $e'),
-          backgroundColor: Colors.redAccent,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
     }
   }
-  
-  Future<void> _showPDFPreview(BuildContext context, Map<String, dynamic> invoice) async {
+
+  Future<void> _showPDFPreview(
+    BuildContext context,
+    Map<String, dynamic> invoice,
+  ) async {
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
       final token = authService.token;
@@ -714,7 +1002,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         },
       );
       if (response.statusCode != 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to load invoice details'), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to load invoice details'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
         return;
       }
 
@@ -742,14 +1035,37 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 Container(
                   height: 28,
                   color: const Color(0xFF0052CC),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
-                      Container(width: 10, height: 10, color: Colors.white, margin: const EdgeInsets.only(left: 5)),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        color: Colors.white,
+                        margin: const EdgeInsets.only(left: 5),
+                      ),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        color: Colors.white,
+                        margin: const EdgeInsets.only(left: 5),
+                      ),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        color: Colors.white,
+                        margin: const EdgeInsets.only(left: 5),
+                      ),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        color: Colors.white,
+                        margin: const EdgeInsets.only(left: 5),
+                      ),
                     ],
                   ),
                 ),
@@ -763,17 +1079,27 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                         SizedBox(
                           width: 140,
                           height: 50,
-                          child: Image.asset('assets/images/godigital_logo.png', fit: BoxFit.contain),
+                          child: Image.asset(
+                            'assets/images/godigital_logo.png',
+                            fit: BoxFit.contain,
+                          ),
                         ),
                         const SizedBox(height: 3),
 
                         Container(
-                          decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 1)),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.black, width: 1),
+                          ),
                           child: Column(
                             children: [
                               Container(
                                 decoration: const BoxDecoration(
-                                  border: Border(bottom: BorderSide(color: Colors.black, width: 1)),
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: Colors.black,
+                                      width: 1,
+                                    ),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
@@ -782,10 +1108,21 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                                       child: Container(
                                         padding: const EdgeInsets.all(10),
                                         decoration: const BoxDecoration(
-                                          border: Border(right: BorderSide(color: Colors.black, width: 1)),
+                                          border: Border(
+                                            right: BorderSide(
+                                              color: Colors.black,
+                                              width: 1,
+                                            ),
+                                          ),
                                         ),
                                         alignment: Alignment.center,
-                                        child: const Text('GO DIGITAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                        child: const Text(
+                                          'GO DIGITAL',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                     Expanded(
@@ -793,14 +1130,31 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                                       child: Container(
                                         padding: const EdgeInsets.all(8),
                                         decoration: const BoxDecoration(
-                                          border: Border(right: BorderSide(color: Colors.black, width: 1)),
+                                          border: Border(
+                                            right: BorderSide(
+                                              color: Colors.black,
+                                              width: 1,
+                                            ),
+                                          ),
                                         ),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
                                           children: [
-                                            const Text('Invoice No.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9)),
+                                            const Text(
+                                              'Invoice No.',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 9,
+                                              ),
+                                            ),
                                             const SizedBox(height: 2),
-                                            Text(invoiceData['invoice_no'] ?? '', style: const TextStyle(fontSize: 10)),
+                                            Text(
+                                              invoiceData['invoice_no'] ?? '',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -810,11 +1164,23 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                                       child: Container(
                                         padding: const EdgeInsets.all(8),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
                                           children: [
-                                            const Text('Invoice Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9)),
+                                            const Text(
+                                              'Invoice Date',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 9,
+                                              ),
+                                            ),
                                             const SizedBox(height: 2),
-                                            Text(invoiceData['invoice_date'] ?? '', style: const TextStyle(fontSize: 10)),
+                                            Text(
+                                              invoiceData['invoice_date'] ?? '',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -828,11 +1194,20 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('TO', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+                                    const Text(
+                                      'TO',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
                                     const SizedBox(height: 2),
                                     Padding(
                                       padding: const EdgeInsets.only(left: 10),
-                                      child: Text(invoiceData['client_name'] ?? '', style: const TextStyle(fontSize: 10)),
+                                      child: Text(
+                                        invoiceData['client_name'] ?? '',
+                                        style: const TextStyle(fontSize: 10),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -843,8 +1218,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                         const SizedBox(height: 8),
 
                         Table(
-                          border: TableBorder.all(color: Colors.black, width: 1),
-                          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                          border: TableBorder.all(
+                            color: Colors.black,
+                            width: 1,
+                          ),
+                          defaultVerticalAlignment:
+                              TableCellVerticalAlignment.middle,
                           columnWidths: const {
                             0: FixedColumnWidth(30),
                             1: FlexColumnWidth(2),
@@ -854,165 +1233,339 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                           },
                           children: [
                             TableRow(
-                              decoration: const BoxDecoration(color: Color(0xFFF0F0F0)),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF0F0F0),
+                              ),
                               children: [
-                                _tableCell('S.No', bold: true, align: TextAlign.center),
-                                _tableCell('DESCRIPTIONS', bold: true, align: TextAlign.center),
-                                _tableCell('QTY', bold: true, align: TextAlign.center),
-                                _tableCell('RATE', bold: true, align: TextAlign.center),
-                                _tableCell('AMOUNT', bold: true, align: TextAlign.center),
+                                _tableCell(
+                                  'S.No',
+                                  bold: true,
+                                  align: TextAlign.center,
+                                ),
+                                _tableCell(
+                                  'DESCRIPTIONS',
+                                  bold: true,
+                                  align: TextAlign.center,
+                                ),
+                                _tableCell(
+                                  'QTY',
+                                  bold: true,
+                                  align: TextAlign.center,
+                                ),
+                                _tableCell(
+                                  'RATE',
+                                  bold: true,
+                                  align: TextAlign.center,
+                                ),
+                                _tableCell(
+                                  'AMOUNT',
+                                  bold: true,
+                                  align: TextAlign.center,
+                                ),
                               ],
                             ),
-                            ...((invoiceData['items'] as List?) ?? []).asMap().entries.map((entry) {
-                              final i = entry.key;
-                              final item = entry.value;
-                              final desc = item['description'] ?? '';
-                              final qty = int.tryParse(item['qty'].toString()) ?? 1;
-                              final rate = _parseAmount(item['rate']);
-                              final amt = _parseAmount(item['amount']);
+                            ...((invoiceData['items'] as List?) ?? [])
+                                .asMap()
+                                .entries
+                                .map((entry) {
+                                  final i = entry.key;
+                                  final item = entry.value;
+                                  final desc = item['description'] ?? '';
+                                  final qty =
+                                      int.tryParse(item['qty'].toString()) ?? 1;
+                                  final rate = _parseAmount(item['rate']);
+                                  final amt = _parseAmount(item['amount']);
 
-                              return TableRow(children: [
-                                _tableCell((i + 1).toString(), align: TextAlign.center),
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  alignment: Alignment.centerLeft,
-                                  child: desc.isEmpty
-                                      ? const Text('-', style: TextStyle(fontSize: 10))
-                                      : Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              desc.split('\n')[0],
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black),
-                                            ),
-                                            ...desc.split('\n').skip(1).map((line) {
-                                              return Padding(
-                                                padding: const EdgeInsets.only(top: 2),
-                                                child: Text(line.trim(), style: const TextStyle(fontSize: 10, color: Colors.black)),
-                                              );
-                                            }),
-                                          ],
-                                        ),
-                                ),
-                                _tableCell(qty.toString(), align: TextAlign.center),
-                                _tableCell(rate.toStringAsFixed(0), align: TextAlign.center),
-                                _tableCell(amt.toStringAsFixed(0), align: TextAlign.center),
-                              ]);
-                            }),
+                                  return TableRow(
+                                    children: [
+                                      _tableCell(
+                                        (i + 1).toString(),
+                                        align: TextAlign.center,
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        alignment: Alignment.centerLeft,
+                                        child: desc.isEmpty
+                                            ? const Text(
+                                                '-',
+                                                style: TextStyle(fontSize: 10),
+                                              )
+                                            : Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    desc.split('\n')[0],
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 10,
+                                                      color: Colors.black,
+                                                    ),
+                                                  ),
+                                                  ...desc.split('\n').skip(1).map((
+                                                    line,
+                                                  ) {
+                                                    return Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                            top: 2,
+                                                          ),
+                                                      child: Text(
+                                                        line.trim(),
+                                                        style: const TextStyle(
+                                                          fontSize: 10,
+                                                          color: Colors.black,
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }),
+                                                ],
+                                              ),
+                                      ),
+                                      _tableCell(
+                                        qty.toString(),
+                                        align: TextAlign.center,
+                                      ),
+                                      _tableCell(
+                                        rate.toStringAsFixed(0),
+                                        align: TextAlign.center,
+                                      ),
+                                      _tableCell(
+                                        amt.toStringAsFixed(0),
+                                        align: TextAlign.center,
+                                      ),
+                                    ],
+                                  );
+                                }),
                           ],
                         ),
 
                         Table(
-                          border: TableBorder.all(color: Colors.black, width: 1),
+                          border: TableBorder.all(
+                            color: Colors.black,
+                            width: 1,
+                          ),
                           columnWidths: const {
                             0: FlexColumnWidth(3),
                             1: FixedColumnWidth(135),
                           },
                           children: [
-                            TableRow(children: [
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  (subtotal == total && discount == 0 && tax == 0) ? 'GRAND TOTAL' : 'TOTAL AMOUNT',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            TableRow(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    (subtotal == total &&
+                                            discount == 0 &&
+                                            tax == 0)
+                                        ? 'GRAND TOTAL'
+                                        : 'TOTAL AMOUNT',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                alignment: Alignment.center,
-                                child: Text('₹ ${subtotal.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                              ),
-                            ]),
+                                Container(
+                                  padding: const EdgeInsets.all(4),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    '₹ ${subtotal.toStringAsFixed(0)} /-',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
 
-                            if (!(subtotal == total && discount == 0 && tax == 0)) ...[
+                            if (!(subtotal == total &&
+                                discount == 0 &&
+                                tax == 0)) ...[
                               if (discount > 0)
-                                TableRow(children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    alignment: Alignment.center,
-                                    child: const Text('DISCOUNT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    alignment: Alignment.center,
-                                    child: Text('₹ ${discount.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ),
-                                ]),
+                                TableRow(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      alignment: Alignment.center,
+                                      child: const Text(
+                                        'DISCOUNT',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        '₹ ${discount.toStringAsFixed(0)} /-',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
 
                               if (tax > 0)
-                                TableRow(children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    alignment: Alignment.center,
-                                    child: const Text('TAX (GST)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    alignment: Alignment.center,
-                                    child: Text('₹ ${tax.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ),
-                                ]),
+                                TableRow(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      alignment: Alignment.center,
+                                      child: const Text(
+                                        'TAX (GST)',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        '₹ ${tax.toStringAsFixed(0)} /-',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
 
-                              TableRow(children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: const Text('GRAND TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: Text('₹ ${total.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                              ]),
+                              TableRow(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      'GRAND TOTAL',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '₹ ${total.toStringAsFixed(0)} /-',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
 
                             if (paid > 0)
-                              TableRow(children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: const Text('PAID AMOUNT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: Text('₹ ${paid.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                              ]),
+                              TableRow(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      'PAID AMOUNT',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '₹ ${paid.toStringAsFixed(0)} /-',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
 
                             if (balance > 0)
-                              TableRow(children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: const Text('BALANCE TO BE PAID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  alignment: Alignment.center,
-                                  child: Text('₹ ${balance.toStringAsFixed(0)} /-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                              ]),
+                              TableRow(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      'BALANCE TO BE PAID',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '₹ ${balance.toStringAsFixed(0)} /-',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                         const SizedBox(height: 10),
 
-                        if ((invoiceData['notes'] ?? '').toString().isNotEmpty) ...[
-                          const Text('Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        if ((invoiceData['notes'] ?? '')
+                            .toString()
+                            .isNotEmpty) ...[
+                          const Text(
+                            'Notes',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 8,
+                            ),
+                          ),
                           const SizedBox(height: 2),
-                          Text(invoiceData['notes'], style: const TextStyle(fontSize: 9)),
+                          Text(
+                            invoiceData['notes'],
+                            style: const TextStyle(fontSize: 9),
+                          ),
                           const SizedBox(height: 6),
                         ],
 
-                        if ((invoiceData['terms'] ?? '').toString().isNotEmpty) ...[
-                          const Text('Terms & Conditions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 8)),
+                        if ((invoiceData['terms'] ?? '')
+                            .toString()
+                            .isNotEmpty) ...[
+                          const Text(
+                            'Terms & Conditions',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 8,
+                            ),
+                          ),
                           const SizedBox(height: 2),
-                          ...invoiceData['terms'].toString().split('\n').map((term) {
+                          ...invoiceData['terms'].toString().split('\n').map((
+                            term,
+                          ) {
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 2),
-                              child: Text(term.trim(), style: const TextStyle(fontSize: 9)),
+                              child: Text(
+                                term.trim(),
+                                style: const TextStyle(fontSize: 9),
+                              ),
                             );
                           }),
                         ],
@@ -1026,7 +1579,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                               SizedBox(
                                 width: 80,
                                 height: 80,
-                                child: Image.asset('assets/images/office_seal.png', fit: BoxFit.contain),
+                                child: Image.asset(
+                                  'assets/images/office_seal.png',
+                                  fit: BoxFit.contain,
+                                ),
                               ),
                             ],
                           ),
@@ -1049,7 +1605,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                               const SizedBox(height: 3),
                               const Text(
                                 'NAME: GO DIGITAL | BANK: IDFC FIRST BANK | A/C NO: 10075087276 | BRANCH: KILPAUK | IFSC: IDFB0080121',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 9.5, color: Color(0xFF0052CC)),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 9.5,
+                                  color: Color(0xFF0052CC),
+                                ),
                               ),
                               const SizedBox(height: 3),
                               const Text(
@@ -1067,15 +1627,27 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 Container(
                   color: const Color(0xFF0052CC),
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: const [
-                      Text('GO DIGITAL', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text(
+                        'GO DIGITAL',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                       SizedBox(height: 2),
-                      Text('No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
-                          style: TextStyle(fontSize: 10, color: Colors.white),
-                          textAlign: TextAlign.center),
+                      Text(
+                        'No:14, Udaya Suriyan Nagar, Guduvanchery 603202 Near Olala Cafe',
+                        style: TextStyle(fontSize: 10, color: Colors.white),
+                        textAlign: TextAlign.center,
+                      ),
                     ],
                   ),
                 ),
@@ -1090,27 +1662,55 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                         onPressed: () => Navigator.pop(context),
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Color(0xFFCBD5E1)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 8,
+                          ),
                         ),
-                        child: const Text('Close', style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 12)),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(
+                            color: Color(0xFF475569),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(context);
                           await Navigator.pushNamed(
-                            context, '/add-invoice',
-                            arguments: {'invoiceId': invoice['id'], 'viewOnly': true},
+                            context,
+                            '/add-invoice',
+                            arguments: {
+                              'invoiceId': invoice['id'],
+                              'viewOnly': true,
+                            },
                           );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF0052CC),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 8,
+                          ),
                           elevation: 0,
                         ),
-                        label: const Text('Open & Print', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
+                        label: const Text(
+                          'Open & Print',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -1121,15 +1721,31 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
-  Widget _tableCell(String text, {bool bold = false, TextAlign align = TextAlign.left, double fontSize = 10}) {
+  Widget _tableCell(
+    String text, {
+    bool bold = false,
+    TextAlign align = TextAlign.left,
+    double fontSize = 10,
+  }) {
     return Container(
       padding: const EdgeInsets.all(8),
-      alignment: align == TextAlign.center ? Alignment.center : Alignment.centerLeft,
-      child: Text(text, textAlign: align, style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal, fontSize: fontSize)),
+      alignment: align == TextAlign.center
+          ? Alignment.center
+          : Alignment.centerLeft,
+      child: Text(
+        text,
+        textAlign: align,
+        style: TextStyle(
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+          fontSize: fontSize,
+        ),
+      ),
     );
   }
 
@@ -1177,27 +1793,45 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   Widget build(BuildContext context) {
     final authService = context.watch<AuthService>();
     final user = authService.user;
-    final bool isMainAdmin = user?['isMainAdmin'] == true || 
-                             user?['isMainAdmin'] == 1 || 
-                             user?['isMainAdmin'].toString() == '1' ||
-                             user?['is_main_admin'] == true || 
-                             user?['is_main_admin'] == 1 || 
-                             user?['is_main_admin'].toString() == '1';
+    final bool isMainAdmin =
+        user?['isMainAdmin'] == true ||
+        user?['isMainAdmin'] == 1 ||
+        user?['isMainAdmin'].toString() == '1' ||
+        user?['is_main_admin'] == true ||
+        user?['is_main_admin'] == 1 ||
+        user?['is_main_admin'].toString() == '1';
 
     final filteredInvoices = _getFilteredAndSortedInvoices();
 
     final totalInvoices = filteredInvoices.length;
-    final totalPages = totalInvoices == 0 ? 1 : (totalInvoices / _invoicesPerPage).ceil();
+    final totalPages = totalInvoices == 0
+        ? 1
+        : (totalInvoices / _invoicesPerPage).ceil();
     if (_currentPage > totalPages) _currentPage = totalPages;
     if (_currentPage < 1) _currentPage = 1;
     final startIndex = (_currentPage - 1) * _invoicesPerPage;
-    final endIndex = (startIndex + _invoicesPerPage > totalInvoices) ? totalInvoices : startIndex + _invoicesPerPage;
+    final endIndex = (startIndex + _invoicesPerPage > totalInvoices)
+        ? totalInvoices
+        : startIndex + _invoicesPerPage;
     final pagedInvoices = filteredInvoices.sublist(
       startIndex < totalInvoices ? startIndex : 0,
       endIndex,
     );
 
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
     return AdminLayout(
       pageTitle: "Invoice Management",
@@ -1211,7 +1845,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < 700;
-          final isTablet = constraints.maxWidth >= 700 && constraints.maxWidth < 1100;
+          final isTablet =
+              constraints.maxWidth >= 700 && constraints.maxWidth < 1100;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1475,7 +2110,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                         children: [
                           _workspaceTitle(totalInvoices),
                           const SizedBox(height: 14),
-                          _buildFilterRow(monthNames, isMainAdmin, fullWidth: true),
+                          _buildFilterRow(
+                            monthNames,
+                            isMainAdmin,
+                            fullWidth: true,
+                          ),
                         ],
                       )
                     : Row(
@@ -1535,7 +2174,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  Widget _buildFilterRow(List<String> monthNames, bool isMainAdmin, {bool fullWidth = false}) {
+  Widget _buildFilterRow(
+    List<String> monthNames,
+    bool isMainAdmin, {
+    bool fullWidth = false,
+  }) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -1552,8 +2195,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             child: DropdownButton<int>(
               value: _selectedMonth,
               isDense: true,
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF64748B)),
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
+              icon: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 16,
+                color: Color(0xFF64748B),
+              ),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF334155),
+              ),
               items: [
                 const DropdownMenuItem(value: 0, child: Text('All Months')),
                 ...List.generate(12, (i) => i + 1).map((month) {
@@ -1580,18 +2231,38 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              border: Border.all(color: _fromMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0)),
+              border: Border.all(
+                color: _fromMaintenanceDate != null
+                    ? const Color(0xFF0052CC)
+                    : const Color(0xFFE2E8F0),
+              ),
               borderRadius: BorderRadius.circular(12),
-              color: _fromMaintenanceDate != null ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+              color: _fromMaintenanceDate != null
+                  ? const Color(0xFFEFF6FF)
+                  : const Color(0xFFF8FAFC),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.date_range_rounded, size: 14, color: _fromMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFF64748B)),
+                Icon(
+                  Icons.date_range_rounded,
+                  size: 14,
+                  color: _fromMaintenanceDate != null
+                      ? const Color(0xFF0052CC)
+                      : const Color(0xFF64748B),
+                ),
                 const SizedBox(width: 5),
                 Text(
-                  _fromMaintenanceDate != null ? DateFormat('dd/MM').format(_fromMaintenanceDate!) : 'From',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _fromMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFF334155)),
+                  _fromMaintenanceDate != null
+                      ? DateFormat('dd/MM').format(_fromMaintenanceDate!)
+                      : 'From',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _fromMaintenanceDate != null
+                        ? const Color(0xFF0052CC)
+                        : const Color(0xFF334155),
+                  ),
                 ),
               ],
             ),
@@ -1602,18 +2273,38 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              border: Border.all(color: _toMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0)),
+              border: Border.all(
+                color: _toMaintenanceDate != null
+                    ? const Color(0xFF0052CC)
+                    : const Color(0xFFE2E8F0),
+              ),
               borderRadius: BorderRadius.circular(12),
-              color: _toMaintenanceDate != null ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
+              color: _toMaintenanceDate != null
+                  ? const Color(0xFFEFF6FF)
+                  : const Color(0xFFF8FAFC),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.date_range_rounded, size: 14, color: _toMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFF64748B)),
+                Icon(
+                  Icons.date_range_rounded,
+                  size: 14,
+                  color: _toMaintenanceDate != null
+                      ? const Color(0xFF0052CC)
+                      : const Color(0xFF64748B),
+                ),
                 const SizedBox(width: 5),
                 Text(
-                  _toMaintenanceDate != null ? DateFormat('dd/MM').format(_toMaintenanceDate!) : 'To',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _toMaintenanceDate != null ? const Color(0xFF0052CC) : const Color(0xFF334155)),
+                  _toMaintenanceDate != null
+                      ? DateFormat('dd/MM').format(_toMaintenanceDate!)
+                      : 'To',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _toMaintenanceDate != null
+                        ? const Color(0xFF0052CC)
+                        : const Color(0xFF334155),
+                  ),
                 ),
               ],
             ),
@@ -1635,7 +2326,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 borderRadius: BorderRadius.circular(12),
                 color: const Color(0xFFFEE2E2),
               ),
-              child: const Icon(Icons.close, size: 12, color: Color(0xFFDC2626)),
+              child: const Icon(
+                Icons.close,
+                size: 12,
+                color: Color(0xFFDC2626),
+              ),
             ),
           ),
         if (_isFilterMenuOpen) ...[
@@ -1659,16 +2354,31 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: _isFilterMenuOpen ? const Color(0xFFF1F5F9) : const Color(0xFFF8FAFC),
+              color: _isFilterMenuOpen
+                  ? const Color(0xFFF1F5F9)
+                  : const Color(0xFFF8FAFC),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(_isFilterMenuOpen ? Icons.filter_list_off_rounded : Icons.filter_list_rounded, size: 14, color: const Color(0xFF64748B)),
+                Icon(
+                  _isFilterMenuOpen
+                      ? Icons.filter_list_off_rounded
+                      : Icons.filter_list_rounded,
+                  size: 14,
+                  color: const Color(0xFF64748B),
+                ),
                 const SizedBox(width: 5),
-                Text(_isFilterMenuOpen ? "Hide Filter" : "Filter", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                Text(
+                  _isFilterMenuOpen ? "Hide Filter" : "Filter",
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF334155),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1686,9 +2396,20 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.file_download_outlined, size: 14, color: Color(0xFF0052CC)),
+                Icon(
+                  Icons.file_download_outlined,
+                  size: 14,
+                  color: Color(0xFF0052CC),
+                ),
                 SizedBox(width: 5),
-                Text("Export", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
+                Text(
+                  "Export",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1700,9 +2421,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   Widget _buildLoadingState() {
     return const Padding(
       padding: EdgeInsets.symmetric(vertical: 54),
-      child: Center(
-        child: CircularProgressIndicator(color: Color(0xFF0052CC)),
-      ),
+      child: Center(child: CircularProgressIndicator(color: Color(0xFF0052CC))),
     );
   }
 
@@ -1713,9 +2432,16 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_rounded, size: 34, color: Color(0xFF94A3B8)),
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 34,
+              color: Color(0xFF94A3B8),
+            ),
             const SizedBox(height: 10),
-            Text(_invoicesError ?? 'Unable to load invoices', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+            Text(
+              _invoicesError ?? 'Unable to load invoices',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _fetchInvoices,
@@ -1734,11 +2460,26 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       child: Center(
         child: Column(
           children: [
-            Icon(Icons.receipt_long_outlined, size: 42, color: Color(0xFF94A3B8)),
+            Icon(
+              Icons.receipt_long_outlined,
+              size: 42,
+              color: Color(0xFF94A3B8),
+            ),
             SizedBox(height: 10),
-            Text('No invoices found', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF334155))),
+            Text(
+              'No invoices found',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF334155),
+              ),
+            ),
             SizedBox(height: 4),
-            Text('Try changing the filter or create a new invoice.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+            Text(
+              'Try changing the filter or create a new invoice.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+            ),
           ],
         ),
       ),
@@ -1756,7 +2497,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       controller: _horizontalController,
       thumbVisibility: true,
       interactive: true,
-      notificationPredicate: (notification) => notification.metrics.axis == Axis.horizontal,
+      notificationPredicate: (notification) =>
+          notification.metrics.axis == Axis.horizontal,
       child: SingleChildScrollView(
         controller: _horizontalController,
         scrollDirection: Axis.horizontal,
@@ -1785,6 +2527,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     _invoiceHeaderCell(label: "STATUS", flex: 2),
                     if (isMainAdmin)
                       _invoiceHeaderCell(label: "CREATED BY", flex: 2),
+                    _invoiceHeaderCell(label: "ASSIGNED TO", flex: 2),
                     _invoiceHeaderCell(
                       label: "ACTION",
                       flex: 3,
@@ -1800,14 +2543,19 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                   controller: _verticalController,
                   thumbVisibility: true,
                   interactive: true,
-                  notificationPredicate: (notification) => notification.metrics.axis == Axis.vertical,
+                  notificationPredicate: (notification) =>
+                      notification.metrics.axis == Axis.vertical,
                   child: ListView.separated(
                     controller: _verticalController,
                     primary: false,
-                    physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
+                    ),
                     itemCount: invoices.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFD7E2F2)),
-                    itemBuilder: (context, index) => _buildInvoiceHistoryRow(invoices[index], isMainAdmin),
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: Color(0xFFD7E2F2)),
+                    itemBuilder: (context, index) =>
+                        _buildInvoiceHistoryRow(invoices[index], isMainAdmin),
                   ),
                 ),
               ),
@@ -1884,7 +2632,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       padding: const EdgeInsets.all(12),
       itemCount: invoices.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) => _buildMobileInvoiceCard(invoices[index], startIndex + index + 1, isMainAdmin),
+      itemBuilder: (context, index) => _buildMobileInvoiceCard(
+        invoices[index],
+        startIndex + index + 1,
+        isMainAdmin,
+      ),
     );
   }
 
@@ -1899,13 +2651,17 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final String phone = row["client_phone"] ?? '';
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
-    final String reminderDate = (row["reminder_date"] ?? row["reminderDate"] ?? '').toString();
-    final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
+    final String reminderDate =
+        (row["reminder_date"] ?? row["reminderDate"] ?? '').toString();
+    final double total =
+        double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
     final String amount = _formatCurrency(total);
     final String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
     final String createdByName = row["created_by_name"] ?? 'Main Admin';
-    final double paid = double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
-    final double pending = double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
+    final double paid =
+        double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
+    final double pending =
+        double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
 
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
@@ -1939,37 +2695,73 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 ),
                 child: Text(
                   serialNo.toString(),
-                  style: const TextStyle(color: Color(0xFF0052CC), fontSize: 11, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    color: Color(0xFF0052CC),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   invNo,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF172033)),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF172033),
+                  ),
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
-                child: Text(status, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: statusText)),
+                decoration: BoxDecoration(
+                  color: statusBg,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    color: statusText,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(client, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF172033))),
+          Text(
+            client,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF172033),
+            ),
+          ),
           if (phone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Row(
               children: [
-                Text(phone, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63))),
+                Text(
+                  phone,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF3B4B63),
+                  ),
+                ),
                 const SizedBox(width: 8),
                 InkWell(
                   onTap: () => _callPhone(phone),
                   borderRadius: BorderRadius.circular(6),
                   child: const Padding(
                     padding: EdgeInsets.all(3),
-                    child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
+                    child: Icon(
+                      Icons.call_rounded,
+                      size: 15,
+                      color: Color(0xFF0052CC),
+                    ),
                   ),
                 ),
                 InkWell(
@@ -1988,29 +2780,83 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             ),
           ],
           const SizedBox(height: 4),
-          Text('Package: $type', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+          Text(
+            'Package: $type',
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           if (reminderDate.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text('Reminder Date: $reminderDate', style: const TextStyle(fontSize: 10, color: Color(0xFFD97706), fontWeight: FontWeight.w700)),
+            Text(
+              'Reminder Date: $reminderDate',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFFD97706),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
           if (isMainAdmin) ...[
             const SizedBox(height: 4),
-            Text('Created by: $createdByName', style: const TextStyle(fontSize: 10, color: Color(0xFF0052CC), fontWeight: FontWeight.w700)),
+            Text(
+              'Created by: $createdByName',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFF0052CC),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Text("Assigned to: ", style: TextStyle(fontSize: 10)),
+                Expanded(child: _buildInvoiceAssignee(row, isMainAdmin)),
+              ],
+            ),
           ],
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _mobileInfoTile(icon: Icons.currency_rupee_rounded, label: 'Total', value: amount, valueBold: true)),
+              Expanded(
+                child: _mobileInfoTile(
+                  icon: Icons.currency_rupee_rounded,
+                  label: 'Total',
+                  value: amount,
+                  valueBold: true,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _mobileInfoTile(icon: Icons.check_circle_outline_rounded, label: 'Paid', value: _formatCurrency(paid))),
+              Expanded(
+                child: _mobileInfoTile(
+                  icon: Icons.check_circle_outline_rounded,
+                  label: 'Paid',
+                  value: _formatCurrency(paid),
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _mobileInfoTile(icon: Icons.error_outline_rounded, label: 'Pending', value: _formatCurrency(pending))),
+              Expanded(
+                child: _mobileInfoTile(
+                  icon: Icons.error_outline_rounded,
+                  label: 'Pending',
+                  value: _formatCurrency(pending),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Text(invoiceDate, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+              Text(
+                invoiceDate,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const Spacer(),
               _mobileActionButton(
                 icon: Icons.picture_as_pdf_outlined,
@@ -2023,7 +2869,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 color: const Color(0xFF475569),
                 tooltip: 'View',
                 onTap: () async {
-                  await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': true});
+                  await Navigator.pushNamed(
+                    context,
+                    '/add-invoice',
+                    arguments: {'invoiceId': id, 'viewOnly': true},
+                  );
                   _fetchInvoices();
                   _fetchMetrics();
                 },
@@ -2033,7 +2883,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                 color: const Color(0xFF0052CC),
                 tooltip: 'Edit',
                 onTap: () async {
-                  await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': false});
+                  await Navigator.pushNamed(
+                    context,
+                    '/add-invoice',
+                    arguments: {'invoiceId': id, 'viewOnly': false},
+                  );
                   _fetchInvoices();
                   _fetchMetrics();
                 },
@@ -2051,22 +2905,51 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  Widget _mobileInfoTile({required IconData icon, required String label, required String value, bool valueBold = false}) {
+  Widget _mobileInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    bool valueBold = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 8, color: Color(0xFF94A3B8), fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 8,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: const Color(0xFF334155), fontWeight: valueBold ? FontWeight.w900 : FontWeight.w700)),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10,
+              color: const Color(0xFF334155),
+              fontWeight: valueBold ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _mobileActionButton({required IconData icon, required Color color, required String tooltip, required VoidCallback onTap}) {
+  Widget _mobileActionButton({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -2098,8 +2981,14 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           ? Column(
               children: [
                 Text(
-                  totalInvoices == 0 ? 'Showing 0 of 0 ledger files' : 'Showing ${startIndex + 1}–$endIndex of $totalInvoices ledger files',
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                  totalInvoices == 0
+                      ? 'Showing 0 of 0 ledger files'
+                      : 'Showing ${startIndex + 1}–$endIndex of $totalInvoices ledger files',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 _paginationControls(totalPages),
@@ -2109,8 +2998,13 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    totalInvoices == 0 ? 'Showing 0 of 0 ledger files' : 'Showing ${startIndex + 1} to $endIndex of $totalInvoices ledger files',
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    totalInvoices == 0
+                        ? 'Showing 0 of 0 ledger files'
+                        : 'Showing ${startIndex + 1} to $endIndex of $totalInvoices ledger files',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                    ),
                   ),
                 ),
                 _paginationControls(totalPages),
@@ -2123,23 +3017,57 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildPageButton('<', false, onTap: _currentPage > 1 ? () => setState(() => _currentPage--) : null),
+        _buildPageButton(
+          '<',
+          false,
+          onTap: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+        ),
         if (totalPages <= 5)
           for (int p = 1; p <= totalPages; p++)
-            _buildPageButton('$p', p == _currentPage, onTap: () => setState(() => _currentPage = p))
+            _buildPageButton(
+              '$p',
+              p == _currentPage,
+              onTap: () => setState(() => _currentPage = p),
+            )
         else ...[
-          _buildPageButton('1', _currentPage == 1, onTap: () => setState(() => _currentPage = 1)),
-          if (_currentPage > 3) const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Text('...')),
+          _buildPageButton(
+            '1',
+            _currentPage == 1,
+            onTap: () => setState(() => _currentPage = 1),
+          ),
+          if (_currentPage > 3)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('...'),
+            ),
           for (final p in <int>{
             (_currentPage - 1).clamp(2, totalPages - 1),
             _currentPage.clamp(2, totalPages - 1),
             (_currentPage + 1).clamp(2, totalPages - 1),
           })
-            _buildPageButton('$p', p == _currentPage, onTap: () => setState(() => _currentPage = p)),
-          if (_currentPage < totalPages - 2) const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: Text('...')),
-          _buildPageButton('$totalPages', _currentPage == totalPages, onTap: () => setState(() => _currentPage = totalPages)),
+            _buildPageButton(
+              '$p',
+              p == _currentPage,
+              onTap: () => setState(() => _currentPage = p),
+            ),
+          if (_currentPage < totalPages - 2)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text('...'),
+            ),
+          _buildPageButton(
+            '$totalPages',
+            _currentPage == totalPages,
+            onTap: () => setState(() => _currentPage = totalPages),
+          ),
         ],
-        _buildPageButton('>', false, onTap: _currentPage < totalPages ? () => setState(() => _currentPage++) : null),
+        _buildPageButton(
+          '>',
+          false,
+          onTap: _currentPage < totalPages
+              ? () => setState(() => _currentPage++)
+              : null,
+        ),
       ],
     );
   }
@@ -2155,7 +3083,9 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFF0052CC) : Colors.white,
           borderRadius: BorderRadius.circular(9),
-          border: Border.all(color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0)),
+          border: Border.all(
+            color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
+          ),
         ),
         alignment: Alignment.center,
         child: Text(
@@ -2163,7 +3093,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w800,
-            color: isActive ? Colors.white : (isDisabled ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
+            color: isActive
+                ? Colors.white
+                : (isDisabled
+                      ? const Color(0xFFCBD5E1)
+                      : const Color(0xFF475569)),
           ),
         ),
       ),
@@ -2178,7 +3112,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final String type = row["package_type"] ?? '-';
     final String invoiceDate = row["invoice_date"] ?? '';
     final String maintenanceDate = row["maintenance_date"] ?? '';
-    final double total = double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
+    final double total =
+        double.tryParse(row["total_amount"]?.toString() ?? '0') ?? 0;
     final String amount = _formatCurrency(total);
 
     String status = (row["status"] ?? 'DRAFT').toString().toUpperCase();
@@ -2188,8 +3123,10 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     final int? linkedQuotId = row["linked_quotation_id"];
     final String createdByName = row["created_by_name"] ?? 'Main Admin';
 
-    final double paid = double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
-    final double pending = double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
+    final double paid =
+        double.tryParse(row["paid_amount"]?.toString() ?? '0') ?? 0;
+    final double pending =
+        double.tryParse(row["balance_amount"]?.toString() ?? '0') ?? 0;
 
     final statusBg = _statusBg[status] ?? const Color(0xFFF1F5F9);
     final statusText = _statusText[status] ?? const Color(0xFF475569);
@@ -2205,25 +3142,72 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
       height: 65,
       decoration: BoxDecoration(
         color: rowBgColor,
-        border: const Border(bottom: BorderSide(color: Color(0xFFD7E2F2), width: 1)),
+        border: const Border(
+          bottom: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+        ),
       ),
       child: Row(
         children: [
-          _invoiceBodyCell(flex: 1, child: Text(id.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF475569)))),
-          _invoiceBodyCell(flex: 2, child: Text(invoiceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+          _invoiceBodyCell(
+            flex: 1,
+            child: Text(
+              id.toString(),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF475569),
+              ),
+            ),
+          ),
+          _invoiceBodyCell(
+            flex: 2,
+            child: Text(
+              invoiceDate,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
           _invoiceBodyCell(
             flex: 2,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(invNo, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF0052CC))),
+                Text(
+                  invNo,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0052CC),
+                  ),
+                ),
                 if (linkedQuotNo.isNotEmpty)
-                  Text('↗ $linkedQuotNo', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                  Text(
+                    '↗ $linkedQuotNo',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
               ],
             ),
           ),
-          _invoiceBodyCell(flex: 3, child: Text(client, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF172033)))),
+          _invoiceBodyCell(
+            flex: 3,
+            child: Text(
+              client,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF172033),
+              ),
+            ),
+          ),
           _invoiceBodyCell(
             flex: 3,
             child: Row(
@@ -2234,7 +3218,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     phone.isEmpty ? '—' : phone,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF3B4B63)),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF3B4B63),
+                    ),
                   ),
                 ),
                 if (phone.isNotEmpty) ...[
@@ -2244,7 +3232,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                     borderRadius: BorderRadius.circular(6),
                     child: const Padding(
                       padding: EdgeInsets.all(3),
-                      child: Icon(Icons.call_rounded, size: 15, color: Color(0xFF0052CC)),
+                      child: Icon(
+                        Icons.call_rounded,
+                        size: 15,
+                        color: Color(0xFF0052CC),
+                      ),
                     ),
                   ),
                   InkWell(
@@ -2263,32 +3255,144 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
               ],
             ),
           ),
-          _invoiceBodyCell(flex: 3, child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
-          _invoiceBodyCell(flex: 2, child: Text(maintenanceDate, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+          _invoiceBodyCell(
+            flex: 3,
+            child: Text(
+              type,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          _invoiceBodyCell(
+            flex: 2,
+            child: Text(
+              maintenanceDate,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
           _invoiceBodyCell(flex: 2, child: _buildReminderCell(row)),
-          _invoiceBodyCell(flex: 2, child: Text(amount, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF172033)))),
-          _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(paid), style: const TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.w700))),
-          _invoiceBodyCell(flex: 2, child: Text(_formatCurrency(pending), style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626), fontWeight: FontWeight.w700))),
+          _invoiceBodyCell(
+            flex: 2,
+            child: Text(
+              amount,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF172033),
+              ),
+            ),
+          ),
+          _invoiceBodyCell(
+            flex: 2,
+            child: Text(
+              _formatCurrency(paid),
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF16A34A),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          _invoiceBodyCell(
+            flex: 2,
+            child: Text(
+              _formatCurrency(pending),
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFFDC2626),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
           _invoiceBodyCell(
             flex: 2,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(20)),
-              child: Text(status, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: statusText)),
+              decoration: BoxDecoration(
+                color: statusBg,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                status,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: statusText,
+                ),
+              ),
             ),
           ),
           if (isMainAdmin)
-            _invoiceBodyCell(flex: 2, child: Text(createdByName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0052CC)))),
+            _invoiceBodyCell(
+              flex: 2,
+              child: Text(
+                createdByName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0052CC),
+                ),
+              ),
+            ),
+          _invoiceBodyCell(
+            flex: 2,
+            child: _buildInvoiceAssignee(row, isMainAdmin),
+          ),
           _invoiceBodyCell(
             flex: 3,
             alignment: Alignment.centerRight,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _desktopActionIcon(icon: Icons.picture_as_pdf_outlined, color: const Color(0xFFDC2626), tooltip: 'PDF Preview', onTap: () => _showPDFPreview(context, row)),
-                _desktopActionIcon(icon: Icons.visibility_outlined, color: const Color(0xFF475569), tooltip: 'View', onTap: () async { await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': true}); _fetchInvoices(); _fetchMetrics(); }),
-                _desktopActionIcon(icon: Icons.edit_outlined, color: const Color(0xFF0052CC), tooltip: 'Edit', onTap: () async { await Navigator.pushNamed(context, '/add-invoice', arguments: {'invoiceId': id, 'viewOnly': false}); _fetchInvoices(); _fetchMetrics(); }),
-                _desktopActionIcon(icon: Icons.delete_outline_rounded, color: const Color(0xFFDC2626), tooltip: 'Delete', onTap: () => _deleteInvoice(id)),
+                _desktopActionIcon(
+                  icon: Icons.picture_as_pdf_outlined,
+                  color: const Color(0xFFDC2626),
+                  tooltip: 'PDF Preview',
+                  onTap: () => _showPDFPreview(context, row),
+                ),
+                _desktopActionIcon(
+                  icon: Icons.visibility_outlined,
+                  color: const Color(0xFF475569),
+                  tooltip: 'View',
+                  onTap: () async {
+                    await Navigator.pushNamed(
+                      context,
+                      '/add-invoice',
+                      arguments: {'invoiceId': id, 'viewOnly': true},
+                    );
+                    _fetchInvoices();
+                    _fetchMetrics();
+                  },
+                ),
+                _desktopActionIcon(
+                  icon: Icons.edit_outlined,
+                  color: const Color(0xFF0052CC),
+                  tooltip: 'Edit',
+                  onTap: () async {
+                    await Navigator.pushNamed(
+                      context,
+                      '/add-invoice',
+                      arguments: {'invoiceId': id, 'viewOnly': false},
+                    );
+                    _fetchInvoices();
+                    _fetchMetrics();
+                  },
+                ),
+                _desktopActionIcon(
+                  icon: Icons.delete_outline_rounded,
+                  color: const Color(0xFFDC2626),
+                  tooltip: 'Delete',
+                  onTap: () => _deleteInvoice(id),
+                ),
               ],
             ),
           ),
@@ -2297,7 +3401,12 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  Widget _desktopActionIcon({required IconData icon, required Color color, required String tooltip, required VoidCallback onTap}) {
+  Widget _desktopActionIcon({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
     return Tooltip(
       message: tooltip,
       child: IconButton(
@@ -2308,7 +3417,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
- Widget _buildFilterTab(String label) {
+  Widget _buildFilterTab(String label) {
     final bool isActive = activeFilter.toUpperCase() == label.toUpperCase();
 
     return OutlinedButton(
@@ -2317,8 +3426,11 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
         _isFilterMenuOpen = true;
         _currentPage = 1;
       }),
-      style: OutlinedButton.styleFrom( // 👈 styleTop-ku pathila styleFrom nu maathavum
-        backgroundColor: isActive ? const Color(0xFF0052CC) : Colors.transparent,
+      style: OutlinedButton.styleFrom(
+        // 👈 styleTop-ku pathila styleFrom nu maathavum
+        backgroundColor: isActive
+            ? const Color(0xFF0052CC)
+            : Colors.transparent,
         side: BorderSide(
           color: isActive ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
         ),
@@ -2334,7 +3446,6 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     );
   }
 
-  
   static const TextStyle _tableHeadingStyle = TextStyle(
     fontSize: 10,
     fontWeight: FontWeight.w800,
