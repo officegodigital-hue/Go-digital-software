@@ -67,6 +67,9 @@ async function ensureWorkspaceTaskSchema(db) {
       ['cc_reassigned', 'TINYINT(1) NOT NULL DEFAULT 0'],
       // 1 = the handler picked this submit date; the assignment sync keeps it.
       ['cc_submit_edited', 'TINYINT(1) NOT NULL DEFAULT 0'],
+      // "Add content" rows: the client card (submit date) they were added in,
+      // so changing the row's own submit date doesn't move it off the card.
+      ['cc_card_date', 'DATE NULL'],
     ]) {
       if (!ccCols.has(name)) {
         await db.query(`ALTER TABLE content_calendar ADD COLUMN \`${name}\` ${definition}`);

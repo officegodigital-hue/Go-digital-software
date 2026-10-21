@@ -596,8 +596,14 @@ async function rowsForClient(clientName) {
        cc.description AS description_points,
        DATE_FORMAT(cc.publish_date, '%Y-%m-%d') AS publish_date,
        DATE_FORMAT(cc.submit_date, '%Y-%m-%d') AS submit_date,
-       (SELECT DATE_FORMAT(COALESCE(sa.deadline, sa.maintenance_date), '%Y-%m-%d')
-          FROM task_assignments sa WHERE sa.id = cc.source_assignment_id) AS source_deadline,
+       -- The card a row belongs to: the admin assignment's deadline, or for
+       -- "Add content" rows the card they were added in (their own submit
+       -- date can be anything).
+       COALESCE(
+         (SELECT DATE_FORMAT(COALESCE(sa.deadline, sa.maintenance_date), '%Y-%m-%d')
+            FROM task_assignments sa WHERE sa.id = cc.source_assignment_id),
+         DATE_FORMAT(cc.cc_card_date, '%Y-%m-%d')
+       ) AS source_deadline,
        cc.cc_status AS status,
        cc.cc_status,
        cc.cc_duration_secs,
@@ -748,7 +754,12 @@ router.put('/content-calendar/edit-row/:id', async (req, res) => {
     }
     // A date picked by the handler wins over the admin assignment's deadline.
     const touchesDate = updates.some(([column]) => column === 'submit_date');
-    const assignments = updates.map(([column]) => `\`${column}\` = ?`).join(', ') +
+    // Hand-added rows keep their card: remember the card date (the old submit
+    // date) before it changes. Runs first — MySQL applies SET left to right.
+    const keepCard = touchesDate
+      ? 'cc_card_date = IF(source_assignment_id IS NULL, COALESCE(cc_card_date, submit_date), cc_card_date), '
+      : '';
+    const assignments = keepCard + updates.map(([column]) => `\`${column}\` = ?`).join(', ') +
       (touchesDate ? ', cc_submit_edited = 1' : '');
     await connection.query(
       `UPDATE content_calendar SET ${assignments} WHERE id = ?`,
@@ -1797,12 +1808,39 @@ router.post('/content-calendar/add-row', async (req, res) => {
   const clientName = String(req.body.client_name || '').trim();
   const deliverable = String(req.body.deliverable || '').trim();
   const count = Math.min(Math.max(Number(req.body.count) || 1, 1), 50);
-  const submitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.submit_date || '').slice(0, 10))
-    ? String(req.body.submit_date).slice(0, 10)
-    : null;
+  const isoDay = (v) => {
+    const t = String(v || '').trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+    const d = new Date(`${t}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t ? null : t;
+  };
+  const cardDate = isoDay(req.body.card_date);
+  const rawSubmit = String(req.body.submit_date || '').trim();
+  const pickedDate = isoDay(rawSubmit);
   if (!clientName || !deliverable) {
     return res.status(400).json({ success: false, message: 'client_name and deliverable are required' });
   }
+  // A wrong date is refused (rows NOT added) instead of being quietly changed.
+  if (rawSubmit && !pickedDate) {
+    return res.status(400).json({ success: false, message: `Invalid submit date "${rawSubmit}" — rows not added` });
+  }
+  const dmy = (t) => `${t.slice(8, 10)}/${t.slice(5, 7)}/${t.slice(0, 4)}`;
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (pickedDate && pickedDate < todayKey) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid submit date ${dmy(pickedDate)} — it is already past. Rows not added.`,
+    });
+  }
+  if (pickedDate && cardDate && cardDate >= todayKey && pickedDate > cardDate) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid submit date ${dmy(pickedDate)} — after this card's submit date ${dmy(cardDate)}. Rows not added.`,
+    });
+  }
+  // No submit date → the card's date.
+  const submitDate = pickedDate || cardDate;
   let connection;
   try {
     connection = await db.getConnection();
@@ -1825,9 +1863,11 @@ router.post('/content-calendar/add-row', async (req, res) => {
     for (let i = 0; i < count; i += 1) {
       const [ins] = await connection.query(
         `INSERT INTO content_calendar
-           (client_id, client_name, s_no, deliverable, hook_headline, submit_date, assigned_by_name)
-         VALUES (?, ?, ?, ?, '', ?, ?)`,
-        [clients[0].id, clients[0].company_name, nextNo + i, deliverable, submitDate, req.user.fullName],
+           (client_id, client_name, s_no, deliverable, hook_headline, submit_date,
+            assigned_by_name, cc_card_date)
+         VALUES (?, ?, ?, ?, '', ?, ?, ?)`,
+        [clients[0].id, clients[0].company_name, nextNo + i, deliverable, submitDate,
+          req.user.fullName, cardDate || submitDate],
       );
       ids.push(ins.insertId);
     }
