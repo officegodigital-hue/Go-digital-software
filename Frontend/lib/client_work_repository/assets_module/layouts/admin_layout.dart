@@ -414,33 +414,19 @@ class _AdminLayoutState extends State<AdminLayout> {
   Widget _buildDesktopLayout() {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Column(
         children: [
-          SizedBox(
-            width: 250,
-            child: AdminSidebar(
-              selectedIndex: selectedIndex,
-              onItemSelected: _selectPage,
-              onLogout: widget.onLogout,
-            ),
+          AdminTopBar(
+            onSearch: _handleGlobalSearch,
+            onLogout: widget.onLogout,
+            selectedIndex: selectedIndex,
+            onNavigate: _selectPage,
           ),
 
           Expanded(
-            child: Column(
-              children: [
-                AdminTopBar(
-                  onSearch: _handleGlobalSearch,
-                  onLogout: widget.onLogout,
-                ),
-
-                Expanded(
-                  child: widget.childBuilder(
-                    selectedIndex,
-                    _selectPage,
-                  ),
-                ),
-              ],
+            child: widget.childBuilder(
+              selectedIndex,
+              _selectPage,
             ),
           ),
         ],

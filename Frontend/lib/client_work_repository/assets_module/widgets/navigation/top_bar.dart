@@ -13,12 +13,16 @@ class AdminTopBar extends StatefulWidget {
   final VoidCallback? onMenu;
   final ValueChanged<String>? onSearch;
   final VoidCallback? onLogout;
+  final int selectedIndex;
+  final ValueChanged<int>? onNavigate;
 
   const AdminTopBar({
     super.key,
     this.onMenu,
     this.onSearch,
     this.onLogout,
+    this.selectedIndex = 0,
+    this.onNavigate,
   });
 
   @override
@@ -1439,208 +1443,219 @@ class _AdminTopBarState extends State<AdminTopBar> {
   }
 
   // ============================================================
+  // NAV ITEMS
+  // ============================================================
+
+  static const _navItems = [
+    _NavItem(icon: Icons.home_outlined,      activeIcon: Icons.home_rounded,                      label: 'Dashboard'),
+    _NavItem(icon: Icons.folder_outlined,    activeIcon: Icons.folder_rounded,                    label: 'Asset Manager'),
+    _NavItem(icon: Icons.person_outline,     activeIcon: Icons.person_rounded,                    label: 'Users'),
+    _NavItem(icon: Icons.shield_outlined,    activeIcon: Icons.shield_rounded,                    label: 'Permissions'),
+    _NavItem(icon: Icons.download_outlined,  activeIcon: Icons.download_rounded,                  label: 'Downloads'),
+  ];
+
+  // ============================================================
   // BUILD
   // ============================================================
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 80,
+      height: 68,
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(
-          bottom: BorderSide(
-            color: AppColors.border,
-          ),
+          bottom: BorderSide(color: AppColors.border),
         ),
       ),
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 24,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          if (widget.onMenu != null)
-            IconButton(
-              onPressed:
-                  widget.onMenu,
-              icon: const Icon(
-                Icons.menu,
+          // ── Brand ─────────────────────────────────────────────
+          const Text(
+            'Go Digital',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.3,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 20,
+            margin: const EdgeInsets.symmetric(horizontal: 14),
+            color: AppColors.border,
+          ),
+          const Text(
+            'Admin Portal',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+            ),
+          ),
+
+          const SizedBox(width: 32),
+
+          // ── Nav items ─────────────────────────────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (int i = 0; i < _navItems.length; i++)
+                    _buildNavItem(i),
+                ],
               ),
             ),
+          ),
 
-          Expanded(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(
-                maxWidth: 465,
-              ),
-              child: TextField(
-                onChanged: (value) {
-                  setState(() {});
-                },
-                onSubmitted:
-                    widget.onSearch,
-                controller:
-                    _searchController,
-                textInputAction:
-                    TextInputAction.search,
-                decoration:
-                    InputDecoration(
-                  prefixIcon:
-                      const Icon(
-                    Icons.search,
+          const SizedBox(width: 16),
+
+          // ── Search ────────────────────────────────────────────
+          SizedBox(
+            width: 200,
+            height: 38,
+            child: TextField(
+              onChanged: (value) => setState(() {}),
+              onSubmitted: widget.onSearch,
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search, size: 18),
+                hintText: 'Search...',
+                hintStyle: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                          widget.onSearch?.call('');
+                        },
+                        icon: const Icon(Icons.close, size: 16),
+                      ),
+                filled: true,
+                fillColor: const Color(0xFFF5F7FA),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.4,
                   ),
-                  hintText:
-                      'Search assets, companies, links...',
-                  suffixIcon:
-                      _searchController
-                              .text
-                              .isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip:
-                                  'Clear search',
-                              onPressed: () {
-                                _searchController
-                                    .clear();
-
-                                setState(
-                                  () {},
-                                );
-
-                                widget.onSearch
-                                    ?.call(
-                                  '',
-                                );
-                              },
-                              icon:
-                                  const Icon(
-                                Icons.close,
-                              ),
-                            ),
                 ),
               ),
             ),
           ),
 
-          const Spacer(),
+          const SizedBox(width: 8),
 
-          // ======================================================
-          // NOTIFICATION BELL
-          // ======================================================
-
+          // ── Notification bell ─────────────────────────────────
           Stack(
-            clipBehavior:
-                Clip.none,
+            clipBehavior: Clip.none,
             children: [
               IconButton(
-                tooltip:
-                    'Notifications',
-                onPressed:
-                    _showNotifications,
-                icon:
-                    const Icon(
-                  Icons
-                      .notifications_none,
-                  size: 26,
+                tooltip: 'Notifications',
+                onPressed: _showNotifications,
+                icon: const Icon(
+                  Icons.notifications_none_outlined,
+                  size: 24,
+                  color: AppColors.textPrimary,
                 ),
               ),
-
-              if (_unreadNotificationCount >
-                  0)
+              if (_unreadNotificationCount > 0)
                 Positioned(
-                  right: 5,
-                  top: 4,
+                  right: 6,
+                  top: 6,
                   child: Container(
-                    constraints:
-                        const BoxConstraints(
-                      minWidth: 18,
-                      minHeight: 18,
-                    ),
-                    padding:
-                        const EdgeInsets
-                            .symmetric(
-                      horizontal: 4,
-                    ),
-                    alignment:
-                        Alignment.center,
-                    decoration:
-                        BoxDecoration(
-                      color:
-                          Colors.red,
-                      borderRadius:
-                          BorderRadius.circular(
-                        10,
-                      ),
-                      border:
-                          Border.all(
-                        color:
-                            Colors.white,
-                        width: 1.5,
-                      ),
-                    ),
-                    child:
-                        Text(
-                      _unreadNotificationCount >
-                              99
-                          ? '99+'
-                          : _unreadNotificationCount
-                              .toString(),
-                      style:
-                          const TextStyle(
-                        fontSize: 9,
-                        fontWeight:
-                            FontWeight.w800,
-                        color:
-                            Colors.white,
-                      ),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
                     ),
                   ),
                 ),
             ],
           ),
 
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.help_outline,
-              size: 26,
-            ),
-          ),
+          const SizedBox(width: 8),
 
-          const SizedBox(
-            width: 12,
-          ),
-
-          Container(
-            width: 1,
-            height: 38,
-            color: AppColors.border,
-          ),
-
-          const SizedBox(
-            width: 18,
-          ),
-
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(
-              context,
-              rootNavigator: true,
-            ).pushNamedAndRemoveUntil('/home', (route) => false),
-            icon: const Icon(Icons.grid_view_rounded, size: 19),
-            label: const Text('Workspace'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.textPrimary,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              side: const BorderSide(color: AppColors.border),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
+          // ── Avatar ────────────────────────────────────────────
+          GestureDetector(
+            onTap: _showAdminProfile,
+            child: _buildAdminTopBarAvatar(size: 38),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildNavItem(int index) {
+    final item = _navItems[index];
+    final isActive = widget.selectedIndex == index;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: InkWell(
+        onTap: () => widget.onNavigate?.call(index),
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: isActive ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isActive ? item.activeIcon : item.icon,
+                size: 18,
+                color: isActive ? Colors.white : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                  color: isActive ? Colors.white : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _NavItem({required this.icon, required this.activeIcon, required this.label});
 }
 
 
