@@ -889,7 +889,8 @@ router.get('/submissions', async (req, res) => {
           SELECT 1
           FROM role_application_access raa
           JOIN user_roles ur ON ur.id = raa.role_id
-          WHERE UPPER(TRIM(ur.role_name)) = UPPER(TRIM(e.role))
+          WHERE UPPER(TRIM(ur.role_name)) COLLATE utf8mb4_general_ci
+          = UPPER(TRIM(e.role)) COLLATE utf8mb4_general_ci
             AND LOWER(TRIM(raa.access_type)) = 'admin'
             AND NOT EXISTS (
               SELECT 1

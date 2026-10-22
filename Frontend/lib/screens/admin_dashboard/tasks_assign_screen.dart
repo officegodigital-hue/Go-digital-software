@@ -35,6 +35,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   bool _loadingPackages = true;
 
   List<Map<String, dynamic>> allClientsData = [];
+  // Client rows shown before the first actual task assignment exists.
+  final Map<String, Map<String, dynamic>> _newClientDrafts = {};
+  final Set<String> _creatingClientDrafts = {};
+
   
   Map<String, String> taskRoles = {};
   bool _loadingRoles = true;
@@ -125,13 +129,13 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         final body = jsonDecode(r.body);
         final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
         setState(() {
-          allClientsData = data; 
-          clients = data
+          allClientsData = [...data]..sort((a, b) =>
+              (int.tryParse('${b['id']}') ?? 0).compareTo(int.tryParse('${a['id']}') ?? 0));
+          clients = allClientsData
               .map((c) => (c['company_name'] ?? '').toString().trim())
               .where((name) => name.isNotEmpty)
               .toSet()
-              .toList()
-            ..sort();
+              .toList();
           _loadingClients = false;
         });
       } else {
@@ -1668,6 +1672,61 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         clientName = '';
       }
 
+      final isNewClientDraft = (int.tryParse('${row['id']}') ?? 0) < 0;
+      if (isNewClientDraft) {
+        final key = clientName.toLowerCase();
+        if (_creatingClientDrafts.contains(key)) return;
+        _creatingClientDrafts.add(key);
+        try {
+          final create = await http.post(
+            Uri.parse('$_baseUrl/tasks'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'clientName': clientName,
+              'deliverables': row['deliverables'] ?? '',
+              'maintenanceDate': row['maintenance_date'] ?? '',
+              'adsHandling': _cleanRoleValue(row['ads_handling']),
+              'adsPlatform': row['ads_platform'] ?? '',
+              'pageHandling': _cleanRoleValue(row['page_handling']),
+              'pagesPlatform': row['pages_platform'] ?? '',
+              'designer': _cleanRoleValue(row['designer']),
+              'designerTasks': row['designer_tasks'] ?? '',
+              'videographer': _cleanRoleValue(row['videographer']),
+              'videographerTasks': row['videographer_tasks'] ?? '',
+              'videoEditor': _cleanRoleValue(row['video_editor']),
+              'videoEditorTask': row['video_editor_task'] ?? '',
+              'uiUxDesigner': _cleanRoleValue(row['ui_ux_designer']),
+              'uiUxTasks': row['ui_ux_tasks'] ?? '',
+              'developer': _cleanRoleValue(row['developer']),
+              'developerTasks': row['developer_tasks'] ?? '',
+              'websiteDesigner': _cleanRoleValue(row['website_designer']),
+              'websiteDesignerTasks': row['website_designer_tasks'] ?? '',
+              'deadline': row['deadline'] ?? '',
+              'comments': row['comments'] ?? '',
+              'isAssigned': false,
+              'assignedByName': _adminName,
+            }),
+          );
+          if (create.statusCode != 200 && create.statusCode != 201) {
+            throw StateError('Could not create task row: ${create.body}');
+          }
+          final payload = jsonDecode(create.body);
+          final newId = int.tryParse('${payload['data']?['id']}');
+          if (newId == null || newId <= 0) {
+            throw StateError('Task API returned no new task ID');
+          }
+          if (!mounted) return;
+          setState(() {
+            row['id'] = newId;
+            taskRows.insert(0, row);
+            _newClientDrafts.remove(key);
+          });
+          return;
+        } finally {
+          _creatingClientDrafts.remove(key);
+        }
+      }
+
       await http.put(
         Uri.parse('$_baseUrl/tasks/${row["id"]}'),
         headers: {'Content-Type': 'application/json'},
@@ -1745,6 +1804,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     }
 
     try {
+      if ((int.tryParse('${row['id']}') ?? 0) < 0) {
+        await _saveRow(row);
+        if ((int.tryParse('${row['id']}') ?? 0) < 0) return;
+      }
       final response = await http.patch(
         Uri.parse('$_baseUrl/tasks/${row["id"]}/assign'),
         headers: {'Content-Type': 'application/json'},
@@ -1764,6 +1827,12 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   Future<void> _deleteRow(int id) async {
+    if (id < 0) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This is an onboarding client, not a saved task.')),
+      );
+      return;
+    }
     try {
       await http.delete(Uri.parse('$_baseUrl/tasks/$id'));
       await _fetchTasks();
@@ -1797,7 +1866,34 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   List<Map<String, dynamic>> get _visibleRows {
-    return taskRows.where((r) {
+    final existingNames = taskRows
+        .map((r) => (r['client_name'] ?? '').toString().trim().toLowerCase())
+        .where((n) => n.isNotEmpty && n != 'pending_selection')
+        .toSet();
+
+    final newClients = <Map<String, dynamic>>[];
+    if (!_showAssigned) {
+      for (final client in allClientsData) {
+        final name = (client['company_name'] ?? '').toString().trim();
+        final active = client['is_active'];
+        if (name.isEmpty || (active != 1 && active != true && active != null)) continue;
+        final key = name.toLowerCase();
+        if (existingNames.contains(key)) continue;
+        if (_searchQuery.trim().isNotEmpty &&
+            !key.contains(_searchQuery.trim().toLowerCase())) continue;
+        final clientId = int.tryParse('${client['id']}') ?? 0;
+        if (clientId <= 0) continue;
+        final draft = _newClientDrafts.putIfAbsent(key, () => <String, dynamic>{
+          'id': -clientId,
+          'client_name': name,
+          'deliverables': '',
+          'is_assigned': 0,
+        });
+        newClients.add(draft);
+      }
+    }
+
+    final savedRows = taskRows.where((r) {
       final assigned = r['is_assigned'] == 1 || r['is_assigned'] == true;
       if (_showAssigned != assigned) return false;
 
@@ -1805,33 +1901,29 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       if (clientName.isEmpty || clientName == 'PENDING_SELECTION') {
         return _searchQuery.trim().isEmpty;
       }
-
       final clientMatch = allClientsData.firstWhere(
         (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
         orElse: () => <String, dynamic>{},
       );
       if (clientMatch.isEmpty) return false;
-
-      final isActive = clientMatch['is_active'] == 1 || clientMatch['is_active'] == true;
-      if (!isActive) return false;
-
+      final active = clientMatch['is_active'];
+      if (active != 1 && active != true && active != null) return false;
       if (_showAssigned) {
         final currentClient = clientName.toLowerCase();
-        final currentId = r['id'] is int ? r['id'] as int : int.tryParse(r['id'].toString()) ?? 0;
-        final hasNewerTaskForSameClient = taskRows.any((other) {
-          final otherAssigned = other['is_assigned'] == 1 || other['is_assigned'] == true;
-          if (!otherAssigned) return false;
-          final otherClient = (other['client_name'] ?? '').toString().trim().toLowerCase();
-          if (otherClient != currentClient) return false;
-          final otherId = other['id'] is int ? other['id'] as int : int.tryParse(other['id'].toString()) ?? 0;
-          return otherId > currentId;
-        });
-        if (hasNewerTaskForSameClient) return false;
+        final currentId = int.tryParse('${r['id']}') ?? 0;
+        if (taskRows.any((other) {
+          final assignedOther = other['is_assigned'] == 1 || other['is_assigned'] == true;
+          return assignedOther &&
+              (other['client_name'] ?? '').toString().trim().toLowerCase() == currentClient &&
+              (int.tryParse('${other['id']}') ?? 0) > currentId;
+        })) return false;
       }
-
-      if (_searchQuery.trim().isEmpty) return true;
-      return clientName.toLowerCase().contains(_searchQuery.trim().toLowerCase());
+      return _searchQuery.trim().isEmpty ||
+          clientName.toLowerCase().contains(_searchQuery.trim().toLowerCase());
     }).toList();
+
+    // Newest onboarding client first; saved tasks remain in API order.
+    return [...newClients, ...savedRows];
   }
 
   @override
@@ -2040,16 +2132,16 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             _HeaderCell(width: 160, label: 'PAGE TASKS'),
             _HeaderCell(width: 140, label: 'DESIGNER'),
             _HeaderCell(width: 160, label: 'DESIGN TASKS'),
-            _HeaderCell(width: 140, label: 'VIDEOGRAPHER'),
-            _HeaderCell(width: 160, label: 'VIDEO TASKS'),
             _HeaderCell(width: 140, label: 'VIDEO EDITOR'),
             _HeaderCell(width: 160, label: 'VIDEO EDIT TASKS'),
+            _HeaderCell(width: 140, label: 'VIDEOGRAPHER'),
+            _HeaderCell(width: 160, label: 'VIDEO TASKS'),
+            _HeaderCell(width: 140, label: 'WEBSITE DESIGNER'),
+            _HeaderCell(width: 160, label: 'WEBSITE DESIGNER TASKS'),
             _HeaderCell(width: 140, label: 'UI/UX DESIGNER'),
             _HeaderCell(width: 160, label: 'UI/UX TASKS'),
             _HeaderCell(width: 140, label: 'DEVELOPER'),
             _HeaderCell(width: 160, label: 'DEV TASKS'),
-            _HeaderCell(width: 140, label: 'WEBSITE DESIGNER'),
-            _HeaderCell(width: 160, label: 'WEBSITE DESIGNER TASKS'),
             _HeaderCell(width: 140, label: 'DEADLINE'),
             _HeaderCell(width: 160, label: 'COMMENTS'),
             _HeaderCell(width: 140, label: 'ACTION'),
@@ -3214,87 +3306,233 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     );
   }
 
-  Widget _buildClientCell(Map<String, dynamic>? row) {
-    if (row == null) {
-      return Container(
-        height: 54,
-        decoration: const BoxDecoration(
-          color: Color(0xFF0052CC),
-          border: Border(bottom: BorderSide(color: Color(0xFF0044B3))),
-        ),
-      );
-    }
-   
-    String currentClient = row['client_name'] ?? '';
-    if (currentClient == 'PENDING_SELECTION') {
-      currentClient = '';
-    }
-   
-    if (currentClient.isNotEmpty && !clients.contains(currentClient)) {
-      currentClient = '';
-    }
-   
-    return Container(
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0052CC),
-        border: Border(bottom: BorderSide(color: Color(0xFF0044B3))),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: currentClient.isEmpty ? null : currentClient,
-          isExpanded: true,
-          hint: const Text(
-            '— Select client name —',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70),
-          ),
-          dropdownColor: const Color(0xFF1A5FCC),
-          icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-          items: [
-            const DropdownMenuItem(
-              value: '',
-              child: Text('— Select client name —', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70)),
+  Future<String?> _pickTaskOption({
+    required String title,
+    required List<String> options,
+    required String current,
+  }) async {
+    String query = '';
+    return showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) {
+          final filtered = options.where((value) =>
+              value.toLowerCase().contains(query.trim().toLowerCase())).toList();
+          final isClient = title.toLowerCase().contains('client');
+          return Dialog(
+            backgroundColor: Colors.white,
+            elevation: 16,
+            clipBehavior: Clip.antiAlias,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 495, maxHeight: 630),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(18, 18, 12, 18),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF0649AD), Color(0xFF238AEF)],
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                      ),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          isClient ? Icons.business_rounded : Icons.inventory_2_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 17,
+                              ),
+                            ),
+                            Text(
+                              isClient ? 'Find and select a client' : 'Find and select a package',
+                              style: const TextStyle(color: Colors.white70, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      ),
+                    ]),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                    child: TextField(
+                      autofocus: true,
+                      onChanged: (text) => refresh(() => query = text),
+                      decoration: InputDecoration(
+                        hintText: isClient ? 'Search client...' : 'Search package...',
+                        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF1477E8), width: 1.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: filtered.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 46, horizontal: 20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.search_off_rounded, size: 32, color: Color(0xFF94A3B8)),
+                                SizedBox(height: 8),
+                                Text('No matching results', style: TextStyle(color: Color(0xFF64748B))),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+                            itemCount: filtered.length,
+                            itemBuilder: (_, index) {
+                              final value = filtered[index];
+                              final selected = value == current;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 9),
+                                child: Material(
+                                  color: selected ? const Color(0xFFEAF3FF) : const Color(0xFFF7FAFF),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    side: BorderSide(
+                                      color: selected ? const Color(0xFF93C5FD) : const Color(0xFFDCE7F4),
+                                    ),
+                                  ),
+                                  child: ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                                    title: Text(value,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                                        color: const Color(0xFF1E293B),
+                                      ),
+                                    ),
+                                    trailing: selected
+                                        ? const Icon(Icons.check_circle_rounded, color: Color(0xFF1468D4), size: 20)
+                                        : const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 19),
+                                    onTap: () => Navigator.pop(dialogContext, value),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: Row(children: [
+                      Text('${filtered.length} result(s)',
+                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel'),
+                      ),
+                    ]),
+                  ),
+                ],
+              ),
             ),
-            ...clients.map((c) => DropdownMenuItem(value: c, child: Text(c))),
-          ],
-          onChanged: (val) async {
-            if (val != null && val != currentClient) {
-              setState(() => row['client_name'] = val);
-              await _saveRow(row);
-            }
-          },
-        ),
+          );
+        },
+      ),
+    );
+  }  Widget _buildClientCell(Map<String, dynamic>? row) {
+    if (row == null) {
+      return Container(height: 54, color: const Color(0xFF0052CC));
+    }
+    final currentClient = (row['client_name'] ?? '').toString();
+    return InkWell(
+      onTap: () async {
+        final selected = await _pickTaskOption(
+          title: 'Search client', options: clients, current: currentClient,
+        );
+        if (selected == null || selected == currentClient || !mounted) return;
+        setState(() => row['client_name'] = selected);
+        await _saveRow(row);
+      },
+      child: Container(
+        height: 54,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        color: const Color(0xFF0052CC),
+        child: Row(children: [
+          Expanded(child: Text(
+            currentClient.isEmpty || currentClient == 'PENDING_SELECTION'
+                ? '— Select client name —' : currentClient,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+          )),
+          const Icon(Icons.search, color: Colors.white, size: 17),
+        ]),
       ),
     );
   }
 
   Widget _buildDeliverablesCell(double width, Map<String, dynamic> row) {
-    String currentPkg = row['deliverables'] ?? '';
-    List<String> packageTitles = packagesList.map((p) => (p['title'] ?? '').toString()).toList();
-
-    if (currentPkg.isNotEmpty && !packageTitles.contains(currentPkg)) {
-      currentPkg = '';
-    }
-
-    return Container(
-      width: width,
-      height: 54,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: currentPkg.isEmpty ? null : currentPkg,
-          isExpanded: true,
-          hint: const Text('— Select Package —', style: TextStyle(fontSize: 10, color: Color(0xFFCBD5E1))),
-          items: packageTitles.map((title) => DropdownMenuItem(value: title, child: Text(title, style: const TextStyle(fontSize: 10)))).toList(),
-          onChanged: (val) async {
-            if (val != null) {
-              await _onPackageSelected(row, val);
-            }
-          },
-        ),
+    final current = (row['deliverables'] ?? '').toString();
+    final titles = packagesList
+        .map((p) => (p['title'] ?? '').toString())
+        .where((p) => p.isNotEmpty).toSet().toList();
+    return InkWell(
+      onTap: () async {
+        final selected = await _pickTaskOption(
+          title: 'Search package', options: titles, current: current,
+        );
+        if (selected != null && selected != current && mounted) {
+          await _onPackageSelected(row, selected);
+        }
+      },
+      child: Container(
+        width: width, height: 54,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+        child: Row(children: [
+          Expanded(child: Text(current.isEmpty ? '— Select Package —' : current,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10))),
+          const Icon(Icons.search, size: 16, color: Color(0xFF64748B)),
+        ]),
       ),
     );
   }
@@ -3407,14 +3645,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
         SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, roleField: 'designer', onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, roleField: 'videographer', onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
         SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, roleField: 'video_editor', onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
         SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, roleField: 'ui_ux_designer', onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, roleField: 'developer', onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, roleField: 'videographer', onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
+        SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
         SizedBox(
           width: 140,
           child: _empDropCell(
@@ -3438,6 +3672,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             'website_designer_tasks',
           ),
         ),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, roleField: 'ui_ux_designer', onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
+        SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
+        SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, roleField: 'developer', onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
+        SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),
