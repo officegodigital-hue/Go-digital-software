@@ -513,12 +513,10 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                                     constraints: BoxConstraints(
                                       minHeight: constraints.maxHeight,
                                     ),
-                                    child: SelectionArea(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(28),
-                                        child: widget.child,
-                                      ),
-                                    ),
+                                    child: Padding(
+                                          padding: const EdgeInsets.all(28),
+                                          child: widget.child,
+                                        ),
                                   ),
                                 );
                               },
