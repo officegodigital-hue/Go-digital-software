@@ -170,10 +170,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _PageHeader(
-                              onAdd: () => _showEmployeeForm(),
-                              onExport: _exportEmployees,
-                            ),
+                            // Employees are added in the Task Manager Admin Panel
+                            // (Employee Management) — not here.
+                            _PageHeader(onExport: _exportEmployees),
                             const SizedBox(height: 18),
                             _EmployeeKpis(
                               mobile: mobile,
@@ -474,10 +473,37 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _formField(name, 'Employee name'),
+                    if (employee != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF5FF),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Name, Employee ID and Department come from Admin Panel → Employee Management. '
+                          'Edit the attendance details below.',
+                          style: TextStyle(color: HrmsColors.blue, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                    _formField(name, 'Employee name', readOnly: employee != null),
                     const SizedBox(height: 12),
-                    _formField(id, 'Employee ID'),
+                    _formField(id, 'Employee ID', readOnly: employee != null),
                     const SizedBox(height: 12),
+                    if (employee != null)
+                      TextFormField(
+                        initialValue: selectedDepartment,
+                        readOnly: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Department',
+                          border: OutlineInputBorder(),
+                          suffixIcon: Icon(Icons.lock_outline_rounded, size: 18),
+                        ),
+                      )
+                    else
                     _formDropdown(
                       'Department',
                       selectedDepartment,
@@ -516,7 +542,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    _formDropdown('Work mode', selectedMode, const [
+                    _formDropdown('Work location', selectedMode, const [
                       'Office',
                       'Home',
                       'Hybrid',
@@ -654,12 +680,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
     });
   }
 
-  Widget _formField(TextEditingController controller, String label) =>
+  Widget _formField(TextEditingController controller, String label, {bool readOnly = false}) =>
       TextFormField(
         controller: controller,
+        readOnly: readOnly,
         decoration: InputDecoration(
           labelText: label,
           border: const OutlineInputBorder(),
+          suffixIcon: readOnly ? const Icon(Icons.lock_outline_rounded, size: 18) : null,
         ),
         validator: (value) =>
             value == null || value.trim().isEmpty ? '$label is required' : null,
@@ -819,25 +847,37 @@ class _EmployeesPageState extends State<EmployeesPage> {
 }
 
 class _PageHeader extends StatelessWidget {
-  const _PageHeader({
-    required this.onAdd,
-    required this.onExport,
-  });
+  const _PageHeader({required this.onExport});
 
-  final VoidCallback onAdd, onExport;
+  final VoidCallback onExport;
 
   static const _btnShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(9)),
   );
 
-  Widget _addEmployeeBtn() => FilledButton.icon(
-    onPressed: onAdd,
-    icon: const Icon(Icons.add, size: 20),
-    label: const Text('Add Employee'),
-    style: FilledButton.styleFrom(
-      backgroundColor: HrmsColors.blue,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      shape: _btnShape,
+  // No "Add Employee" here: add once in Admin Panel → Employee Management;
+  // the employee appears in Attendance automatically.
+  Widget _addEmployeeBtn() => Tooltip(
+    message: 'Add employees in Admin Panel → Employee Management.\n'
+        'Work location, salary and cycle are in its "Attendance Details" section.',
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF5FF),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: const Color(0xFFBFD3FF)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: HrmsColors.blue),
+          SizedBox(width: 8),
+          Text(
+            'Add employees in Admin Panel',
+            style: TextStyle(color: HrmsColors.blue, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     ),
   );
 
