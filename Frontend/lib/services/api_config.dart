@@ -10,7 +10,7 @@ class ApiConfig {
       return '/api';
     }
 
-    return 'http://10.0.2.2:3000/api';
+    return 'http://10.0.2.2:5000/api';
   }
 
   static String get socketUrl {
@@ -22,6 +22,6 @@ class ApiConfig {
       return Uri.base.origin;
     }
 
-    return 'http://10.0.2.2:3000';
+    return 'http://10.0.2.2:5000';
   }
 }

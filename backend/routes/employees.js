@@ -573,8 +573,16 @@ router.put('/:id/profile', async (req, res) => {
 
     const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
-    const [oldEmpRows] = await db.query('SELECT full_name FROM employee_users WHERE id = ?', [empId]);
-    const oldFullName = oldEmpRows.length > 0 ? oldEmpRows[0].full_name : null;
+    const [oldEmpRows] = await db.query('SELECT full_name, profile_photo FROM employee_users WHERE id = ?', [empId]);
+    if (oldEmpRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const oldProfilePhoto = oldEmpRows[0].profile_photo;
+    const oldFullName = oldEmpRows[0].full_name;
 
     if (password && password.trim() !== '') {
       await db.query(
@@ -582,7 +590,7 @@ router.put('/:id/profile', async (req, res) => {
            first_name = ?, middle_name = ?, last_name = ?, full_name = ?, initials = ?,
            username = ?, email = ?, avatar_color = ?, profile_photo = ?, password = ?
          WHERE id = ?`,
-        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto || null, password, empId]
+        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto === undefined ? oldProfilePhoto : profilePhoto, password, empId]
       );
     } else {
       await db.query(
@@ -590,10 +598,41 @@ router.put('/:id/profile', async (req, res) => {
            first_name = ?, middle_name = ?, last_name = ?, full_name = ?, initials = ?,
            username = ?, email = ?, avatar_color = ?, profile_photo = ?
          WHERE id = ?`,
-        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto || null, empId]
+        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto === undefined ? oldProfilePhoto : profilePhoto, empId]
       );
     }
 
+    // Save the additional Profile Management fields.
+    // Missing fields remain unchanged.
+    const profileExtraFields = [
+      ['phoneNumber', 'phone_number'],
+      ['phoneNumber', 'mobile'],
+      ['aadharNumber', 'aadhar_number'],
+      ['panCardNumber', 'pan_card_number'],
+      ['bankAccountName', 'bank_account_name'],
+      ['bankAccountNumber', 'bank_account_number'],
+      ['bankIfscCode', 'bank_ifsc_code'],
+      ['bankName', 'bank_name'],
+      ['permanentAddress', 'permanent_address'],
+      ['temporaryAddress', 'temporary_address']
+    ];
+
+    const extraUpdates = [];
+    const extraValues = [];
+
+    for (const [requestField, databaseColumn] of profileExtraFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, requestField)) {
+        extraUpdates.push(`${databaseColumn} = ?`);
+        extraValues.push(String(req.body[requestField] ?? '').trim());
+      }
+    }
+
+    if (extraUpdates.length > 0) {
+      await db.query(
+        `UPDATE employee_users SET ${extraUpdates.join(', ')} WHERE id = ?`,
+        [...extraValues, empId]
+      );
+    }
     await db.query(`UPDATE hrms_employee_profiles SET full_name = ?, email = ? WHERE employee_user_id = ?`, [fullName, email, empId]);
 
     if (oldFullName && oldFullName.trim().toUpperCase() !== fullName.trim().toUpperCase()) {
