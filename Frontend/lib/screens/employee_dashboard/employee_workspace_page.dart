@@ -2893,6 +2893,7 @@ List<(String, int, int)> _workspaceTaskGroups(_WorkspaceClient client) {
                 task.name.toLowerCase().contains('facebook'),
           ),
         ),
+        
         group(
           'Google Ads',
           tasks.where((task) => task.name.toLowerCase().contains('google')),
