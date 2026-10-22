@@ -40,6 +40,8 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
   bool _isLoading = true;
   String? _loadError;
 
+  int _selectedTabIndex = 0;
+
   static const double pageTitleSize = 24;
   static const double sectionTitleSize = 19;
   static const double companyNameSize = 16;
@@ -346,6 +348,17 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
               return _buildErrorState(horizontalPadding);
             }
 
+            final digitalCount = _getCompanies(
+              section: AppConstants.digitalMarketing,
+              filter: 'All',
+              search: '',
+            ).length;
+            final softwareCount = _getCompanies(
+              section: AppConstants.softwareDevelopment,
+              filter: 'All',
+              search: '',
+            ).length;
+
             return ListView(
               padding: EdgeInsets.fromLTRB(
                 horizontalPadding,
@@ -355,61 +368,26 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
               ),
               children: [
                 _buildPageHeader(),
-                const SizedBox(height: 26),
-                if (isDesktop)
-                  SizedBox(
-                    height: desktopSectionHeight,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: _buildSection(
-                            section: AppConstants.digitalMarketing,
-                            filter: _digitalMarketingFilter,
-                            filters: _digitalFilters,
-                            searchController: _digitalSearchController,
-                            searchValue: _digitalMarketingSearch,
-                            fixedHeight: true,
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: _buildSection(
-                            section: AppConstants.softwareDevelopment,
-                            filter: _softwareDevelopmentFilter,
-                            filters: _softwareFilters,
-                            searchController:
-                                _softwareSearchController,
-                            searchValue:
-                                _softwareDevelopmentSearch,
-                            fixedHeight: true,
-                          ),
-                        ),
-                      ],
-                    ),
+                const SizedBox(height: 24),
+                _buildTabBar(digitalCount, softwareCount),
+                const SizedBox(height: 20),
+                if (_selectedTabIndex == 0)
+                  _buildSection(
+                    section: AppConstants.digitalMarketing,
+                    filter: _digitalMarketingFilter,
+                    filters: _digitalFilters,
+                    searchController: _digitalSearchController,
+                    searchValue: _digitalMarketingSearch,
+                    fixedHeight: false,
                   )
                 else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildSection(
-                        section: AppConstants.digitalMarketing,
-                        filter: _digitalMarketingFilter,
-                        filters: _digitalFilters,
-                        searchController: _digitalSearchController,
-                        searchValue: _digitalMarketingSearch,
-                        fixedHeight: false,
-                      ),
-                      const SizedBox(height: 24),
-                      _buildSection(
-                        section: AppConstants.softwareDevelopment,
-                        filter: _softwareDevelopmentFilter,
-                        filters: _softwareFilters,
-                        searchController: _softwareSearchController,
-                        searchValue: _softwareDevelopmentSearch,
-                        fixedHeight: false,
-                      ),
-                    ],
+                  _buildSection(
+                    section: AppConstants.softwareDevelopment,
+                    filter: _softwareDevelopmentFilter,
+                    filters: _softwareFilters,
+                    searchController: _softwareSearchController,
+                    searchValue: _softwareDevelopmentSearch,
+                    fixedHeight: false,
                   ),
               ],
             );
@@ -522,6 +500,60 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTabBar(int digitalCount, int softwareCount) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F2F5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(4),
+      child: Row(
+        children: [
+          _buildTab(
+            index: 0,
+            label: 'Digital Marketing',
+            count: digitalCount,
+          ),
+          _buildTab(
+            index: 1,
+            label: 'Software Development',
+            count: softwareCount,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab({
+    required int index,
+    required String label,
+    required int count,
+  }) {
+    final isActive = _selectedTabIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedTabIndex = index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          decoration: BoxDecoration(
+            color: isActive ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$label ($count)',
+            style: TextStyle(
+              fontSize: normalTextSize,
+              fontWeight: FontWeight.w700,
+              color: isActive ? Colors.white : AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
