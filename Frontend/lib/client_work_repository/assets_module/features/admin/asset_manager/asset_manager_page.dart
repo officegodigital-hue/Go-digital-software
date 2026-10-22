@@ -769,127 +769,96 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required List<String> filters,
     required TextEditingController searchController,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final hintText = section == AppConstants.digitalMarketing
+        ? 'Search Digital Marketing companies or assets'
+        : 'Search Software Development companies or assets';
+
+    return Row(
       children: [
-        // ============================================================
-        // FILTERS
-        // ============================================================
-        // Keep the filter area the same height in both sections.
-        // Digital Marketing uses two rows on desktop, while Software
-        // Development usually uses one row. The minimum height makes
-        // the search bars and the company/asset lists start at exactly
-        // the same vertical position in both sections.
-        ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: 87,
-          ),
+        // ── Search ──────────────────────────────────────────────
+        Expanded(
           child: SizedBox(
-            width: double.infinity,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  for (final item in filters)
-                    _buildFilterChip(
-                      item: item,
-                      selected: filter == item,
-                      section: section,
-                    ),
-                ],
+            height: 44,
+            child: TextField(
+              controller: searchController,
+              onChanged: (value) {
+                if (!mounted) return;
+                setState(() {
+                  if (section == AppConstants.digitalMarketing) {
+                    _digitalMarketingSearch = value;
+                  } else {
+                    _softwareDevelopmentSearch = value;
+                  }
+                });
+              },
+              style: const TextStyle(
+                fontSize: normalTextSize,
+                color: AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                hintText: hintText,
+                hintStyle: const TextStyle(
+                  fontSize: normalTextSize,
+                  color: AppColors.textSecondary,
+                ),
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: searchController.text.isNotEmpty
+                    ? IconButton(
+                        onPressed: () {
+                          searchController.clear();
+                          if (!mounted) return;
+                          setState(() {
+                            if (section == AppConstants.digitalMarketing) {
+                              _digitalMarketingSearch = '';
+                            } else {
+                              _softwareDevelopmentSearch = '';
+                            }
+                          });
+                        },
+                        icon: const Icon(Icons.close, size: 18),
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.4,
+                  ),
+                ),
               ),
             ),
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(width: 12),
 
-        // ============================================================
-        // SEARCH
-        // ============================================================
-        SizedBox(
-          width: double.infinity,
-          height: 44,
-          child: TextField(
-            controller: searchController,
-            onChanged: (value) {
-              if (!mounted) return;
-
-              setState(() {
-                if (section == AppConstants.digitalMarketing) {
-                  _digitalMarketingSearch = value;
-                } else {
-                  _softwareDevelopmentSearch = value;
-                }
-              });
-            },
-            style: const TextStyle(
-              fontSize: normalTextSize,
-              color: AppColors.textPrimary,
-            ),
-            decoration: InputDecoration(
-              hintText: 'Search company or asset',
-              hintStyle: const TextStyle(
-                fontSize: normalTextSize,
-                color: AppColors.textSecondary,
+        // ── Filter pills ─────────────────────────────────────────
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final item in filters)
+              _buildFilterChip(
+                item: item,
+                selected: filter == item,
+                section: section,
               ),
-              prefixIcon: const Icon(
-                Icons.search,
-                size: 20,
-              ),
-              suffixIcon: searchController.text.isNotEmpty
-                  ? IconButton(
-                      onPressed: () {
-                        searchController.clear();
-
-                        if (!mounted) return;
-
-                        setState(() {
-                          if (section ==
-                              AppConstants.digitalMarketing) {
-                            _digitalMarketingSearch = '';
-                          } else {
-                            _softwareDevelopmentSearch = '';
-                          }
-                        });
-                      },
-                      icon: const Icon(
-                        Icons.close,
-                        size: 18,
-                      ),
-                    )
-                  : null,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFD),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.border,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.border,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 1.4,
-                ),
-              ),
-            ),
-          ),
+          ],
         ),
       ],
     );
@@ -906,10 +875,8 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
         maxLines: 1,
         style: TextStyle(
           fontSize: chipTextSize,
-          fontWeight:
-              selected ? FontWeight.w700 : FontWeight.w600,
-          color:
-              selected ? Colors.white : AppColors.textPrimary,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? AppColors.primary : AppColors.textSecondary,
         ),
       ),
       selected: selected,
@@ -924,24 +891,22 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
           }
         });
       },
-      selectedColor: AppColors.primary,
-      backgroundColor: const Color(0xFFF5F7FA),
-      side: BorderSide(
-        color:
-            selected ? AppColors.primary : AppColors.border,
-      ),
+      selectedColor: Colors.transparent,
+      backgroundColor: Colors.transparent,
+      side: selected
+          ? const BorderSide(color: AppColors.primary, width: 1.5)
+          : BorderSide.none,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
       ),
       padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 2,
+        horizontal: 10,
+        vertical: 4,
       ),
-      materialTapTargetSize:
-          MaterialTapTargetSize.shrinkWrap,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: const VisualDensity(
-        horizontal: -1,
-        vertical: -1,
+        horizontal: -2,
+        vertical: -2,
       ),
     );
   }
