@@ -1109,36 +1109,32 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       message = 'No companies have been created yet.';
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 30,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFD),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            section == AppConstants.digitalMarketing
-                ? Icons.campaign_outlined
-                : Icons.code_outlined,
-            size: 34,
+          const Icon(
+            Icons.folder_outlined,
+            size: 40,
             color: AppColors.textSecondary,
           ),
-          const SizedBox(height: 9),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
+          const SizedBox(height: 12),
+          const Text(
+            'No companies found',
+            style: TextStyle(
               fontSize: normalTextSize,
               fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hasSearch || hasFilter
+                ? 'Try different search or filter'
+                : 'No companies have been created yet.',
+            style: const TextStyle(
+              fontSize: smallTextSize,
               color: AppColors.textSecondary,
             ),
           ),
