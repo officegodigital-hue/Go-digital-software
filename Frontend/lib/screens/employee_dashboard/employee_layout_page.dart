@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
 
 import 'package:godigital_portal/core/constants/employee_role.dart';
 import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
@@ -34,7 +33,6 @@ import 'package:godigital_portal/screens/employee_dashboard/feedback_history_pag
 import 'package:godigital_portal/screens/employee_dashboard/employee_settings_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_workspace_page.dart';
 
-
 class EmployeeLayoutPage extends StatefulWidget {
   const EmployeeLayoutPage({super.key});
 
@@ -46,10 +44,109 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   String selectedMenu = 'Dashboard';
   String searchQuery = '';
 
+  /// Open a client card + tab inside Employee Workspace (from the top-bar chip).
+  Map<String, dynamic>? _workspaceFocus;
+
+  /// Old pages that must never show in the employee sidebar.
+  static const Set<String> _hiddenMenus = {
+    'Content Assigned',
+    'Client Assigned Tasks',
+  };
+
+  /// Sidebar order (same as the expected design). Unknown pages go after these.
+  static const List<String> _menuOrder = [
+    'Dashboard',
+    'Day Planner',
+    'Assigned Task',
+    'Live Tracking Tasks',
+    'Chat',
+    'Client Credentials',
+    'Task Planner',
+    'Task Review',
+    'Daily Reports',
+    'Additional Task',
+    'Employee Workspace',
+  ];
+
+  /// Converts a saved access value (route path or title) to a sidebar title.
+  /// Returns null for pages that must be hidden.
+  static String? _menuTitle(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return null;
+    if (_hiddenMenus.contains(value)) return null;
+    final p = value.toLowerCase();
+
+    if (p.contains('content-assigned') || p.contains('content_assigned') ||
+        p.contains('content assigned') || p.contains('client-assigned') ||
+        p.contains('client_assigned') || p.contains('client assigned')) {
+      return null;
+    }
+    if (p.contains('workspace')) return 'Employee Workspace';
+    if (p.contains('video') && p.contains('planner')) {
+      return p.contains('history') ? 'Video Task Planner History' : 'Video Task Planner';
+    }
+    if (p.contains('feedback')) return p.contains('history') ? 'Feedback History' : 'Feedback';
+    if (p.contains('settings')) return 'Settings';
+    if (p.contains('dashboard') || p == '/admin' || p == '/employee') return 'Dashboard';
+    if (p.contains('day-planner') || p.contains('day planner') || p.contains('attendance')) return 'Day Planner';
+    if (p.contains('tracking')) return 'Live Tracking Tasks';
+    if (p.contains('task-planner') || p.contains('task planner') || p.contains('leave')) {
+      return p.contains('history') ? 'Task Planner History' : 'Task Planner';
+    }
+    if (p.contains('review')) return 'Task Review';
+    if (p.contains('reports')) return 'Daily Reports';
+    if (p.contains('notifications') || p == 'chat' || p.endsWith('/chat')) return 'Chat';
+    if (p.contains('credentials')) return 'Client Credentials';
+    if (p.contains('additional')) return 'Additional Task';
+    if (p == 'assigned task' || p.contains('assigned-task') || p.endsWith('/tasks') ||
+        p.contains('clock-log')) {
+      return 'Assigned Task';
+    }
+    // Any other unknown route path is not a sidebar title.
+    if (value.startsWith('/')) return null;
+    return value;
+  }
+
+  List<String> _buildMenu(dynamic user) {
+    final appAccess = user is Map && user['application_access'] is Map
+        ? Map<String, dynamic>.from(user['application_access'] as Map)
+        : <String, dynamic>{};
+    final taskManagerAccess = appAccess['task_manager'] is Map
+        ? Map<String, dynamic>.from(appAccess['task_manager'] as Map)
+        : <String, dynamic>{};
+    final pages = taskManagerAccess['allowed_pages'] ?? taskManagerAccess['allowedPages'];
+
+    final menu = <String>[];
+    if (pages is List) {
+      for (final p in pages) {
+        final title = _menuTitle(p.toString());
+        if (title != null && !menu.contains(title)) menu.add(title);
+      }
+    }
+    if (menu.isEmpty) {
+      menu.addAll(['Dashboard', 'Day Planner', 'Assigned Task', 'Chat']);
+    }
+    // Employee Workspace is always available to employees.
+    if (!menu.contains('Employee Workspace')) menu.add('Employee Workspace');
+
+    int rank(String m) {
+      final i = _menuOrder.indexOf(m);
+      return i < 0 ? _menuOrder.length - 1 : i; // unknown → just before Workspace
+    }
+    final indexed = menu.asMap().entries.toList()
+      ..sort((a, b) {
+        final r = rank(a.value).compareTo(rank(b.value));
+        return r != 0 ? r : a.key.compareTo(b.key);
+      });
+    return indexed.map((e) => e.value).toList();
+  }
+
   Future<void> loadMenu() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      selectedMenu = prefs.getString('employeeMenu') ?? 'Dashboard';
+      final saved = prefs.getString('employeeMenu') ?? 'Dashboard';
+      // An old hidden page saved earlier → open Dashboard instead.
+      selectedMenu = _menuTitle(saved) ?? 'Dashboard';
     });
   }
 
@@ -59,6 +156,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     setState(() {
       selectedMenu = menu;
       searchQuery = "";
+      if (menu != 'Employee Workspace') _workspaceFocus = null;
     });
   }
 
@@ -79,87 +177,60 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     if (role.contains('video') || role.contains('editor')) {
       return EmployeeRole.videographer;
     }
-    if (role.contains('page') ||
-        role.contains('handler') ||
-        role.contains('gmb')) {
+    if (role.contains('page') || role.contains('handler') || role.contains('gmb')) {
       return EmployeeRole.pageHandler;
     }
-    if (role.contains('ui') ||
-        role.contains('ux') ||
-        role.contains('graphic') ||
-        role.contains('designer') ||
-        role.contains('web')) {
+    if (role.contains('ui') || role.contains('ux') || role.contains('graphic') ||
+        role.contains('designer') || role.contains('web')) {
       return EmployeeRole.designer;
     }
     return EmployeeRole.designer;
+  }
+
+  /// Dashboard table row → open that client card + tab in Employee Workspace.
+  void _openWorkspaceItem(Map<String, dynamic> item) {
+    setState(() {
+      _workspaceFocus = item;
+      selectedMenu = 'Employee Workspace';
+    });
   }
 
   Widget getDashboardByRole(EmployeeRole loggedInRole) {
     switch (loggedInRole) {
       case EmployeeRole.designer:
         return DesignerDashboardPage(
-          onOpenAssignedTask: () =>
-              setState(() => selectedMenu = 'Assigned Task'),
-          onViewAllNotifications: () =>
-              setState(() => selectedMenu = 'Notifications'),
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+          onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.pageHandler:
         return PageHandlerDashboardPage(
-          onOpenAssignedTask: () =>
-              setState(() => selectedMenu = 'Assigned Task'),
-          onViewAllNotifications: () =>
-              setState(() => selectedMenu = 'Notifications'),
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+          onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.adsHandler:
         return AdsHandlerDashboardPage(
-          onOpenAssignedTask: () =>
-              setState(() => selectedMenu = 'Assigned Task'),
-          onViewAllNotifications: () =>
-              setState(() => selectedMenu = 'Notifications'),
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+          onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.videographer:
         return VideographerDashboardPage(
-          onOpenAssignedTask: () =>
-              setState(() => selectedMenu = 'Assigned Task'),
-          onViewAllNotifications: () =>
-              setState(() => selectedMenu = 'Notifications'),
+          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
+          onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
+          onOpenWorkspace: _openWorkspaceItem,
         );
     }
   }
 
-  Widget getSelectedPage(
-    EmployeeRole loggedInRole, [
-    List<String> allowedPages = const [],
-  ]) {
+  Widget getSelectedPage(EmployeeRole loggedInRole, List<String> menuPages) {
     // 🟢 Route paths-ai clean menu titles-a convert panra map
-    String menu = selectedMenu;
-    if (menu.startsWith('/')) {
-      if (menu.contains('dashboard'))
-        menu = 'Dashboard';
-      else if (menu.contains('attendance'))
-        menu = 'Day Planner';
-      else if (menu.contains('clock-log'))
-        menu = 'Assigned Task';
-      else if (menu.contains('leave'))
-        menu = 'Task Planner';
-      else if (menu.contains('tracking'))
-        menu = 'Live Tracking Tasks';
-    }
+    final String menu = _menuTitle(selectedMenu) ?? 'Dashboard';
 
     switch (menu) {
       case 'Dashboard':
         return getDashboardByRole(loggedInRole);
-      case 'Employee Workspace':
-        return EmployeeWorkspacePage(
-          role: loggedInRole,
-          allowedPages: allowedPages,
-        );
-      case 'Content Calendar':
-        return EmployeeWorkspacePage(
-          role: loggedInRole,
-          allowedPages: allowedPages,
-          initialSection: 'Content Calendar',
-        );
       case 'Day Planner':
         return const DayPlannerScreen();
       case 'Assigned Task':
@@ -195,6 +266,15 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return const FeedbackPage();
       case 'Feedback History':
         return const FeedbackHistoryWidget();
+      case 'Employee Workspace':
+        return EmployeeWorkspacePage(
+          key: ValueKey('workspace-${_workspaceFocus?['client'] ?? ''}-${_workspaceFocus?['section'] ?? ''}'),
+          role: loggedInRole,
+          allowedPages: menuPages,
+          focus: _workspaceFocus,
+          onNavigate: saveMenu,
+          searchQuery: searchQuery,
+        );
       default:
         return getDashboardByRole(loggedInRole);
     }
@@ -205,97 +285,19 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
         if (!authService.isInitialized) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-
+        
         if (!authService.isAuthenticated) {
           Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
         final rawRole = authService.userRole;
         final loggedInRole = _getRoleFromString(rawRole);
-
-        // 🟢 1. Database-la irunthu antha employee-kku save aana allowed_pages-a edukrom
-        final user = authService.user;
-        List<String> employeeMenuPages = [];
-
-        final appAccess =
-            user?['application_access'] as Map<String, dynamic>? ?? {};
-
-        // Task manager-kku ulla allowed pages mattum filter panrom
-        final taskManagerAccess =
-            appAccess['task_manager'] as Map<String, dynamic>? ?? {};
-        final pages =
-            taskManagerAccess['allowed_pages'] ??
-            taskManagerAccess['allowedPages'];
-
-        if (pages is List) {
-          for (var p in pages) {
-            String pStr = p.toString();
-            // Route paths-ai clean titles-a convert panrom
-            if (pStr.contains('dashboard') || pStr == '/admin')
-              pStr = 'Dashboard';
-            else if (pStr.toLowerCase().contains('workspace')) {
-              pStr = 'Employee Workspace';
-            } else if (pStr.toLowerCase().contains('additional')) {
-              pStr = 'Additional Task';
-            } else if (pStr.contains('day-planner') || pStr == 'Day Planner')
-              pStr = 'Day Planner';
-            else if (pStr.contains('tasks') || pStr == 'Assigned Task')
-              pStr = 'Assigned Task';
-            else if (pStr.contains('tracking') || pStr == 'Live Tracking Tasks')
-              pStr = 'Live Tracking Tasks';
-            else if (pStr.contains('reports') || pStr == 'Daily Reports')
-              pStr = 'Daily Reports';
-            else if (pStr.contains('notifications') || pStr == 'Chat')
-              pStr = 'Chat';
-            else if (pStr.contains('credentials') ||
-                pStr == 'Client Credentials')
-              pStr = 'Client Credentials';
-            else if (pStr.toLowerCase().contains('content-calendar') ||
-                pStr == 'Content Calendar') {
-              pStr = 'Content Calendar';
-            } else if (pStr.toLowerCase().contains('review')) {
-              pStr = 'Task Review';
-            } else if (pStr.toLowerCase().contains(
-                  'video-task-planner-history',
-                ) ||
-                pStr == 'Video Task Planner History') {
-              pStr = 'Video Task Planner History';
-            } else if (pStr.toLowerCase().contains('task-planner-history') ||
-                pStr == 'Task Planner History') {
-              pStr = 'Task Planner History';
-            } else if (pStr.toLowerCase().contains('video-task-planner') ||
-                pStr == 'Video Task Planner') {
-              pStr = 'Video Task Planner';
-            } else if (pStr.toLowerCase().contains('task-planner') ||
-                pStr == 'Task Planner') {
-              pStr = 'Task Planner';
-            }
-
-            if (!employeeMenuPages.contains(pStr) &&
-                !pStr.startsWith('/employee/')) {
-              employeeMenuPages.add(pStr);
-            }
-          }
-        }
-
-        if (employeeMenuPages.isEmpty) {
-          employeeMenuPages = [
-            'Dashboard',
-            'Assigned Task',
-            'Day Planner',
-            'Chat',
-          ];
-        }
-        if (!employeeMenuPages.contains('Employee Workspace')) {
-          employeeMenuPages.insert(1, 'Employee Workspace');
-        }
+        
+        // allowed_pages from DB → clean sidebar titles (old pages removed)
+        final employeeMenuPages = _buildMenu(authService.user);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -304,8 +306,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
             // 🟢 3. Hardcoded role menuItems-kku pathila database allowed_pages-a pass panrom!
             final sidebarWidget = EmployeeSidebar(
               selectedMenu: selectedMenu,
-              menuItems:
-                  employeeMenuPages, // Inga unga selected permission items pogum
+              menuItems: employeeMenuPages, // Inga unga selected permission items pogum
               onMenuTap: saveMenu,
               isMobileDrawer: !isDesktop,
             );
@@ -325,10 +326,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
                       children: [
                         Positioned.fill(
                           top: 64,
-                          child: getSelectedPage(
-                            loggedInRole,
-                            employeeMenuPages,
-                          ),
+                          child: getSelectedPage(loggedInRole, employeeMenuPages),
                         ),
                         Positioned(
                           top: 0,
@@ -345,6 +343,13 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
                             onOpenAssignedTasks: () {
                               setState(() {
                                 selectedMenu = 'Assigned Task';
+                              });
+                            },
+                            // Running chip → open that client card + tab in Employee Workspace
+                            onOpenRunningItem: (item) {
+                              setState(() {
+                                _workspaceFocus = item;
+                                selectedMenu = 'Employee Workspace';
                               });
                             },
                             onSearch: (value) {
@@ -365,5 +370,5 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       },
     );
   }
-}
 
+}

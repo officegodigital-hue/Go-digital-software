@@ -14,6 +14,7 @@ const router = express.Router();
 const db = require('../config/db');
 const { touchedOn, localDay, syncDayPlanStatus } = require('../lib/dayPlanSync');
 const { ensureWorkspaceTaskSchemaOnce } = require('../lib/ensureWorkspaceTaskSchema');
+const { ensureEventsTable } = require('../lib/assignmentEvents');
 
 // Make sure the nested-row / review columns exist before any query runs.
 router.use(async (req, res, next) => {
@@ -234,7 +235,8 @@ async function loadRows(taskListId, handedOffOnly) {
   const [rows] = await db.query(
     `${ROW_SELECT}
      WHERE tti.task_list_id = ?
-       ${handedOffOnly ? 'AND (tti.content_calendar_assigned = 1 OR tti.parent_item_id IS NOT NULL)' : ''}
+       ${handedOffOnly ? `AND (tti.content_calendar_assigned = 1 OR tti.parent_item_id IS NOT NULL
+             OR tti.start_time IS NOT NULL OR UPPER(COALESCE(tti.status, 'IDLE')) <> 'IDLE')` : ''}
      ORDER BY tti.s_no ASC, tti.sub_no ASC, tti.id ASC`,
     [taskListId],
   );
@@ -468,6 +470,13 @@ router.get('/cards', async (req, res) => {
     for (const { assignment, role, task } of await employeeAssignments(employee)) {
       const taskList = await findTaskList(assignment.id, task.name, employee, employeeId);
       const rows = taskList ? await loadRows(taskList.id, !role.direct) : [];
+      // Designer / Video / Website work finished in the old Assigned Task page
+      // without a Content Calendar share → nothing left to do here, hide it.
+      if (!role.direct && rows.length && rows.every((r) =>
+        Number(r.content_calendar_assigned) !== 1 && !r.parent_item_id &&
+        ['IN REVIEW', 'APPROVED'].includes(rowState(r)))) {
+        continue;
+      }
       const card = cardFor(assignment.client_name, deadlineOf(assignment));
       cardByAssignment.set(String(assignment.id), card);
       // Latest assignment time → the "NEW" ribbon on the card.
@@ -582,7 +591,7 @@ router.get('/cards', async (req, res) => {
       card.team = await clientTeam(card.client_name, card.submission_date);
     }
 
-    const data = [...cards.values()].sort(
+    const data = [...cards.values()].filter((c) => c.tasks.length > 0).sort(
       (a, b) => a.client_name.localeCompare(b.client_name) ||
         a.submission_date.localeCompare(b.submission_date),
     );
@@ -1267,6 +1276,41 @@ async function employeeTaskItems(employee, client = null) {
   return live.map((raw, i) => ({ raw, row: shaped[i] }));
 }
 
+// Only rows the employee really has in Employee Workspace → My Tasks:
+//  · additional lists (admin / Page-Ads Handler "Add content" / emergency)
+//  · direct roles (UI/UX, Developer, Page/Ads Handler) of an assignment naming them
+//  · Designer / Video / Website rows only after the Page / Ads Handler shared
+//    them from the Content Calendar (content_calendar_assigned = 1)
+//  · rows a handler reassigned to them (shared)
+// Old / unshared / unassigned rows are left out.
+async function workspaceVisible(employee, items) {
+  const ids = [...new Set(items.map(({ raw }) => raw.task_list_id).filter(Boolean))];
+  if (!ids.length) return () => false;
+  const [lists] = await db.query(
+    'SELECT id, task_assignment_id, additional_task_id FROM task_list WHERE id IN (?)',
+    [ids],
+  );
+  const info = new Map(lists.map((l) => [Number(l.id), l]));
+  const named = new Map(); // "assignmentId|task" → is a direct role
+  for (const { assignment, role, task } of await employeeAssignments(employee)) {
+    const k = `${assignment.id}|${norm(task.name)}`;
+    named.set(k, named.get(k) === true || Boolean(role.direct));
+  }
+  return ({ raw }) => {
+    const l = info.get(Number(raw.task_list_id));
+    if (!l) return false;
+    if (l.additional_task_id) return true;
+    // Shared from the Content Calendar — or already worked on in the old
+    // Assigned Task page (started / held / completed), so it continues here.
+    const handed = Number(raw.content_calendar_assigned) === 1 || Boolean(raw.parent_item_id) ||
+      Boolean(raw.start_time) || upper(raw.status || 'IDLE') !== 'IDLE';
+    if (!l.task_assignment_id) return false;
+    const k = `${l.task_assignment_id}|${norm(raw.deliverables)}`;
+    if (named.has(k)) return named.get(k) || handed;
+    return handed;
+  };
+}
+
 function taskItem({ raw, row }) {
   return {
     kind: 'TASK',
@@ -1376,7 +1420,10 @@ router.get('/actionable', async (req, res) => {
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
   try {
     const open = new Set(['IDLE', 'IN PROGRESS', 'ON HOLD', 'REWORK']);
-    const tasks = (await employeeTaskItems(employee, client))
+    const allItems = await employeeTaskItems(employee, client);
+    const visible = await workspaceVisible(employee, allItems);
+    const tasks = allItems
+      .filter(visible)
       .filter(({ raw, row }) => open.has(row.state) && !(row.state === 'IDLE' && Number(raw.awaiting_handoff) === 1))
       .map(taskItem);
     const sheets = (await employeeSheets(employee, client, { includeStartable: true }))
@@ -1386,6 +1433,278 @@ router.get('/actionable', async (req, res) => {
     return res.json({ success: true, data });
   } catch (err) {
     console.error('GET /workspace-tasks/actionable ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /dashboard?employee=&handler=1&filter=Today|This Week|This Month
+//   pending          open rows (IDLE / IN PROGRESS / ON HOLD), by priority
+//   week             this week's work only (submit date Mon–Sun): My Tasks,
+//                    Content Calendar + Task Review for
+//                    handlers; completed / in review this week at the bottom
+//   rework           rows sent back (REWORK / REJECTED)
+//   shared           Content Calendar rows a Page / Ads Handler shared with me
+//   review_pending   Page / Ads Handler: team rows waiting for their decision
+//   calendar_pending Page / Ads Handler: Content Calendar categories not shared yet
+//   cards            hold_list (Hold Task card) + new_clients (New Clients card)
+// Task items are the /actionable shape, so START / HOLD / COMPLETE / RESTART
+// work exactly like the Employee Workspace (Day Planner too).
+router.get('/dashboard', async (req, res) => {
+  const employee = employeeFrom(req);
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  const filter = String(req.query.filter || 'Today');
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const weekFrom = dateKey(monday);
+    const weekTo = dateKey(sunday);
+    const todayKey = dateKey(today);
+    const monthFrom = `${todayKey.slice(0, 7)}-01`;
+    const monthTo = `${todayKey.slice(0, 7)}-31`;
+    const inPeriod = (d) => {
+      if (!d) return false;
+      if (filter === 'This Month') return d >= monthFrom && d <= monthTo;
+      if (filter === 'This Week') return d >= weekFrom && d <= weekTo;
+      return d === todayKey;
+    };
+    const periodFrom = filter === 'This Month' ? monthFrom : filter === 'This Week' ? weekFrom : todayKey;
+
+    const due = (i) => i.submit_date || i.due_date || '';
+    const byDue = (a, b) => (due(a) || '9999').localeCompare(due(b) || '9999');
+    // Priority: running → overdue → rework → review to do → hold → to start
+    // → in review; finished work always last.
+    const prio = (i) => {
+      if (i.done) return 9;
+      if (i.status === 'IN PROGRESS') return 0;
+      if (i.overdue) return 1;
+      if (['REWORK', 'REJECTED'].includes(i.status)) return 2;
+      if (i.kind === 'REVIEW') return 3;
+      if (i.status === 'ON HOLD') return 4;
+      if (i.status === 'IN REVIEW') return 6;
+      return 5;
+    };
+    const byPrio = (a, b) => prio(a) - prio(b) || byDue(a, b);
+
+    const allItems = await employeeTaskItems(employee);
+    const visible = await workspaceVisible(employee, allItems);
+    const tasks = allItems
+      .filter(visible)
+      .filter(({ raw, row }) => !(row.state === 'IDLE' && Number(raw.awaiting_handoff) === 1))
+      .map(({ raw, row }) => {
+        const d = row.submit_date || dueKey(raw);
+        return {
+          ...taskItem({ raw, row }),
+          display_no: row.display_no,
+          description: row.description_points || '',
+          completed_at: dateKey(raw.complete_time),
+          hold_at: raw.updated_at || null,
+          assigned_by: raw.cc_assigned_by_name || '',
+          overdue: !!d && d < todayKey && !['APPROVED', 'IN REVIEW'].includes(row.state),
+        };
+      });
+
+    // Task Review + Content Calendar: Page / Ads Handler only (app sends handler=1).
+    const reviewerIds = String(req.query.handler) === '1'
+      ? await reviewerAssignmentIds(employee, null)
+      : [];
+    const isHandler = reviewerIds.length > 0;
+    let allSheets = [];
+    if (isHandler) {
+      allSheets = (await employeeSheets(employee, null, { includeStartable: true })).map((sh) => ({
+        ...sh,
+        display_no: `${sh.calendar_ids.length} rows`,
+        overdue: sh.status !== 'ASSIGNED' && !!due(sh) && due(sh) < todayKey,
+      }));
+    }
+    const sheets = allSheets.filter((sh) => sh.status !== 'ASSIGNED');
+
+    let reviewPending = [];
+    if (isHandler) {
+      const review = await buildReview(employee, null, '');
+      reviewPending = review.team
+        .filter((r) => r.review_state === 'PENDING' && r.state === 'IN REVIEW')
+        .map((r) => ({
+          kind: 'REVIEW',
+          key: `review:${r.id}`,
+          review_id: r.id,
+          client: r.client_name,
+          deliverable: r.deliverable,
+          display_no: r.display_no,
+          title: `${r.deliverable} · Row ${r.display_no}`,
+          heading: r.hook_headline || r.task_description || '',
+          description: r.description_points || '',
+          employee_name: r.employee_name,
+          own: !!r.own,
+          status: 'IN REVIEW',
+          submit_date: r.submit_date,
+          completed_at: r.complete_time,
+          duration_secs: r.current_secs,
+          section: 'Task Review',
+          due_date: r.submit_date,
+        }))
+        .sort(byDue);
+    }
+
+    const OPEN = new Set(['IDLE', 'IN PROGRESS', 'ON HOLD', 'REWORK', 'REJECTED']);
+    const pending = tasks
+      .filter((t) => ['IDLE', 'IN PROGRESS', 'ON HOLD'].includes(t.status))
+      .sort(byPrio);
+    const rework = tasks
+      .filter((t) => ['REWORK', 'REJECTED'].includes(t.status))
+      .sort(byPrio);
+
+    // This week = must be done by Sunday (overdue too) + finished this week.
+    const week = [];
+    for (const t of tasks) {
+      const d = due(t);
+      const inWeek = !!d && d >= weekFrom && d <= weekTo;
+      if (OPEN.has(t.status) && inWeek) {
+        week.push({ ...t, done: false });
+      } else if (['IN REVIEW', 'APPROVED'].includes(t.status) &&
+                 (inWeek || (t.completed_at >= weekFrom && t.completed_at <= weekTo))) {
+        week.push({ ...t, done: true });
+      }
+    }
+    for (const sh of allSheets) {
+      const d = due(sh);
+      if (sh.status !== 'ASSIGNED' && d >= weekFrom && d <= weekTo) week.push({ ...sh, done: false });
+      else if (sh.status === 'ASSIGNED' && d >= weekFrom && d <= weekTo) week.push({ ...sh, done: true });
+    }
+    for (const r of reviewPending) {
+      if (due(r) >= weekFrom && due(r) <= weekTo) week.push({ ...r, done: false });
+    }
+    week.sort(byPrio);
+
+    // Content Calendar rows a Page / Ads Handler shared with me.
+    let shared = [];
+    try {
+      const employeeId = await employeeIdFor(employee);
+      const [sh] = await db.query(
+        `SELECT cc.client_name, cc.deliverable, COUNT(*) AS row_count,
+                DATE_FORMAT(COALESCE(sa.deadline, sa.maintenance_date, cc.cc_card_date, cc.submit_date), '%Y-%m-%d') AS card_date,
+                MIN(DATE_FORMAT(cc.submit_date, '%Y-%m-%d')) AS submit_date,
+                MAX(cc.assigned_by_name) AS shared_by,
+                MAX(COALESCE(cc.cc_handoff_at, cc.cc_last_activity_at)) AS shared_at,
+                MAX(cc.is_emergency) AS emergency
+         FROM content_calendar cc
+         LEFT JOIN task_assignments sa ON sa.id = cc.source_assignment_id
+         WHERE (cc.assigned_to_id = ? OR LOWER(TRIM(cc.assigned_to_name)) = LOWER(TRIM(?)))
+           AND cc.task_item_id IS NOT NULL
+           AND (cc.cc_handoff_at IS NOT NULL OR cc.source_assignment_id IS NULL OR cc.is_emergency = 1)
+         GROUP BY cc.client_name, cc.deliverable, card_date
+         ORDER BY shared_at DESC
+         LIMIT 100`,
+        [employeeId ?? -1, employee],
+      );
+      const active = await activeClientSet();
+      shared = sh
+        .filter((r) => active.has(norm(r.client_name)))
+        .map((r) => ({
+          kind: 'SHARED',
+          key: `shared:${r.client_name}:${r.deliverable}:${r.card_date}`,
+          client: r.client_name,
+          deliverable: r.deliverable,
+          display_no: `${r.row_count} rows`,
+          title: `${r.deliverable} · ${r.row_count} rows`,
+          submit_date: r.submit_date || r.card_date,
+          due_date: r.card_date || r.submit_date,
+          shared_by: r.shared_by || '',
+          shared_at: r.shared_at,
+          status: Number(r.emergency) === 1 ? 'EMERGENCY' : 'SHARED',
+          section: 'My Tasks',
+        }));
+    } catch (err) {
+      console.warn('dashboard shared list skipped:', err.message);
+    }
+
+    // Hold Task card.
+    const holdList = [
+      ...tasks.filter((t) => t.status === 'ON HOLD').map((t) => ({
+        clientName: t.client,
+        task: t.title,
+        submissionDate: t.submit_date,
+        holdDate: t.hold_at,
+      })),
+      ...sheets.filter((s) => s.status === 'ON HOLD').map((s) => ({
+        clientName: s.client,
+        task: s.title,
+        submissionDate: s.submit_date,
+        holdDate: s.last_activity_at,
+      })),
+    ];
+
+    // New Clients card: new admin assignments + clients moved to me
+    // (admin changed the person, or a handler assigned / reassigned rows).
+    const newMap = new Map();
+    const addNew = (client, info) => {
+      const k = norm(client);
+      if (!k || newMap.has(k)) return;
+      newMap.set(k, { clientName: String(client).trim(), ...info });
+    };
+    for (const { assignment } of await employeeAssignments(employee)) {
+      const created = dateKey(assignment.created_at ? new Date(assignment.created_at) : null);
+      if (inPeriod(created)) {
+        addNew(assignment.client_name, {
+          submissionDate: deadlineOf(assignment) || created,
+          note: 'New assignment',
+          at: created,
+        });
+      }
+    }
+    try {
+      await ensureEventsTable();
+      const [events] = await db.query(
+        `SELECT * FROM employee_assignment_events WHERE created_at >= ? ORDER BY created_at DESC`,
+        [`${periodFrom} 00:00:00`],
+      );
+      const me = personKey(employee);
+      const active = await activeClientSet();
+      for (const ev of events) {
+        if (personKey(ev.employee_name) !== me || !active.has(norm(ev.client_name))) continue;
+        const at = dateKey(ev.created_at instanceof Date ? ev.created_at : new Date(ev.created_at));
+        if (!inPeriod(at)) continue;
+        const kind = upper(ev.kind);
+        const note = kind.includes('REASSIGNED') && ev.from_employee
+          ? `Moved from ${ev.from_employee}${ev.by_name ? ` by ${ev.by_name}` : ''}`
+          : kind.includes('EMERGENCY')
+            ? `Emergency task${ev.by_name ? ` from ${ev.by_name}` : ''}`
+            : kind.startsWith('HANDLER')
+              ? `Assigned by ${ev.by_name || 'handler'}`
+              : `Assigned${ev.by_name ? ` by ${ev.by_name}` : ''}`;
+        addNew(ev.client_name, { submissionDate: dateKey(ev.due_date) || at, note, at });
+      }
+    } catch (err) {
+      console.warn('dashboard new-clients events skipped:', err.message);
+    }
+    const newClients = [...newMap.values()];
+
+    return res.json({
+      success: true,
+      week_from: weekFrom,
+      week_to: weekTo,
+      is_handler: isHandler,
+      data: {
+        pending,
+        week,
+        week_open: week.filter((w) => !w.done).length,
+        rework,
+        shared,
+        review_pending: reviewPending,
+        calendar_pending: sheets.sort(byPrio),
+      },
+      cards: {
+        hold_count: holdList.length,
+        hold_list: holdList,
+        new_clients_count: newClients.length,
+        new_clients: newClients,
+      },
+    });
+  } catch (err) {
+    console.error('GET /workspace-tasks/dashboard ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

@@ -1,6 +1,7 @@
 // routes/tasks.js — Task Assignments CRUD API
 const express = require('express');
 const router  = express.Router();
+const { logAssignmentEvent } = require('../lib/assignmentEvents');
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 
@@ -463,6 +464,17 @@ router.put('/:id', async (req, res) => {
       const name = newPeople[0];
       const oldKeys = new Set(peopleIn(oldCell).map(personKey));
       if (oldKeys.has(personKey(name)) && oldKeys.size === 1) continue; // unchanged
+      // Dashboard "New Clients": this client is new for the person taking over.
+      logAssignmentEvent({
+        employee: name,
+        client: clientName,
+        kind: oldKeys.size ? 'REASSIGNED' : 'ASSIGNED',
+        from: peopleIn(oldCell).join(', '),
+        by: req.user?.fullName || 'Admin',
+        assignmentId: Number(req.params.id),
+        deliverable: String(taskText || '').slice(0, 255),
+        due: deadline || maintenanceDate,
+      });
       const taskNames = new Set(String(taskText || '')
         .split(',')
         .map((t) => t.trim().replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase())
