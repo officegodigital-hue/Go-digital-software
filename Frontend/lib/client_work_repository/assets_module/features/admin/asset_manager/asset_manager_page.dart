@@ -526,23 +526,42 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
   }
 
   Widget _buildPageHeader() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          'Asset Manager',
-          style: TextStyle(
-            fontSize: pageTitleSize,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
+        const Expanded(
+          child: Text(
+            'Asset Manager',
+            style: TextStyle(
+              fontSize: pageTitleSize,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
           ),
         ),
-        SizedBox(height: 6),
-        Text(
-          'Manage companies and their digital assets.',
-          style: TextStyle(
-            fontSize: normalTextSize,
-            color: AppColors.textSecondary,
+        ElevatedButton.icon(
+          onPressed: () {
+            _showCreateCompanyDialog(AppConstants.digitalMarketing);
+          },
+          icon: const Icon(Icons.add, size: 20),
+          label: const Text(
+            'Create Company',
+            style: TextStyle(
+              fontSize: normalTextSize,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 14,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            elevation: 0,
           ),
         ),
       ],
