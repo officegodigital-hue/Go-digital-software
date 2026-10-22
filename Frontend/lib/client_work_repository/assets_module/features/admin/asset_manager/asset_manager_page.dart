@@ -931,22 +931,14 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.only(
-        bottom: 4,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: _buildCompanyList(
+        section: section,
+        companies: companies,
+        sectionColor: sectionColor,
+        sectionLightColor: sectionLightColor,
       ),
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: companies.length,
-      separatorBuilder: (_, _) =>
-          const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        return _buildCompanyCard(
-          company: companies[index],
-          section: section,
-          sectionColor: sectionColor,
-          sectionLightColor: sectionLightColor,
-        );
-      },
     );
   }
 
@@ -956,20 +948,31 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required Color sectionColor,
     required Color sectionLightColor,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final company in companies)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _buildCompanyCard(
-              company: company,
-              section: section,
-              sectionColor: sectionColor,
-              sectionLightColor: sectionLightColor,
-            ),
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 900 ? 3 : width >= 580 ? 2 : 1;
+        const spacing = 16.0;
+        final cardWidth =
+            (width - spacing * (columns - 1)) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final company in companies)
+              SizedBox(
+                width: cardWidth,
+                child: _buildCompanyCard(
+                  company: company,
+                  section: section,
+                  sectionColor: sectionColor,
+                  sectionLightColor: sectionLightColor,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -979,111 +982,111 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required Color sectionColor,
     required Color sectionLightColor,
   }) {
-    final assets = _assetsFor(
-      section,
-      'All',
-    ).where(
-      (asset) => asset.companyId == company.id,
-    ).toList();
+    final assets = _assetsFor(section, 'All')
+        .where((asset) => asset.companyId == company.id)
+        .toList();
 
     final latestDate = _getLatestDate(assets);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _buildCompanyLogo(
-            company: company,
-            sectionColor: sectionColor,
-            sectionLightColor: sectionLightColor,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _openCompany(company: company, section: section),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x08000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  company.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: companyNameSize,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Logo + name/meta ──────────────────────────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildCompanyLogo(
+                    company: company,
+                    sectionColor: sectionColor,
+                    sectionLightColor: sectionLightColor,
                   ),
-                ),
-                const SizedBox(height: 5),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 4,
-                  children: [
-                    Text(
-                      '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
-                      style: const TextStyle(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          company.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: companyNameSize,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
+                          style: const TextStyle(
+                            fontSize: smallTextSize,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        if (assets.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Updated $latestDate',
+                            style: const TextStyle(
+                              fontSize: smallTextSize,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+
+              // ── Open assets link ──────────────────────────────
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(
+                    Icons.folder_outlined,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () =>
+                        _openCompany(company: company, section: section),
+                    child: const Text(
+                      'Open assets →',
+                      style: TextStyle(
                         fontSize: smallTextSize,
-                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
                     ),
-                    if (assets.isNotEmpty)
-                      Text(
-                        'Updated: $latestDate',
-                        style: const TextStyle(
-                          fontSize: smallTextSize,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () {
-              _openCompany(
-                company: company,
-                section: section,
-              );
-            },
-            icon: const Icon(
-              Icons.folder_open_outlined,
-              size: 17,
-            ),
-            label: const Text(
-              'Open',
-              style: TextStyle(
-                fontSize: normalTextSize,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: sectionColor,
-              side: BorderSide(
-                color: sectionColor,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 11,
-                vertical: 9,
-              ),
-              minimumSize: Size.zero,
-              tapTargetSize:
-                  MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(7),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1631,17 +1634,17 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
     if (rawLogo == null || rawLogo.isEmpty) {
       return Container(
-        width: 44,
-        height: 44,
+        width: 56,
+        height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: sectionLightColor,
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           _companyInitial(company.name),
           style: TextStyle(
-            fontSize: 17,
+            fontSize: 20,
             fontWeight: FontWeight.w800,
             color: sectionColor,
           ),
@@ -1652,19 +1655,17 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     final logoUrl = _resolveCompanyLogoUrl(rawLogo);
 
     return Container(
-      width: 44,
-      height: 44,
+      width: 56,
+      height: 56,
       decoration: BoxDecoration(
-        color: sectionLightColor,
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Image.network(
         logoUrl,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         errorBuilder: (context, error, stackTrace) {
           return Container(
             alignment: Alignment.center,
@@ -1672,7 +1673,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             child: Text(
               _companyInitial(company.name),
               style: TextStyle(
-                fontSize: 17,
+                fontSize: 20,
                 fontWeight: FontWeight.w800,
                 color: sectionColor,
               ),
