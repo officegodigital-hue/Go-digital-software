@@ -3121,6 +3121,27 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     String submit = initialDate == null ? '' : _fmtIso(initialDate);
     String? error;
 
+    // A submit date must be today or later, and not after this card's
+    // submit date (the client deadline). Checked as soon as it is picked.
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final cardDay = _parseDate(_cardDateKey);
+    String? dateProblem(String value) {
+      final d = _parseDate(value);
+      if (d == null) return null; // no date → the card's date is used
+      final day = DateTime(d.year, d.month, d.day);
+      if (day.isBefore(today)) {
+        return 'Invalid submit date ${_fmtSlash(day)} — it is already past. '
+            'Pick today (${_fmtSlash(today)}) or later. Rows will not be added with this date.';
+      }
+      if (cardDay != null && !cardDay.isBefore(today) && day.isAfter(cardDay)) {
+        return 'Invalid submit date ${_fmtSlash(day)} — it is after this card\'s submit date '
+            '${_fmtSlash(cardDay)}. Pick a date up to ${_fmtSlash(cardDay)}. Rows will not be added with this date.';
+      }
+      return null;
+    }
+    String? dateError = dateProblem(submit);
+
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -3188,15 +3209,64 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
                           firstDate: DateTime(2020),
                           lastDate: DateTime(2035),
                         );
-                        if (picked != null) setD(() => submit = _fmtIso(picked));
+                        if (picked != null) {
+                          setD(() {
+                            submit = _fmtIso(picked);
+                            dateError = dateProblem(submit);
+                          });
+                        }
                       },
-                      icon: const Icon(Icons.calendar_month_outlined, size: 15),
+                      style: dateError == null
+                          ? null
+                          : OutlinedButton.styleFrom(
+                              foregroundColor: _kRed,
+                              side: const BorderSide(color: _kRed),
+                            ),
+                      icon: Icon(
+                        dateError == null ? Icons.calendar_month_outlined : Icons.error_outline_rounded,
+                        size: 15,
+                      ),
                       label: Text(_parseDate(submit) == null
                           ? 'Submit date'
                           : 'Submit ${_fmtSlash(_parseDate(submit)!)}'),
                     ),
                   ],
                 ),
+                if (dateError != null)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _kRedTint,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _kRed.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.event_busy_rounded, color: _kRed, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            dateError!,
+                            style: const TextStyle(color: _kRed, fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (_parseDate(submit) != null &&
+                    cardDay != null &&
+                    _fmtIso(_parseDate(submit)!) != _fmtIso(cardDay))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Rows stay in this card (${_fmtSlash(cardDay)}) with submit date '
+                      '${_fmtSlash(_parseDate(submit)!)}.',
+                      style: const TextStyle(color: _kMuted, fontSize: 12),
+                    ),
+                  ),
                 if (error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
@@ -3208,7 +3278,8 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
             FilledButton(
-              onPressed: () {
+              // Blocked while the submit date is invalid.
+              onPressed: dateError != null ? null : () {
                 final name = useOther ? otherController.text.trim() : (deliverable ?? '');
                 if (name.isEmpty) {
                   setD(() => error = 'Choose or type a deliverable');
@@ -3234,12 +3305,17 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
           'client_name': client,
           'deliverable': deliverable,
           'count': count,
-          if (submit.isNotEmpty) 'submit_date': submit,
+          if (_parseDate(submit) != null) 'submit_date': _fmtIso(_parseDate(submit)!),
+          // Keep the rows on the card they were added in, whatever submit date.
+          if (_cardDateKey.isNotEmpty) 'card_date': _cardDateKey,
         }),
       );
       if (!mounted) return;
       if (res.statusCode == 201 || res.statusCode == 200) {
-        _showMessage('$count $deliverable row(s) added');
+        final picked = _parseDate(submit);
+        _showMessage(picked == null
+            ? '$count $deliverable row(s) added'
+            : '$count $deliverable row(s) added · Submit ${_fmtSlash(picked)}');
         await _reloadCurrentClient();
         final index = _categoryTabs.indexOf(deliverable!);
         if (index >= 0 && mounted) setState(() => _selectedTabIndex = index);
