@@ -67,6 +67,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   final TextEditingController _permAddressCtrl = TextEditingController();
   final TextEditingController _tempAddressCtrl = TextEditingController();
 
+  // ── Attendance Details (saved to the Attendance app profile) ──
+  // The employee is added only here; the Attendance page just uses / edits it.
+  static const List<String> _workModes = ['Office', 'Home', 'Hybrid'];
+  String _workMode = 'Office';
+  String _salaryType = 'standard'; // standard | flexible
+  final TextEditingController _attSalaryCtrl = TextEditingController();
+  final TextEditingController _cycleStartCtrl = TextEditingController(text: '26');
+  final TextEditingController _cycleEndCtrl = TextEditingController(text: '25');
+  bool _loadingAttendance = false;
+
   String _selectedUserType = 'employee';
   bool _isMainAdmin = false;
   String _selectedRole = '';
@@ -150,6 +160,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _bankNameCtrl.dispose();
     _permAddressCtrl.dispose();
     _tempAddressCtrl.dispose();
+    _attSalaryCtrl.dispose();
+    _cycleStartCtrl.dispose();
+    _cycleEndCtrl.dispose();
     super.dispose();
   }
 
@@ -410,7 +423,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
       _modalError = null;
       _isFormView = true;
+
+      // Attendance Details defaults (filled from the server for edits below).
+      _workMode = 'Office';
+      _salaryType = 'standard';
+      _attSalaryCtrl.text = '';
+      _cycleStartCtrl.text = '26';
+      _cycleEndCtrl.text = '25';
     });
+
+    final editId = _toInt(employee?['id']);
+    if (editId != null) _loadAttendanceDetails(editId);
 
     if (_selectedRole.isNotEmpty) {
       final matchedRole = allUserRolesMaster.firstWhere(
@@ -424,6 +447,26 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         await _fetchRoleAccessForForm(rId);
       }
     }
+  }
+
+  Future<void> _loadAttendanceDetails(int employeeId) async {
+    setState(() => _loadingAttendance = true);
+    final full = await _fetchSingleEmployee(employeeId);
+    if (!mounted) return;
+    final att = full?['attendance'];
+    setState(() {
+      _loadingAttendance = false;
+      if (att is Map) {
+        final mode = '${att['work_mode'] ?? 'Office'}';
+        _workMode = _workModes.contains(mode) ? mode : 'Office';
+        _attSalaryCtrl.text = '${att['monthly_salary'] ?? ''}' == 'null' ? '' : '${att['monthly_salary'] ?? ''}';
+        _salaryType = '${att['salary_type'] ?? 'standard'}' == 'flexible' ? 'flexible' : 'standard';
+        final start = int.tryParse('${att['salary_start_day'] ?? ''}');
+        final end = int.tryParse('${att['salary_end_day'] ?? ''}');
+        _cycleStartCtrl.text = '${start ?? 26}';
+        _cycleEndCtrl.text = '${end ?? 25}';
+      }
+    });
   }
 
   void _closeForm() {
@@ -1069,6 +1112,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       return;
     }
 
+    if (_salaryType == 'flexible') {
+      final start = int.tryParse(_cycleStartCtrl.text.trim());
+      final end = int.tryParse(_cycleEndCtrl.text.trim());
+      if (start == null || start < 1 || start > 28 || end == null || end < 1 || end > 28) {
+        setState(() {
+          _modalError = 'Attendance Details: cycle start and end day must be 1–28';
+        });
+        return;
+      }
+    }
+
     setState(() {
       _isSubmitting = true;
       _modalError = null;
@@ -1102,6 +1156,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'bankName': _bankNameCtrl.text.trim(),
       'permanentAddress': _permAddressCtrl.text.trim(),
       'temporaryAddress': _tempAddressCtrl.text.trim(),
+      // Saved into the Attendance app profile (work location, salary, cycle).
+      'attendance': {
+        'workMode': _workMode,
+        'salary': _attSalaryCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'salaryType': _salaryType,
+        if (_salaryType == 'flexible') 'salaryStartDay': int.tryParse(_cycleStartCtrl.text.trim()) ?? 26,
+        if (_salaryType == 'flexible') 'salaryEndDay': int.tryParse(_cycleEndCtrl.text.trim()) ?? 25,
+      },
     };
 
     String? error;
@@ -2645,6 +2707,83 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 28),
+
+                    _sectionLabel(
+                      'Attendance Details',
+                      Icons.fingerprint_rounded,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _loadingAttendance
+                          ? 'Loading attendance details…'
+                          : 'Used by the Attendance app (Employees, Clock Logs, Payroll). '
+                              'The employee is added only here — no need to add again in Attendance.',
+                      style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    _responsiveFields(
+                      isMobile: isMobile,
+                      children: [
+                        KeyedSubtree(
+                          key: ValueKey('work-mode-$_workMode'),
+                          child: _modernDropdown(
+                            label: 'Work Location',
+                            icon: Icons.location_city_rounded,
+                            value: _workMode,
+                            hint: 'Select work location',
+                            items: _workModes,
+                            onChanged: (v) {
+                              if (v != null) setState(() => _workMode = v);
+                            },
+                          ),
+                        ),
+                        _modernTextField(
+                          controller: _attSalaryCtrl,
+                          label: 'Monthly Salary (₹)',
+                          hint: 'Optional — e.g. 25000',
+                          icon: Icons.currency_rupee_rounded,
+                        ),
+                        KeyedSubtree(
+                          key: ValueKey('salary-type-$_salaryType'),
+                          child: _modernDropdown(
+                            label: 'Salary Cycle Type',
+                            icon: Icons.event_repeat_rounded,
+                            value: _salaryType == 'flexible' ? 'Flexible' : 'Standard',
+                            hint: 'Select cycle',
+                            items: const ['Standard', 'Flexible'],
+                            onChanged: (v) => setState(
+                              () => _salaryType = v == 'Flexible' ? 'flexible' : 'standard',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_salaryType == 'flexible') ...[
+                      const SizedBox(height: 16),
+                      _responsiveFields(
+                        isMobile: isMobile,
+                        children: [
+                          _modernTextField(
+                            controller: _cycleStartCtrl,
+                            label: 'Cycle Start Day (1–28)',
+                            hint: '26',
+                            icon: Icons.first_page_rounded,
+                          ),
+                          _modernTextField(
+                            controller: _cycleEndCtrl,
+                            label: 'Cycle End Day (1–28)',
+                            hint: '25',
+                            icon: Icons.last_page_rounded,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Day ${_cycleStartCtrl.text} of previous month → Day ${_cycleEndCtrl.text} of pay month',
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    ],
                     const SizedBox(height: 28),
 
                     _sectionLabel(

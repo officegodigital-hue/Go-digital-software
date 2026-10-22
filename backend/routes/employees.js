@@ -3,6 +3,23 @@ const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcrypt');
 const db      = require('../config/db');
+const {
+  readAttendanceDetails,
+  saveAttendanceDetails,
+  syncStatusFromAdmin,
+} = require('../lib/attendanceProfileSync');
+
+// Admin Panel → "Attendance Details" section (work location, salary, cycle).
+function attendanceFromBody(body) {
+  const a = body.attendance || {};
+  return {
+    workMode: a.workMode ?? body.workMode,
+    salary: a.salary ?? body.attendanceSalary,
+    salaryType: a.salaryType ?? body.salaryType,
+    salaryStartDay: a.salaryStartDay ?? body.salaryStartDay,
+    salaryEndDay: a.salaryEndDay ?? body.salaryEndDay,
+  };
+}
 
 
 // routes/employees.js — Place /user-roles routes at the TOP before /:id routes
@@ -179,6 +196,10 @@ router.get('/:id', async (req, res) => {
     try { employeeData.allowed_pages = legacyRows.length ? JSON.parse(legacyRows[0].allowed_pages || '[]') : []; }
     catch (_) { employeeData.allowed_pages = []; }
 
+    // Attendance Details (from the Attendance / HRMS profile).
+    try { employeeData.attendance = await readAttendanceDetails(req.params.id); }
+    catch (e) { employeeData.attendance = null; }
+
     return res.json({ success: true, data: employeeData });
   } catch (err) {
     console.error('GET /employees/:id ERROR:', err.message);
@@ -341,11 +362,15 @@ router.post('/', async (req, res) => {
     ]);
 
     const newEmpId = result.insertId;
+    // The employee is added ONCE here — the Attendance app uses this profile
+    // (no separate "Add Employee" in Attendance).
+    const attendance = attendanceFromBody(req.body);
+    const mode = ['Office', 'Home', 'Hybrid'].includes(attendance.workMode) ? attendance.workMode : 'Office';
     await connection.query(`
       INSERT INTO hrms_employee_profiles
       (employee_user_id, employee_code, full_name, email, department, work_mode, employment_status)
-      VALUES (?, ?, ?, ?, ?, 'Office', 'Active')
-    `, [newEmpId, staffId, fullName, email, role]);
+      VALUES (?, ?, ?, ?, ?, ?, 'Active')
+    `, [newEmpId, staffId, fullName, email, role, mode]);
 
     const legacyPages = Array.isArray(allowedPages) ? allowedPages : [];
     await connection.query(
@@ -385,6 +410,13 @@ router.post('/', async (req, res) => {
     }
 
     await connection.commit();
+    try {
+      await saveAttendanceDetails(newEmpId, attendanceFromBody(req.body), {
+        staffId, fullName, email, role, isActive: true, user: req.user,
+      });
+    } catch (e) {
+      console.warn('POST /employees: attendance details not saved:', e.message);
+    }
     return res.status(201).json({ success: true, message: 'User created successfully', staffId });
   } catch (err) {
     await connection.rollback();
@@ -500,6 +532,14 @@ router.put('/:id', async (req, res) => {
     }
 
     await connection.commit();
+    try {
+      const [[st]] = await db.query('SELECT is_active FROM employee_users WHERE id = ?', [empId]);
+      await saveAttendanceDetails(empId, attendanceFromBody(req.body), {
+        staffId, fullName, email, role, isActive: Number(st?.is_active) === 1, user: req.user,
+      });
+    } catch (e) {
+      console.warn('PUT /employees/:id: attendance details not saved:', e.message);
+    }
     return res.json({ success: true, message: 'User updated successfully' });
   } catch (err) {
     await connection.rollback();
@@ -517,6 +557,7 @@ router.delete('/:id', async (req, res) => {
     const [result] = await db.query('UPDATE employee_users SET is_active = 0 WHERE id = ?', [empId]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Employee not found' });
+    try { await syncStatusFromAdmin(empId, false); } catch (e) { console.warn('status sync:', e.message); }
     
     return res.json({ success: true, message: 'Employee deactivated; history retained' });
   } catch (err) {
@@ -549,6 +590,9 @@ router.patch('/:id', async (req, res) => {
         message: 'Employee not found',
       });
     }
+
+    // Same Active / Inactive in the Attendance app.
+    try { await syncStatusFromAdmin(empId, !!isActive); } catch (e) { console.warn('status sync:', e.message); }
 
     return res.json({
       success: true,
