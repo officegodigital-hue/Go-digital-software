@@ -695,68 +695,27 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: sectionLightColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                section == AppConstants.digitalMarketing
-                    ? Icons.campaign_outlined
-                    : Icons.code_outlined,
-                color: sectionColor,
-                size: 24,
+            Text(
+              section,
+              style: const TextStyle(
+                fontSize: sectionTitleSize,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                section,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: sectionTitleSize,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
+            const SizedBox(width: 8),
+            Text(
+              '· $companyCount ${companyCount == 1 ? 'company' : 'companies'}',
+              style: const TextStyle(
+                fontSize: normalTextSize,
+                fontWeight: FontWeight.w400,
+                color: AppColors.textSecondary,
               ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '$assetCount',
-                  style: const TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const Text(
-                  'Assets',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
             ),
           ],
-        ),
-        const SizedBox(height: 10),
-        Text(
-          section == AppConstants.digitalMarketing
-              ? 'Manage posters, reels, documents, website links and other marketing assets.'
-              : 'Manage web applications, mobile applications and other software assets.',
-          style: const TextStyle(
-            fontSize: normalTextSize,
-            color: AppColors.textSecondary,
-            height: 1.4,
-          ),
         ),
         const SizedBox(height: 8),
 
@@ -765,19 +724,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
         // and Create Company permanently on the right.
         Row(
           children: [
-            Expanded(
-              child: Text(
-                '$companyCount ${companyCount == 1 ? 'company' : 'companies'}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: smallTextSize,
-                  fontWeight: FontWeight.w700,
-                  color: sectionColor,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
+            const Spacer(),
             OutlinedButton.icon(
               onPressed: () {
                 _showCreateCompanyDialog(section);
