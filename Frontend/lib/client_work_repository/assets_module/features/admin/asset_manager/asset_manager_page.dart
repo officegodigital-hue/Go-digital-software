@@ -42,12 +42,12 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
   int _selectedTabIndex = 0;
 
-  static const double pageTitleSize = 24;
-  static const double sectionTitleSize = 19;
+  static const double pageTitleSize = 32;
+  static const double sectionTitleSize = 20;
   static const double companyNameSize = 16;
   static const double normalTextSize = 14;
   static const double smallTextSize = 13;
-  static const double chipTextSize = 12;
+  static const double chipTextSize = 13;
   static const double desktopSectionHeight = 700;
 
   final List<String> _digitalFilters = const [
@@ -506,22 +506,14 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
   Widget _buildTabBar(int digitalCount, int softwareCount) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F2F5),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(10),
       ),
       padding: const EdgeInsets.all(4),
       child: Row(
         children: [
-          _buildTab(
-            index: 0,
-            label: 'Digital Marketing',
-            count: digitalCount,
-          ),
-          _buildTab(
-            index: 1,
-            label: 'Software Development',
-            count: softwareCount,
-          ),
+          _buildTab(index: 0, label: 'Digital Marketing', count: digitalCount),
+          _buildTab(index: 1, label: 'Software Development', count: softwareCount),
         ],
       ),
     );
@@ -537,11 +529,11 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       child: GestureDetector(
         onTap: () => setState(() => _selectedTabIndex = index),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 13),
+          duration: const Duration(milliseconds: 180),
+          height: 48,
           decoration: BoxDecoration(
-            color: isActive ? AppColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
+            color: isActive ? const Color(0xFF2563EB) : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
           ),
           alignment: Alignment.center,
           child: Text(
@@ -549,7 +541,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             style: TextStyle(
               fontSize: normalTextSize,
               fontWeight: FontWeight.w700,
-              color: isActive ? Colors.white : AppColors.textSecondary,
+              color: isActive ? Colors.white : const Color(0xFF6B7280),
             ),
           ),
         ),
@@ -584,16 +576,20 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             ),
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
+            backgroundColor: const Color(0xFF2563EB),
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(
               horizontal: 20,
-              vertical: 14,
+              vertical: 10,
             ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
             elevation: 0,
+            textStyle: const TextStyle(
+              fontSize: normalTextSize,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -631,8 +627,15 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       height: fixedHeight ? double.infinity : null,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -828,19 +831,21 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required String section,
   }) {
     return ChoiceChip(
+      avatar: selected
+          ? const Icon(Icons.check, size: 14, color: Color(0xFF2563EB))
+          : null,
       label: Text(
         _filterLabel(item),
         maxLines: 1,
         style: TextStyle(
           fontSize: chipTextSize,
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          color: selected ? AppColors.primary : AppColors.textSecondary,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          color: selected ? const Color(0xFF2563EB) : const Color(0xFF6B7280),
         ),
       ),
       selected: selected,
       onSelected: (_) {
         if (!mounted) return;
-
         setState(() {
           if (section == AppConstants.digitalMarketing) {
             _digitalMarketingFilter = item;
@@ -852,20 +857,14 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       selectedColor: Colors.transparent,
       backgroundColor: Colors.transparent,
       side: selected
-          ? const BorderSide(color: AppColors.primary, width: 1.5)
+          ? const BorderSide(color: Color(0xFF2563EB), width: 1.5)
           : BorderSide.none,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
       ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 4,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: const VisualDensity(
-        horizontal: -2,
-        vertical: -2,
-      ),
+      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
     );
   }
 
@@ -955,12 +954,12 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x08000000),
-                blurRadius: 8,
-                offset: Offset(0, 2),
+                color: Color(0x14000000),
+                blurRadius: 3,
+                offset: Offset(0, 1),
               ),
             ],
           ),
@@ -997,7 +996,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                           '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
                           style: const TextStyle(
                             fontSize: smallTextSize,
-                            color: AppColors.textSecondary,
+                            color: Color(0xFF6B7280),
                           ),
                         ),
                         if (assets.isNotEmpty) ...[
@@ -1005,8 +1004,8 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                           Text(
                             'Updated $latestDate',
                             style: const TextStyle(
-                              fontSize: smallTextSize,
-                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                              color: Color(0xFF6B7280),
                             ),
                           ),
                         ],
@@ -1022,10 +1021,10 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.folder_outlined,
                     size: 16,
-                    color: AppColors.textSecondary,
+                    color: Color(0xFF6B7280),
                   ),
                   const SizedBox(width: 6),
                   GestureDetector(
@@ -1036,7 +1035,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                       style: TextStyle(
                         fontSize: smallTextSize,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
+                        color: Color(0xFF2563EB),
                       ),
                     ),
                   ),

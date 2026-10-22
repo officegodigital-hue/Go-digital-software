@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  static const primary = Color(0xFF1264E8);
+  static const primary = Color(0xFF2563EB);
   static const darkNavy = Color(0xFF0B2348);
-  static const background = Color(0xFFF6F9FD);
+  static const background = Color(0xFFF9FAFB);
   static const surface = Colors.white;
-  static const textPrimary = Color(0xFF102044);
-  static const textSecondary = Color(0xFF64748B);
-  static const border = Color(0xFFDCE5F2);
+  static const textPrimary = Color(0xFF111827);
+  static const textBody = Color(0xFF374151);
+  static const textSecondary = Color(0xFF6B7280);
+  static const border = Color(0xFFE5E7EB);
+  static const lightGray = Color(0xFFF3F4F6);
   static const digitalMarketing = Color(0xFF8B3DFF);
   static const digitalMarketingLight = Color(0xFFF3E9FF);
   static const softwareDevelopment = Color(0xFF16A86B);
@@ -24,7 +26,7 @@ class AppTheme {
     useMaterial3: true,
     scaffoldBackgroundColor: AppColors.background,
     colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
-    fontFamily: 'Arial',
+    fontFamily: 'Inter',
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.white,
       foregroundColor: AppColors.textPrimary,
