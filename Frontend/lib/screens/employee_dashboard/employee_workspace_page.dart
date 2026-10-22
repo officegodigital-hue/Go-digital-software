@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -2446,6 +2447,51 @@ class _ClientCard extends StatelessWidget {
 
   /// Team · tasks (role, person, each category with completed/total) in a popup.
   static Future<void> showTeam(BuildContext context, _WorkspaceClient client) {
+    String _teamTaskMessageDraft(Map member, Map task) {
+      final employee = '${member['employee'] ?? ''}'.trim();
+      final taskName = '${task['name'] ?? ''}'.trim();
+      final completed = int.tryParse('${task['completed'] ?? 0}') ?? 0;
+      final total = int.tryParse('${task['total'] ?? 0}') ?? 0;
+
+      if (completed < total) {
+        return 'Hi $employee,\n\n'
+            'Regarding the ${client.name} project, '
+            'your $taskName task is pending '
+            '($completed/$total completed).\n\n'
+            'Please share the current progress and expected '
+            'completion time.\n\nThank you.';
+      }
+
+      return 'Hi $employee,\n\n'
+          'Regarding the ${client.name} project, '
+          'your $taskName task shows $completed/$total completed.\n\n'
+          'Please confirm that this task is completed '
+          'and updated.\n\nThank you.';
+    }
+
+    String _teamMemberPhone(Map member) {
+      final raw = '${member['phone'] ??
+          member['phone_number'] ??
+          member['mobile'] ??
+          member['mobile_number'] ??
+          member['contact_number'] ??
+          member['contact'] ??
+          ''}'.trim();
+
+      var digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+
+      if (digits.length == 10) {
+        digits = '91$digits';
+      } else if (digits.length == 11 && digits.startsWith('0')) {
+        digits = '91${digits.substring(1)}';
+      }
+
+      if (digits.length < 11 || digits.length > 15) {
+        return '';
+      }
+      return digits;
+    }
+
     final taskGroups = _workspaceTaskGroups(client);
     return showDialog<void>(
       context: context,
@@ -2528,13 +2574,105 @@ class _ClientCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             for (final task in (member['tasks'] as List? ?? []).whereType<Map>())
-                              _taskLine(
-                                '${task['name'] ?? ''}',
-                                int.tryParse('${task['completed'] ?? 0}') ?? 0,
-                                int.tryParse('${task['total'] ?? 0}') ?? 0,
-                                indent: 4,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _taskLine(
+                                      '${task['name'] ?? ''}',
+                                      int.tryParse('${task['completed'] ?? 0}') ?? 0,
+                                      int.tryParse('${task['total'] ?? 0}') ?? 0,
+                                      indent: 4,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Tooltip(
+                                    message: 'GoDigital private chat',
+                                    child: IconButton(
+                                      constraints: const BoxConstraints.tightFor(
+                                        width: 28, height: 28,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(
+                                        Icons.chat_bubble_rounded,
+                                        color: Color(0xFF1456C0),
+                                        size: 14,
+                                      ),
+                                      onPressed: () {
+                                        final employee =
+                                            '${member['employee'] ?? ''}'.trim();
+                                        if (employee.isEmpty) return;
+
+                                        final draft =
+                                            _teamTaskMessageDraft(member, task);
+
+                                        Navigator.of(dialogContext).pop();
+                                        Navigator.of(context).pushNamed(
+                                          '/notifications',
+                                          arguments: <String, String>{
+                                            'taskChatEmployee': employee,
+                                            'taskChatDraft': draft,
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Tooltip(
+                                    message: 'WhatsApp message',
+                                    child: IconButton(
+                                      constraints: const BoxConstraints.tightFor(
+                                        width: 28, height: 28,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      icon: Image.asset(
+                                        'assets/icons/godigital_whatsapp_chat.png',
+                                        width: 14,
+                                        height: 14,
+                                        fit: BoxFit.contain,
+                                      ),
+                                      onPressed: () async {
+                                        final phone = _teamMemberPhone(member);
+
+                                        if (phone.isEmpty) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'WhatsApp number is not available '
+                                                'in this team member record.',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final draft =
+                                            _teamTaskMessageDraft(member, task);
+                                        final url = Uri.parse(
+                                          'https://wa.me/$phone?text='
+                                          '${Uri.encodeComponent(draft)}',
+                                        );
+
+                                        final opened = await launchUrl(
+                                          url,
+                                          mode: LaunchMode.externalApplication,
+                                        );
+
+                                        if (!opened && context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content:
+                                                  Text('Could not open WhatsApp.'),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
                               ),
-                            if ((member['tasks'] as List? ?? []).isEmpty)
+if ((member['tasks'] as List? ?? []).isEmpty)
                               const Padding(
                                 padding: EdgeInsets.only(left: 4, top: 2),
                                 child: Text('No categories',

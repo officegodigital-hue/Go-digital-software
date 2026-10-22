@@ -5,7 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 
@@ -43,7 +43,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   List<Map<String, dynamic>> submissionStatusList = [];
   List<Map<String, dynamic>> dayPlanRows = [];
   bool isLoading = false;
-  late IO.Socket socket;
+  late io.Socket socket;
   Timer? _refreshTimer;
 
   bool _hasColumn(List<Map<String, dynamic>> rows, String field) {
@@ -70,9 +70,9 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   void _initSocketListener() {
-    socket = IO.io(
+    socket = io.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder()
+      io.OptionBuilder()
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -683,11 +683,13 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                             Expanded(flex: 2, child: Text(empRole, style: const TextStyle(fontSize: 12, color: _muted, fontWeight: FontWeight.w600))),
                             Expanded(
                               flex: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                 decoration: BoxDecoration(
                                   color: isPresent ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(20),
                                   border: Border.all(color: isPresent ? const Color(0xFF10B981).withValues(alpha: 0.3) : const Color(0xFFDC2626).withValues(alpha: 0.3)),
                                 ),
                                 child: Row(
@@ -698,6 +700,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                     Text(attendanceStatus, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isPresent ? const Color(0xFF16A34A) : const Color(0xFFDC2626))),
                                   ],
                                 ),
+                              ),
                               ),
                             ),
                             Expanded(

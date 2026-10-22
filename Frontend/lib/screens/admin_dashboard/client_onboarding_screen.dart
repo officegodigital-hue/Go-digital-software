@@ -28,10 +28,9 @@ class UpperCaseTextFormatter extends TextInputFormatter {
     );
   }
 }
-
 class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
-  // static const String _baseUrl = '/api';
+ // static const String _baseUrl = '/api';
   static String get _baseUrl => ApiConfig.baseUrl;
 
   final companyNameController = TextEditingController();

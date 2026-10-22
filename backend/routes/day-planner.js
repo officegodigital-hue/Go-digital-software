@@ -879,6 +879,24 @@ router.get('/submissions', async (req, res) => {
       WHERE e.is_active = 1 
         AND e.user_type != 'admin' 
         AND (e.is_main_admin = 0 OR e.is_main_admin IS NULL)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM employee_application_access eaa
+          WHERE eaa.employee_id = e.id
+            AND LOWER(TRIM(eaa.access_type)) = 'admin'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM role_application_access raa
+          JOIN user_roles ur ON ur.id = raa.role_id
+          WHERE UPPER(TRIM(ur.role_name)) = UPPER(TRIM(e.role))
+            AND LOWER(TRIM(raa.access_type)) = 'admin'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM employee_application_access own_access
+              WHERE own_access.employee_id = e.id
+            )
+        )
       ORDER BY e.full_name
       `,
       [targetDate]

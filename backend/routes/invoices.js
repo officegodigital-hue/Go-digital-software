@@ -9,6 +9,29 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('./auth');
+const { getInvoiceAccess } = require('../lib/invoiceAccess');
+
+async function requireInvoiceAccess(req, res, next) {
+  try {
+    const access = await getInvoiceAccess(req.user.id);
+
+    if (!access.allowed) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to access invoices.',
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Invoice permission check:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to verify invoice permission.',
+    });
+  }
+}
 
 // ============================================================
 // CONSTANTS
@@ -336,6 +359,99 @@ function csvEscape(value) {
 // Actual POST /invoices generates the final number again.
 // ============================================================
 
+// Require authentication and Invoice page access for every invoice route.
+
+async function requireMainAdminForInvoices(req, res, next) {
+  try {
+    const access = await getInvoiceAccess(req.user?.id);
+
+    if (!access.isMainAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Main Admin can generate recurring invoices',
+      });
+    }
+
+    return next();
+  } catch (error) {
+    console.error('Invoice Main Admin check failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to verify Main Admin access',
+    });
+  }
+}
+async function requireInvoiceOwnership(req, res, next) {
+  try {
+    const userId = Number(req.user.id);
+    const invoiceId = Number(req.params.id);
+
+    if (!Number.isSafeInteger(userId) || userId <= 0 ||
+        !Number.isSafeInteger(invoiceId) || invoiceId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid invoice or user ID',
+      });
+    }
+
+    const [users] = await db.query(
+      `SELECT is_main_admin
+       FROM employee_users
+       WHERE id = ? AND is_active = 1`,
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Employee account is not active',
+      });
+    }
+
+    const [invoices] = await db.query(
+      `SELECT id, created_by, assigned_to
+       FROM invoices
+       WHERE id = ?`,
+      [invoiceId]
+    );
+
+    if (invoices.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found',
+      });
+    }
+
+    const invoice = invoices[0];
+
+    const isMainAdmin =
+      users[0].is_main_admin === 1 ||
+      users[0].is_main_admin === true;
+
+    const isCreator = Number(invoice.created_by) === userId;
+    const isAssignee =
+      invoice.assigned_to != null &&
+      Number(invoice.assigned_to) === userId;
+
+    if (!isMainAdmin && !isCreator && !isAssignee) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to access this invoice',
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Invoice ownership verification:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to verify invoice access',
+    });
+  }
+}
+router.use(authenticateToken, requireInvoiceAccess);
+
 router.get(
   '/next-number',
   authenticateToken,
@@ -489,10 +605,10 @@ router.get(
 
       if (!isMainAdmin) {
         query += `
-          AND i.created_by = ?
+          AND (i.created_by = ? OR i.assigned_to = ?)
         `;
 
-        params.push(userId);
+        params.push(userId, userId);
       }
 
       if (
@@ -572,6 +688,7 @@ router.get(
 router.patch(
   '/:id/reminder-date',
   authenticateToken,
+  requireInvoiceOwnership,
   async (req, res) => {
     try {
       const { reminderDate } = req.body;
@@ -699,10 +816,10 @@ router.get(
 
       if (!isMainAdmin) {
         query += `
-          AND i.created_by = ?
+          AND (i.created_by = ? OR i.assigned_to = ?)
         `;
 
-        params.push(userId);
+        params.push(userId, userId);
       }
 
       query += `
@@ -869,6 +986,8 @@ router.get(
           i.notes,
           i.created_at,
           i.created_by,
+          i.assigned_to,
+          assignee.full_name AS assigned_to_name,
           i.linked_quotation_id,
 
           -- Kept for compatibility with existing frontend.
@@ -895,6 +1014,9 @@ router.get(
         LEFT JOIN employee_users eu
           ON i.created_by = eu.id
 
+        LEFT JOIN employee_users assignee
+          ON i.assigned_to = assignee.id
+
         LEFT JOIN clients c 
           ON TRIM(LOWER(i.client_name)) = TRIM(LOWER(c.company_name)) 
 
@@ -905,12 +1027,10 @@ router.get(
 
       if (!isMainAdmin) {
         query += `
-          AND i.created_by = ?
+          AND (i.created_by = ? OR i.assigned_to = ?)
         `;
 
-        queryParams.push(
-          userId
-        );
+        queryParams.push(userId, userId);
       }
 
       query += `
@@ -1131,6 +1251,7 @@ router.get(
 
 router.get(
   '/:id',
+  requireInvoiceOwnership,
   async (req, res) => {
     try {
       const invoiceId =
@@ -1629,6 +1750,7 @@ router.post(
 
 router.put(
   '/:id',
+  requireInvoiceOwnership,
   async (req, res) => {
 
     const {
@@ -2029,6 +2151,7 @@ router.put(
 
 router.patch(
   '/:id/status',
+  requireInvoiceOwnership,
   async (req, res) => {
 
     const status =
@@ -2109,6 +2232,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requireInvoiceOwnership,
   async (req, res) => {
 
     const invoiceId =
@@ -2289,6 +2413,7 @@ router.delete(
 router.post(
   '/generate-recurring',
   authenticateToken,
+  requireMainAdminForInvoices,
   async (req, res) => {
     let connection;
 

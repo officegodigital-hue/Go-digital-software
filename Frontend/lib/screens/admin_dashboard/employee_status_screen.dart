@@ -403,83 +403,90 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
     required int completed,
     required int total,
   }) async {
-    String phone = employeePhone.trim();
+    final pending = completed < total;
+    final message = pending
+        ? '''Hi $employeeName,
 
-    if (phone.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('WhatsApp number is not available for this employee.'),
-          backgroundColor: Color(0xFFDC2626),
-        ),
-      );
-      return;
-    }
+Regarding the $clientName project, your $taskName task is pending ($completed/$total completed).
 
-    phone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+Please share the current progress, reason for the pending status, and expected completion time.
 
+Thank you.'''
+        : '''Hi $employeeName,
+
+Regarding the $clientName project, your $taskName task shows $completed/$total completed.
+
+Please confirm that the task is completed and updated from your side.
+
+Thank you.''';
+
+    if (!mounted) return;
+    Navigator.of(context).pushNamed(
+      '/notifications',
+      arguments: <String, String>{
+        'taskChatEmployee': employeeName.trim(),
+        'taskChatDraft': message,
+      },
+    );
+  }
+  Future<void> _openWhatsAppTaskMessage({
+    required String employeeName,
+    required String employeePhone,
+    required String clientName,
+    required String taskName,
+    required int completed,
+    required int total,
+  }) async {
+    var phone = employeePhone.replaceAll(RegExp(r'[^0-9]'), '');
     if (phone.startsWith('0') && phone.length == 11) {
       phone = '91${phone.substring(1)}';
     } else if (phone.length == 10) {
       phone = '91$phone';
     }
-
-    final bool isPending = completed < total;
-
-    final String message = isPending
-        ? '''
-Hi $employeeName,
-
-Regarding the *$clientName* project, I noticed that the *$taskName* task is still pending ($completed/$total completed).
-
-Could you please let me know the reason for the pending status and when you expect to complete this task?
-
-Kindly share an update.
-
-Thank you.
-'''
-        : '''
-Hi $employeeName,
-
-Regarding the *$clientName* project, the *$taskName* task is currently showing $completed/$total completed.
-
-Could you please confirm that this task has been completed and updated from your side?
-
-Thank you.
-''';
-
-    final Uri whatsappUrl = Uri.parse(
-      'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
-    );
-
-    try {
-      final launched = await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!mounted) return;
-
-      if (!launched) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not open WhatsApp.'),
-            backgroundColor: Color(0xFFDC2626),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('WhatsApp launch error: $e');
+    if (phone.length < 10 || phone.length > 15) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to open WhatsApp.'),
-          backgroundColor: Color(0xFFDC2626),
-        ),
+        SnackBar(content: Text('Valid WhatsApp number not available for $employeeName.')),
       );
+      return;
+    }
+
+    final pending = completed < total;
+    final message = pending
+        ? '''Hi $employeeName,
+
+Regarding the $clientName project, your $taskName task is pending ($completed/$total completed).
+
+Please share the current progress, reason for the pending status, and expected completion time.
+
+Thank you.'''
+        : '''Hi $employeeName,
+
+Regarding the $clientName project, your $taskName task shows $completed/$total completed.
+
+Please confirm that the task is completed and updated from your side.
+
+Thank you.''';
+
+    final url = Uri.parse(
+      'https://wa.me/$phone?text=${Uri.encodeComponent(message.trim())}',
+    );
+    try {
+      final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open WhatsApp.')),
+        );
+      }
+    } catch (error) {
+      debugPrint('Task WhatsApp launch failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open WhatsApp.')),
+        );
+      }
     }
   }
-
   void _navigateToEmployeeDetailView(String employeeName) async {
     List<Map<String, dynamic>> employeeAssignments = [];
     Map<String, int> dbTaskProgressCounts = {};
@@ -893,37 +900,63 @@ Thank you.
                                             vertical: 5,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFFE8F5E9),
+                                            color: const Color(0xFFEFF6FF),
                                             borderRadius: BorderRadius.circular(
                                               8,
                                             ),
                                             border: Border.all(
                                               color: const Color(
-                                                0xFF25D366,
+                                                0xFF2563EB,
                                               ).withValues(alpha: 0.35),
                                             ),
                                           ),
-                                          child: const Row(
+                                          child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(
-                                                Icons.chat_rounded,
-                                                size: 14,
-                                                color: Color(0xFF25D366),
-                                              ),
+                                              const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF2563EB)),
                                               SizedBox(width: 5),
                                               Text(
                                                 'Chat',
                                                 style: TextStyle(
                                                   fontSize: 10.5,
                                                   fontWeight: FontWeight.w800,
-                                                  color: Color(0xFF1B5E20),
+                                                  color: Color(0xFF1D4ED8),
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
                                       ),
+                                          const SizedBox(width: 6),
+                                          InkWell(
+                                            borderRadius: BorderRadius.circular(7),
+                                            onTap: () {
+                                              _openWhatsAppTaskMessage(
+                                            employeeName: employeeName,
+                                            employeePhone: employeePhone,
+                                            clientName: clientName.toString(),
+                                            taskName: packageTitle,
+                                            completed: 0,
+                                            total: 1,
+                                          );
+                                            },
+                                            child: Container(
+                                              width: 25,
+                                              height: 25,
+                                              alignment: Alignment.center,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFE8F5E9),
+                                                borderRadius: BorderRadius.circular(7),
+                                                border: Border.all(color: const Color(0xFF25D366)),
+                                              ),
+                                              child: Image.asset(
+                                                'assets/icons/godigital_whatsapp_chat.png',
+                                                width: 14,
+                                                height: 14,
+                                                fit: BoxFit.contain,
+                                              ),
+                                            ),
+                                          ),
                                     ],
                                   ),
                                   const SizedBox(height: 4),
@@ -1159,7 +1192,7 @@ Thank you.
                                                         height: 25,
                                                         decoration: BoxDecoration(
                                                           color: const Color(
-                                                            0xFFE8F5E9,
+                                                            0xFFEFF6FF,
                                                           ),
                                                           borderRadius:
                                                               BorderRadius.circular(
@@ -1168,21 +1201,48 @@ Thank you.
                                                           border: Border.all(
                                                             color:
                                                                 const Color(
-                                                                  0xFF25D366,
+                                                                  0xFF2563EB,
                                                                 ).withValues(
                                                                   alpha: 0.35,
                                                                 ),
                                                           ),
                                                         ),
-                                                        child: const Icon(
-                                                          Icons.chat_rounded,
-                                                          size: 14,
-                                                          color: Color(
-                                                            0xFF25D366,
-                                                          ),
-                                                        ),
+                                                        child: const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF2563EB)),
                                                       ),
                                                     ),
+                                          const SizedBox(width: 6),
+                                          InkWell(
+                                            borderRadius: BorderRadius.circular(7),
+                                            onTap: () {
+                                              _openWhatsAppTaskMessage(
+                                                          employeeName:
+                                                              employeeName,
+                                                          employeePhone:
+                                                              employeePhone,
+                                                          clientName: clientName
+                                                              .toString(),
+                                                          taskName: tName,
+                                                          completed: compR,
+                                                          total: totalR,
+                                                        );
+                                            },
+                                            child: Container(
+                                              width: 25,
+                                              height: 25,
+                                              alignment: Alignment.center,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFE8F5E9),
+                                                borderRadius: BorderRadius.circular(7),
+                                                border: Border.all(color: const Color(0xFF25D366)),
+                                              ),
+                                              child: Image.asset(
+                                                'assets/icons/godigital_whatsapp_chat.png',
+                                                width: 14,
+                                                height: 14,
+                                                fit: BoxFit.contain,
+                                              ),
+                                            ),
+                                          ),
                                                     const SizedBox(width: 8),
                                                     Container(
                                                       padding:

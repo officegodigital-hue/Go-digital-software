@@ -45,7 +45,7 @@ cron.schedule('59 23 * * *', async () => {
 
 // Run every day at midnight (00:00) to check expired tasks and auto-create next cycle once per deadline
 cron.schedule('0 0 * * *', async () => {
-  console.log('🔄 Running Daily Task Auto-Rollover & Next Cycle Check...');
+  console.log('ðŸ”„ Running Daily Task Auto-Rollover & Next Cycle Check...');
   try {
     const [expiredTasks] = await db.query(`
       SELECT * FROM task_assignments 
@@ -54,10 +54,10 @@ cron.schedule('0 0 * * *', async () => {
         AND DATE(deadline) < CURDATE()
     `);
 
-    console.log(`📌 Found ${expiredTasks.length} expired task(s) for auto-rollover check.`);
+    console.log(`ðŸ“Œ Found ${expiredTasks.length} expired task(s) for auto-rollover check.`);
 
     for (const task of expiredTasks) {
-      // 🟢 Calculate next cycle dates (adding 1 month to maintenance & deadline)
+      // ðŸŸ¢ Calculate next cycle dates (adding 1 month to maintenance & deadline)
       let nextMaintenance = task.maintenance_date ? new Date(task.maintenance_date) : new Date();
       if (!isNaN(nextMaintenance.getTime())) {
         nextMaintenance.setMonth(nextMaintenance.getMonth() + 1);
@@ -76,7 +76,7 @@ cron.schedule('0 0 * * *', async () => {
 
       const formatSqlDate = (d) => d instanceof Date ? d.toISOString().slice(0, 19).replace('T', ' ') : d.toISOString().slice(0, 19).replace('T', ' ');
 
-      // 🟢 Check if next cycle task already exists for this client and deliverables to prevent daily spamming
+      // ðŸŸ¢ Check if next cycle task already exists for this client and deliverables to prevent daily spamming
       const [existingNextCycle] = await db.query(`
         SELECT id FROM task_assignments 
         WHERE client_name = ? 
@@ -122,12 +122,12 @@ cron.schedule('0 0 * * *', async () => {
           formatSqlDate(nextDeadline), 
           task.comments
         ]);
-        console.log(`✅ Auto-created next cycle task for client: ${task.client_name}`);
+        console.log(`âœ… Auto-created next cycle task for client: ${task.client_name}`);
       }
     }
-    console.log('✅ Expired tasks automatic rollover process completed.');
+    console.log('âœ… Expired tasks automatic rollover process completed.');
   } catch (err) {
-    console.error('❌ Automatic rollover cron error:', err.message);
+    console.error('âŒ Automatic rollover cron error:', err.message);
   }
 });
 
@@ -139,7 +139,8 @@ const clientRoutes     = require('./routes/clients');
 const credentialRoutes = require('./routes/credentials'); 
 const packageRoutes    = require('./routes/packages');   
 const quotationRoutes  = require('./routes/quotations');
-const invoiceRoutes    = require('./routes/invoices'); 
+const invoiceRoutes    = require('./routes/invoices');
+const invoiceAssignmentRoutes = require('./routes/invoiceAssignments');
 const taskRoutes       = require('./routes/tasks');  
 const authRoutes = require('./routes/auth');
 const clientRepositoryRoutes = require('./routes/clientRepository');
@@ -204,7 +205,7 @@ cron.schedule('15 0 1 * *', async () => {
   }
 }, { timezone: 'Asia/Kolkata' });
 
-// ── 1. Create HTTP Server & Initialize Socket.io ─────────────────────────────
+// â”€â”€ 1. Create HTTP Server & Initialize Socket.io â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -216,15 +217,15 @@ const io = new Server(server, {
 app.set('io', io);
 
 io.on('connection', (socket) => {
-  console.log(`⚡ A user connected: ${socket.id}`);
+  console.log(`âš¡ A user connected: ${socket.id}`);
 
   socket.on('disconnect', () => {
-    console.log(`🔌 User disconnected: ${socket.id}`);
+    console.log(`ðŸ”Œ User disconnected: ${socket.id}`);
   });
 });
 
    
-// ── CORS middleware ──────────────────────────────────────────────────────────
+// â”€â”€ CORS middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin',  '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -240,7 +241,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Duplicate `const db` removed from here!
+// âœ… Duplicate `const db` removed from here!
 require('./jobs/day-planner-reminders')(db);
 
 app.use(
@@ -248,7 +249,7 @@ app.use(
   express.static(path.resolve(__dirname, 'uploads'))
 );
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use('/api/employees', employeeRoutes);
 app.use('/api/timings', timingRoutes);
 app.use('/api/clients', clientRoutes);
@@ -266,6 +267,7 @@ app.use(
 );
 app.use('/api/packages', packageRoutes);
 app.use('/api/quotations', quotationRoutes);
+app.use('/api/invoices', invoiceAssignmentRoutes);
 app.use('/api/invoices', invoiceRoutes); 
 app.use('/api/tasks', taskRoutes);
 app.use('/api/tasks', contentCalendarWorkspaceRoutes);
@@ -317,7 +319,7 @@ app.use((req, res) => {
 app.use(express.json({ limit: '15mb' }));
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Global error:', err.code, err.message, err.stack);
+  console.error('âŒ Global error:', err.code, err.message, err.stack);
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ success: false, message: 'File too large. Maximum allowed size is 500MB.' });
   }
@@ -329,7 +331,7 @@ app.use((err, req, res, next) => {
 
 server.listen(PORT, async () => {
   console.log(`GoDigital API running at http://localhost:${PORT}`);
-  console.log(`✅ Socket.io server is active and running`);
+  console.log(`âœ… Socket.io server is active and running`);
   try {
     await ensureContentCalendarWorkspaceSchema(db);
     console.log('Content Calendar workspace schema is ready');

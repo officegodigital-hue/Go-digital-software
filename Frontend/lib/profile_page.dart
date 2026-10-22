@@ -220,6 +220,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (response.statusCode == 200 && decoded['success'] == true) {
         _photoChanged = false;
         await auth.refreshUserData();
+        if (mounted) await _loadProfile();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: Color(0xFF00A854)),

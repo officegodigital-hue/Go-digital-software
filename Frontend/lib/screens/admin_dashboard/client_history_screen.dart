@@ -1341,6 +1341,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     );
   }
 
+
+
   static const TextStyle _th = TextStyle(
       fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
 }

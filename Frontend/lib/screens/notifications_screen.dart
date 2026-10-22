@@ -226,6 +226,40 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       });
 
       await _fetchHubData();
+      // Open an employee-specific, unsent task draft.
+      if (!mounted) return;
+      final taskChatArgs = ModalRoute.of(context)?.settings.arguments;
+      if (taskChatArgs is Map &&
+          taskChatArgs['taskChatEmployee'] is String &&
+          taskChatArgs['taskChatDraft'] is String) {
+        final requested = (taskChatArgs['taskChatEmployee'] as String).trim();
+        final draft = taskChatArgs['taskChatDraft'] as String;
+        final matches = activeEmployees.where((employee) =>
+            (employee['full_name'] ?? '').toString().trim().toLowerCase() ==
+            requested.toLowerCase()).toList();
+        if (matches.length == 1) {
+          setState(() {
+            _selectedChatTarget = matches.first['full_name'].toString();
+            _isGroupChat = false;
+            _whatsappNavIndex = 0;
+            _showMobileChatList = false;
+          });
+          _messageController.value = TextEditingValue(
+            text: draft,
+            selection: TextSelection.collapsed(offset: draft.length),
+          );
+        } else {
+          setState(() {
+            _selectedChatTarget = '';
+            _isGroupChat = false;
+            _whatsappNavIndex = 0;
+          });
+          _messageController.clear();
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Cannot identify a unique private chat for $requested.'),
+          ));
+        }
+      }
       _connectSocket();
     });
   }
