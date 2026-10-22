@@ -306,6 +306,9 @@ app.use('/api/hrms/tracking', hrmsTrackingRoutes);
 app.use('/api/hrms/announcements', hrmsAnnouncementsRoutes);
 app.use('/api/hrms/payslips', hrmsPayslipRoutes);
    app.use('/api/task-rules', require('./routes/taskRules'));
+const broadcastRoutes = require('./routes/broadcast');
+app.use('/api/broadcast', broadcastRoutes);
+
 
 // Health check
 app.get('/', (req, res) => {

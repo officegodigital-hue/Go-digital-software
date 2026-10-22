@@ -92,6 +92,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     });
     _connectNotificationSocket();
     _checkActiveBroadcast();
+    _checkAssignedClientStatusChanges();
   }
 
   @override
@@ -342,6 +343,144 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
 //     );
 //   }
 
+  // Independent client-status broadcast checker.
+  // Uses the existing blue-and-white Agree popup.
+  bool _clientStatusCheckRunning = false;
+
+  Future<void> _checkAssignedClientStatusChanges() async {
+    if (!mounted || _clientStatusCheckRunning) return;
+    _clientStatusCheckRunning = true;
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final employeeId = (auth.user?['id'] ?? '').toString();
+      final employeeName =
+          (auth.user?['fullName'] ?? auth.user?['name'] ?? '')
+              .toString().trim();
+
+      if (employeeId.isEmpty || employeeName.isEmpty) return;
+
+      final response = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/dashboard/summary/'
+          '${Uri.encodeComponent(employeeName)}',
+        ),
+      );
+
+      if (!mounted || response.statusCode != 200) return;
+
+      final payload = jsonDecode(response.body);
+      if (payload is! Map) return;
+
+      final data = payload['data'];
+      if (data is! Map) return;
+
+      final rows = data['assignedClientStatuses'];
+      if (rows is! List || rows.isEmpty) return;
+
+      final current = <String, bool>{};
+      final names = <String, String>{};
+
+      for (final row in rows) {
+        if (row is! Map) continue;
+
+        final id = (row['clientId'] ?? '').toString();
+        if (id.isEmpty) continue;
+
+        final raw = row['isActive'];
+        current[id] = raw == 1 || raw == true || raw.toString() == '1';
+        names[id] = (row['clientName'] ?? 'Client').toString();
+      }
+
+      if (current.isEmpty) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+
+      final snapshotKey = 'client_status_snapshot_v3_$employeeId';
+      final pendingKey = 'client_status_pending_v3_$employeeId';
+
+      final oldText = prefs.getString(snapshotKey);
+
+      // Initial load: record current statuses, do not announce old changes.
+      if (oldText == null) {
+        await prefs.setString(snapshotKey, jsonEncode(current));
+        return;
+      }
+
+      final oldStatuses =
+          Map<String, dynamic>.from(jsonDecode(oldText) as Map);
+
+      final pendingText = prefs.getString(pendingKey);
+      final pending = pendingText == null
+          ? <dynamic>[]
+          : List<dynamic>.from(jsonDecode(pendingText) as List);
+
+      // Detect actual observed status transitions.
+      for (final entry in current.entries) {
+        // Notify when a client first appears in this employee's
+        // assignment list, or when its Active/Inactive status changes.
+        if (oldStatuses.containsKey(entry.key) &&
+            oldStatuses[entry.key] == entry.value) {
+          continue;
+        }
+
+        final clientName = names[entry.key] ?? 'Client';
+        final status = entry.value ? 'Active' : 'Inactive';
+
+        final eventId =
+            '${entry.key}_${status}_${DateTime.now().microsecondsSinceEpoch}';
+
+        pending.add({
+          'key': 'client_status_agreed_${employeeId}_${entry.key}',
+          'eventId': eventId,
+          'message': entry.value
+              ? 'Your assigned client $clientName has been marked Active. '
+                'Please review your assigned tasks.'
+              : 'Your assigned client $clientName has been marked Inactive. '
+                'Please review your assigned tasks.',
+        });
+      }
+
+      // Persist pending alerts before updating the last-known status.
+      await prefs.setString(pendingKey, jsonEncode(pending));
+      await prefs.setString(snapshotKey, jsonEncode(current));
+
+      // Do not overlap manual broadcasts or other existing popup dialogs.
+      if (!mounted || _isBroadcastPopupShowing) return;
+
+      // Existing Agree button writes the acknowledged event ID.
+      while (pending.isNotEmpty) {
+        final event = Map<String, dynamic>.from(pending.first as Map);
+        final key = event['key'].toString();
+        final eventId = event['eventId'].toString();
+
+        if (prefs.getString(key) == eventId) {
+          pending.removeAt(0);
+          continue;
+        }
+
+        await prefs.setString(pendingKey, jsonEncode(pending));
+
+        if (!mounted || _isBroadcastPopupShowing) return;
+
+        _showBlueWhiteAgreePopup(
+          event['message'].toString(),
+          'Information',
+          key,
+          eventId,
+          employeeId,
+        );
+        return;
+      }
+
+      await prefs.setString(pendingKey, jsonEncode(pending));
+    } catch (e) {
+      debugPrint('Assigned client status popup error: $e');
+    } finally {
+      _clientStatusCheckRunning = false;
+    }
+  }
 Future<void> _checkActiveBroadcast() async {
   final authService = Provider.of<AuthService>(context, listen: false);
   final employeeId = authService.user?['id'];
@@ -838,6 +977,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
       await _checkNewNotifications();
       await _fetchTodayWorkingHours();
       await _checkActiveBroadcast();
+      await _checkAssignedClientStatusChanges();
     });
   }
 

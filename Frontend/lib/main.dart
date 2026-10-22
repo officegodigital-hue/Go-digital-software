@@ -74,6 +74,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
+        scrollBehavior: MyCustomScrollBehavior(),
         navigatorKey: appNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: "GoDigital Portal",
