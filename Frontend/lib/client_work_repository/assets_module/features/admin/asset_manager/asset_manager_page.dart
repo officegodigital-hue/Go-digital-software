@@ -717,48 +717,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-
-        // IMPORTANT:
-        // Row + Expanded keeps the company count on the left
-        // and Create Company permanently on the right.
-        Row(
-          children: [
-            const Spacer(),
-            OutlinedButton.icon(
-              onPressed: () {
-                _showCreateCompanyDialog(section);
-              },
-              icon: const Icon(
-                Icons.add,
-                size: 18,
-              ),
-              label: const Text(
-                'Create Company',
-                style: TextStyle(
-                  fontSize: normalTextSize,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: sectionColor,
-                side: BorderSide(
-                  color: sectionColor,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                minimumSize: Size.zero,
-                tapTargetSize:
-                    MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -1254,16 +1212,16 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
   String _filterLabel(String value) {
     switch (value) {
       case AppConstants.poster:
-        return 'Posters';
+        return 'Poster';
 
       case AppConstants.reelVideo:
-        return 'Reels / Videos';
+        return 'Reel Video';
 
       case AppConstants.document:
-        return 'Documents';
+        return 'Document';
 
       case AppConstants.websiteLink:
-        return 'Website Links';
+        return 'Website Link';
 
       case AppConstants.webApplication:
         return 'Web Application';
