@@ -129,19 +129,29 @@ class _EmergencyBroadcastPageState extends State<EmergencyBroadcastPage>
         }),
       );
 
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Broadcast and triggers updated successfully!'), backgroundColor: Colors.green),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update broadcast settings'), backgroundColor: Colors.red),
+          SnackBar(
+  content: Text(
+    'Broadcast failed (${response.statusCode}): ${response.body}',
+  ),
+  backgroundColor: Colors.red,
+  duration: const Duration(seconds: 12),
+),
         );
       }
     } catch (e) {
       debugPrint("Error: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

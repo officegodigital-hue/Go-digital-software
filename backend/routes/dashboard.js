@@ -370,6 +370,41 @@ router.get('/summary/:employeeName', async (req, res) => {
       [employeeName]
     );
 
+    // Broadcast-only status information for this employee.
+    // Include task assignments even if task_list rows do not yet exist.
+    const [assignedClientStatuses] = await db.query(
+      `SELECT DISTINCT
+          c.id AS clientId,
+          c.company_name AS clientName,
+          CASE WHEN c.is_active = 1 THEN 1 ELSE 0 END AS isActive
+       FROM clients c
+       WHERE EXISTS (
+         SELECT 1
+         FROM task_list tl
+         WHERE BINARY LOWER(TRIM(tl.client_name)) =
+               BINARY LOWER(TRIM(c.company_name))
+           AND BINARY LOWER(TRIM(tl.employee_name)) =
+               BINARY LOWER(TRIM(?))
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM task_assignments ta
+         WHERE BINARY LOWER(TRIM(ta.client_name)) =
+               BINARY LOWER(TRIM(c.company_name))
+           AND (
+             BINARY LOWER(TRIM(ta.designer)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.videographer)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.video_editor)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.ui_ux_designer)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.developer)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.ads_handling)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.page_handling)) = BINARY LOWER(TRIM(?))
+             OR BINARY LOWER(TRIM(ta.website_designer)) = BINARY LOWER(TRIM(?))
+           )
+       )
+       ORDER BY c.company_name`,
+      Array(9).fill(employeeName)
+    );
     // 5. Fetch Tasks list and productivity metrics for table/charts
     const [summaryRows] = await db.query(
       `SELECT
@@ -488,6 +523,7 @@ router.get('/summary/:employeeName', async (req, res) => {
         onHoldList: holdedShootsList,
         inactiveTodayCount: inactiveTodayList.length,
         inactiveTodayList,
+        assignedClientStatuses,
         tasks: activeTasksOnly,
         productivity: {
           approved,
