@@ -1115,7 +1115,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                                 widget.onSearch?.call(value);
                               },
                               decoration: const InputDecoration(
-                                hintText: 'Search tasks, clients...',
+                                hintText: 'Search client name…',
                                 hintStyle: TextStyle(fontSize: 12, color: AppColors.textGrey),
                                 border: InputBorder.none,
                                 isDense: true,
@@ -1190,15 +1190,16 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(8),
                                 boxShadow: [
+                                  // Soft, readable glow (deep blue / violet).
                                   BoxShadow(
-                                    color: Colors.cyanAccent.withValues(alpha: 0.6),
-                                    blurRadius: currentGlow * 1.5,
-                                    spreadRadius: currentGlow * 0.4,
+                                    color: const Color(0xFF1D4ED8).withValues(alpha: 0.22),
+                                    blurRadius: currentGlow * 1.2,
+                                    spreadRadius: currentGlow * 0.15,
                                   ),
                                   BoxShadow(
-                                    color: Colors.purpleAccent.withValues(alpha: 0.5),
-                                    blurRadius: currentGlow * 2,
-                                    spreadRadius: currentGlow * 0.2,
+                                    color: const Color(0xFF7C3AED).withValues(alpha: 0.16),
+                                    blurRadius: currentGlow * 1.6,
+                                    spreadRadius: currentGlow * 0.1,
                                   ),
                                 ],
                               ),
@@ -1208,7 +1209,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                         );
                       },
                       child: Material(
-                        color: const Color.fromARGB(255, 245, 249, 255),
+                        color: const Color(0xFFF1F6FF),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(8),
                           onTap: () {},
@@ -1228,17 +1229,19 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.bolt_rounded, size: 16, color: Colors.cyanAccent),
+                                  const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFD97706)),
                                   const SizedBox(width: 4),
                                   ShaderMask(
                                     shaderCallback: (bounds) {
                                       return LinearGradient(
+                                        // Dark, high-contrast colours on the light
+                                        // pill (navy → royal blue → violet → teal).
                                         colors: const [
-                                          Colors.cyanAccent,
-                                          Colors.blueAccent,
-                                          Colors.purpleAccent,
-                                          Colors.pinkAccent,
-                                          Colors.cyanAccent,
+                                          Color(0xFF0A3D91),
+                                          Color(0xFF1D4ED8),
+                                          Color(0xFF6D28D9),
+                                          Color(0xFF0F766E),
+                                          Color(0xFF0A3D91),
                                         ],
                                         stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
                                         transform: GradientRotation(_isPaused ? 0.0 : _rotateController.value * 2 * 3.141592653589793),
@@ -1474,12 +1477,12 @@ class MovingNeonBorderPainter extends CustomPainter {
         startAngle: 0.0,
         endAngle: 2 * 3.141592653589793,
         colors: const [
-          Colors.cyanAccent,
-          Colors.blueAccent,
-          Colors.purpleAccent,
-          Colors.pinkAccent,
-          Colors.amberAccent,
-          Colors.cyanAccent,
+          Color(0xFF1D4ED8),
+          Color(0xFF7C3AED),
+          Color(0xFFDB2777),
+          Color(0xFFD97706),
+          Color(0xFF0891B2),
+          Color(0xFF1D4ED8),
         ],
         transform: GradientRotation(animationValue * 2 * 3.141592653589793),
       ).createShader(rect);

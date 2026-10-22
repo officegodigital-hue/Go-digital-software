@@ -29,6 +29,8 @@ class EmployeeWorkspacePage extends StatefulWidget {
   /// Open a specific client card + tab, e.g. from the top-bar running chip:
   /// {client, due_date: 'yyyy-mm-dd', section: 'My Tasks' | 'Content Calendar'}
   final Map<String, dynamic>? focus;
+  /// Top-bar search text — filters the client cards by client name.
+  final String searchQuery;
 
   const EmployeeWorkspacePage({
     super.key,
@@ -37,6 +39,7 @@ class EmployeeWorkspacePage extends StatefulWidget {
     this.initialSection,
     this.onNavigate,
     this.focus,
+    this.searchQuery = '',
   });
 
   @override
@@ -181,6 +184,7 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
                     showAdditionalTasks: widget.allowedPages.contains(
                       'Additional Task',
                     ),
+                    searchQuery: widget.searchQuery,
                     onClientsLoaded: (clients) {
                       if (_pendingFocus != null) {
                         _applyFocus(clients);
@@ -1759,9 +1763,19 @@ class _WorkspaceClient {
   bool get hasOpenWork => pending + inProgress + onHold + rework + inReview > 0;
 
   /// Card ribbon, most urgent first.
+  /// Submit date is today.
+  bool get isDueToday {
+    final d = dueDate;
+    if (d == null) return false;
+    final now = DateTime.now();
+    return d == DateTime(now.year, now.month, now.day);
+  }
+
   String? get ribbon {
     if (isCompleted) return 'COMPLETED';
     if (inProgress > 0) return 'PROCESSING';
+    // Submit date today and still something to finish.
+    if (isDueToday && pending + onHold + rework > 0) return 'CURRENT';
     if (onHold > 0) return 'HOLD';
     if (rework > 0) return 'REWORK';
     if (overdue > 0) return 'OVERDUE';
@@ -1848,6 +1862,7 @@ class _ClientWorkspace extends StatefulWidget {
   final bool showAdditionalTasks;
   final ValueChanged<List<_WorkspaceClient>> onClientsLoaded;
   final ValueChanged<_WorkspaceClient> onSelectClient;
+  final String searchQuery;
 
   const _ClientWorkspace({
     super.key,
@@ -1857,6 +1872,7 @@ class _ClientWorkspace extends StatefulWidget {
     required this.showAdditionalTasks,
     required this.onClientsLoaded,
     required this.onSelectClient,
+    this.searchQuery = '',
   });
 
   @override
@@ -2135,12 +2151,12 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
     );
   }
 
-  // Last 3 months (and anything upcoming). Older cards only while they still
+  // Last 2 months (and anything upcoming). Older cards only while they still
   // have open work — unless "Show older" is on.
   List<_WorkspaceClient> _windowed() {
     if (_showOlder) return _clients;
     final now = DateTime.now();
-    final cutoff = DateTime(now.year, now.month - 3, now.day);
+    final cutoff = DateTime(now.year, now.month - 2, now.day);
     return _clients.where((c) {
       final due = c.dueDate;
       if (due == null || !due.isBefore(cutoff)) return true;
@@ -2151,7 +2167,9 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
   String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   List<_WorkspaceClient> _filtered(List<_WorkspaceClient> source) {
+    final q = widget.searchQuery.trim().toLowerCase();
     final list = source.where((c) {
+      if (q.isNotEmpty && !c.name.toLowerCase().contains(q)) return false;
       if (_month != null && (c.dueDate == null || _monthKey(c.dueDate!) != _month)) {
         return false;
       }
@@ -2186,7 +2204,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
   }
 
   static const _ribbonOrder = [
-    'ALL', 'NEW', 'PROCESSING', 'HOLD', 'REWORK', 'OVERDUE', 'IN REVIEW',
+    'ALL', 'NEW', 'PROCESSING', 'CURRENT', 'HOLD', 'REWORK', 'OVERDUE', 'IN REVIEW',
     'TO REVIEW', 'ADDITIONAL', 'PENDING', 'COMPLETED',
   ];
 
@@ -2260,7 +2278,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                 ),
               ),
               FilterChip(
-                label: const Text('Show older than 3 months'),
+                label: const Text('Show older than 2 months'),
                 selected: _showOlder,
                 onSelected: (v) => setState(() => _showOlder = v),
               ),
@@ -2289,6 +2307,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
 Color _ribbonColor(String ribbon) => switch (ribbon) {
   'NEW' => const Color(0xFF2563EB),
   'PROCESSING' => const Color(0xFF0891B2),
+  'CURRENT' => const Color(0xFF15803D),
   'HOLD' => const Color(0xFFD97706),
   'REWORK' => const Color(0xFFC2410C),
   'OVERDUE' => const Color(0xFFDC2626),

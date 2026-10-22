@@ -16,6 +16,7 @@ router.use((req, res, next) => {
 });
 router.use(authenticateToken);
 const { ensureWorkspaceTaskSchemaOnce } = require('../lib/ensureWorkspaceTaskSchema');
+const { logAssignmentEvent } = require('../lib/assignmentEvents');
 router.use(async (req, res, next) => {
   try {
     await ensureWorkspaceTaskSchemaOnce(db);
@@ -1527,6 +1528,11 @@ async function assignRoute(req, res, emergency = false) {
         { id: req.user.id, fullName: req.user.fullName },
       );
       await connection.commit();
+      logAssignmentEvent({
+        employee: employee.full_name, client: row.client_name, kind: 'EMERGENCY_ASSIGNED',
+        from: row.assigned_to_name, by: req.user.fullName, deliverable: row.deliverable,
+        due: row.submit_date, assignmentId: row.source_assignment_id,
+      });
       req.app.get('io')?.emit('calendar:assigned', {
         client_id: row.client_id,
         deliverable: row.deliverable,
@@ -1552,6 +1558,11 @@ async function assignRoute(req, res, emergency = false) {
       null,
     );
     await connection.commit();
+    logAssignmentEvent({
+      employee: employee.full_name, client: row.client_name,
+      kind: emergency ? 'EMERGENCY_ASSIGNED' : 'HANDLER_ASSIGNED',
+      by: assignedByName, deliverable: row.deliverable, due: row.cc_card_date || row.submit_date,
+    });
 
     req.app.get('io')?.emit('calendar:assigned', {
       client_id: row.client_id,
@@ -1733,6 +1744,12 @@ async function reassignRowRoute(req, res) {
       ],
     );
     await connection.commit();
+    logAssignmentEvent({
+      employee: employee.full_name, client: row.client_name,
+      kind: emergency ? 'EMERGENCY_REASSIGNED' : 'HANDLER_REASSIGNED',
+      from: item.current_employee_name, by: req.user.fullName,
+      deliverable: row.deliverable, due: row.submit_date, assignmentId: row.source_assignment_id,
+    });
     sendTaskUpdated(req, row.id, emergency ? 'EMERGENCY_REASSIGNED' : 'REASSIGNED');
     req.app.get('io')?.emit('calendar:assigned', {
       client_id: row.client_id,
