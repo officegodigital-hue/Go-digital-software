@@ -212,7 +212,8 @@ class _RoleDashboardState extends State<RoleDashboard> {
     final gap = mobile ? 14.0 : 18.0;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(mobile ? 12 : 22, mobile ? 12 : 16, mobile ? 12 : 22, 24),
+      physics: const AlwaysScrollableScrollPhysics(),
+padding: EdgeInsets.fromLTRB(mobile ? 12 : 22, mobile ? 12 : 16, mobile ? 12 : 22, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
