@@ -1,4 +1,3 @@
-
 // ignore: avoid_web_libraries_in_flutter
 // import 'dart:html' as html;
 // // ignore: avoid_web_libraries_in_flutter
@@ -18,7 +17,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../models/asset_model.dart';
 import '../../../models/company_model.dart';
 import '../../../services/api_service.dart';
-import '../../../services/download_history.dart';
 import '../../../widgets/dialogs/add_asset_dialog.dart';
 import '../../../services/download_helper.dart';
 
@@ -35,12 +33,10 @@ class CompanyAssetsPage extends StatefulWidget {
   });
 
   @override
-  State<CompanyAssetsPage> createState() =>
-      _CompanyAssetsPageState();
+  State<CompanyAssetsPage> createState() => _CompanyAssetsPageState();
 }
 
-class _CompanyAssetsPageState
-    extends State<CompanyAssetsPage> {
+class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   String _search = '';
   String _filter = 'All';
 
@@ -61,27 +57,31 @@ class _CompanyAssetsPageState
   bool _canEditCompany = false;
   bool _canDeleteCompany = false;
 
+  // When set, the inline Asset Preview is shown (keeps the shared navbar).
+  AssetModel? _previewAsset;
+
   late String _companyName;
 
-  List<String> get _filters {
-    if (widget.section ==
-        AppConstants.digitalMarketing) {
-      return const [
-        'All',
-        AppConstants.poster,
-        AppConstants.reelVideo,
-        AppConstants.document,
-        AppConstants.websiteLink,
-        AppConstants.others,
-      ];
-    }
+  // All asset types are shown for a company, regardless of section,
+  // so one company view lists every approved asset it owns.
+  List<String> get _filters => const [
+    'All',
+    AppConstants.poster,
+    AppConstants.reelVideo,
+    AppConstants.document,
+    AppConstants.websiteLink,
+    AppConstants.webApplication,
+    AppConstants.mobileApplication,
+    AppConstants.others,
+  ];
 
-    return const [
-      'All',
-      AppConstants.webApplication,
-      AppConstants.mobileApplication,
-      AppConstants.others,
-    ];
+  // Every asset that belongs to this company (any section).
+  List<AssetModel> get _companyAllAssets =>
+      _allAssets.where((a) => a.companyId == widget.company.id).toList();
+
+  int _countForType(String type) {
+    if (type == 'All') return _companyAllAssets.length;
+    return _companyAllAssets.where((a) => a.type == type).length;
   }
 
   @override
@@ -100,31 +100,23 @@ class _CompanyAssetsPageState
 
   Future<void> _loadPermissions() async {
     try {
-      final permissions =
-          await ApiService.getMyPermissions();
+      final permissions = await ApiService.getMyPermissions();
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _canViewAsset =
-            _permissionEnabled(permissions['can_view']);
-        _canDownloadAsset =
-            _permissionEnabled(permissions['can_download']);
-        _canCreateAsset =
-            _permissionEnabled(permissions['can_create']);
-        _canEditAsset =
-            _permissionEnabled(permissions['can_edit']);
-        _canDeleteAsset =
-            _permissionEnabled(permissions['can_delete']);
+        _canViewAsset = _permissionEnabled(permissions['can_view']);
+        _canDownloadAsset = _permissionEnabled(permissions['can_download']);
+        _canCreateAsset = _permissionEnabled(permissions['can_create']);
+        _canEditAsset = _permissionEnabled(permissions['can_edit']);
+        _canDeleteAsset = _permissionEnabled(permissions['can_delete']);
 
         // The same Edit/Delete permissions also control
         // company-level Edit/Delete actions on this screen.
-        _canEditCompany =
-            _permissionEnabled(permissions['can_edit']);
-        _canDeleteCompany =
-            _permissionEnabled(permissions['can_delete']);
+        _canEditCompany = _permissionEnabled(permissions['can_edit']);
+        _canDeleteCompany = _permissionEnabled(permissions['can_delete']);
       });
     } catch (_) {
       if (!mounted) {
@@ -154,9 +146,7 @@ class _CompanyAssetsPageState
 
     if (value is String) {
       final normalized = value.trim().toLowerCase();
-      return normalized == '1' ||
-          normalized == 'true' ||
-          normalized == 'yes';
+      return normalized == '1' || normalized == 'true' || normalized == 'yes';
     }
 
     return false;
@@ -184,12 +174,10 @@ class _CompanyAssetsPageState
           continue;
         }
 
-        final data =
-            Map<String, dynamic>.from(item);
+        final data = Map<String, dynamic>.from(item);
 
         try {
-          final asset =
-              _assetFromJson(data);
+          final asset = _assetFromJson(data);
 
           assets.add(asset);
         } catch (_) {
@@ -212,8 +200,7 @@ class _CompanyAssetsPageState
 
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            error.toString();
+        _errorMessage = error.toString();
       });
     }
   }
@@ -228,21 +215,16 @@ class _CompanyAssetsPageState
 
   Future<void> _editCompany() async {
     if (!_canEditCompany) {
-      _showMessage(
-        'You do not have permission to edit this company.',
-      );
+      _showMessage('You do not have permission to edit this company.');
       return;
     }
 
-    final controller =
-        TextEditingController(text: _companyName);
+    final controller = TextEditingController(text: _companyName);
 
     final selectedSections = <String>{
       ...widget.company.allSections.isNotEmpty
           ? widget.company.allSections
-          : (widget.company.section != null
-              ? [widget.company.section!]
-              : []),
+          : (widget.company.section != null ? [widget.company.section!] : []),
     };
 
     String? pickedLogoFileName;
@@ -267,11 +249,19 @@ class _CompanyAssetsPageState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Logo picker
-                        const Text('Company Logo', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        const Text(
+                          'Company Logo',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         InkWell(
                           onTap: () async {
-                            final input = html.FileUploadInputElement()..accept = 'image/*';
+                            final input = html.FileUploadInputElement()
+                              ..accept = 'image/*';
                             input.click();
                             await input.onChange.first;
                             final file = input.files?.first;
@@ -279,7 +269,9 @@ class _CompanyAssetsPageState
                               final reader = html.FileReader();
                               reader.readAsArrayBuffer(file);
                               await reader.onLoad.first;
-                              final bytes = Uint8List.fromList((reader.result as List<dynamic>).cast<int>());
+                              final bytes = Uint8List.fromList(
+                                (reader.result as List<dynamic>).cast<int>(),
+                              );
                               setDialogState(() {
                                 pickedLogoFileName = file.name;
                                 pickedLogoBytes = bytes;
@@ -289,7 +281,10 @@ class _CompanyAssetsPageState
                           borderRadius: BorderRadius.circular(10),
                           child: Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF6F9FD),
                               borderRadius: BorderRadius.circular(10),
@@ -301,33 +296,59 @@ class _CompanyAssetsPageState
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: pickedLogoBytes != null
-                                      ? Image.memory(pickedLogoBytes!, width: 48, height: 48, fit: BoxFit.cover)
-                                      : (widget.company.logoUrl != null && widget.company.logoUrl!.isNotEmpty
-                                          ? Image.network(
-                                              '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${widget.company.logoUrl!.startsWith('/') ? widget.company.logoUrl! : '/${widget.company.logoUrl!}'}',
-                                              width: 48, height: 48, fit: BoxFit.cover,
-                                              errorBuilder: (_, _, _) => _logoPlaceholder(),
-                                            )
-                                          : _logoPlaceholder()),
+                                      ? Image.memory(
+                                          pickedLogoBytes!,
+                                          width: 48,
+                                          height: 48,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : (widget.company.logoUrl != null &&
+                                                widget
+                                                    .company
+                                                    .logoUrl!
+                                                    .isNotEmpty
+                                            ? Image.network(
+                                                '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${widget.company.logoUrl!.startsWith('/') ? widget.company.logoUrl! : '/${widget.company.logoUrl!}'}',
+                                                width: 48,
+                                                height: 48,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, _, _) =>
+                                                    _logoPlaceholder(),
+                                              )
+                                            : _logoPlaceholder()),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         pickedLogoFileName ?? 'Change Logo',
-                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textPrimary,
+                                        ),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        pickedLogoFileName != null ? 'New logo selected' : 'Tap to upload a new logo',
-                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                        pickedLogoFileName != null
+                                            ? 'New logo selected'
+                                            : 'Tap to upload a new logo',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.textSecondary,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const Icon(Icons.upload_rounded, color: AppColors.textSecondary, size: 20),
+                                const Icon(
+                                  Icons.upload_rounded,
+                                  color: AppColors.textSecondary,
+                                  size: 20,
+                                ),
                               ],
                             ),
                           ),
@@ -364,7 +385,9 @@ class _CompanyAssetsPageState
                       final value = controller.text.trim();
                       if (value.isEmpty) {
                         ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          const SnackBar(content: Text('Please enter a company name.')),
+                          const SnackBar(
+                            content: Text('Please enter a company name.'),
+                          ),
                         );
                         return;
                       }
@@ -405,17 +428,13 @@ class _CompanyAssetsPageState
         _companyName = newName.trim();
       });
 
-      _showMessage(
-        'Company updated successfully.',
-      );
+      _showMessage('Company updated successfully.');
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Unable to update company: $error',
-      );
+      _showMessage('Unable to update company: $error');
     } finally {
       controller.dispose();
     }
@@ -430,9 +449,7 @@ class _CompanyAssetsPageState
 
   Future<void> _deleteCompany() async {
     if (!_canDeleteCompany) {
-      _showMessage(
-        'You do not have permission to delete this company.',
-      );
+      _showMessage('You do not have permission to delete this company.');
       return;
     }
 
@@ -442,29 +459,22 @@ class _CompanyAssetsPageState
         return AlertDialog(
           title: const Text(
             'Delete Entire Company',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           content: Text(
             'Are you sure you want to delete '
             '"$_companyName"?\n\n'
             'This will permanently delete the entire company '
             'and all of its assets. This action cannot be undone.',
-            style: const TextStyle(
-              fontSize: 14,
-            ),
+            style: const TextStyle(fontSize: 14),
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(true),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
@@ -481,17 +491,13 @@ class _CompanyAssetsPageState
     }
 
     try {
-      await ApiService.deleteCompany(
-        widget.company.id,
-      );
+      await ApiService.deleteCompany(widget.company.id);
 
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Company deleted successfully.',
-      );
+      _showMessage('Company deleted successfully.');
 
       // Tell the previous Asset Library page that the company
       // was deleted so it can refresh its company list.
@@ -501,9 +507,7 @@ class _CompanyAssetsPageState
         return;
       }
 
-      _showMessage(
-        'Unable to delete company: $error',
-      );
+      _showMessage('Unable to delete company: $error');
     }
   }
 
@@ -513,9 +517,7 @@ class _CompanyAssetsPageState
 
   Future<void> _addAsset() async {
     if (!_canCreateAsset) {
-      _showMessage(
-        'You do not have permission to add assets.',
-      );
+      _showMessage('You do not have permission to add assets.');
       return;
     }
 
@@ -544,17 +546,13 @@ class _CompanyAssetsPageState
         return;
       }
 
-      _showMessage(
-        '"${asset.name}" added successfully.',
-      );
+      _showMessage('"${asset.name}" added successfully.');
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Unable to add asset: $error',
-      );
+      _showMessage('Unable to add asset: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -568,17 +566,10 @@ class _CompanyAssetsPageState
   // CONVERT API JSON TO ASSET MODEL
   // ============================================================
 
-  AssetModel _assetFromJson(
-    Map<String, dynamic> data,
-  ) {
-    final createdAt =
-        _parseDate(
-      data['created_at'] ??
-          data['createdAt'],
-    );
+  AssetModel _assetFromJson(Map<String, dynamic> data) {
+    final createdAt = _parseDate(data['created_at'] ?? data['createdAt']);
 
-    final updatedAt =
-        _parseDate(
+    final updatedAt = _parseDate(
       data['updated_at'] ??
           data['updatedAt'] ??
           data['created_at'] ??
@@ -586,49 +577,33 @@ class _CompanyAssetsPageState
     );
 
     return AssetModel(
-      id: _stringValue(
-        data['id'],
-      ),
-      companyId: _stringValue(
-        data['company_id'] ??
-            data['companyId'],
-      ),
-      companyName: _stringValue(
-        data['company_name'] ??
-            data['companyName'],
-      ),
-      section: _stringValue(
-        data['section'],
-      ),
-      type: _stringValue(
-        data['type'],
-      ),
-      name: _stringValue(
-        data['name'],
-      ),
-      link: _nullableString(
-        data['link'],
-      ),
-      username: _nullableString(
-        data['username'],
-      ),
-      password: _nullableString(
-        data['password'],
-      ),
+      id: _stringValue(data['id']),
+      companyId: _stringValue(data['company_id'] ?? data['companyId']),
+      companyName: _stringValue(data['company_name'] ?? data['companyName']),
+      section: _stringValue(data['section']),
+      type: _stringValue(data['type']),
+      name: _stringValue(data['name']),
+      link: _nullableString(data['link']),
+      username: _nullableString(data['username']),
+      password: _nullableString(data['password']),
       description: _nullableString(data['description']),
-      filePath: _nullableString(data['file_url'] ?? data['file_path'] ?? data['filePath']),
+      filePath: _nullableString(
+        data['file_url'] ?? data['file_path'] ?? data['filePath'],
+      ),
       fileName: _nullableString(data['file_name'] ?? data['fileName']),
       mimeType: _nullableString(data['mime_type'] ?? data['mimeType']),
-      fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
-      createdByEmployeeId: _nullableString(data['created_by_employee_id'] ?? data['createdByEmployeeId']),
+      fileSize: data['file_size'] is num
+          ? (data['file_size'] as num).toInt()
+          : null,
+      createdByEmployeeId: _nullableString(
+        data['created_by_employee_id'] ?? data['createdByEmployeeId'],
+      ),
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
   }
 
-  String _stringValue(
-    dynamic value,
-  ) {
+  String _stringValue(dynamic value) {
     if (value == null) {
       return '';
     }
@@ -636,27 +611,21 @@ class _CompanyAssetsPageState
     return value.toString();
   }
 
-  String? _nullableString(
-    dynamic value,
-  ) {
+  String? _nullableString(dynamic value) {
     if (value == null) {
       return null;
     }
 
-    final result =
-        value.toString().trim();
+    final result = value.toString().trim();
 
-    if (result.isEmpty ||
-        result.toLowerCase() == 'null') {
+    if (result.isEmpty || result.toLowerCase() == 'null') {
       return null;
     }
 
     return result;
   }
 
-  DateTime _parseDate(
-    dynamic value,
-  ) {
+  DateTime _parseDate(dynamic value) {
     if (value == null) {
       return DateTime.now();
     }
@@ -665,13 +634,9 @@ class _CompanyAssetsPageState
       return value;
     }
 
-    final parsed =
-        DateTime.tryParse(
-      value.toString(),
-    );
+    final parsed = DateTime.tryParse(value.toString());
 
-    return parsed ??
-        DateTime.now();
+    return parsed ?? DateTime.now();
   }
 
   // ============================================================
@@ -679,48 +644,28 @@ class _CompanyAssetsPageState
   // ============================================================
 
   List<AssetModel> get _companyAssets {
-    final query =
-        _search.trim().toLowerCase();
+    final query = _search.trim().toLowerCase();
 
     return _allAssets.where((asset) {
       // Company filter.
-      if (asset.companyId !=
-          widget.company.id) {
-        return false;
-      }
-
-      // Section filter.
-      if (asset.section !=
-          widget.section) {
+      if (asset.companyId != widget.company.id) {
         return false;
       }
 
       // Type filter.
-      if (_filter != 'All' &&
-          asset.type != _filter) {
+      if (_filter != 'All' && asset.type != _filter) {
         return false;
       }
 
       // Search filter.
       if (query.isNotEmpty) {
-        final matchesName =
-            asset.name
-                .toLowerCase()
-                .contains(query);
+        final matchesName = asset.name.toLowerCase().contains(query);
 
-        final matchesType =
-            asset.type
-                .toLowerCase()
-                .contains(query);
+        final matchesType = asset.type.toLowerCase().contains(query);
 
-        final matchesCompany =
-            asset.companyName
-                .toLowerCase()
-                .contains(query);
+        final matchesCompany = asset.companyName.toLowerCase().contains(query);
 
-        if (!matchesName &&
-            !matchesType &&
-            !matchesCompany) {
+        if (!matchesName && !matchesType && !matchesCompany) {
           return false;
         }
       }
@@ -734,74 +679,27 @@ class _CompanyAssetsPageState
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
-    final width =
-        MediaQuery.of(context).size.width;
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
 
-    final mobile = width < 700;
+    final mobile = width < 760;
+
+    if (_previewAsset != null) {
+      return AssetPreviewPage(
+        asset: _previewAsset!,
+        onBack: () => setState(() => _previewAsset = null),
+      );
+    }
 
     return Scaffold(
-      backgroundColor:
-          AppColors.background,
-      appBar: AppBar(
-        backgroundColor:
-            Colors.white,
-        elevation: 0,
-        titleSpacing:
-            mobile ? 0 : 20,
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(
-            Icons.arrow_back,
-          ),
-          onPressed: () {
-            if (widget.onBack != null) {
-              widget.onBack!();
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: const Text(
-          'Company Assets',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight:
-                FontWeight.w700,
-            color:
-                AppColors.textPrimary,
-          ),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _isLoading
-                ? null
-                : () async {
-                    await _loadPermissions();
-                    await _loadAssets();
-                  },
-            icon: const Icon(
-              Icons.refresh,
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
+      backgroundColor: AppColors.background,
       body: _buildBody(mobile),
     );
   }
 
-  Widget _buildBody(
-    bool mobile,
-  ) {
+  Widget _buildBody(bool mobile) {
     if (_isLoading) {
-      return const Center(
-        child:
-            CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_errorMessage != null) {
@@ -809,264 +707,542 @@ class _CompanyAssetsPageState
     }
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(
+      padding: EdgeInsets.fromLTRB(
+        mobile ? 16 : 32,
         mobile ? 16 : 24,
+        mobile ? 16 : 32,
+        36,
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildCompanyHeader(
-            mobile,
-          ),
-
-          const SizedBox(
-            height: 22,
-          ),
-
+          _buildBreadcrumb(),
+          const SizedBox(height: 16),
+          _buildCompanyHeader(mobile),
+          const SizedBox(height: 20),
           _buildSearch(),
-
-          const SizedBox(
-            height: 14,
-          ),
-
+          const SizedBox(height: 16),
           _buildFilters(),
-
-          const SizedBox(
-            height: 20,
-          ),
-
+          const SizedBox(height: 18),
           if (_companyAssets.isEmpty)
             _buildEmptyState()
-          else
+          else if (mobile)
             Column(
-              children:
-                  _companyAssets.map(
-                (asset) {
-                  return Padding(
-                    padding:
-                        const EdgeInsets.only(
-                      bottom: 12,
+              children: _companyAssets
+                  .map(
+                    (asset) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildAssetCard(asset, true),
                     ),
-                    child:
-                        _buildAssetCard(
-                      asset,
-                      mobile,
-                    ),
-                  );
-                },
-              ).toList(),
-            ),
+                  )
+                  .toList(),
+            )
+          else
+            _buildAssetsTable(),
         ],
       ),
     );
+  }
+
+  // ============================================================
+  // BREADCRUMB
+  // ============================================================
+
+  Widget _buildBreadcrumb() {
+    return Row(
+      children: [
+        InkWell(
+          onTap: () {
+            if (widget.onBack != null) {
+              widget.onBack!();
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
+          child: const Text(
+            'Asset Library',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
+        ),
+        Flexible(
+          child: Text(
+            _companyName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // ASSETS TABLE (desktop)
+  // ============================================================
+
+  Widget _buildAssetsTable() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // Header row
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            color: const Color(0xFFF8FAFC),
+            child: Row(
+              children: const [
+                Expanded(flex: 30, child: _ColHead('Asset')),
+                Expanded(flex: 14, child: _ColHead('Type')),
+                Expanded(flex: 28, child: _ColHead('Description')),
+                Expanded(flex: 14, child: _ColHead('Updated')),
+                Expanded(flex: 16, child: _ColHead('Actions')),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          // Rows
+          for (int i = 0; i < _companyAssets.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            _buildTableRow(_companyAssets[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTableRow(AssetModel asset) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Asset (icon + name + filename)
+          Expanded(
+            flex: 30,
+            child: Row(
+              children: [
+                _buildAssetIcon(asset),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        asset.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        asset.fileName ?? asset.link ?? '—',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Type chip
+          Expanded(flex: 14, child: _buildTypeChip(asset.type)),
+          // Description
+          Expanded(
+            flex: 28,
+            child: Text(
+              asset.description?.trim().isNotEmpty == true
+                  ? asset.description!.trim()
+                  : '—',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          // Updated
+          Expanded(
+            flex: 14,
+            child: Text(
+              _formatDate(asset.updatedAt),
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          // Actions
+          Expanded(flex: 16, child: _buildActions(asset)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeChip(String type) {
+    final (bg, fg) = _typeChipColors(type);
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(_getAssetIcon(type), size: 13, color: fg),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                _shortTypeLabel(type),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  (Color, Color) _typeChipColors(String type) {
+    switch (type) {
+      case AppConstants.poster:
+        return (const Color(0xFFFDE7EC), const Color(0xFFE11D48));
+      case AppConstants.reelVideo:
+        return (const Color(0xFFEDE9FE), const Color(0xFF7C3AED));
+      case AppConstants.document:
+        return (const Color(0xFFE7F8EF), const Color(0xFF15803D));
+      case AppConstants.websiteLink:
+        return (const Color(0xFFFEF3C7), const Color(0xFFB45309));
+      case AppConstants.webApplication:
+        return (const Color(0xFFDBEAFE), const Color(0xFF2563EB));
+      case AppConstants.mobileApplication:
+        return (const Color(0xFFEDE9FE), const Color(0xFF7C3AED));
+      default:
+        return (const Color(0xFFF1F5F9), AppColors.textSecondary);
+    }
+  }
+
+  String _shortTypeLabel(String type) {
+    switch (type) {
+      case AppConstants.poster:
+        return 'Poster';
+      case AppConstants.reelVideo:
+        return 'Video';
+      case AppConstants.document:
+        return 'Document';
+      case AppConstants.websiteLink:
+        return 'Website Link';
+      case AppConstants.webApplication:
+        return 'Web App';
+      case AppConstants.mobileApplication:
+        return 'Mobile App';
+      default:
+        return type;
+    }
   }
 
   // ============================================================
   // COMPANY HEADER
   // ============================================================
 
-  Widget _buildCompanyHeader(
-    bool mobile,
-  ) {
-    final digitalMarketing =
-        widget.section ==
-            AppConstants.digitalMarketing;
+  Widget _buildCompanyHeader(bool mobile) {
+    final color = widget.section == AppConstants.softwareDevelopment
+        ? AppColors.softwareDevelopment
+        : AppColors.digitalMarketing;
+    final lightColor = widget.section == AppConstants.softwareDevelopment
+        ? AppColors.softwareDevelopmentLight
+        : AppColors.digitalMarketingLight;
 
-    final color = digitalMarketing
-        ? AppColors.digitalMarketing
-        : AppColors.softwareDevelopment;
+    final companyName = _companyName.trim();
+    final firstLetter = companyName.isNotEmpty
+        ? companyName.substring(0, 1).toUpperCase()
+        : 'C';
 
-    final lightColor = digitalMarketing
-        ? AppColors.digitalMarketingLight
-        : AppColors.softwareDevelopmentLight;
+    final count = _companyAllAssets.length;
+    var updated = widget.company.updatedAt;
+    for (final a in _companyAllAssets) {
+      if (a.updatedAt.isAfter(updated)) updated = a.updatedAt;
+    }
 
-    final companyName =
-        _companyName.trim();
+    final sections = widget.company.allSections.isNotEmpty
+        ? widget.company.allSections.join(' · ')
+        : widget.section;
 
-    final firstLetter =
-        companyName.isNotEmpty
-            ? companyName
-                .substring(0, 1)
-                .toUpperCase()
-            : 'C';
+    final meta = Text(
+      '$sections  ·  $count ${count == 1 ? 'asset' : 'assets'}  ·  Last updated ${_formatDate(updated)}',
+      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+    );
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(
-        mobile ? 18 : 22,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Row(
-        children: [
-          _buildCompanyLogo(mobile, color, lightColor, firstLetter),
-
-          const SizedBox(
-            width: 15,
-          ),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  companyName,
-                  maxLines: 1,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize:
-                        mobile ? 20 : 23,
-                    fontWeight:
-                        FontWeight.w700,
-                    color:
-                        AppColors.textPrimary,
-                  ),
-                ),
-
-                const SizedBox(
-                  height: 5,
-                ),
-
-                Text(
-                  widget.section,
-                  style: TextStyle(
-                    fontSize:
-                        mobile ? 13 : 14,
-                    color: color,
-                    fontWeight:
-                        FontWeight.w600,
-                  ),
-                ),
-
-                const SizedBox(
-                  height: 4,
-                ),
-
-                Text(
-                  '${_companyAssets.length} '
-                  '${_companyAssets.length == 1 ? 'asset' : 'assets'}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color:
-                        AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-
-          // ==========================================================
-          // COMPANY ACTIONS
-          //
-          // Edit/Delete use the same user permissions:
-          //   can_edit   -> Edit Company
-          //   can_delete -> Delete Company
-          //
-          // These are placed immediately before Add Asset, matching
-          // the marked location in the requested design.
-          // ==========================================================
-
-          if (_canEditCompany)
-            Container(
-              width: 42,
-              height: 42,
-              margin: const EdgeInsets.only(right: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.border,
-                ),
-              ),
-              child: IconButton(
-                tooltip: 'Edit Company Name',
-                padding: EdgeInsets.zero,
-                onPressed: _editCompany,
-                icon: const Icon(
-                  Icons.edit_outlined,
-                  size: 20,
+    final identity = Row(
+      children: [
+        _buildCompanyLogo(mobile, color, lightColor, firstLetter),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                companyName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: mobile ? 22 : 26,
+                  fontWeight: FontWeight.w800,
                   color: AppColors.textPrimary,
                 ),
               ),
-            ),
+              const SizedBox(height: 5),
+              meta,
+            ],
+          ),
+        ),
+      ],
+    );
 
-          if (_canDeleteCompany)
-            Container(
-              width: 42,
-              height: 42,
-              margin: const EdgeInsets.only(right: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.border,
-                ),
-              ),
-              child: IconButton(
-                tooltip: 'Delete Entire Company',
-                padding: EdgeInsets.zero,
-                onPressed: _deleteCompany,
-                icon: const Icon(
-                  Icons.delete_outline,
-                  size: 20,
-                  color: Colors.red,
-                ),
-              ),
-            ),
+    final actions = _buildPermissionActions(mobile);
 
-          if (_canCreateAsset)
-            if (mobile)
-              IconButton.filled(
-                tooltip: 'Add Asset',
-                onPressed:
-                    _isAddingAsset ? null : _addAsset,
-                icon: _isAddingAsset
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.add),
-              )
-            else
-              FilledButton.icon(
-                onPressed:
-                    _isAddingAsset ? null : _addAsset,
-                icon: _isAddingAsset
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.add),
-                label: Text(
-                  _isAddingAsset
-                      ? 'Adding...'
-                      : 'Add Asset',
-                ),
-              ),
-        ],
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(mobile ? 18 : 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
       ),
+      child: mobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                identity,
+                if (_canEditCompany ||
+                    _canDeleteCompany ||
+                    _canCreateAsset) ...[
+                  const SizedBox(height: 14),
+                  _buildCompactActions(),
+                ],
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: identity),
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (int i = 0; i < actions.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 12),
+                        actions[i],
+                      ],
+                    ],
+                  ),
+                ],
+              ],
+            ),
     );
   }
 
-  Widget _buildCompanyLogo(bool mobile, Color color, Color lightColor, String firstLetter) {
+  // Compact mobile actions: small icon buttons for edit/delete + an
+  // Add asset button, with no "PERMISSION BASED" captions (saves height).
+  Widget _buildCompactActions() {
+    Widget iconBtn({
+      required IconData icon,
+      required String tooltip,
+      required VoidCallback onTap,
+      Color? color,
+    }) {
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: color == Colors.red
+                ? const Color(0xFFFECACA)
+                : AppColors.border,
+          ),
+        ),
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onTap,
+          icon: Icon(icon, size: 19, color: color ?? AppColors.textPrimary),
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        if (_canEditCompany)
+          iconBtn(
+            icon: Icons.edit_outlined,
+            tooltip: 'Edit company',
+            onTap: _editCompany,
+          ),
+        if (_canEditCompany) const SizedBox(width: 10),
+        if (_canDeleteCompany)
+          iconBtn(
+            icon: Icons.delete_outline,
+            tooltip: 'Delete company',
+            color: Colors.red,
+            onTap: _deleteCompany,
+          ),
+        if (_canDeleteCompany) const SizedBox(width: 10),
+        if (_canCreateAsset)
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: _isAddingAsset ? null : _addAsset,
+              icon: _isAddingAsset
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.add, size: 18),
+              label: Text(_isAddingAsset ? 'Adding...' : 'Add asset'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 13),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Permission-based company actions, each labelled "PERMISSION BASED".
+  List<Widget> _buildPermissionActions(bool mobile) {
+    final list = <Widget>[];
+
+    if (_canEditCompany) {
+      list.add(
+        _permissionAction(
+          label: 'Edit company',
+          icon: Icons.edit_outlined,
+          onTap: _editCompany,
+        ),
+      );
+    }
+    if (_canDeleteCompany) {
+      list.add(
+        _permissionAction(
+          label: 'Delete',
+          icon: Icons.delete_outline,
+          danger: true,
+          onTap: _deleteCompany,
+        ),
+      );
+    }
+    if (_canCreateAsset) {
+      list.add(
+        _permissionAction(
+          label: _isAddingAsset ? 'Adding...' : 'Add asset',
+          icon: Icons.add,
+          filled: true,
+          onTap: _isAddingAsset ? null : _addAsset,
+        ),
+      );
+    }
+    return list;
+  }
+
+  Widget _permissionAction({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onTap,
+    bool filled = false,
+    bool danger = false,
+  }) {
+    final accent = danger ? Colors.red : AppColors.primary;
+    final button = filled
+        ? FilledButton.icon(
+            onPressed: onTap,
+            icon: Icon(icon, size: 18),
+            label: Text(label),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+          )
+        : OutlinedButton.icon(
+            onPressed: onTap,
+            icon: Icon(icon, size: 18, color: accent),
+            label: Text(label, style: TextStyle(color: accent)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: accent,
+              side: BorderSide(
+                color: danger ? const Color(0xFFFECACA) : AppColors.border,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+          );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'PERMISSION BASED',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        button,
+      ],
+    );
+  }
+
+  Widget _buildCompanyLogo(
+    bool mobile,
+    Color color,
+    Color lightColor,
+    String firstLetter,
+  ) {
     final size = mobile ? 54.0 : 64.0;
     final logoUrl = widget.company.logoUrl?.trim();
     if (logoUrl != null && logoUrl.isNotEmpty) {
@@ -1089,7 +1265,14 @@ class _CompanyAssetsPageState
           errorBuilder: (_, _, _) => Container(
             alignment: Alignment.center,
             color: lightColor,
-            child: Text(firstLetter, style: TextStyle(fontSize: mobile ? 22 : 26, fontWeight: FontWeight.w800, color: color)),
+            child: Text(
+              firstLetter,
+              style: TextStyle(
+                fontSize: mobile ? 22 : 26,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
           ),
         ),
       );
@@ -1098,8 +1281,18 @@ class _CompanyAssetsPageState
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(color: lightColor, borderRadius: BorderRadius.circular(13)),
-      child: Text(firstLetter, style: TextStyle(fontSize: mobile ? 22 : 26, fontWeight: FontWeight.w800, color: color)),
+      decoration: BoxDecoration(
+        color: lightColor,
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Text(
+        firstLetter,
+        style: TextStyle(
+          fontSize: mobile ? 22 : 26,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
     );
   }
 
@@ -1114,19 +1307,10 @@ class _CompanyAssetsPageState
           _search = value;
         });
       },
-      style: const TextStyle(
-        fontSize: 14,
-        color:
-            AppColors.textPrimary,
-      ),
-      decoration:
-          const InputDecoration(
-        hintText:
-            'Search assets...',
-        prefixIcon: Icon(
-          Icons.search,
-          size: 22,
-        ),
+      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+      decoration: const InputDecoration(
+        hintText: 'Search assets...',
+        prefixIcon: Icon(Icons.search, size: 22),
       ),
     );
   }
@@ -1137,54 +1321,36 @@ class _CompanyAssetsPageState
 
   Widget _buildFilters() {
     return SingleChildScrollView(
-      scrollDirection:
-          Axis.horizontal,
+      scrollDirection: Axis.horizontal,
       child: Row(
-        children:
-            _filters.map((filter) {
-          final selected =
-              _filter == filter;
-
+        children: _filters.map((filter) {
+          final selected = _filter == filter;
+          final count = _countForType(filter);
           return Padding(
-            padding:
-                const EdgeInsets.only(
-              right: 8,
-            ),
-            child: ChoiceChip(
-              label: Text(
-                _filterLabel(
-                  filter,
+            padding: const EdgeInsets.only(right: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => setState(() => _filter = filter),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 9,
                 ),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight:
-                      FontWeight.w600,
-                  color: selected
-                      ? Colors.white
-                      : AppColors
-                          .textSecondary,
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.primary : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: selected ? AppColors.primary : AppColors.border,
+                  ),
                 ),
-              ),
-              selected: selected,
-              onSelected: (_) {
-                setState(() {
-                  _filter = filter;
-                });
-              },
-              selectedColor:
-                  AppColors.primary,
-              backgroundColor:
-                  Colors.white,
-              side: BorderSide(
-                color: selected
-                    ? AppColors.primary
-                    : AppColors.border,
-              ),
-              padding:
-                  const EdgeInsets
-                      .symmetric(
-                horizontal: 8,
-                vertical: 4,
+                child: Text(
+                  '${_filterLabel(filter)} ($count)',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? Colors.white : AppColors.textSecondary,
+                  ),
+                ),
               ),
             ),
           );
@@ -1197,207 +1363,124 @@ class _CompanyAssetsPageState
   // ASSET CARD
   // ============================================================
 
-  Widget _buildAssetCard(
-    AssetModel asset,
-    bool mobile,
-  ) {
+  Widget _buildAssetCard(AssetModel asset, bool mobile) {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding:
-            const EdgeInsets.all(15),
+        padding: const EdgeInsets.all(15),
         child: mobile
-            ? _buildMobileAssetCard(
-                asset,
-              )
-            : _buildDesktopAssetCard(
-                asset,
-              ),
+            ? _buildMobileAssetCard(asset)
+            : _buildDesktopAssetCard(asset),
       ),
     );
   }
 
-  Widget _buildDesktopAssetCard(
-    AssetModel asset,
-  ) {
+  Widget _buildDesktopAssetCard(AssetModel asset) {
     return Row(
       children: [
         _buildAssetIcon(asset),
 
-        const SizedBox(
-          width: 14,
-        ),
+        const SizedBox(width: 14),
 
-        Expanded(
-          child:
-              _buildAssetInformation(
-            asset,
-          ),
-        ),
+        Expanded(child: _buildAssetInformation(asset)),
 
-        const SizedBox(
-          width: 15,
-        ),
+        const SizedBox(width: 15),
 
         if (_hasLink(asset))
-          SizedBox(
-            width: 210,
-            child:
-                _buildLinkPreview(
-              asset,
-            ),
-          ),
+          SizedBox(width: 210, child: _buildLinkPreview(asset)),
 
-        const SizedBox(
-          width: 10,
-        ),
+        const SizedBox(width: 10),
 
         _buildActions(asset),
       ],
     );
   }
 
-  Widget _buildMobileAssetCard(
-    AssetModel asset,
-  ) {
+  Widget _buildMobileAssetCard(AssetModel asset) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             _buildAssetIcon(asset),
 
-            const SizedBox(
-              width: 12,
-            ),
+            const SizedBox(width: 12),
 
-            Expanded(
-              child:
-                  _buildAssetInformation(
-                asset,
-              ),
-            ),
+            Expanded(child: _buildAssetInformation(asset)),
           ],
         ),
 
         if (_hasLink(asset)) ...[
-          const SizedBox(
-            height: 13,
-          ),
+          const SizedBox(height: 13),
           _buildLinkPreview(asset),
         ],
 
-        const SizedBox(
-          height: 13,
-        ),
+        const SizedBox(height: 13),
 
-        Align(
-          alignment:
-              Alignment.centerRight,
-          child:
-              _buildActions(asset),
-        ),
+        Align(alignment: Alignment.centerRight, child: _buildActions(asset)),
       ],
     );
   }
 
-  Widget _buildAssetIcon(
-    AssetModel asset,
-  ) {
+  Widget _buildAssetIcon(AssetModel asset) {
     return Container(
       width: 56,
       height: 56,
-      alignment:
-          Alignment.center,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color:
-            const Color(0xFFF0F5FF),
-        borderRadius:
-            BorderRadius.circular(11),
+        color: const Color(0xFFF0F5FF),
+        borderRadius: BorderRadius.circular(11),
       ),
       child: Icon(
-        _getAssetIcon(
-          asset.type,
-        ),
-        color:
-            AppColors.primary,
+        _getAssetIcon(asset.type),
+        color: AppColors.primary,
         size: 27,
       ),
     );
   }
 
-  Widget _buildAssetInformation(
-    AssetModel asset,
-  ) {
+  Widget _buildAssetInformation(AssetModel asset) {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           asset.name,
           maxLines: 1,
-          overflow:
-              TextOverflow.ellipsis,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 16,
-            fontWeight:
-                FontWeight.w700,
-            color:
-                AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
           ),
         ),
 
-        const SizedBox(
-          height: 7,
-        ),
+        const SizedBox(height: 7),
 
         Wrap(
           spacing: 9,
           runSpacing: 5,
           children: [
             Container(
-              padding:
-                  const EdgeInsets
-                      .symmetric(
-                horizontal: 9,
-                vertical: 5,
-              ),
-              decoration:
-                  BoxDecoration(
-                color:
-                    const Color(
-                  0xFFEAF2FF,
-                ),
-                borderRadius:
-                    BorderRadius.circular(
-                  14,
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2FF),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                _filterLabel(
-                  asset.type,
-                ),
-                style:
-                    const TextStyle(
+                _filterLabel(asset.type),
+                style: const TextStyle(
                   fontSize: 12,
-                  fontWeight:
-                      FontWeight.w600,
-                  color:
-                      AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
                 ),
               ),
             ),
 
             Text(
-              _formatDate(
-                asset.updatedAt,
-              ),
-              style:
-                  const TextStyle(
+              _formatDate(asset.updatedAt),
+              style: const TextStyle(
                 fontSize: 13,
-                color:
-                    AppColors.textSecondary,
+                color: AppColors.textSecondary,
               ),
             ),
           ],
@@ -1410,51 +1493,30 @@ class _CompanyAssetsPageState
   // LINK PREVIEW
   // ============================================================
 
-  Widget _buildLinkPreview(
-    AssetModel asset,
-  ) {
-    final link =
-        asset.link?.trim() ?? '';
+  Widget _buildLinkPreview(AssetModel asset) {
+    final link = asset.link?.trim() ?? '';
 
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 11,
-        vertical: 9,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
       decoration: BoxDecoration(
-        color:
-            const Color(0xFFF8FAFD),
-        borderRadius:
-            BorderRadius.circular(8),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.link_outlined,
-            size: 18,
-            color:
-                AppColors.primary,
-          ),
+          const Icon(Icons.link_outlined, size: 18, color: AppColors.primary),
 
-          const SizedBox(
-            width: 8,
-          ),
+          const SizedBox(width: 8),
 
           Expanded(
             child: Text(
               link,
               maxLines: 1,
-              overflow:
-                  TextOverflow.ellipsis,
-              style:
-                  const TextStyle(
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
                 fontSize: 12,
-                color:
-                    AppColors.textSecondary,
+                color: AppColors.textSecondary,
               ),
             ),
           ),
@@ -1467,70 +1529,58 @@ class _CompanyAssetsPageState
   // ACTIONS
   // ============================================================
 
-  Widget _buildActions(
-    AssetModel asset,
-  ) {
+  Widget _buildActions(AssetModel asset) {
+    Widget btn({
+      required IconData icon,
+      required String tooltip,
+      required VoidCallback onTap,
+      Color? color,
+    }) {
+      return IconButton(
+        tooltip: tooltip,
+        onPressed: onTap,
+        icon: Icon(icon, size: 18, color: color),
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+      );
+    }
+
+    final isLink = _hasLink(asset);
+
     return Row(
-      mainAxisSize:
-          MainAxisSize.min,
+      mainAxisSize: MainAxisSize.min,
       children: [
         if (_canViewAsset)
-          IconButton(
+          btn(
+            icon: Icons.visibility_outlined,
             tooltip: 'View',
-            onPressed: () {
-              _viewAsset(asset);
-            },
-            icon: const Icon(
-              Icons.visibility_outlined,
-              size: 21,
-            ),
+            onTap: () => _viewAsset(asset),
           ),
-
-        if (_canDownloadAsset)
-          IconButton(
+        if (_canDownloadAsset && !isLink)
+          btn(
+            icon: Icons.download_outlined,
             tooltip: 'Download',
-            onPressed: () {
-              _downloadAsset(asset);
-            },
-            icon: const Icon(
-              Icons.download_outlined,
-              size: 21,
-            ),
+            onTap: () => _downloadAsset(asset),
           ),
-
-        IconButton(
-          tooltip: 'Share',
-          onPressed: () {
-            _shareAsset(asset);
-          },
-          icon: const Icon(
-            Icons.share_outlined,
-            size: 21,
+        if (isLink)
+          btn(
+            icon: Icons.open_in_new,
+            tooltip: 'Open link',
+            onTap: () => _openLink(asset.link!.trim()),
           ),
-        ),
-
         if (_canEditAsset)
-          IconButton(
+          btn(
+            icon: Icons.edit_outlined,
             tooltip: 'Edit Asset',
-            onPressed: () {
-              _editAsset(asset);
-            },
-            icon: const Icon(
-              Icons.edit_outlined,
-              size: 21,
-            ),
+            onTap: () => _editAsset(asset),
           ),
-
         if (_canDeleteAsset)
-          IconButton(
+          btn(
+            icon: Icons.delete_outline,
             tooltip: 'Delete Asset',
-            onPressed: () {
-              _deleteAsset(asset);
-            },
-            icon: const Icon(
-              Icons.delete_outline,
-              size: 21,
-            ),
+            color: Colors.red,
+            onTap: () => _deleteAsset(asset),
           ),
       ],
     );
@@ -1542,20 +1592,18 @@ class _CompanyAssetsPageState
 
   Future<void> _editAsset(AssetModel asset) async {
     if (!_canEditAsset) {
-      _showMessage(
-        'You do not have permission to edit assets.',
-      );
+      _showMessage('You do not have permission to edit assets.');
       return;
     }
 
-    final nameController =
-        TextEditingController(text: asset.name);
-    final linkController =
-        TextEditingController(text: asset.link ?? '');
-    final usernameController =
-        TextEditingController(text: asset.username ?? '');
-    final passwordController =
-        TextEditingController(text: asset.password ?? '');
+    final nameController = TextEditingController(text: asset.name);
+    final linkController = TextEditingController(text: asset.link ?? '');
+    final usernameController = TextEditingController(
+      text: asset.username ?? '',
+    );
+    final passwordController = TextEditingController(
+      text: asset.password ?? '',
+    );
 
     try {
       final saved = await showDialog<bool>(
@@ -1564,10 +1612,7 @@ class _CompanyAssetsPageState
           return AlertDialog(
             title: const Text(
               'Edit Asset',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
             content: SizedBox(
               width: 460,
@@ -1600,9 +1645,7 @@ class _CompanyAssetsPageState
                     TextField(
                       controller: passwordController,
                       obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Password',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Password'),
                     ),
                   ],
                 ),
@@ -1676,37 +1719,22 @@ class _CompanyAssetsPageState
   // VIEW
   // ============================================================
 
-  void _viewAsset(
-    AssetModel asset,
-  ) {
+  void _viewAsset(AssetModel asset) {
     if (!_canViewAsset) {
-      _showMessage(
-        'You do not have permission to view assets.',
-      );
+      _showMessage('You do not have permission to view assets.');
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            AssetPreviewPage(
-          asset: asset,
-        ),
-      ),
-    );
+    setState(() => _previewAsset = asset);
   }
 
   // ============================================================
   // DELETE ASSET
   // ============================================================
 
-  Future<void> _deleteAsset(
-    AssetModel asset,
-  ) async {
+  Future<void> _deleteAsset(AssetModel asset) async {
     if (!_canDeleteAsset) {
-      _showMessage(
-        'You do not have permission to delete assets.',
-      );
+      _showMessage('You do not have permission to delete assets.');
       return;
     }
 
@@ -1716,16 +1744,11 @@ class _CompanyAssetsPageState
         return AlertDialog(
           title: const Text(
             'Delete Asset',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           content: Text(
             'Are you sure you want to delete "${asset.name}"? This action cannot be undone.',
-            style: const TextStyle(
-              fontSize: 14,
-            ),
+            style: const TextStyle(fontSize: 14),
           ),
           actions: [
             TextButton(
@@ -1762,17 +1785,13 @@ class _CompanyAssetsPageState
         return;
       }
 
-      _showMessage(
-        'Asset deleted successfully.',
-      );
+      _showMessage('Asset deleted successfully.');
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Unable to delete asset: $error',
-      );
+      _showMessage('Unable to delete asset: $error');
     }
   }
 
@@ -1780,235 +1799,108 @@ class _CompanyAssetsPageState
   // DOWNLOAD
   // ============================================================
 
-  Future<void> _downloadAsset(
-    AssetModel asset,
-  ) async {
+  Future<void> _downloadAsset(AssetModel asset) async {
     if (!_canDownloadAsset) {
-      _showMessage(
-        'You do not have permission to download assets.',
-      );
+      _showMessage('You do not have permission to download assets.');
       return;
     }
 
-    final filePath =
-        asset.filePath?.trim() ?? '';
+    final filePath = asset.filePath?.trim() ?? '';
 
     if (filePath.isEmpty) {
-      _showMessage(
-        'No uploaded file is available for this asset.',
-      );
+      _showMessage('No uploaded file is available for this asset.');
       return;
     }
 
     try {
-      _showMessage(
-        'Preparing download...',
-      );
+      _showMessage('Preparing download...');
 
-      final bytes =
-          await ApiService.downloadAsset(
-        asset.id,
-      );
+      final bytes = await ApiService.downloadAsset(asset.id);
 
       if (!mounted) {
         return;
       }
 
       if (bytes.isEmpty) {
-        _showMessage(
-          'The downloaded file is empty.',
-        );
+        _showMessage('The downloaded file is empty.');
         return;
       }
 
-      final fileName =
-          _getDownloadFileName(
-        asset,
-      );
+      final fileName = _getDownloadFileName(asset);
 
-      final success =
-          await _downloadBytes(
-        bytes,
-        fileName,
-      );
+      final success = await _downloadBytes(bytes, fileName);
 
       if (!mounted) {
         return;
       }
 
       if (success) {
-        await DownloadHistory.add(
-          assetId: asset.id,
-          fileName: fileName,
-          assetName: asset.name,
-          assetType: asset.type,
-          companyName: asset.companyName,
-        );
-
-        _showMessage(
-          'Download started for "$fileName".',
-        );
+        _showMessage('Download started for "$fileName".');
       } else {
-        _showMessage(
-          'Unable to download this asset.',
-        );
+        _showMessage('Unable to download this asset.');
       }
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Download failed: $error',
-      );
+      _showMessage('Download failed: $error');
     }
   }
 
-  Future<bool> _downloadBytes(
-    Uint8List bytes,
-    String fileName,
-  ) async {
-    return downloadFileBytes(
-      bytes,
-      fileName,
-      _mimeTypeForFile(fileName),
-    );
-  }
-
-  // ============================================================
-  // SHARE
-  // ============================================================
-
-  Future<void> _shareAsset(
-    AssetModel asset,
-  ) async {
-    // Prefer the explicit link; fall back to the uploaded file's public URL
-    String? shareUrl = asset.link?.trim();
-
-    if (shareUrl == null || shareUrl.isEmpty) {
-      final filePath = asset.filePath?.trim();
-      if (filePath != null && filePath.isNotEmpty) {
-        final root = ApiService.baseUrl
-            .replaceFirst('/client-repository', '')
-            .replaceFirst('/api', '');
-        shareUrl = '$root${filePath.startsWith('/') ? filePath : '/$filePath'}';
-      }
-    }
-
-    if (shareUrl == null || shareUrl.isEmpty) {
-      _showMessage('No link or file is available to share.');
-      return;
-    }
-
-    await Clipboard.setData(ClipboardData(text: shareUrl));
-
-    if (!mounted) return;
-
-    _showMessage('Link copied to clipboard.');
+  Future<bool> _downloadBytes(Uint8List bytes, String fileName) async {
+    return downloadFileBytes(bytes, fileName, _mimeTypeForFile(fileName));
   }
 
   // ============================================================
   // OPEN LINK
   // ============================================================
 
-  Future<void> _openLink(
-    String link,
-  ) async {
-    var cleanLink =
-        link.trim();
+  Future<void> _openLink(String link) async {
+    var cleanLink = link.trim();
 
     if (cleanLink.isEmpty) {
       return;
     }
 
-    if (!cleanLink.startsWith(
-          'http://',
-        ) &&
-        !cleanLink.startsWith(
-          'https://',
-        )) {
-      cleanLink =
-          'https://$cleanLink';
+    if (!cleanLink.startsWith('http://') && !cleanLink.startsWith('https://')) {
+      cleanLink = 'https://$cleanLink';
     }
 
-    final uri =
-        Uri.tryParse(cleanLink);
+    final uri = Uri.tryParse(cleanLink);
 
     if (uri == null) {
-      _showMessage(
-        'Invalid link.',
-      );
+      _showMessage('Invalid link.');
       return;
     }
 
-    final success =
-        await launchUrl(
-      uri,
-      mode:
-          LaunchMode
-              .externalApplication,
-    );
+    final success = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
     if (!success && mounted) {
-      _showMessage(
-        'Unable to open the link.',
-      );
+      _showMessage('Unable to open the link.');
     }
-  }
-
-  Future<void> _copyLink(
-    String link,
-  ) async {
-    await Clipboard.setData(
-      ClipboardData(
-        text: link,
-      ),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    _showMessage(
-      'Link copied.',
-    );
   }
 
   // ============================================================
   // FILE NAME
   // ============================================================
 
-  String _getDownloadFileName(
-    AssetModel asset,
-  ) {
-    final existingPath =
-        asset.filePath?.trim() ?? '';
+  String _getDownloadFileName(AssetModel asset) {
+    final existingPath = asset.filePath?.trim() ?? '';
 
     if (existingPath.isNotEmpty) {
-      final normalized =
-          existingPath.replaceAll(
-        '\\',
-        '/',
-      );
+      final normalized = existingPath.replaceAll('\\', '/');
 
-      final parts =
-          normalized.split('/');
+      final parts = normalized.split('/');
 
-      final last =
-          parts.isNotEmpty
-              ? parts.last
-              : '';
+      final last = parts.isNotEmpty ? parts.last : '';
 
-      if (last.isNotEmpty &&
-          last.contains('.')) {
+      if (last.isNotEmpty && last.contains('.')) {
         return last;
       }
     }
 
-    final safeName =
-        asset.name.trim().isEmpty
-            ? 'asset'
-            : asset.name.trim();
+    final safeName = asset.name.trim().isEmpty ? 'asset' : asset.name.trim();
 
     switch (asset.type) {
       case AppConstants.poster:
@@ -2035,18 +1927,14 @@ class _CompanyAssetsPageState
   // MIME TYPE
   // ============================================================
 
-  String _mimeTypeForFile(
-    String fileName,
-  ) {
-    final lower =
-        fileName.toLowerCase();
+  String _mimeTypeForFile(String fileName) {
+    final lower = fileName.toLowerCase();
 
     if (lower.endsWith('.png')) {
       return 'image/png';
     }
 
-    if (lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg')) {
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
       return 'image/jpeg';
     }
 
@@ -2075,8 +1963,7 @@ class _CompanyAssetsPageState
     }
 
     if (lower.endsWith('.docx')) {
-      return
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
 
     if (lower.endsWith('.xls')) {
@@ -2084,8 +1971,7 @@ class _CompanyAssetsPageState
     }
 
     if (lower.endsWith('.xlsx')) {
-      return
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     }
 
     if (lower.endsWith('.zip')) {
@@ -2093,8 +1979,7 @@ class _CompanyAssetsPageState
     }
 
     if (lower.endsWith('.apk')) {
-      return
-          'application/vnd.android.package-archive';
+      return 'application/vnd.android.package-archive';
     }
 
     if (lower.endsWith('.aab')) {
@@ -2105,8 +1990,7 @@ class _CompanyAssetsPageState
       return 'application/octet-stream';
     }
 
-    if (lower.endsWith('.html') ||
-        lower.endsWith('.htm')) {
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
       return 'text/html';
     }
 
@@ -2132,58 +2016,41 @@ class _CompanyAssetsPageState
   Widget _buildEmptyState() {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 50,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 50),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         children: [
           const Icon(
             Icons.folder_open_outlined,
             size: 48,
-            color:
-                AppColors.textSecondary,
+            color: AppColors.textSecondary,
           ),
 
-          const SizedBox(
-            height: 12,
-          ),
+          const SizedBox(height: 12),
 
           const Text(
             'No assets found',
             style: TextStyle(
               fontSize: 18,
-              fontWeight:
-                  FontWeight.w700,
-              color:
-                  AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
 
-          const SizedBox(
-            height: 6,
-          ),
+          const SizedBox(height: 6),
 
           Text(
-            _search.isNotEmpty ||
-                    _filter != 'All'
+            _search.isNotEmpty || _filter != 'All'
                 ? 'There are no assets matching your search or filter.'
                 : 'There are no assets in this company.',
-            textAlign:
-                TextAlign.center,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 14,
-              color:
-                  AppColors.textSecondary,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -2198,86 +2065,54 @@ class _CompanyAssetsPageState
   Widget _buildErrorState() {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Container(
           width: double.infinity,
-          constraints:
-              const BoxConstraints(
-            maxWidth: 600,
-          ),
-          padding:
-              const EdgeInsets.all(28),
-          decoration:
-              BoxDecoration(
+          constraints: const BoxConstraints(maxWidth: 600),
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius:
-                BorderRadius.circular(
-              14,
-            ),
-            border: Border.all(
-              color:
-                  AppColors.border,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.border),
           ),
           child: Column(
-            mainAxisSize:
-                MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons
-                    .error_outline_rounded,
+                Icons.error_outline_rounded,
                 size: 52,
                 color: Colors.redAccent,
               ),
 
-              const SizedBox(
-                height: 16,
-              ),
+              const SizedBox(height: 16),
 
               const Text(
                 'Unable to load assets',
-                textAlign:
-                    TextAlign.center,
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 19,
-                  fontWeight:
-                      FontWeight.w700,
-                  color:
-                      AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
                 ),
               ),
 
-              const SizedBox(
-                height: 8,
-              ),
+              const SizedBox(height: 8),
 
               Text(
-                _errorMessage ??
-                    'Something went wrong.',
-                textAlign:
-                    TextAlign.center,
+                _errorMessage ?? 'Something went wrong.',
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 13,
-                  color:
-                      AppColors.textSecondary,
+                  color: AppColors.textSecondary,
                 ),
               ),
 
-              const SizedBox(
-                height: 20,
-              ),
+              const SizedBox(height: 20),
 
               FilledButton.icon(
-                onPressed:
-                    _loadAssets,
-                icon: const Icon(
-                  Icons.refresh,
-                ),
-                label:
-                    const Text(
-                  'Try Again',
-                ),
+                onPressed: _loadAssets,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
               ),
             ],
           ),
@@ -2290,20 +2125,16 @@ class _CompanyAssetsPageState
   // ICON
   // ============================================================
 
-  IconData _getAssetIcon(
-    String type,
-  ) {
+  IconData _getAssetIcon(String type) {
     switch (type) {
       case AppConstants.poster:
         return Icons.image_outlined;
 
       case AppConstants.reelVideo:
-        return Icons
-            .video_library_outlined;
+        return Icons.video_library_outlined;
 
       case AppConstants.document:
-        return Icons
-            .description_outlined;
+        return Icons.description_outlined;
 
       case AppConstants.websiteLink:
         return Icons.language_outlined;
@@ -2312,15 +2143,13 @@ class _CompanyAssetsPageState
         return Icons.language_outlined;
 
       case AppConstants.mobileApplication:
-        return Icons
-            .phone_android_outlined;
+        return Icons.phone_android_outlined;
 
       case AppConstants.others:
         return Icons.apps_outlined;
 
       default:
-        return Icons
-            .insert_drive_file_outlined;
+        return Icons.insert_drive_file_outlined;
     }
   }
 
@@ -2328,21 +2157,25 @@ class _CompanyAssetsPageState
   // FILTER LABEL
   // ============================================================
 
-  String _filterLabel(
-    String value,
-  ) {
+  String _filterLabel(String value) {
     switch (value) {
       case AppConstants.poster:
         return 'Posters';
 
       case AppConstants.reelVideo:
-        return 'Reels / Videos';
+        return 'Videos';
 
       case AppConstants.document:
         return 'Documents';
 
       case AppConstants.websiteLink:
-        return 'Website Links';
+        return 'Links';
+
+      case AppConstants.webApplication:
+        return 'Web Apps';
+
+      case AppConstants.mobileApplication:
+        return 'Mobile Apps';
 
       default:
         return value;
@@ -2353,18 +2186,10 @@ class _CompanyAssetsPageState
   // DATE
   // ============================================================
 
-  String _formatDate(
-    DateTime date,
-  ) {
-    final day =
-        date.day
-            .toString()
-            .padLeft(2, '0');
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
 
-    final month =
-        date.month
-            .toString()
-            .padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
 
     return '$day/$month/${date.year}';
   }
@@ -2373,11 +2198,8 @@ class _CompanyAssetsPageState
   // HELPERS
   // ============================================================
 
-  bool _hasLink(
-    AssetModel asset,
-  ) {
-    return asset.link != null &&
-        asset.link!.trim().isNotEmpty;
+  bool _hasLink(AssetModel asset) {
+    return asset.link != null && asset.link!.trim().isNotEmpty;
   }
 
   Widget _logoPlaceholder() {
@@ -2385,25 +2207,38 @@ class _CompanyAssetsPageState
       width: 48,
       height: 48,
       color: AppColors.primary.withValues(alpha: 0.10),
-      child: const Icon(Icons.business_rounded, size: 24, color: AppColors.primary),
+      child: const Icon(
+        Icons.business_rounded,
+        size: 24,
+        color: AppColors.primary,
+      ),
     );
   }
 
-  void _showMessage(
-    String message,
-  ) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          message,
-          style:
-              const TextStyle(
-            fontSize: 14,
-          ),
-        ),
-        behavior:
-            SnackBarBehavior.floating,
+        content: Text(message, style: const TextStyle(fontSize: 14)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+// Column header label for the assets table.
+class _ColHead extends StatelessWidget {
+  final String label;
+  const _ColHead(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textSecondary,
+        letterSpacing: 0.2,
       ),
     );
   }
@@ -2413,212 +2248,291 @@ class _CompanyAssetsPageState
 // ASSET PREVIEW PAGE
 // ============================================================================
 
-class AssetPreviewPage
-    extends StatefulWidget {
+class AssetPreviewPage extends StatefulWidget {
   final AssetModel asset;
+  final VoidCallback? onBack;
 
-  const AssetPreviewPage({
-    super.key,
-    required this.asset,
-  });
+  const AssetPreviewPage({super.key, required this.asset, this.onBack});
 
   @override
-  State<AssetPreviewPage>
-      createState() =>
-          _AssetPreviewPageState();
+  State<AssetPreviewPage> createState() => _AssetPreviewPageState();
 }
 
-class _AssetPreviewPageState
-    extends State<AssetPreviewPage> {
+class _AssetPreviewPageState extends State<AssetPreviewPage> {
   bool _isDownloading = false;
 
-  AssetModel get asset =>
-      widget.asset;
+  AssetModel get asset => widget.asset;
+
+  void _back() {
+    if (widget.onBack != null) {
+      widget.onBack!();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
-    final width =
-        MediaQuery.of(context).size.width;
-
-    final mobile = width < 700;
-
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          AppColors.background,
-      appBar: AppBar(
-        backgroundColor:
-            Colors.white,
-        elevation: 0,
-        titleSpacing: 0,
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(
-            Icons.arrow_back,
-          ),
-          onPressed: () {
-            Navigator.of(context)
-                .pop();
-          },
-        ),
-        title: const Text(
-          'Asset Preview',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight:
-                FontWeight.w700,
-            color:
-                AppColors.textPrimary,
-          ),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding:
-            EdgeInsets.all(
-          mobile ? 16 : 24,
-        ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints:
-                const BoxConstraints(
-              maxWidth: 850,
-            ),
+      backgroundColor: AppColors.background,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final mobile = constraints.maxWidth < 900;
+          final pad = constraints.maxWidth < 700 ? 16.0 : 32.0;
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(pad, 20, pad, 36),
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment
-                      .start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildHeader(),
-
-                const SizedBox(
-                  height: 18,
-                ),
-
-                _buildPreviewArea(),
-
-                const SizedBox(
-                  height: 18,
-                ),
-
-                _buildLinkCard(),
-
-                const SizedBox(
-                  height: 18,
-                ),
-
-                _buildInformationCard(),
-
-                const SizedBox(
-                  height: 20,
-                ),
-
+                _buildBreadcrumb(),
+                const SizedBox(height: 16),
+                if (mobile)
+                  Column(
+                    children: [
+                      _buildPreviewArea(),
+                      const SizedBox(height: 18),
+                      _buildDetailsPanel(),
+                    ],
+                  )
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 3, child: _buildPreviewArea()),
+                      const SizedBox(width: 20),
+                      SizedBox(width: 380, child: _buildDetailsPanel()),
+                    ],
+                  ),
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
-  // ============================================================
-  // HEADER
-  // ============================================================
+  // ── Breadcrumb ──────────────────────────────────────────────
+  Widget _buildBreadcrumb() {
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        InkWell(
+          onTap: _back,
+          child: const Text(
+            'Asset Library',
+            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
+        ),
+        InkWell(
+          onTap: _back,
+          child: Text(
+            asset.companyName,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
+        ),
+        Text(
+          asset.name,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
 
-  Widget _buildHeader() {
+  // ── Details panel (right column) ────────────────────────────
+  Widget _buildDetailsPanel() {
+    final hasFile = (asset.filePath?.trim().isNotEmpty ?? false);
+    final link = asset.link?.trim() ?? '';
+    final hasLink = link.isNotEmpty;
+    final description = asset.description?.trim() ?? '';
+
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            asset.name,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Type chip
           Container(
-            width: 52,
-            height: 52,
-            alignment:
-                Alignment.center,
-            decoration:
-                BoxDecoration(
-              color:
-                  const Color(
-                0xFFEAF2FF,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                12,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              asset.type,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
               ),
             ),
-            child: Icon(
-              _getAssetIcon(
-                asset.type,
+          ),
+          if (description.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              description,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: AppColors.textSecondary,
               ),
-              color:
-                  AppColors.primary,
-              size: 27,
             ),
-          ),
-
-          const SizedBox(
-            width: 13,
-          ),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment
-                      .start,
+          ],
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 16),
+          // File info
+          if (hasFile)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  asset.name,
-                  maxLines: 2,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                    fontSize: 21,
-                    fontWeight:
-                        FontWeight.w700,
-                    color:
-                        AppColors
-                            .textPrimary,
+                const Icon(
+                  Icons.insert_drive_file_outlined,
+                  size: 22,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_displayFileName(asset.filePath!.trim())}'
+                        '${asset.fileSize != null ? '  ·  ${_formatBytes(asset.fileSize!)}' : ''}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Updated ${_formatDateTime(asset.updatedAt)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-
-                const SizedBox(
-                  height: 4,
-                ),
-
-                Text(
-                  asset.type,
-                  style:
-                      const TextStyle(
-                    fontSize: 14,
-                    color:
-                        AppColors
-                            .textSecondary,
+              ],
+            ),
+          if (hasFile) const SizedBox(height: 16),
+          // Company / Section
+          _infoRow('Company', asset.companyName),
+          _infoRow('Section', asset.section),
+          const SizedBox(height: 8),
+          // Action buttons
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _back,
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Back to assets'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.border),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 13,
                   ),
                 ),
-
-                const SizedBox(
-                  height: 3,
+              ),
+              if (hasFile)
+                FilledButton.icon(
+                  onPressed: _isDownloading ? null : _download,
+                  icon: _isDownloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.download_rounded, size: 18),
+                  label: Text(_isDownloading ? 'Downloading...' : 'Download'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                  ),
                 ),
-
-                Text(
-                  asset.companyName,
-                  style:
-                      const TextStyle(
-                    fontSize: 13,
-                    color:
-                        AppColors
-                            .textSecondary,
+              if (hasLink)
+                OutlinedButton.icon(
+                  onPressed: () => _openLink(link),
+                  icon: const Icon(Icons.open_in_new, size: 18),
+                  label: const Text('Open original'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          // Info note
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Icon(Icons.info_outline, size: 18, color: AppColors.primary),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'This preview adapts to the asset type. Links, web apps and '
+                    'mobile apps open in a safe link card. Documents and videos '
+                    'use their respective previews with playback and download '
+                    'options.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.45,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
               ],
@@ -2629,13 +2543,32 @@ class _AssetPreviewPageState
     );
   }
 
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+
+  String _formatDateTime(DateTime date) {
+    final local = date.toLocal();
+    int hour = local.hour % 12;
+    if (hour == 0) hour = 12;
+    final min = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '${_formatDate(local)}, $hour:$min $ampm';
+  }
+
   // ============================================================
   // PREVIEW
   // ============================================================
 
   String? _fileFullUrl() {
     final path = asset.filePath?.trim();
-    debugPrint('🖼️ AssetPreview filePath="${asset.filePath}" mimeType="${asset.mimeType}"');
     if (path == null || path.isEmpty) return null;
     final parsed = Uri.tryParse(path);
     if (parsed != null && parsed.hasScheme) return path;
@@ -2646,10 +2579,32 @@ class _AssetPreviewPageState
   }
 
   static const _imageExts = {
-    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg', 'heic', 'heif', 'avif',
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'bmp',
+    'tiff',
+    'tif',
+    'svg',
+    'heic',
+    'heif',
+    'avif',
   };
   static const _videoExts = {
-    'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', 'ts', 'mpeg', 'mpg', '3gp',
+    'mp4',
+    'mov',
+    'avi',
+    'mkv',
+    'webm',
+    'wmv',
+    'flv',
+    'm4v',
+    'ts',
+    'mpeg',
+    'mpg',
+    '3gp',
   };
 
   Widget _buildPreviewArea() {
@@ -2723,17 +2678,28 @@ class _AssetPreviewPageState
               color: AppColors.primary.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.language_rounded, size: 36, color: AppColors.primary),
+            child: const Icon(
+              Icons.language_rounded,
+              size: 36,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(height: 16),
           const Text(
             'External Link',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             host,
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 4),
           const Text(
@@ -2745,7 +2711,8 @@ class _AssetPreviewPageState
           ElevatedButton.icon(
             onPressed: () async {
               final uri = Uri.tryParse(link);
-              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (uri != null)
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
             },
             icon: const Icon(Icons.open_in_new_rounded, size: 16),
             label: const Text('Open in Browser'),
@@ -2776,7 +2743,8 @@ class _AssetPreviewPageState
             : Center(
                 child: CircularProgressIndicator(
                   value: progress.expectedTotalBytes != null
-                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                      ? progress.cumulativeBytesLoaded /
+                            progress.expectedTotalBytes!
                       : null,
                 ),
               ),
@@ -2804,26 +2772,50 @@ class _AssetPreviewPageState
               color: Colors.white.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.play_arrow_rounded, size: 44, color: Colors.white),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              size: 44,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: 14),
-          const Text('Video File', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+          const Text(
+            'Video File',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
           const SizedBox(height: 6),
           Text(
             url.split('/').last,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.6)),
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () async {
               final uri = Uri.tryParse(url);
-              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (uri != null)
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
             },
-            icon: const Icon(Icons.open_in_new_rounded, size: 16, color: Colors.white),
-            label: const Text('Open / Download', style: TextStyle(color: Colors.white)),
-            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white54)),
+            icon: const Icon(
+              Icons.open_in_new_rounded,
+              size: 16,
+              color: Colors.white,
+            ),
+            label: const Text(
+              'Open / Download',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.white54),
+            ),
           ),
         ],
       ),
@@ -2835,79 +2827,51 @@ class _AssetPreviewPageState
       width: double.infinity,
       height: 300,
       decoration: BoxDecoration(
-        color:
-            const Color(0xFFF6F8FC),
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        color: const Color(0xFFF6F8FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
-        mainAxisAlignment:
-            MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
             width: 82,
             height: 82,
-            alignment:
-                Alignment.center,
-            decoration:
-                BoxDecoration(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(
-                18,
-              ),
-              border: Border.all(
-                color:
-                    AppColors.border,
-              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.border),
             ),
             child: Icon(
-              _getAssetIcon(
-                asset.type,
-              ),
+              _getAssetIcon(asset.type),
               size: 42,
-              color:
-                  AppColors.primary,
+              color: AppColors.primary,
             ),
           ),
 
-          const SizedBox(
-            height: 17,
-          ),
+          const SizedBox(height: 17),
 
           Text(
             asset.name,
-            textAlign:
-                TextAlign.center,
+            textAlign: TextAlign.center,
             maxLines: 2,
-            overflow:
-                TextOverflow.ellipsis,
-            style:
-                const TextStyle(
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
               fontSize: 19,
-              fontWeight:
-                  FontWeight.w700,
-              color:
-                  AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
 
-          const SizedBox(
-            height: 6,
-          ),
+          const SizedBox(height: 6),
 
           Text(
             _previewMessage(),
-            textAlign:
-                TextAlign.center,
-            style:
-                const TextStyle(
+            textAlign: TextAlign.center,
+            style: const TextStyle(
               fontSize: 13,
-              color:
-                  AppColors.textSecondary,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -2944,351 +2908,20 @@ class _AssetPreviewPageState
   // LINK CARD
   // ============================================================
 
-  Widget _buildLinkCard() {
-    final link =
-        asset.link?.trim() ?? '';
-
-    if (link.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      width: double.infinity,
-      padding:
-          const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Asset Link',
-            style:
-                TextStyle(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.w700,
-              color:
-                  AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(
-            height: 10,
-          ),
-
-          Container(
-            width: double.infinity,
-            padding:
-                const EdgeInsets.all(
-              12,
-            ),
-            decoration:
-                BoxDecoration(
-              color:
-                  const Color(
-                0xFFF7F9FC,
-              ),
-              borderRadius:
-                  BorderRadius.circular(
-                8,
-              ),
-            ),
-            child: Text(
-              link,
-              maxLines: 3,
-              overflow:
-                  TextOverflow.ellipsis,
-              style:
-                  const TextStyle(
-                fontSize: 13,
-                color:
-                    AppColors
-                        .textSecondary,
-              ),
-            ),
-          ),
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: () {
-                  _openLink(link);
-                },
-                icon: const Icon(
-                  Icons.open_in_new,
-                  size: 18,
-                ),
-                label:
-                    const Text(
-                  'Open Link',
-                ),
-              ),
-
-              OutlinedButton.icon(
-                onPressed: () {
-                  _copyLink(link);
-                },
-                icon: const Icon(
-                  Icons.copy_outlined,
-                  size: 18,
-                ),
-                label:
-                    const Text(
-                  'Copy Link',
-                ),
-              ),
-
-              OutlinedButton.icon(
-                onPressed: () {
-                  _shareLink(link);
-                },
-                icon: const Icon(
-                  Icons.share_outlined,
-                  size: 18,
-                ),
-                label:
-                    const Text(
-                  'Share',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // INFORMATION
-  // ============================================================
-
-  Widget _buildInformationCard() {
-    return Container(
-      width: double.infinity,
-      padding:
-          const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Asset Information',
-            style:
-                TextStyle(
-              fontSize: 16,
-              fontWeight:
-                  FontWeight.w700,
-              color:
-                  AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(
-            height: 15,
-          ),
-
-          _infoRow(
-            'Company',
-            asset.companyName,
-          ),
-
-          _infoRow(
-            'Type',
-            asset.type,
-          ),
-
-          if (asset.username != null &&
-              asset.username!.trim().isNotEmpty)
-            _infoRow(
-              'Username',
-              asset.username!,
-            ),
-
-          if (asset.password != null &&
-              asset.password!.trim().isNotEmpty)
-            _infoRow(
-              'Password',
-              asset.password!,
-            ),
-
-          _infoRow(
-            'Created',
-            _formatDate(
-              asset.createdAt,
-            ),
-          ),
-
-          _infoRow(
-            'Updated',
-            _formatDate(
-              asset.updatedAt,
-            ),
-          ),
-
-          _buildFileInfoRow(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFileInfoRow() {
+  Widget _infoRow(String label, String value) {
     return Padding(
-      padding:
-          const EdgeInsets.only(
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.center,
-        children: [
-          const SizedBox(
-            width: 90,
-            child: Text(
-              'File',
-              style:
-                  TextStyle(
-                fontSize: 13,
-                fontWeight:
-                    FontWeight.w600,
-                color:
-                    AppColors.textSecondary,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              asset.filePath != null &&
-                      asset.filePath!.trim().isNotEmpty
-                  ? _displayFileName(
-                      asset.filePath!.trim(),
-                    )
-                  : 'No uploaded file',
-              maxLines: 2,
-              overflow:
-                  TextOverflow.ellipsis,
-              style:
-                  const TextStyle(
-                fontSize: 14,
-                color:
-                    AppColors.textPrimary,
-              ),
-            ),
-          ),
-          const SizedBox(
-            width: 10,
-          ),
-          SizedBox(
-            height: 40,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _isDownloading
-                      ? null
-                      : _download,
-              icon: _isDownloading
-                  ? const SizedBox(
-                      width: 17,
-                      height: 17,
-                      child:
-                          CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.download_rounded,
-                      size: 18,
-                    ),
-              label: Text(
-                _isDownloading
-                    ? 'Downloading...'
-                    : 'Download',
-                style:
-                    const TextStyle(
-                  fontSize: 13,
-                  fontWeight:
-                      FontWeight.w700,
-                ),
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    AppColors.primary,
-                foregroundColor:
-                    Colors.white,
-                disabledBackgroundColor:
-                    AppColors.primary
-                        .withValues(
-                  alpha: 0.65,
-                ),
-                disabledForegroundColor:
-                    Colors.white,
-                elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 12,
-                ),
-                shape:
-                    RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(
-                    9,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(
-    String label,
-    String value,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(
-        bottom: 12,
-      ),
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 90,
             child: Text(
               label,
-              style:
-                  const TextStyle(
+              style: const TextStyle(
                 fontSize: 13,
-                fontWeight:
-                    FontWeight.w600,
-                color:
-                    AppColors
-                        .textSecondary,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
               ),
             ),
           ),
@@ -3296,12 +2929,9 @@ class _AssetPreviewPageState
           Expanded(
             child: Text(
               value,
-              style:
-                  const TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
-                color:
-                    AppColors
-                        .textPrimary,
+                color: AppColors.textPrimary,
               ),
             ),
           ),
@@ -3315,13 +2945,10 @@ class _AssetPreviewPageState
   // ============================================================
 
   Future<void> _download() async {
-    final filePath =
-        asset.filePath?.trim() ?? '';
+    final filePath = asset.filePath?.trim() ?? '';
 
     if (filePath.isEmpty) {
-      _showMessage(
-        'No uploaded file is available.',
-      );
+      _showMessage('No uploaded file is available.');
       return;
     }
 
@@ -3330,55 +2957,31 @@ class _AssetPreviewPageState
     });
 
     try {
-      final Uint8List bytes =
-          await ApiService.downloadAsset(
-        asset.id,
-      );
+      final Uint8List bytes = await ApiService.downloadAsset(asset.id);
 
       if (bytes.isEmpty) {
-        throw Exception(
-          'The server returned an empty file.',
-        );
+        throw Exception('The server returned an empty file.');
       }
 
-      final fileName =
-          _getDownloadFileName();
+      final fileName = _getDownloadFileName();
 
-      final success =
-          await _downloadBytes(
-        bytes,
-        fileName,
-      );
+      final success = await _downloadBytes(bytes, fileName);
 
       if (!mounted) {
         return;
       }
 
       if (success) {
-        await DownloadHistory.add(
-          assetId: asset.id,
-          fileName: fileName,
-          assetName: asset.name,
-          assetType: asset.type,
-          companyName: asset.companyName,
-        );
-
-        _showMessage(
-          'Download started: $fileName',
-        );
+        _showMessage('Download started: $fileName');
       } else {
-        _showMessage(
-          'Unable to download this asset.',
-        );
+        _showMessage('Unable to download this asset.');
       }
     } catch (error) {
       if (!mounted) {
         return;
       }
 
-      _showMessage(
-        'Download failed: $error',
-      );
+      _showMessage('Download failed: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -3388,60 +2991,32 @@ class _AssetPreviewPageState
     }
   }
 
-  Future<bool> _downloadBytes(
-    Uint8List bytes,
-    String fileName,
-  ) async {
-    return downloadFileBytes(
-      bytes,
-      fileName,
-      _mimeTypeForFile(fileName),
-    );
+  Future<bool> _downloadBytes(Uint8List bytes, String fileName) async {
+    return downloadFileBytes(bytes, fileName, _mimeTypeForFile(fileName));
   }
 
   // ============================================================
   // OPEN LINK
   // ============================================================
 
-  Future<void> _openLink(
-    String link,
-  ) async {
-    var cleanLink =
-        link.trim();
+  Future<void> _openLink(String link) async {
+    var cleanLink = link.trim();
 
-    if (!cleanLink.startsWith(
-          'http://',
-        ) &&
-        !cleanLink.startsWith(
-          'https://',
-        )) {
-      cleanLink =
-          'https://$cleanLink';
+    if (!cleanLink.startsWith('http://') && !cleanLink.startsWith('https://')) {
+      cleanLink = 'https://$cleanLink';
     }
 
-    final uri =
-        Uri.tryParse(cleanLink);
+    final uri = Uri.tryParse(cleanLink);
 
     if (uri == null) {
-      _showMessage(
-        'Invalid link.',
-      );
+      _showMessage('Invalid link.');
       return;
     }
 
-    final success =
-        await launchUrl(
-      uri,
-      mode:
-          LaunchMode
-              .externalApplication,
-    );
+    final success = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
-    if (!success &&
-        mounted) {
-      _showMessage(
-        'Unable to open the link.',
-      );
+    if (!success && mounted) {
+      _showMessage('Unable to open the link.');
     }
   }
 
@@ -3449,79 +3024,22 @@ class _AssetPreviewPageState
   // COPY LINK
   // ============================================================
 
-  Future<void> _copyLink(
-    String link,
-  ) async {
-    await Clipboard.setData(
-      ClipboardData(
-        text: link,
-      ),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    _showMessage(
-      'Link copied.',
-    );
-  }
-
-  // ============================================================
-  // SHARE LINK
-  // ============================================================
-
-  Future<void> _shareLink(
-    String link,
-  ) async {
-    await Clipboard.setData(
-      ClipboardData(
-        text: link,
-      ),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    _showMessage(
-      'Link copied. You can now share it.',
-    );
-  }
-
-  // ============================================================
-  // FILE NAME
-  // ============================================================
-
   String _getDownloadFileName() {
-    final existingPath =
-        asset.filePath?.trim() ?? '';
+    final existingPath = asset.filePath?.trim() ?? '';
 
     if (existingPath.isNotEmpty) {
-      final normalized =
-          existingPath.replaceAll(
-        '\\',
-        '/',
-      );
+      final normalized = existingPath.replaceAll('\\', '/');
 
-      final parts =
-          normalized.split('/');
+      final parts = normalized.split('/');
 
-      final last =
-          parts.isNotEmpty
-              ? parts.last
-              : '';
+      final last = parts.isNotEmpty ? parts.last : '';
 
-      if (last.isNotEmpty &&
-          last.contains('.')) {
+      if (last.isNotEmpty && last.contains('.')) {
         return last;
       }
     }
 
-    final name =
-        asset.name.trim().isEmpty
-            ? 'asset'
-            : asset.name.trim();
+    final name = asset.name.trim().isEmpty ? 'asset' : asset.name.trim();
 
     switch (asset.type) {
       case AppConstants.poster:
@@ -3544,17 +3062,10 @@ class _AssetPreviewPageState
     }
   }
 
-  String _displayFileName(
-    String path,
-  ) {
-    final normalized =
-        path.replaceAll(
-      '\\',
-      '/',
-    );
+  String _displayFileName(String path) {
+    final normalized = path.replaceAll('\\', '/');
 
-    final parts =
-        normalized.split('/');
+    final parts = normalized.split('/');
 
     if (parts.isEmpty) {
       return path;
@@ -3563,18 +3074,14 @@ class _AssetPreviewPageState
     return parts.last;
   }
 
-  String _mimeTypeForFile(
-    String fileName,
-  ) {
-    final lower =
-        fileName.toLowerCase();
+  String _mimeTypeForFile(String fileName) {
+    final lower = fileName.toLowerCase();
 
     if (lower.endsWith('.png')) {
       return 'image/png';
     }
 
-    if (lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg')) {
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
       return 'image/jpeg';
     }
 
@@ -3603,8 +3110,7 @@ class _AssetPreviewPageState
     }
 
     if (lower.endsWith('.docx')) {
-      return
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
 
     if (lower.endsWith('.xls')) {
@@ -3612,8 +3118,7 @@ class _AssetPreviewPageState
     }
 
     if (lower.endsWith('.xlsx')) {
-      return
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     }
 
     if (lower.endsWith('.zip')) {
@@ -3621,8 +3126,7 @@ class _AssetPreviewPageState
     }
 
     if (lower.endsWith('.apk')) {
-      return
-          'application/vnd.android.package-archive';
+      return 'application/vnd.android.package-archive';
     }
 
     if (lower.endsWith('.aab')) {
@@ -3633,8 +3137,7 @@ class _AssetPreviewPageState
       return 'application/octet-stream';
     }
 
-    if (lower.endsWith('.html') ||
-        lower.endsWith('.htm')) {
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
       return 'text/html';
     }
 
@@ -3657,20 +3160,16 @@ class _AssetPreviewPageState
   // ICON
   // ============================================================
 
-  IconData _getAssetIcon(
-    String type,
-  ) {
+  IconData _getAssetIcon(String type) {
     switch (type) {
       case AppConstants.poster:
         return Icons.image_outlined;
 
       case AppConstants.reelVideo:
-        return Icons
-            .video_library_outlined;
+        return Icons.video_library_outlined;
 
       case AppConstants.document:
-        return Icons
-            .description_outlined;
+        return Icons.description_outlined;
 
       case AppConstants.websiteLink:
         return Icons.language_outlined;
@@ -3679,15 +3178,13 @@ class _AssetPreviewPageState
         return Icons.language_outlined;
 
       case AppConstants.mobileApplication:
-        return Icons
-            .phone_android_outlined;
+        return Icons.phone_android_outlined;
 
       case AppConstants.others:
         return Icons.apps_outlined;
 
       default:
-        return Icons
-            .insert_drive_file_outlined;
+        return Icons.insert_drive_file_outlined;
     }
   }
 
@@ -3695,24 +3192,10 @@ class _AssetPreviewPageState
   // DATE
   // ============================================================
 
-  String _formatDate(
-    DateTime date,
-  ) {
-    final day =
-        date.day
-            .toString()
-            .padLeft(
-          2,
-          '0',
-        );
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
 
-    final month =
-        date.month
-            .toString()
-            .padLeft(
-          2,
-          '0',
-        );
+    final month = date.month.toString().padLeft(2, '0');
 
     return '$day/$month/${date.year}';
   }
@@ -3721,21 +3204,11 @@ class _AssetPreviewPageState
   // MESSAGE
   // ============================================================
 
-  void _showMessage(
-    String message,
-  ) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          message,
-          style:
-              const TextStyle(
-            fontSize: 14,
-          ),
-        ),
-        behavior:
-            SnackBarBehavior.floating,
+        content: Text(message, style: const TextStyle(fontSize: 14)),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -3769,7 +3242,10 @@ class _IframePreview extends StatelessWidget {
             right: 0,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(20),
@@ -3787,13 +3263,17 @@ class _IframePreview extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () async {
                 final uri = Uri.tryParse(link);
-                if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                if (uri != null)
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
               },
               icon: const Icon(Icons.open_in_new_rounded, size: 14),
               label: const Text('Open Link', style: TextStyle(fontSize: 12)),
               style: OutlinedButton.styleFrom(
                 backgroundColor: Colors.white.withValues(alpha: 0.92),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
               ),
             ),
           ),

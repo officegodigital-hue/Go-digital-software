@@ -121,6 +121,12 @@ OverlayEntry? _clientOverlay;
 
   // Partial Payment History List
   List<Map<String, dynamic>> _paymentHistory = [];
+  // Edit-only UI state. Does not change the Payment History table or API.
+  final Map<_InvoiceItemRow, double> _previousPaidByRow = {};
+  bool _directPaymentMismatch = false;
+
+  double _cumulativePaid(_InvoiceItemRow row) =>
+      (_previousPaidByRow[row] ?? 0.0) + _parseAmount(row.paidCtrl.text);
 
   late List<_InvoiceItemRow> _items;
 
@@ -333,7 +339,20 @@ Future<void> _fetchNextInvoiceNumber() async {
   Future<void> _loadExistingInvoice(int id) async {
     setState(() => _loadingExisting = true);
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/invoices/$id'));
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+
+      if (token == null || token.isEmpty) {
+        throw Exception('Login session missing. Please log in again.');
+      }
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/invoices/$id'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         final data = body['data'];
@@ -374,6 +393,25 @@ Future<void> _fetchNextInvoiceNumber() async {
           includeGST = data['include_gst'] == 1 || data['include_gst'] == true;
           _items = loadedItems.isNotEmpty ? loadedItems : [_InvoiceItemRow(isPackageRow: true)];
           _paymentHistory = List<Map<String, dynamic>>.from(data['payments'] ?? []);
+          _previousPaidByRow.clear();
+          _directPaymentMismatch = false;
+          if (!_viewOnly && loadedItems.length == 1) {
+            final itemPrevious = _parseAmount(loadedItems.first.paidCtrl.text);
+            final invoicePrevious =
+                double.tryParse('${data['paid_amount'] ?? 0}') ?? 0.0;
+            // The saved invoice and Payment History must agree before new payments.
+            final historicalTotals = _paymentHistory
+                .map((p) => double.tryParse('${p['paid_total_amount'] ?? 0}') ?? 0.0)
+                .toList();
+            final historicalPrevious = historicalTotals.isEmpty
+                ? invoicePrevious
+                : historicalTotals.reduce((a, b) => a > b ? a : b);
+            _directPaymentMismatch =
+                (historicalPrevious - invoicePrevious).abs() > 0.01 ||
+                (itemPrevious - invoicePrevious).abs() > 0.01;
+            _previousPaidByRow[loadedItems.first] = invoicePrevious;
+            loadedItems.first.paidCtrl.text = '0.00';
+          }
           _loadingExisting = false;
         });
       } else {
@@ -493,7 +531,7 @@ double _rowAmount(_InvoiceItemRow row) {
 double _rowPending(_InvoiceItemRow row) {
   final amount = _rowAmount(row);
   final discount = _parseAmount(row.discountCtrl.text);
-  final paid = _parseAmount(row.paidCtrl.text);
+  final paid = _cumulativePaid(row);
 
   final pending = amount - discount - paid;
 
@@ -509,6 +547,17 @@ double _rowPending(_InvoiceItemRow row) {
   }
 
   Future<bool> _saveInvoice(double subtotal, double discount, double tax, double total, double paid, double balance) async {
+    if (_directPaymentMismatch && _invoiceId != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Saved Paid values disagree with Payment History. No payment saved; reconcile this invoice first.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return false;
+    }
     // ✅ AuthService-il irundhu token-ah edukavum
     final authService = Provider.of<AuthService>(context, listen: false);
     final token = authService.token;
@@ -521,7 +570,7 @@ double _rowPending(_InvoiceItemRow row) {
       "tax": _parseAmount(row.taxCtrl.text),
       "discount": _parseAmount(row.discountCtrl.text),
       "amount": _rowAmount(row),
-      "paidAmount": _parseAmount(row.paidCtrl.text),
+      "paidAmount": _cumulativePaid(row),
       "pendingAmount": _rowPending(row),
     }).toList();
 
@@ -1343,6 +1392,27 @@ void _selectClient(Map<String, dynamic> client) {
         ),
       );
 
+      // Invoice print supplement: preserve the original invoice page above.
+      // Append the two supplied, unchanged SOP document pages in A4 order.
+      for (final sopPath in <String>[
+        'assets/images/invoice_sop_page_1.png',
+        'assets/images/invoice_sop_page_2.png',
+      ]) {
+        final bytes = (await rootBundle.load(sopPath)).buffer.asUint8List();
+        final sopImage = pw.MemoryImage(bytes);
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: pw.EdgeInsets.zero,
+            build: (pw.Context context) => pw.Image(
+              sopImage,
+              width: PdfPageFormat.a4.width,
+              height: PdfPageFormat.a4.height,
+              fit: pw.BoxFit.fill,
+            ),
+          ),
+        );
+      }
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async => pdf.save(),
         name: 'Invoice_${invoiceNoController.text}',
@@ -1379,7 +1449,7 @@ void _selectClient(Map<String, dynamic> client) {
       subtotal += base;
       calculatedItemTaxes += itemTax;
       calculatedItemDiscounts += discountAmt;
-      overallPaid += _parseAmount(row.paidCtrl.text);
+      overallPaid += _cumulativePaid(row);
     }
 
     final totalAmount = subtotal + calculatedItemTaxes;
@@ -2514,8 +2584,8 @@ void _selectClient(Map<String, dynamic> client) {
             _paymentTableHeader('S.No'),
             _paymentTableHeader('Paid Date'),
             _paymentTableHeader('Total Amt'),
-            _paymentTableHeader('Paid Total'),
             _paymentTableHeader('Paid Amt'),
+            _paymentTableHeader('Paid Total'),
             _paymentTableHeader('Balance'),
           ],
         ),
@@ -2551,8 +2621,8 @@ void _selectClient(Map<String, dynamic> client) {
                 _paymentTableCell((i + 1).toString(), align: TextAlign.center), // 🟢 S.No 1, 2, 3... enru ascending-il varum
                 _paymentTableCell(reversedPayments[i]['paid_date'] ?? ''),
                 _paymentTableCell('₹${reversedPayments[i]['total_amount']}'),
-                _paymentTableCell('₹${reversedPayments[i]['paid_total_amount']}'),
                 _paymentTableCell('₹${reversedPayments[i]['paid_amount']}'),
+                _paymentTableCell('₹${reversedPayments[i]['paid_total_amount']}'),
                 _paymentTableCell('₹${reversedPayments[i]['balanced_amount']}'),
               ],
             ),
@@ -2929,47 +2999,62 @@ void _selectClient(Map<String, dynamic> client) {
   //     ),
   //   );
   // }
+  // DIRECT_PAYMENT_ENTRY_V1: only new installments are entered into Paid.
   Widget _buildPaidAmountField(_InvoiceItemRow row) {
-  return SizedBox(
-    height: 38,
-    child: TextField(
-      controller: row.paidCtrl,
-      textAlign: TextAlign.right,
-      readOnly: _viewOnly,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-
-      onChanged: (value) {
-        final entered = double.tryParse(value) ?? 0.0;
-
-        // Maximum amount that can be paid
-        final maxPaid = _rowAmount(row);
-
-        if (entered > maxPaid) {
-          row.paidCtrl.text = maxPaid.toStringAsFixed(2);
-          row.paidCtrl.selection = TextSelection.fromPosition(
-            TextPosition(offset: row.paidCtrl.text.length),
-          );
-        }
-
-        setState(() {});
-      },
-
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-      ),
-      decoration: InputDecoration(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        enabledBorder: const OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFFCBD5E1)),
+    final previous = _previousPaidByRow[row];
+    final isNewInstallment = previous != null && !_viewOnly;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 38,
+          child: TextField(
+            controller: row.paidCtrl,
+            textAlign: TextAlign.right,
+            readOnly: _viewOnly,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (value) {
+              final amount = _parseAmount(value);
+              final maximum = (_rowAmount(row) -
+                      _parseAmount(row.discountCtrl.text) -
+                      (previous ?? 0))
+                  .clamp(0.0, double.infinity);
+              if (amount > maximum || amount < 0) {
+                row.paidCtrl.value = TextEditingValue(
+                  text: (amount < 0 ? 0.0 : maximum).toStringAsFixed(2),
+                  selection: TextSelection.collapsed(
+                    offset: (amount < 0 ? 0.0 : maximum).toStringAsFixed(2).length,
+                  ),
+                );
+              }
+              setState(() {});
+            },
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            decoration: const InputDecoration(
+              contentPadding: EdgeInsets.symmetric(horizontal: 8),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFCBD5E1)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF0052CC)),
+              ),
+            ),
+          ),
         ),
-        focusedBorder: const OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFF0052CC)),
-        ),
-      ),
-    ),
-  );
-}
+        if (isNewInstallment)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              'Prev: ₹${previous.toStringAsFixed(2)}',
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 9, color: Color(0xFF64748B)),
+            ),
+          ),
+      ],
+    );
+  }
 
  Widget _buildBeautifulPackageDropdown(_InvoiceItemRow row) {
   final validValue =
