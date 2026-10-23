@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
+// import 'dart:html' as html;
+import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;

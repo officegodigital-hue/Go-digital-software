@@ -49,7 +49,7 @@ dependencies:
   google_fonts: ^6.1.0
   shared_preferences: ^2.3.0
   provider: ^6.0.0
-  share_plus: ^7.0.0
+  # share_plus: ^7.0.0
   path_provider: ^2.1.0
   socket_io_client: ^3.1.6
   emoji_picker_flutter: ^4.5.3
@@ -62,7 +62,9 @@ dependencies:
     path: hrms_packages/hrms_design_system
   hrms_responsive:
     path: hrms_packages/hrms_responsive
+  # file_picker: ^11.0.3
   file_picker: ^11.0.3
+  share_plus: ^7.0.0
   flutter_quill: ^11.6.0
 dev_dependencies:
   flutter_test:
@@ -117,7 +119,8 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
-  assets:
+  assets:
+
     - assets/icons/godigital_whatsapp_chat.png
     - assets/images/
     - assets/client_work_repository/

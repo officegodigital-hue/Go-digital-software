@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:godigital_portal/client_work_repository/assets_module/core/theme/app_theme.dart' as assets_theme;
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
@@ -78,6 +80,11 @@ class MyApp extends StatelessWidget {
         navigatorKey: appNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: "GoDigital Portal",
+        theme: assets_theme.AppTheme.lightTheme.copyWith(
+          textTheme: GoogleFonts.interTextTheme(
+            assets_theme.AppTheme.lightTheme.textTheme,
+          ),
+        ),
         initialRoute: '/',
         onGenerateRoute: (settings) {
           final builder = AppRouter.routes[settings.name];

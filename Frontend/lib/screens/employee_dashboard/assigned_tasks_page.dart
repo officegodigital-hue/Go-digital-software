@@ -1,7 +1,7 @@
 // name=assigned_tasks_page.dart
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
+import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';

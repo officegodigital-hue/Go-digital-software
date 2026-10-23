@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -19,35 +19,26 @@ class AssetManagerPage extends StatefulWidget {
 }
 
 class _AssetManagerPageState extends State<AssetManagerPage> {
+  // ── State ──────────────────────────────────────────────────────
   String _digitalMarketingFilter = 'All';
   String _softwareDevelopmentFilter = 'All';
-
   String _digitalMarketingSearch = '';
   String _softwareDevelopmentSearch = '';
 
   final TextEditingController _digitalSearchController =
       TextEditingController();
-
   final TextEditingController _softwareSearchController =
       TextEditingController();
 
   List<CompanyModel> _companies = [];
   List<AssetModel> _assets = [];
-
-  // Company ID -> backend logo URL/path returned by the API.
   final Map<String, String> _companyLogoUrls = <String, String>{};
 
   bool _isLoading = true;
   String? _loadError;
+  int _selectedTabIndex = 0;
 
-  static const double pageTitleSize = 24;
-  static const double sectionTitleSize = 19;
-  static const double companyNameSize = 16;
-  static const double normalTextSize = 14;
-  static const double smallTextSize = 13;
-  static const double chipTextSize = 12;
-  static const double desktopSectionHeight = 700;
-
+  // ── Filter lists ───────────────────────────────────────────────
   final List<String> _digitalFilters = const [
     'All',
     AppConstants.poster,
@@ -64,6 +55,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     AppConstants.others,
   ];
 
+  // ── Lifecycle ──────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
@@ -77,9 +69,991 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     super.dispose();
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // BUILD
+  // ══════════════════════════════════════════════════════════════
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) return _buildLoading();
+    if (_loadError != null) return _buildError();
+
+    final isDigital = _selectedTabIndex == 0;
+    final section = isDigital
+        ? AppConstants.digitalMarketing
+        : AppConstants.softwareDevelopment;
+    final filter = isDigital
+        ? _digitalMarketingFilter
+        : _softwareDevelopmentFilter;
+    final filters = isDigital ? _digitalFilters : _softwareFilters;
+    final searchController = isDigital
+        ? _digitalSearchController
+        : _softwareSearchController;
+    final searchValue = isDigital
+        ? _digitalMarketingSearch
+        : _softwareDevelopmentSearch;
+
+    final digitalCount = _getCompanies(
+      section: AppConstants.digitalMarketing,
+      filter: 'All',
+      search: '',
+    ).length;
+    final softwareCount = _getCompanies(
+      section: AppConstants.softwareDevelopment,
+      filter: 'All',
+      search: '',
+    ).length;
+
+    final companies = _getCompanies(
+      section: section,
+      filter: filter,
+      search: searchValue,
+    );
+
+    final sectionColor = isDigital
+        ? AppColors.digitalMarketing
+        : AppColors.softwareDevelopment;
+    final sectionLightColor = isDigital
+        ? AppColors.digitalMarketingLight
+        : AppColors.softwareDevelopmentLight;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 600;
+          final inset = compact ? 16.0 : 24.0;
+          return SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(inset, compact ? 20 : 24, inset, 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. Page header
+                  _buildPageHeader(compact),
+                  const SizedBox(height: 24),
+
+                  // 2. Stat cards
+                  _buildStatCards(compact),
+                  const SizedBox(height: 24),
+
+                  // 3. Category tabs
+                  _buildTabBar(digitalCount, softwareCount),
+                  const SizedBox(height: 16),
+
+                  // 3. Section header
+                  _buildSectionHeader(
+                    section: section,
+                    companyCount: companies.length,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 4. Search + filter row
+                  _buildToolbar(
+                    section: section,
+                    filter: filter,
+                    filters: filters,
+                    searchController: searchController,
+                    compact: compact,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 5. Grid or empty state
+                  if (companies.isEmpty)
+                    _buildEmptySection(
+                      section: section,
+                      filter: filter,
+                      search: searchValue,
+                    )
+                  else
+                    _buildCompanyGrid(
+                      section: section,
+                      companies: companies,
+                      sectionColor: sectionColor,
+                      sectionLightColor: sectionLightColor,
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // UI WIDGETS
+  // ══════════════════════════════════════════════════════════════
+
+  Widget _buildLoading() {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF9FAFB),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            SizedBox(height: 14),
+            Text(
+              'Loading assets...',
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 40, color: Colors.redAccent),
+            const SizedBox(height: 12),
+            const Text(
+              'Unable to load assets',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _loadError ?? 'An unexpected error occurred.',
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageHeader(bool compact) {
+    final title = const Text(
+      'Asset Manager',
+      style: TextStyle(
+        fontSize: 32,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF111827),
+      ),
+    );
+    final createButton = ElevatedButton.icon(
+      onPressed: () => _showCreateCompanyDialog(
+        _selectedTabIndex == 0
+            ? AppConstants.digitalMarketing
+            : AppConstants.softwareDevelopment,
+      ),
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('Create Company'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF2563EB),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+    );
+
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [title, const SizedBox(height: 14), createButton],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const Expanded(
+          child: Text(
+            'Asset Manager',
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF111827),
+            ),
+          ),
+        ),
+        createButton,
+      ],
+    );
+  }
+
+  Widget _buildStatCards([bool compact = false]) {
+    final totalCompanies = _companies.map((c) => c.id).toSet().length;
+    final totalAssets = _assets.length;
+
+    final now = DateTime.now();
+    final weekStart = now.subtract(Duration(days: now.weekday - 1));
+    final updatedThisWeek = _assets
+        .where(
+          (a) => a.updatedAt.isAfter(
+            DateTime(weekStart.year, weekStart.month, weekStart.day),
+          ),
+        )
+        .length;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 520;
+        if (isMobile) {
+          // Force all 3 in one row with equal widths
+          return Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  icon: Icons.business_outlined,
+                  label: 'Companies',
+                  value: '$totalCompanies',
+                  compact: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildStatCard(
+                  icon: Icons.layers_outlined,
+                  label: 'Total Assets',
+                  value: '$totalAssets',
+                  compact: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildStatCard(
+                  icon: Icons.bar_chart_rounded,
+                  label: 'Updated This Week',
+                  value: '$updatedThisWeek',
+                  compact: true,
+                ),
+              ),
+            ],
+          );
+        }
+        final cardWidth = constraints.maxWidth >= 880
+            ? (constraints.maxWidth - 48) / 3
+            : (constraints.maxWidth - 16) / 2;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: _buildStatCard(
+                icon: Icons.business_outlined,
+                label: 'Companies',
+                value: '$totalCompanies',
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _buildStatCard(
+                icon: Icons.layers_outlined,
+                label: 'Total Assets',
+                value: '$totalAssets',
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: _buildStatCard(
+                icon: Icons.bar_chart_rounded,
+                label: 'Updated This Week',
+                value: '$updatedThisWeek',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    bool compact = false,
+  }) {
+    if (compact) {
+      // Mobile: stacked icon + label + value, all centered
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF3F4F6)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x14000000),
+              blurRadius: 3,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: const Color(0xFF2563EB)),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+                color: Color(0xFF6B7280),
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF3F4F6)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 26, color: const Color(0xFF2563EB)),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabBar(int digitalCount, int softwareCount) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildTab(
+              index: 0,
+              label: 'Digital Marketing',
+              count: digitalCount,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _buildTab(
+              index: 1,
+              label: 'Software Development',
+              count: softwareCount,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab({
+    required int index,
+    required String label,
+    required int count,
+  }) {
+    final isActive = _selectedTabIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTabIndex = index),
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isActive ? const Color(0xFF2563EB) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          '$label ($count)',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          textScaler: TextScaler.noScaling,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+            color: isActive ? Colors.white : const Color(0xFF6B7280),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required String section,
+    required int companyCount,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            section,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '· $companyCount ${companyCount == 1 ? 'company' : 'companies'}',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildToolbar({
+    required String section,
+    required String filter,
+    required List<String> filters,
+    required TextEditingController searchController,
+    bool compact = false,
+  }) {
+    final search = SizedBox(
+      width: 320,
+      height: 44,
+      child: TextField(
+        controller: searchController,
+        onChanged: (v) {
+          if (!mounted) return;
+          setState(() {
+            if (section == AppConstants.digitalMarketing) {
+              _digitalMarketingSearch = v;
+            } else {
+              _softwareDevelopmentSearch = v;
+            }
+          });
+        },
+        style: const TextStyle(fontSize: 15, color: Color(0xFF111827)),
+        decoration: InputDecoration(
+          hintText: 'Search companies or assets',
+          hintStyle: const TextStyle(fontSize: 15, color: Color(0xFF9CA3AF)),
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 16,
+            color: Color(0xFF9CA3AF),
+          ),
+          suffixIcon: searchController.text.isNotEmpty
+              ? IconButton(
+                  onPressed: () {
+                    searchController.clear();
+                    if (!mounted) return;
+                    setState(() {
+                      if (section == AppConstants.digitalMarketing) {
+                        _digitalMarketingSearch = '';
+                      } else {
+                        _softwareDevelopmentSearch = '';
+                      }
+                    });
+                  },
+                  icon: const Icon(Icons.close, size: 16),
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 0,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.4),
+          ),
+        ),
+      ),
+    );
+    final chips = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (int i = 0; i < filters.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _buildFilterChip(
+              item: filters[i],
+              selected: filter == filters[i],
+              section: section,
+            ),
+          ],
+        ],
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 760) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(width: double.infinity, child: search),
+              const SizedBox(height: 12),
+              chips,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            search,
+            const SizedBox(width: 16),
+            Expanded(child: chips),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String item,
+    required bool selected,
+    required String section,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (!mounted) return;
+        setState(() {
+          if (section == AppConstants.digitalMarketing) {
+            _digitalMarketingFilter = item;
+          } else {
+            _softwareDevelopmentFilter = item;
+          }
+        });
+      },
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF2563EB) : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: selected ? null : Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Text(
+          _filterLabel(item),
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            color: selected ? Colors.white : const Color(0xFF374151),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompanyGrid({
+    required String section,
+    required List<CompanyModel> companies,
+    required Color sectionColor,
+    required Color sectionLightColor,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final cols = w >= 900
+            ? 3
+            : w >= 580
+            ? 2
+            : 1;
+
+        // On mobile (1-column), use a ListView so card height is unconstrained.
+        if (cols == 1) {
+          return ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: companies.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, i) =>
+                _buildCompanyCard(company: companies[i], section: section),
+          );
+        }
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: w >= 1200
+                ? 4.6
+                : w >= 900
+                ? 4.0
+                : 3.2,
+          ),
+          itemCount: companies.length,
+          itemBuilder: (context, i) =>
+              _buildCompanyCard(company: companies[i], section: section),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompanyCard({
+    required CompanyModel company,
+    required String section,
+  }) {
+    final assets = _assetsFor(
+      section,
+      'All',
+    ).where((a) => a.companyId == company.id).toList();
+    final latestDate = _getLatestDate(assets);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 500;
+        final logoSize = compact ? 48.0 : 64.0;
+        final hPad = compact ? 14.0 : 20.0;
+        final vPad = compact ? 12.0 : 16.0;
+        final nameFontSize = compact ? 15.0 : 16.0;
+        final subFontSize = compact ? 13.0 : 14.0;
+        final btnHPad = compact ? 10.0 : 14.0;
+        final btnVPad = compact ? 7.0 : 8.0;
+        final btnFontSize = compact ? 13.0 : 14.0;
+
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => _openCompany(company: company, section: section),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFF3F4F6)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 3,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Logo
+                  _buildCompanyLogoSized(company: company, size: logoSize),
+                  SizedBox(width: compact ? 12 : 16),
+
+                  // Company info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          company.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: nameFontSize,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF111827),
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${assets.length} assets',
+                          style: TextStyle(
+                            fontSize: subFontSize,
+                            color: const Color(0xFF6B7280),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Updated $latestDate',
+                          style: TextStyle(
+                            fontSize: subFontSize,
+                            color: const Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: compact ? 8 : 12),
+
+                  // Open assets button
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: btnHPad,
+                      vertical: btnVPad,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.folder_open_outlined,
+                          size: compact ? 14 : 15,
+                          color: const Color(0xFF2563EB),
+                        ),
+                        SizedBox(width: compact ? 4 : 6),
+                        Text(
+                          'View assets',
+                          style: TextStyle(
+                            fontSize: btnFontSize,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF2563EB),
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 14,
+                          color: Color(0xFF2563EB),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptySection({
+    required String section,
+    required String filter,
+    required String search,
+  }) {
+    final hasSearch = search.trim().isNotEmpty;
+    final hasFilter = filter != 'All';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.folder_outlined,
+            size: 40,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'No companies found',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hasSearch || hasFilter
+                ? 'Try different search or filter'
+                : 'No companies have been created yet.',
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LOGO WIDGET
+  // ══════════════════════════════════════════════════════════════
+
+  // Named-company overrides (reference mockup companies)
+  static const _logoColorMap = <String, Color>{
+    'Apex Media': Color(0xFF1F2937),
+    'Bloom Digital': Color(0xFFFF6B9D),
+    'ClearView Marketing': Color(0xFF10B981),
+    'Elevate Brands': Color(0xFF7C3AED),
+    'Fusion Creative': Color(0xFFF59E0B),
+    'Nexa Marketing': Color(0xFFEF4444),
+    'Orbit Digital': Color(0xFF2563EB),
+    'Pulse Media': Color(0xFF166534),
+    'Vivid Marketing': Color(0xFF8B5CF6),
+  };
+
+  // Palette for companies not in the named map — cycles by first letter
+  static const _palette = <Color>[
+    Color(0xFF2563EB),
+    Color(0xFF7C3AED),
+    Color(0xFF10B981),
+    Color(0xFFD97706),
+    Color(0xFFEF4444),
+    Color(0xFF0891B2),
+    Color(0xFF059669),
+    Color(0xFFDC2626),
+    Color(0xFF4F46E5),
+    Color(0xFF9333EA),
+  ];
+
+  Color _logoColorForName(String name) {
+    final named = _logoColorMap[name.trim()];
+    if (named != null) return named;
+    final ch = name.trim().isEmpty ? 0 : name.trim().codeUnitAt(0);
+    return _palette[ch % _palette.length];
+  }
+
+  Color _logoTextColorForName(String name) {
+    final bg = _logoColorForName(name);
+    return bg.computeLuminance() < 0.45
+        ? Colors.white
+        : const Color(0xFF111827);
+  }
+
+  Widget _buildCompanyLogoSized({
+    required CompanyModel company,
+    required double size,
+  }) {
+    final rawLogo = _companyLogoUrls[company.id]?.trim();
+    final initial = _companyInitial(company.name);
+    final bgColor = _logoColorForName(company.name);
+    final textColor = _logoTextColorForName(company.name);
+    final radius = BorderRadius.circular(size * 0.22);
+
+    final fallback = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: bgColor, borderRadius: radius),
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: size * 0.375,
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+      ),
+    );
+
+    if (rawLogo == null || rawLogo.isEmpty) return fallback;
+
+    final logoUrl = _resolveCompanyLogoUrl(rawLogo);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: bgColor, borderRadius: radius),
+      clipBehavior: Clip.antiAlias,
+      child: Image.network(
+        logoUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // BACKEND — DO NOT MODIFY
+  // ══════════════════════════════════════════════════════════════
+
   Future<void> _loadData() async {
     if (!mounted) return;
-
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -99,66 +1073,42 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
       for (final item in companyResponse) {
         if (item is! Map) continue;
-
         final data = Map<String, dynamic>.from(item);
-
         final id = data['id']?.toString() ?? '';
         final name = data['name']?.toString().trim() ?? '';
         final logoUrl = data['logo_url']?.toString().trim() ?? '';
 
         if (id.isEmpty || name.isEmpty) continue;
-
-        if (logoUrl.isNotEmpty) {
-          loadedCompanyLogos[id] = logoUrl;
-        }
+        if (logoUrl.isNotEmpty) loadedCompanyLogos[id] = logoUrl;
 
         final now = DateTime.now();
-
         final createdAt =
-            DateTime.tryParse(
-              data['created_at']?.toString() ?? '',
-            ) ??
-            now;
-
+            DateTime.tryParse(data['created_at']?.toString() ?? '') ?? now;
         final updatedAt =
-            DateTime.tryParse(
-              data['updated_at']?.toString() ?? '',
-            ) ??
+            DateTime.tryParse(data['updated_at']?.toString() ?? '') ??
             createdAt;
-
         final sections = <String>[];
-
         final rawSections = data['sections'];
 
         if (rawSections is List) {
           for (final value in rawSections) {
-            final section = value?.toString().trim() ?? '';
-
-            if (_isValidSection(section) &&
-                !sections.contains(section)) {
-              sections.add(section);
-            }
+            final s = value?.toString().trim() ?? '';
+            if (_isValidSection(s) && !sections.contains(s)) sections.add(s);
           }
         } else if (rawSections is String) {
           try {
             final decoded = jsonDecode(rawSections);
-
             if (decoded is List) {
               for (final value in decoded) {
-                final section = value?.toString().trim() ?? '';
-
-                if (_isValidSection(section) &&
-                    !sections.contains(section)) {
-                  sections.add(section);
-                }
+                final s = value?.toString().trim() ?? '';
+                if (_isValidSection(s) && !sections.contains(s))
+                  sections.add(s);
               }
             }
           } catch (_) {}
         }
 
-        final singleSection =
-            data['section']?.toString().trim();
-
+        final singleSection = data['section']?.toString().trim();
         if (sections.isEmpty &&
             singleSection != null &&
             _isValidSection(singleSection)) {
@@ -173,32 +1123,29 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
               createdAt: createdAt,
               updatedAt: updatedAt,
               section: null,
-            logoUrl: logoUrl.isEmpty ? null : logoUrl,
-             ),
+              logoUrl: logoUrl.isEmpty ? null : logoUrl,
+            ),
           );
         } else {
-          for (final section in sections) {
+          for (final s in sections) {
             loadedCompanies.add(
               CompanyModel(
                 id: id,
                 name: name,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
-                section: section,
-              logoUrl: logoUrl.isEmpty ? null : logoUrl,
-               ),
+                section: s,
+                logoUrl: logoUrl.isEmpty ? null : logoUrl,
+              ),
             );
           }
         }
       }
 
       final loadedAssets = <AssetModel>[];
-
       for (final item in assetResponse) {
         if (item is! Map) continue;
-
         final data = Map<String, dynamic>.from(item);
-
         final id = data['id']?.toString() ?? '';
         final companyId = data['company_id']?.toString() ?? '';
         final companyName = data['company_name']?.toString() ?? '';
@@ -215,17 +1162,10 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
         }
 
         final now = DateTime.now();
-
         final createdAt =
-            DateTime.tryParse(
-              data['created_at']?.toString() ?? '',
-            ) ??
-            now;
-
+            DateTime.tryParse(data['created_at']?.toString() ?? '') ?? now;
         final updatedAt =
-            DateTime.tryParse(
-              data['updated_at']?.toString() ?? '',
-            ) ??
+            DateTime.tryParse(data['updated_at']?.toString() ?? '') ??
             createdAt;
 
         loadedAssets.add(
@@ -243,7 +1183,9 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
             filePath: data['file_url']?.toString(),
             fileName: data['file_name']?.toString(),
             mimeType: data['mime_type']?.toString(),
-            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            fileSize: data['file_size'] is num
+                ? (data['file_size'] as num).toInt()
+                : null,
             createdByEmployeeId: data['created_by_employee_id']?.toString(),
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -253,29 +1195,25 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
       for (final asset in loadedAssets) {
         final exists = loadedCompanies.any(
-          (company) =>
-              company.id == asset.companyId &&
-              company.section == asset.section,
+          (c) => c.id == asset.companyId && c.section == asset.section,
         );
-
         if (exists) continue;
 
-        CompanyModel? sourceCompany;
-
-        for (final company in loadedCompanies) {
-          if (company.id == asset.companyId) {
-            sourceCompany = company;
+        CompanyModel? source;
+        for (final c in loadedCompanies) {
+          if (c.id == asset.companyId) {
+            source = c;
             break;
           }
         }
 
-        if (sourceCompany != null) {
+        if (source != null) {
           loadedCompanies.add(
             CompanyModel(
-              id: sourceCompany.id,
-              name: sourceCompany.name,
-              createdAt: sourceCompany.createdAt,
-              updatedAt: sourceCompany.updatedAt,
+              id: source.id,
+              name: source.name,
+              createdAt: source.createdAt,
+              updatedAt: source.updatedAt,
               section: asset.section,
             ),
           );
@@ -295,7 +1233,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       }
 
       if (!mounted) return;
-
       setState(() {
         _companies = loadedCompanies;
         _assets = loadedAssets;
@@ -307,879 +1244,16 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
       });
     } catch (error) {
       if (!mounted) return;
-
       setState(() {
         _isLoading = false;
-        _loadError = error
-            .toString()
-            .replaceFirst('Exception: ', '');
+        _loadError = error.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
-  bool _isValidSection(String value) {
-    return value == AppConstants.digitalMarketing ||
-        value == AppConstants.softwareDevelopment;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final width = constraints.maxWidth;
-            final isDesktop = width >= 1024;
-
-            final horizontalPadding = width < 600
-                ? 16.0
-                : width < 1024
-                    ? 24.0
-                    : 32.0;
-
-            if (_isLoading) {
-              return _buildLoadingState(horizontalPadding);
-            }
-
-            if (_loadError != null) {
-              return _buildErrorState(horizontalPadding);
-            }
-
-            return ListView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                24,
-                horizontalPadding,
-                40,
-              ),
-              children: [
-                _buildPageHeader(),
-                const SizedBox(height: 26),
-                if (isDesktop)
-                  SizedBox(
-                    height: desktopSectionHeight,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: _buildSection(
-                            section: AppConstants.digitalMarketing,
-                            filter: _digitalMarketingFilter,
-                            filters: _digitalFilters,
-                            searchController: _digitalSearchController,
-                            searchValue: _digitalMarketingSearch,
-                            fixedHeight: true,
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: _buildSection(
-                            section: AppConstants.softwareDevelopment,
-                            filter: _softwareDevelopmentFilter,
-                            filters: _softwareFilters,
-                            searchController:
-                                _softwareSearchController,
-                            searchValue:
-                                _softwareDevelopmentSearch,
-                            fixedHeight: true,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildSection(
-                        section: AppConstants.digitalMarketing,
-                        filter: _digitalMarketingFilter,
-                        filters: _digitalFilters,
-                        searchController: _digitalSearchController,
-                        searchValue: _digitalMarketingSearch,
-                        fixedHeight: false,
-                      ),
-                      const SizedBox(height: 24),
-                      _buildSection(
-                        section: AppConstants.softwareDevelopment,
-                        filter: _softwareDevelopmentFilter,
-                        filters: _softwareFilters,
-                        searchController: _softwareSearchController,
-                        searchValue: _softwareDevelopmentSearch,
-                        fixedHeight: false,
-                      ),
-                    ],
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingState(double horizontalPadding) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(
-        horizontalPadding,
-        24,
-        horizontalPadding,
-        40,
-      ),
-      children: [
-        _buildPageHeader(),
-        const SizedBox(height: 26),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 70),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: const Column(
-            children: [
-              SizedBox(
-                width: 30,
-                height: 30,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                ),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Loading assets...',
-                style: TextStyle(
-                  fontSize: normalTextSize,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildErrorState(double horizontalPadding) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(
-        horizontalPadding,
-        24,
-        horizontalPadding,
-        40,
-      ),
-      children: [
-        _buildPageHeader(),
-        const SizedBox(height: 26),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 50,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 42,
-                color: Colors.redAccent,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Unable to load assets',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _loadError ?? 'An unexpected error occurred.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: normalTextSize,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: _loadData,
-                icon: const Icon(
-                  Icons.refresh,
-                  size: 18,
-                ),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPageHeader() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Asset Manager',
-          style: TextStyle(
-            fontSize: pageTitleSize,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        SizedBox(height: 6),
-        Text(
-          'Manage companies and their digital assets.',
-          style: TextStyle(
-            fontSize: normalTextSize,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSection({
-    required String section,
-    required String filter,
-    required List<String> filters,
-    required TextEditingController searchController,
-    required String searchValue,
-    required bool fixedHeight,
-  }) {
-    final isDigital = section == AppConstants.digitalMarketing;
-
-    final sectionColor = isDigital
-        ? AppColors.digitalMarketing
-        : AppColors.softwareDevelopment;
-
-    final sectionLightColor = isDigital
-        ? AppColors.digitalMarketingLight
-        : AppColors.softwareDevelopmentLight;
-
-    final companies = _getCompanies(
-      section: section,
-      filter: filter,
-      search: searchValue,
-    );
-
-    final assetCount = _assetsFor(section, 'All').length;
-
-    return Container(
-      width: double.infinity,
-      height: fixedHeight ? double.infinity : null,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          mainAxisSize:
-              fixedHeight ? MainAxisSize.max : MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader(
-              section: section,
-              sectionColor: sectionColor,
-              sectionLightColor: sectionLightColor,
-              companyCount: companies.length,
-              assetCount: assetCount,
-            ),
-            const SizedBox(height: 18),
-            _buildToolbar(
-              section: section,
-              filter: filter,
-              filters: filters,
-              searchController: searchController,
-            ),
-            const SizedBox(height: 16),
-            if (fixedHeight)
-              Expanded(
-                child: _buildCompanyScrollArea(
-                  section: section,
-                  companies: companies,
-                  sectionColor: sectionColor,
-                  sectionLightColor: sectionLightColor,
-                ),
-              )
-            else if (companies.isEmpty)
-              _buildEmptySection(
-                section: section,
-                filter: filter,
-                search: searchValue,
-              )
-            else
-              _buildCompanyList(
-                section: section,
-                companies: companies,
-                sectionColor: sectionColor,
-                sectionLightColor: sectionLightColor,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader({
-    required String section,
-    required Color sectionColor,
-    required Color sectionLightColor,
-    required int companyCount,
-    required int assetCount,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: sectionLightColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                section == AppConstants.digitalMarketing
-                    ? Icons.campaign_outlined
-                    : Icons.code_outlined,
-                color: sectionColor,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                section,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: sectionTitleSize,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '$assetCount',
-                  style: const TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const Text(
-                  'Assets',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(
-          section == AppConstants.digitalMarketing
-              ? 'Manage posters, reels, documents, website links and other marketing assets.'
-              : 'Manage web applications, mobile applications and other software assets.',
-          style: const TextStyle(
-            fontSize: normalTextSize,
-            color: AppColors.textSecondary,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // IMPORTANT:
-        // Row + Expanded keeps the company count on the left
-        // and Create Company permanently on the right.
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '$companyCount ${companyCount == 1 ? 'company' : 'companies'}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: smallTextSize,
-                  fontWeight: FontWeight.w700,
-                  color: sectionColor,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-              onPressed: () {
-                _showCreateCompanyDialog(section);
-              },
-              icon: const Icon(
-                Icons.add,
-                size: 18,
-              ),
-              label: const Text(
-                'Create Company',
-                style: TextStyle(
-                  fontSize: normalTextSize,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: sectionColor,
-                side: BorderSide(
-                  color: sectionColor,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                minimumSize: Size.zero,
-                tapTargetSize:
-                    MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildToolbar({
-    required String section,
-    required String filter,
-    required List<String> filters,
-    required TextEditingController searchController,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ============================================================
-        // FILTERS
-        // ============================================================
-        // Keep the filter area the same height in both sections.
-        // Digital Marketing uses two rows on desktop, while Software
-        // Development usually uses one row. The minimum height makes
-        // the search bars and the company/asset lists start at exactly
-        // the same vertical position in both sections.
-        ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: 87,
-          ),
-          child: SizedBox(
-            width: double.infinity,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  for (final item in filters)
-                    _buildFilterChip(
-                      item: item,
-                      selected: filter == item,
-                      section: section,
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // ============================================================
-        // SEARCH
-        // ============================================================
-        SizedBox(
-          width: double.infinity,
-          height: 44,
-          child: TextField(
-            controller: searchController,
-            onChanged: (value) {
-              if (!mounted) return;
-
-              setState(() {
-                if (section == AppConstants.digitalMarketing) {
-                  _digitalMarketingSearch = value;
-                } else {
-                  _softwareDevelopmentSearch = value;
-                }
-              });
-            },
-            style: const TextStyle(
-              fontSize: normalTextSize,
-              color: AppColors.textPrimary,
-            ),
-            decoration: InputDecoration(
-              hintText: 'Search company or asset',
-              hintStyle: const TextStyle(
-                fontSize: normalTextSize,
-                color: AppColors.textSecondary,
-              ),
-              prefixIcon: const Icon(
-                Icons.search,
-                size: 20,
-              ),
-              suffixIcon: searchController.text.isNotEmpty
-                  ? IconButton(
-                      onPressed: () {
-                        searchController.clear();
-
-                        if (!mounted) return;
-
-                        setState(() {
-                          if (section ==
-                              AppConstants.digitalMarketing) {
-                            _digitalMarketingSearch = '';
-                          } else {
-                            _softwareDevelopmentSearch = '';
-                          }
-                        });
-                      },
-                      icon: const Icon(
-                        Icons.close,
-                        size: 18,
-                      ),
-                    )
-                  : null,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFD),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.border,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.border,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 1.4,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFilterChip({
-    required String item,
-    required bool selected,
-    required String section,
-  }) {
-    return ChoiceChip(
-      label: Text(
-        _filterLabel(item),
-        maxLines: 1,
-        style: TextStyle(
-          fontSize: chipTextSize,
-          fontWeight:
-              selected ? FontWeight.w700 : FontWeight.w600,
-          color:
-              selected ? Colors.white : AppColors.textPrimary,
-        ),
-      ),
-      selected: selected,
-      onSelected: (_) {
-        if (!mounted) return;
-
-        setState(() {
-          if (section == AppConstants.digitalMarketing) {
-            _digitalMarketingFilter = item;
-          } else {
-            _softwareDevelopmentFilter = item;
-          }
-        });
-      },
-      selectedColor: AppColors.primary,
-      backgroundColor: const Color(0xFFF5F7FA),
-      side: BorderSide(
-        color:
-            selected ? AppColors.primary : AppColors.border,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 2,
-      ),
-      materialTapTargetSize:
-          MaterialTapTargetSize.shrinkWrap,
-      visualDensity: const VisualDensity(
-        horizontal: -1,
-        vertical: -1,
-      ),
-    );
-  }
-
-  Widget _buildCompanyScrollArea({
-    required String section,
-    required List<CompanyModel> companies,
-    required Color sectionColor,
-    required Color sectionLightColor,
-  }) {
-    if (companies.isEmpty) {
-      return SingleChildScrollView(
-        child: _buildEmptySection(
-          section: section,
-          filter: section == AppConstants.digitalMarketing
-              ? _digitalMarketingFilter
-              : _softwareDevelopmentFilter,
-          search: section == AppConstants.digitalMarketing
-              ? _digitalMarketingSearch
-              : _softwareDevelopmentSearch,
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.only(
-        bottom: 4,
-      ),
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: companies.length,
-      separatorBuilder: (_, _) =>
-          const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        return _buildCompanyCard(
-          company: companies[index],
-          section: section,
-          sectionColor: sectionColor,
-          sectionLightColor: sectionLightColor,
-        );
-      },
-    );
-  }
-
-  Widget _buildCompanyList({
-    required String section,
-    required List<CompanyModel> companies,
-    required Color sectionColor,
-    required Color sectionLightColor,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final company in companies)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _buildCompanyCard(
-              company: company,
-              section: section,
-              sectionColor: sectionColor,
-              sectionLightColor: sectionLightColor,
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildCompanyCard({
-    required CompanyModel company,
-    required String section,
-    required Color sectionColor,
-    required Color sectionLightColor,
-  }) {
-    final assets = _assetsFor(
-      section,
-      'All',
-    ).where(
-      (asset) => asset.companyId == company.id,
-    ).toList();
-
-    final latestDate = _getLatestDate(assets);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _buildCompanyLogo(
-            company: company,
-            sectionColor: sectionColor,
-            sectionLightColor: sectionLightColor,
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  company.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: companyNameSize,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 4,
-                  children: [
-                    Text(
-                      '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
-                      style: const TextStyle(
-                        fontSize: smallTextSize,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    if (assets.isNotEmpty)
-                      Text(
-                        'Updated: $latestDate',
-                        style: const TextStyle(
-                          fontSize: smallTextSize,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () {
-              _openCompany(
-                company: company,
-                section: section,
-              );
-            },
-            icon: const Icon(
-              Icons.folder_open_outlined,
-              size: 17,
-            ),
-            label: const Text(
-              'Open',
-              style: TextStyle(
-                fontSize: normalTextSize,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: sectionColor,
-              side: BorderSide(
-                color: sectionColor,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 11,
-                vertical: 9,
-              ),
-              minimumSize: Size.zero,
-              tapTargetSize:
-                  MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(7),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptySection({
-    required String section,
-    required String filter,
-    required String search,
-  }) {
-    final hasSearch = search.trim().isNotEmpty;
-    final hasFilter = filter != 'All';
-
-    String message;
-
-    if (hasSearch) {
-      message = 'No companies or assets match your search.';
-    } else if (hasFilter) {
-      message = 'No companies contain this asset type.';
-    } else {
-      message = 'No companies have been created yet.';
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 30,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFD),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            section == AppConstants.digitalMarketing
-                ? Icons.campaign_outlined
-                : Icons.code_outlined,
-            size: 34,
-            color: AppColors.textSecondary,
-          ),
-          const SizedBox(height: 9),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: normalTextSize,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  bool _isValidSection(String value) =>
+      value == AppConstants.digitalMarketing ||
+      value == AppConstants.softwareDevelopment;
 
   List<CompanyModel> _getCompanies({
     required String section,
@@ -1187,103 +1261,68 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required String search,
   }) {
     final query = search.trim().toLowerCase();
-
     final companies = _companies.where((company) {
-      var belongsToSection = company.section == section;
-
-      if (!belongsToSection && company.section == null) {
-        belongsToSection = _assets.any(
-          (asset) =>
-              asset.companyId == company.id &&
-              asset.section == section,
+      var belongs = company.section == section;
+      if (!belongs && company.section == null) {
+        belongs = _assets.any(
+          (a) => a.companyId == company.id && a.section == section,
         );
       }
-
-      if (!belongsToSection) return false;
+      if (!belongs) return false;
 
       final companyAssets = _assets.where(
-        (asset) =>
-            asset.companyId == company.id &&
-            asset.section == section,
+        (a) => a.companyId == company.id && a.section == section,
       );
 
       if (filter != 'All') {
-        final hasMatchingAsset = companyAssets.any(
-          (asset) => _assetMatchesFilter(asset, filter),
-        );
-
-        if (!hasMatchingAsset) return false;
+        if (!companyAssets.any((a) => _assetMatchesFilter(a, filter))) {
+          return false;
+        }
       }
 
       if (query.isNotEmpty) {
-        final companyMatches =
-            company.name.toLowerCase().contains(query);
-
-        final assetMatches = companyAssets.any(
-          (asset) =>
-              asset.name.toLowerCase().contains(query) ||
-              asset.type.toLowerCase().contains(query),
+        final cm = company.name.toLowerCase().contains(query);
+        final am = companyAssets.any(
+          (a) =>
+              a.name.toLowerCase().contains(query) ||
+              a.type.toLowerCase().contains(query),
         );
-
-        if (!companyMatches && !assetMatches) {
-          return false;
-        }
+        if (!cm && !am) return false;
       }
 
       return true;
     }).toList();
 
     companies.sort(
-      (a, b) => a.name
-          .toLowerCase()
-          .compareTo(b.name.toLowerCase()),
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
     );
-
     return companies;
   }
 
-  List<AssetModel> _assetsFor(
-    String section,
-    String filter,
-  ) {
-    return _assets.where((asset) {
-      if (asset.section != section) return false;
-
-      if (filter != 'All' &&
-          !_assetMatchesFilter(asset, filter)) {
-        return false;
-      }
-
+  List<AssetModel> _assetsFor(String section, String filter) {
+    return _assets.where((a) {
+      if (a.section != section) return false;
+      if (filter != 'All' && !_assetMatchesFilter(a, filter)) return false;
       return true;
     }).toList();
   }
 
-  bool _assetMatchesFilter(
-    AssetModel asset,
-    String filter,
-  ) {
+  bool _assetMatchesFilter(AssetModel asset, String filter) {
     switch (filter) {
       case AppConstants.poster:
         return asset.type == AppConstants.poster;
-
       case AppConstants.reelVideo:
         return asset.type == AppConstants.reelVideo;
-
       case AppConstants.document:
         return asset.type == AppConstants.document;
-
       case AppConstants.websiteLink:
         return asset.type == AppConstants.websiteLink;
-
       case AppConstants.webApplication:
         return asset.type == AppConstants.webApplication;
-
       case AppConstants.mobileApplication:
         return asset.type == AppConstants.mobileApplication;
-
       case AppConstants.others:
         return asset.type == AppConstants.others;
-
       default:
         return true;
     }
@@ -1292,26 +1331,19 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
   String _filterLabel(String value) {
     switch (value) {
       case AppConstants.poster:
-        return 'Posters';
-
+        return 'Poster';
       case AppConstants.reelVideo:
-        return 'Reels / Videos';
-
+        return 'Reel Video';
       case AppConstants.document:
-        return 'Documents';
-
+        return 'Document';
       case AppConstants.websiteLink:
-        return 'Website Links';
-
+        return 'Website Link';
       case AppConstants.webApplication:
         return 'Web Application';
-
       case AppConstants.mobileApplication:
         return 'Mobile Application';
-
       case AppConstants.others:
         return 'Others';
-
       default:
         return 'All';
     }
@@ -1322,46 +1354,33 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     required String section,
   }) async {
     if (!mounted) return;
-
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (dialogContext) {
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 20,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        backgroundColor: AppColors.background,
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 1000,
+            maxHeight: MediaQuery.sizeOf(dialogContext).height - 40,
           ),
-          backgroundColor: AppColors.background,
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 1000,
-              maxHeight:
-                  MediaQuery.sizeOf(dialogContext).height - 40,
-            ),
-            child: CompanyDetailPage(
-              company: company,
-              section: section,
-              embedded: true,
-            ),
+          child: CompanyDetailPage(
+            company: company,
+            section: section,
+            embedded: true,
           ),
-        );
-      },
+        ),
+      ),
     );
-
     if (!mounted) return;
-
     await _loadData();
   }
 
-  Future<void> _showCreateCompanyDialog(
-    String section,
-  ) async {
+  Future<void> _showCreateCompanyDialog(String section) async {
     if (!mounted) return;
-
     final controller = TextEditingController();
-
     String? logoFileName;
     Uint8List? logoBytes;
     final selectedSections = <String>{section};
@@ -1372,7 +1391,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
         barrierDismissible: true,
         builder: (dialogContext) {
           bool isCreating = false;
-
           return StatefulBuilder(
             builder: (context, setDialogState) {
               Future<void> pickLogo() async {
@@ -1386,18 +1404,13 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                       ? selection.files.first
                       : null;
                   final bytes = picked?.bytes;
-                  if (picked == null || bytes == null) {
-                    return;
-                  }
+                  if (picked == null || bytes == null) return;
 
                   if (bytes.isEmpty) {
                     if (!mounted) return;
-
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Unable to read the selected image.',
-                        ),
+                        content: Text('Unable to read the selected image.'),
                       ),
                     );
                     return;
@@ -1405,26 +1418,21 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
                   if (bytes.length > 5 * 1024 * 1024) {
                     if (!mounted) return;
-
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Company logo must be 5 MB or smaller.',
-                        ),
+                        content: Text('Company logo must be 5 MB or smaller.'),
                       ),
                     );
                     return;
                   }
 
                   if (!mounted) return;
-
                   setDialogState(() {
                     logoFileName = picked.name;
                     logoBytes = bytes;
                   });
                 } catch (error) {
                   if (!mounted) return;
-
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1438,21 +1446,16 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
               Future<void> createCompany() async {
                 final name = controller.text.trim();
-
                 if (name.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'Please enter a company name.',
-                      ),
+                      content: Text('Please enter a company name.'),
                     ),
                   );
                   return;
                 }
 
-                setDialogState(() {
-                  isCreating = true;
-                });
+                setDialogState(() => isCreating = true);
 
                 try {
                   await ApiService.createCompany(
@@ -1463,31 +1466,19 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                   );
 
                   if (!mounted) return;
-
                   Navigator.of(dialogContext).pop();
-
                   await _loadData();
 
                   if (!mounted) return;
-
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(
-                        '$name created successfully.',
-                        style: const TextStyle(
-                          fontSize: normalTextSize,
-                        ),
-                      ),
+                      content: Text('$name created successfully.'),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
                 } catch (error) {
                   if (!mounted) return;
-
-                  setDialogState(() {
-                    isCreating = false;
-                  });
-
+                  setDialogState(() => isCreating = false);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1514,8 +1505,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                   child: SingleChildScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         TextField(
                           controller: controller,
@@ -1524,64 +1514,48 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                           decoration: const InputDecoration(
                             labelText: 'Company Name',
                             hintText: 'Enter company name',
-                            prefixIcon: Icon(
-                              Icons.business_outlined,
-                            ),
+                            prefixIcon: Icon(Icons.business_outlined),
                           ),
                         ),
                         const SizedBox(height: 18),
                         const Text(
                           'Company Logo',
                           style: TextStyle(
-                            fontSize: normalTextSize,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Container(
                               width: 72,
                               height: 72,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF5F7FA),
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: AppColors.border,
-                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.border),
                               ),
                               clipBehavior: Clip.antiAlias,
-                              child: logoBytes != null &&
-                                      logoBytes!.isNotEmpty
-                                  ? Image.memory(
-                                      logoBytes!,
-                                      fit: BoxFit.cover,
-                                    )
+                              child: logoBytes != null && logoBytes!.isNotEmpty
+                                  ? Image.memory(logoBytes!, fit: BoxFit.cover)
                                   : const Icon(
                                       Icons.image_outlined,
                                       size: 30,
-                                      color:
-                                          AppColors.textSecondary,
+                                      color: AppColors.textSecondary,
                                     ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   OutlinedButton.icon(
-                                    onPressed:
-                                        isCreating
-                                            ? null
-                                            : pickLogo,
+                                    onPressed: isCreating ? null : pickLogo,
                                     icon: const Icon(
-                                      Icons
-                                          .cloud_upload_outlined,
+                                      Icons.cloud_upload_outlined,
                                       size: 18,
                                     ),
                                     label: Text(
@@ -1595,12 +1569,10 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                                     logoFileName ??
                                         'Optional. JPG, JPEG, PNG, WEBP or GIF. Maximum 5 MB.',
                                     maxLines: 3,
-                                    overflow:
-                                        TextOverflow.ellipsis,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color:
-                                          AppColors.textSecondary,
+                                      color: AppColors.textSecondary,
                                     ),
                                   ),
                                 ],
@@ -1616,33 +1588,22 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                   TextButton(
                     onPressed: isCreating
                         ? null
-                        : () {
-                            Navigator.of(
-                              dialogContext,
-                            ).pop();
-                          },
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
                   FilledButton.icon(
-                    onPressed:
-                        isCreating ? null : createCompany,
+                    onPressed: isCreating ? null : createCompany,
                     icon: isCreating
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child:
-                                CircularProgressIndicator(
+                            child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
                             ),
                           )
-                        : const Icon(
-                            Icons.add_business_outlined,
-                            size: 18,
-                          ),
-                    label: Text(
-                      isCreating ? 'Creating...' : 'Create',
-                    ),
+                        : const Icon(Icons.add_business_outlined, size: 18),
+                    label: Text(isCreating ? 'Creating...' : 'Create'),
                   ),
                 ],
               );
@@ -1655,128 +1616,34 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     }
   }
 
-  // ============================================================
-  // COMPANY LOGO
-  // ============================================================
-
-  Widget _buildCompanyLogo({
-    required CompanyModel company,
-    required Color sectionColor,
-    required Color sectionLightColor,
-  }) {
-    final rawLogo = _companyLogoUrls[company.id]?.trim();
-
-    if (rawLogo == null || rawLogo.isEmpty) {
-      return Container(
-        width: 44,
-        height: 44,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: sectionLightColor,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Text(
-          _companyInitial(company.name),
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            color: sectionColor,
-          ),
-        ),
-      );
-    }
-
-    final logoUrl = _resolveCompanyLogoUrl(rawLogo);
-
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: sectionLightColor,
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(
-          color: AppColors.border,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.network(
-        logoUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            alignment: Alignment.center,
-            color: sectionLightColor,
-            child: Text(
-              _companyInitial(company.name),
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: sectionColor,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   String _resolveCompanyLogoUrl(String logoUrl) {
     final parsed = Uri.tryParse(logoUrl);
-
-    if (parsed != null && parsed.hasScheme) {
-      return logoUrl;
-    }
-
+    if (parsed != null && parsed.hasScheme) return logoUrl;
     final baseUri = Uri.parse(ApiService.baseUrl);
-
-    final relativePath = logoUrl.startsWith('/')
-        ? logoUrl
-        : '/$logoUrl';
-
+    final relativePath = logoUrl.startsWith('/') ? logoUrl : '/$logoUrl';
     return baseUri
-        .replace(
-          path: relativePath,
-          query: '',
-          fragment: '',
-        )
+        .replace(path: relativePath, query: '', fragment: '')
         .toString();
   }
 
   String _companyInitial(String name) {
     final value = name.trim();
-
-    if (value.isEmpty) {
-      return 'C';
-    }
-
+    if (value.isEmpty) return 'C';
     return value.substring(0, 1).toUpperCase();
   }
 
-  String _getLatestDate(
-    Iterable<AssetModel> assets,
-  ) {
+  String _getLatestDate(Iterable<AssetModel> assets) {
     final list = assets.toList();
-
-    if (list.isEmpty) {
-      return '—';
-    }
-
-    list.sort(
-      (a, b) => b.updatedAt.compareTo(a.updatedAt),
-    );
-
+    if (list.isEmpty) return '—';
+    list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return _formatDate(list.first.updatedAt);
   }
 
   String _formatDate(DateTime date) {
-    final day = date.day
-        .toString()
-        .padLeft(2, '0');
-
-    final month = date.month
-        .toString()
-        .padLeft(2, '0');
-
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
     return '$day/$month/${date.year}';
   }
 }
+
+

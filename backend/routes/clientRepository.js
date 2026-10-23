@@ -39,7 +39,18 @@ function requirePermission(key) {
 }
 const uploadUrl = (file) => file ? `/uploads/client-repository/${file.filename}` : null;
 const removeUpload = (file) => file?.path && fs.unlink(file.path, () => {});
-async function companyById(id) { const [[row]] = await db.query('SELECT id, name, logo_url, is_active FROM companies WHERE id=?', [id]); return row; }
+async function companyById(id) {
+  const [[row]] = await db.query(`
+    SELECT c.id,c.name,c.logo_url,c.is_active,c.created_at,c.updated_at,
+      COALESCE(GROUP_CONCAT(DISTINCT cs.section SEPARATOR '|'),'') AS section_values
+    FROM companies c
+    LEFT JOIN company_sections cs ON cs.company_id=c.id
+    WHERE c.id=?
+    GROUP BY c.id,c.name,c.logo_url,c.is_active,c.created_at,c.updated_at`, [id]);
+  if (!row) return row;
+  const { section_values: sectionValues, ...company } = row;
+  return { ...company, sections: sectionValues ? sectionValues.split('|') : [] };
+}
 async function assetById(id) { const [[row]] = await db.query('SELECT * FROM assets WHERE id=?', [id]); return row; }
 async function replaceSections(companyId, input) {
   if (input === undefined) return;
@@ -97,8 +108,10 @@ router.put('/profile/me', async (req, res, next) => {
 
 router.get('/companies', requirePermission('can_view'), async (_req, res, next) => {
   try {
-    const [rows] = await db.query(`SELECT c.id,c.name,c.logo_url,c.is_active,COALESCE(GROUP_CONCAT(DISTINCT cs.section SEPARATOR '|'),'') AS sections
-      FROM companies c LEFT JOIN company_sections cs ON cs.company_id=c.id GROUP BY c.id,c.name,c.logo_url,c.is_active ORDER BY c.name`);
+    const [rows] = await db.query(`SELECT c.id,c.name,c.logo_url,c.is_active,c.created_at,c.updated_at,
+      COALESCE(GROUP_CONCAT(DISTINCT cs.section SEPARATOR '|'),'') AS sections
+      FROM companies c LEFT JOIN company_sections cs ON cs.company_id=c.id
+      GROUP BY c.id,c.name,c.logo_url,c.is_active,c.created_at,c.updated_at ORDER BY c.name`);
     res.json({ success: true, data: rows.map((row) => ({ ...row, sections: row.sections ? row.sections.split('|') : [] })) });
   } catch (error) { next(error); }
 });

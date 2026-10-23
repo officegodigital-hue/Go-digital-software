@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -13,55 +13,59 @@ import '../company_assets/company_assets_page.dart';
 class UserAssetLibraryPage extends StatefulWidget {
   final void Function(CompanyModel company, String section)? onOpenCompany;
 
-  const UserAssetLibraryPage({
-    super.key,
-    this.onOpenCompany,
-  });
+  const UserAssetLibraryPage({super.key, this.onOpenCompany});
 
   @override
-  State<UserAssetLibraryPage> createState() =>
-      _UserAssetLibraryPageState();
+  State<UserAssetLibraryPage> createState() => _UserAssetLibraryPageState();
 }
 
-class _UserAssetLibraryPageState
-    extends State<UserAssetLibraryPage> {
-  // ============================================================
-  // SEARCH
-  // ============================================================
+class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
+  // ── Search + filter (unified) ──────────────────────────────
+  final TextEditingController _searchController = TextEditingController();
+  String _search = '';
+  String _filter = 'All';
 
-  String _digitalMarketingSearch = '';
-  String _softwareDevelopmentSearch = '';
+  // Unified filter chips → asset types they match.
+  static const _filterChips = [
+    'All',
+    'Posters',
+    'Videos',
+    'Documents',
+    'Links',
+    'Applications',
+  ];
 
-  // ============================================================
-  // FILTERS
-  // ============================================================
+  List<String> _typesForFilter(String chip) {
+    switch (chip) {
+      case 'Posters':
+        return const [AppConstants.poster];
+      case 'Videos':
+        return const [AppConstants.reelVideo];
+      case 'Documents':
+        return const [AppConstants.document];
+      case 'Links':
+        return const [AppConstants.websiteLink];
+      case 'Applications':
+        return const [
+          AppConstants.webApplication,
+          AppConstants.mobileApplication,
+        ];
+      default:
+        return const [];
+    }
+  }
 
-  String _digitalMarketingFilter = 'All';
-  String _softwareDevelopmentFilter = 'All';
-
-  // ============================================================
-  // API DATA
-  // ============================================================
-
+  // ── API data ───────────────────────────────────────────────
   List<CompanyModel> _companies = [];
   List<AssetModel> _assets = [];
 
   bool _isLoading = true;
   String? _loadError;
 
-  bool _canView = false;
   bool _canDownload = false;
   bool _canCreateCompany = false;
 
-  // Explicit controller shared by the internal company ListView
-  // and its Scrollbar.
-  final ScrollController _companyScrollController =
-      ScrollController();
-
-  // ============================================================
-  // LIFECYCLE
-  // ============================================================
-
+  // ── Lifecycle ──────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
@@ -71,27 +75,22 @@ class _UserAssetLibraryPageState
 
   @override
   void dispose() {
-    _companyScrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   Future<void> _loadPermissions() async {
     try {
       final permissions = await ApiService.getMyPermissions();
-
       if (!mounted) return;
-
       bool toBool(dynamic v) => v == true || v == 1;
       setState(() {
-        _canView = toBool(permissions['can_view']);
         _canDownload = toBool(permissions['can_download']);
         _canCreateCompany = toBool(permissions['can_create_company']);
       });
     } catch (_) {
       if (!mounted) return;
-
       setState(() {
-        _canView = false;
         _canDownload = false;
         _canCreateCompany = false;
       });
@@ -99,7 +98,7 @@ class _UserAssetLibraryPageState
   }
 
   // ============================================================
-  // LOAD DATA FROM BACKEND / MYSQL
+  // LOAD DATA FROM BACKEND / MYSQL  (unchanged logic)
   // ============================================================
 
   Future<void> _loadData() async {
@@ -121,64 +120,46 @@ class _UserAssetLibraryPageState
 
         final data = Map<String, dynamic>.from(item);
         final id = data['id']?.toString();
-
         if (id == null || id.isEmpty) continue;
 
         final name = data['name']?.toString().trim() ?? '';
         if (name.isEmpty) continue;
 
         final logoUrl = data['logo_url']?.toString().trim();
-
         final now = DateTime.now();
 
         final createdAt =
-            DateTime.tryParse(
-              data['created_at']?.toString() ?? '',
-            ) ??
-            now;
-
+            DateTime.tryParse(data['created_at']?.toString() ?? '') ?? now;
         final updatedAt =
-            DateTime.tryParse(
-              data['updated_at']?.toString() ?? '',
-            ) ??
+            DateTime.tryParse(data['updated_at']?.toString() ?? '') ??
             createdAt;
 
-        // New backend returns a sections array because one
-        // company can belong to both portal sections.
         final rawSections = data['sections'];
-
         final sections = <String>[];
-
         if (rawSections is List) {
           for (final value in rawSections) {
             final section = value?.toString().trim() ?? '';
-            if (section.isNotEmpty &&
-                !sections.contains(section)) {
+            if (section.isNotEmpty && !sections.contains(section)) {
               sections.add(section);
             }
           }
         }
 
-        // Backward compatibility if the API returns one section.
-        final singleSection =
-            data['section']?.toString().trim();
-
+        final singleSection = data['section']?.toString().trim();
         if (sections.isEmpty &&
             singleSection != null &&
             singleSection.isNotEmpty) {
           sections.add(singleSection);
         }
 
-        // If no section was returned, don't guess one.
-        // The company will simply not appear in either section.
-        if (sections.isEmpty) {
-          continue;
-        }
+        if (sections.isEmpty) continue;
 
         final validSections = sections
-            .where((s) =>
-                s == AppConstants.digitalMarketing ||
-                s == AppConstants.softwareDevelopment)
+            .where(
+              (s) =>
+                  s == AppConstants.digitalMarketing ||
+                  s == AppConstants.softwareDevelopment,
+            )
             .toList();
 
         for (final section in validSections) {
@@ -203,23 +184,13 @@ class _UserAssetLibraryPageState
 
         final data = Map<String, dynamic>.from(item);
         final id = data['id']?.toString();
-
         if (id == null || id.isEmpty) continue;
 
-        final companyId =
-            data['company_id']?.toString() ?? '';
-
-        final companyName =
-            data['company_name']?.toString() ?? '';
-
-        final section =
-            data['section']?.toString() ?? '';
-
-        final type =
-            data['type']?.toString() ?? '';
-
-        final name =
-            data['name']?.toString() ?? '';
+        final companyId = data['company_id']?.toString() ?? '';
+        final companyName = data['company_name']?.toString() ?? '';
+        final section = data['section']?.toString() ?? '';
+        final type = data['type']?.toString() ?? '';
+        final name = data['name']?.toString() ?? '';
 
         if (companyId.isEmpty ||
             section.isEmpty ||
@@ -245,18 +216,53 @@ class _UserAssetLibraryPageState
             filePath: data['file_url']?.toString(),
             fileName: data['file_name']?.toString(),
             mimeType: data['mime_type']?.toString(),
-            fileSize: data['file_size'] is num ? (data['file_size'] as num).toInt() : null,
+            fileSize: data['file_size'] is num
+                ? (data['file_size'] as num).toInt()
+                : null,
             createdByEmployeeId: data['created_by_employee_id']?.toString(),
             createdAt:
-                DateTime.tryParse(
-                  data['created_at']?.toString() ?? '',
-                ) ??
-                now,
+                DateTime.tryParse(data['created_at']?.toString() ?? '') ?? now,
             updatedAt:
-                DateTime.tryParse(
-                  data['updated_at']?.toString() ?? '',
-                ) ??
-                now,
+                DateTime.tryParse(data['updated_at']?.toString() ?? '') ?? now,
+          ),
+        );
+      }
+
+      // Older records can have assets before a matching company_sections row
+      // was created.  Do not hide those live assets from employees: derive the
+      // section from the authoritative asset record as a safe fallback.
+      for (final asset in loadedAssets) {
+        final alreadyListed = loadedCompanies.any(
+          (company) =>
+              company.id == asset.companyId && company.section == asset.section,
+        );
+        if (alreadyListed) continue;
+
+        CompanyModel? source;
+        for (final company in loadedCompanies) {
+          if (company.id == asset.companyId) {
+            source = company;
+            break;
+          }
+        }
+        final allSections = <String>{
+          ...?source?.allSections,
+          asset.section,
+        }.toList();
+
+        loadedCompanies.add(
+          CompanyModel(
+            id: asset.companyId,
+            name: source?.name.isNotEmpty == true
+                ? source!.name
+                : (asset.companyName.isNotEmpty
+                      ? asset.companyName
+                      : 'Company'),
+            createdAt: source?.createdAt ?? asset.createdAt,
+            updatedAt: source?.updatedAt ?? asset.updatedAt,
+            section: asset.section,
+            logoUrl: source?.logoUrl,
+            allSections: allSections,
           ),
         );
       }
@@ -271,16 +277,64 @@ class _UserAssetLibraryPageState
       });
     } catch (error) {
       if (!mounted) return;
-
       setState(() {
         _isLoading = false;
-        _loadError =
-            error.toString().replaceFirst(
-              'Exception: ',
-              '',
-            );
+        _loadError = error.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  // ============================================================
+  // UNIQUE COMPANIES (dedup by id) + aggregation
+  // ============================================================
+
+  List<CompanyModel> get _uniqueCompanies {
+    final seen = <String>{};
+    final result = <CompanyModel>[];
+    for (final c in _companies) {
+      if (seen.add(c.id)) result.add(c);
+    }
+    return result;
+  }
+
+  List<AssetModel> _assetsOf(String companyId) =>
+      _assets.where((a) => a.companyId == companyId).toList();
+
+  DateTime _lastUpdated(CompanyModel company) {
+    var latest = company.updatedAt;
+    for (final a in _assetsOf(company.id)) {
+      if (a.updatedAt.isAfter(latest)) latest = a.updatedAt;
+    }
+    return latest;
+  }
+
+  List<CompanyModel> get _visibleCompanies {
+    final query = _search.trim().toLowerCase();
+    final types = _typesForFilter(_filter);
+
+    final list = _uniqueCompanies.where((company) {
+      final companyAssets = _assetsOf(company.id);
+
+      if (types.isNotEmpty) {
+        final hasType = companyAssets.any((a) => types.contains(a.type));
+        if (!hasType) return false;
+      }
+
+      if (query.isNotEmpty) {
+        final nameMatch = company.name.toLowerCase().contains(query);
+        final assetMatch = companyAssets.any(
+          (a) =>
+              a.name.toLowerCase().contains(query) ||
+              a.type.toLowerCase().contains(query),
+        );
+        if (!nameMatch && !assetMatch) return false;
+      }
+
+      return true;
+    }).toList();
+
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
   }
 
   // ============================================================
@@ -289,10 +343,6 @@ class _UserAssetLibraryPageState
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isMobile = width < 800;
-    final isCompactDesktop = width < 1200;
-
     if (_isLoading) {
       return Container(
         color: AppColors.background,
@@ -302,779 +352,330 @@ class _UserAssetLibraryPageState
     }
 
     if (_loadError != null) {
-      return Container(
-        color: AppColors.background,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 42,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Unable to load assets',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _loadError!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _loadData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
+      return _buildErrorState();
     }
 
     return Container(
       color: AppColors.background,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          isMobile ? 16 : 24,
-          isMobile ? 18 : 24,
-          isMobile ? 16 : 24,
-          32,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final isMobile = w < 640;
+          final pad = isMobile ? 16.0 : 32.0;
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(pad, isMobile ? 20 : 28, pad, 36),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(isMobile),
+                const SizedBox(height: 22),
+                _buildSearchBar(),
+                const SizedBox(height: 16),
+                _buildFilterChips(),
+                const SizedBox(height: 22),
+                _buildCompanyGrid(w),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Header ──────────────────────────────────────────────────
+  Widget _buildHeader(bool isMobile) {
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Asset Library',
+          style: TextStyle(
+            fontSize: isMobile ? 26 : 34,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+            height: 1.1,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+        const SizedBox(height: 6),
+        const Text(
+          'Find approved company assets and downloads',
+          style: TextStyle(fontSize: 15, color: AppColors.textSecondary),
+        ),
+      ],
+    );
+
+    if (!_canCreateCompany) return title;
+
+    final createButton = _buildCreateCompanyButton();
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          title,
+          const SizedBox(height: 12),
+          Align(alignment: Alignment.centerLeft, child: createButton),
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: title),
+        createButton,
+      ],
+    );
+  }
+
+  Widget _buildCreateCompanyButton() {
+    return PopupMenuButton<String>(
+      tooltip: 'Create Company',
+      onSelected: _showCreateCompanyDialog,
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: AppConstants.digitalMarketing,
+          child: Text('In Digital Marketing'),
+        ),
+        PopupMenuItem(
+          value: AppConstants.softwareDevelopment,
+          child: Text('In Software Development'),
+        ),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildPageHeader(),
-
-            const SizedBox(height: 24),
-
-            if (isMobile || isCompactDesktop)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildDigitalMarketingSection(),
-
-                  const SizedBox(height: 18),
-
-                  _buildSoftwareDevelopmentSection(),
-                ],
-              )
-            else
-              Row(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child:
-                        _buildDigitalMarketingSection(),
-                  ),
-
-                  const SizedBox(width: 18),
-
-                  Expanded(
-                    child:
-                        _buildSoftwareDevelopmentSection(),
-                  ),
-                ],
+            Icon(Icons.add, size: 18, color: Colors.white),
+            SizedBox(width: 6),
+            Text(
+              'Create Company',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ============================================================
-  // PAGE HEADER
-  // ============================================================
-
-  Widget _buildPageHeader() {
-    return const Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Asset Library',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
+  // ── Search bar ──────────────────────────────────────────────
+  Widget _buildSearchBar() {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 20, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _search = v),
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
               ),
-
-              SizedBox(height: 6),
-
-              Text(
-                'Access your digital marketing and software development assets.',
-                style: TextStyle(
-                  fontSize: 15,
+              decoration: const InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: 'Search assets or companies',
+                hintStyle: TextStyle(
+                  fontSize: 14,
                   color: AppColors.textSecondary,
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Filter chips ────────────────────────────────────────────
+  Widget _buildFilterChips() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _filterChips.map((chip) {
+          final selected = _filter == chip;
+          return Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => setState(() => _filter = chip),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.primary : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: selected ? AppColors.primary : AppColors.border,
+                  ),
+                ),
+                child: Text(
+                  chip,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: selected ? Colors.white : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Company grid ────────────────────────────────────────────
+  Widget _buildCompanyGrid(double _) {
+    final companies = _visibleCompanies;
+    if (companies.isEmpty) return _buildEmptyCompanies();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final cols = width >= 1040
+            ? 3
+            : width >= 680
+            ? 2
+            : 1;
+        const gap = 20.0;
+        final cardWidth = (width - (cols - 1) * gap) / cols;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: companies.map((company) {
+            return SizedBox(
+              width: cols == 1 ? double.infinity : cardWidth,
+              child: _buildCompanyCard(company),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompanyCard(CompanyModel company) {
+    final count = _assetsOf(company.id).length;
+    final updated = _lastUpdated(company);
+    final section = company.allSections.isNotEmpty
+        ? company.allSections.first
+        : (company.section ?? AppConstants.digitalMarketing);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openCompany(company, section),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
             ],
           ),
-        ),
-
-      ],
-    );
-  }
-
-
-  // ============================================================
-  // DIGITAL MARKETING
-  // ============================================================
-
-  Widget _buildDigitalMarketingSection() {
-    return _buildSectionCard(
-      section: AppConstants.digitalMarketing,
-      title: AppConstants.digitalMarketing,
-      description:
-          'Posters, reels, documents, website links and other marketing assets.',
-      icon: Icons.campaign_outlined,
-      color: AppColors.digitalMarketing,
-      lightColor:
-          AppColors.digitalMarketingLight,
-      filters: const [
-        'All',
-        'Poster',
-        'Reel / Video',
-        'Document',
-        'Website Link',
-        'Others',
-      ],
-      selectedFilter:
-          _digitalMarketingFilter,
-      search: _digitalMarketingSearch,
-      onSearchChanged: (value) {
-        setState(() {
-          _digitalMarketingSearch = value;
-        });
-      },
-      onFilterChanged: (value) {
-        setState(() {
-          _digitalMarketingFilter = value;
-        });
-      },
-    );
-  }
-
-  // ============================================================
-  // SOFTWARE DEVELOPMENT
-  // ============================================================
-
-  Widget _buildSoftwareDevelopmentSection() {
-    return _buildSectionCard(
-      section: AppConstants.softwareDevelopment,
-      title: AppConstants.softwareDevelopment,
-      description:
-          'Web applications, mobile applications and other software assets.',
-      icon: Icons.code_outlined,
-      color: AppColors.softwareDevelopment,
-      lightColor:
-          AppColors.softwareDevelopmentLight,
-      filters: const [
-        'All',
-        'Web Application',
-        'Mobile Application',
-        'Others',
-      ],
-      selectedFilter:
-          _softwareDevelopmentFilter,
-      search: _softwareDevelopmentSearch,
-      onSearchChanged: (value) {
-        setState(() {
-          _softwareDevelopmentSearch = value;
-        });
-      },
-      onFilterChanged: (value) {
-        setState(() {
-          _softwareDevelopmentFilter = value;
-        });
-      },
-    );
-  }
-
-  // ============================================================
-  // SECTION CARD
-  // ============================================================
-
-  Widget _buildSectionCard({
-    required String section,
-    required String title,
-    required String description,
-    required IconData icon,
-    required Color color,
-    required Color lightColor,
-    required List<String> filters,
-    required String selectedFilter,
-    required String search,
-    required ValueChanged<String> onSearchChanged,
-    required ValueChanged<String> onFilterChanged,
-  }) {
-    final companies = _getCompanies(
-      section: section,
-      filter: selectedFilter,
-      search: search,
-    );
-
-    final totalAssets =
-        _getSectionAssets(section).length;
-
-    // ============================================================
-    // FIXED WHITE PANEL HEIGHT
-    // ============================================================
-
-    final width = MediaQuery.of(context).size.width;
-
-    final bool isMobile = width < 800;
-
-    final double sectionHeight =
-        isMobile ? 620 : 650;
-
-    return SizedBox(
-      width: double.infinity,
-      height: sectionHeight,
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius:
-              BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.border,
-          ),
-        ),
-        child: Padding(
-          padding:
-              const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ==================================================
-              // HEADER - FIXED
-              // ==================================================
-
-              // ==================================================
-              // HEADER
-              //
-              // Keep the section title/description on the left and
-              // keep Create Company + asset count aligned at the
-              // top-right when the user has can_create_company.
-              // On smaller screens the actions move below the
-              // description so they never collide or overflow.
-              // ==================================================
-
-              if (isMobile)
-                Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: lightColor,
-                            borderRadius:
-                                BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            icon,
-                            size: 28,
-                            color: color,
-                          ),
-                        ),
-
-                        const SizedBox(width: 13),
-
+                        _buildCompanyLogo(company: company),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                title,
-                                style: TextStyle(
-                                  fontSize: 19,
-                                  fontWeight:
-                                      FontWeight.w800,
-                                  color: color,
+                                company.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
-
                               const SizedBox(height: 4),
-
                               Text(
-                                description,
-                                maxLines: 3,
-                                overflow:
-                                    TextOverflow.ellipsis,
-                                style:
-                                    const TextStyle(
+                                '$count ${count == 1 ? 'asset' : 'assets'}  ·  Updated ${_formatDate(updated)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
                                   fontSize: 13,
-                                  height: 1.35,
-                                  color:
-                                      AppColors
-                                          .textSecondary,
+                                  color: AppColors.textSecondary,
                                 ),
                               ),
+                              const SizedBox(height: 10),
+                              _accessBadge(),
                             ],
                           ),
                         ),
                       ],
                     ),
-
-                    const SizedBox(height: 12),
-
-                    Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.end,
-                      children: [
-                        if (_canCreateCompany)
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              _showCreateCompanyDialog(section);
-                            },
-                            icon: const Icon(
-                              Icons.add,
-                              size: 17,
-                            ),
-                            label: const Text(
-                              'Create Company',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: color,
-                              side: BorderSide(color: color),
-                              padding:
-                                  const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-
-                        if (_canCreateCompany)
-                          const SizedBox(width: 8),
-
-                        Container(
-                          padding:
-                              const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: lightColor,
-                            borderRadius:
-                                BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '$totalAssets Assets',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: color,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                )
-              else
-                Row(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: lightColor,
-                        borderRadius:
-                            BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        icon,
-                        size: 28,
-                        color: color,
-                      ),
-                    ),
-
-                    const SizedBox(width: 13),
-
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w800,
-                              color: color,
-                            ),
-                          ),
-
-                          const SizedBox(height: 4),
-
-                          Text(
-                            description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              height: 1.35,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    // ==================================================
-                    // RIGHT-SIDE ACTIONS
-                    //
-                    // Asset count stays at the top-right.
-                    // Create Company is positioned below it, matching
-                    // the requested design shown in the reference.
-                    // ==================================================
-                    SizedBox(
-                      width: 220,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Container(
-                            padding:
-                                const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: lightColor,
-                              borderRadius:
-                                  BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '$totalAssets Assets',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: color,
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          if (_canCreateCompany)
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                _showCreateCompanyDialog(section);
-                              },
-                              icon: const Icon(
-                                Icons.add,
-                                size: 17,
-                              ),
-                              label: const Text(
-                                'Create Company',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: color,
-                                side: BorderSide(color: color),
-                                padding:
-                                    const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
-                                minimumSize: Size.zero,
-                                tapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
-
-              const SizedBox(height: 18),
-
-              // ==================================================
-              // FILTERS - FIXED
-              // ==================================================
-
-              SingleChildScrollView(
-                scrollDirection:
-                    Axis.horizontal,
+              ),
+              const Divider(height: 1, color: AppColors.border),
+              // Open assets footer
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
-                  children: filters.map(
-                    (filter) {
-                      final bool selected =
-                          selectedFilter ==
-                              filter;
-
-                      return Padding(
-                        padding:
-                            const EdgeInsets
-                                .only(
-                          right: 7,
-                        ),
-                        child: InkWell(
-                          borderRadius:
-                              BorderRadius
-                                  .circular(
-                            20,
-                          ),
-                          onTap: () {
-                            onFilterChanged(
-                              filter,
-                            );
-                          },
-                          child: Container(
-                            padding:
-                                const EdgeInsets
-                                    .symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration:
-                                BoxDecoration(
-                              color: selected
-                                  ? AppColors
-                                      .primary
-                                  : const Color(
-                                      0xFFF5F7FB,
-                                    ),
-                              borderRadius:
-                                  BorderRadius
-                                      .circular(
-                                20,
-                              ),
-                              border:
-                                  Border.all(
-                                color: selected
-                                    ? AppColors
-                                        .primary
-                                    : AppColors
-                                        .border,
-                              ),
-                            ),
-                            child: Text(
-                              _filterLabel(
-                                filter,
-                              ),
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight:
-                                    FontWeight
-                                        .w600,
-                                color: selected
-                                    ? Colors
-                                        .white
-                                    : AppColors
-                                        .textPrimary,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ).toList(),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              // ==================================================
-              // SEARCH - FIXED
-              // ==================================================
-
-              TextField(
-                onChanged:
-                    onSearchChanged,
-                controller:
-                    TextEditingController(
-                  text: search,
-                )..selection =
-                    TextSelection.collapsed(
-                  offset: search.length,
-                ),
-                style:
-                    const TextStyle(
-                  fontSize: 13,
-                ),
-                decoration:
-                    InputDecoration(
-                  hintText:
-                      'Search companies or assets...',
-                  hintStyle:
-                      const TextStyle(
-                    fontSize: 13,
-                    color:
-                        AppColors
-                            .textSecondary,
-                  ),
-                  prefixIcon:
-                      const Icon(
-                    Icons.search,
-                    size: 20,
-                  ),
-                  filled: true,
-                  fillColor:
-                      const Color(
-                    0xFFF8FAFD,
-                  ),
-                  contentPadding:
-                      const EdgeInsets
-                          .symmetric(
-                    horizontal: 12,
-                    vertical: 11,
-                  ),
-                  border:
-                      OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(
-                      10,
+                  children: [
+                    const Icon(
+                      Icons.folder_outlined,
+                      size: 18,
+                      color: AppColors.primary,
                     ),
-                    borderSide:
-                        BorderSide.none,
-                  ),
-                  enabledBorder:
-                      OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(
-                      10,
-                    ),
-                    borderSide:
-                        const BorderSide(
-                      color:
-                          AppColors.border,
-                    ),
-                  ),
-                  focusedBorder:
-                      OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(
-                      10,
-                    ),
-                    borderSide:
-                        BorderSide(
-                      color: color,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ==================================================
-              // COMPANY LIST - INTERNAL SCROLL
-              // ==================================================
-
-              Expanded(
-                child: companies.isEmpty
-                    ? Center(
-                        child:
-                            _buildEmptyCompanies(),
-                      )
-                    : ClipRRect(
-                        borderRadius:
-                            BorderRadius
-                                .circular(
-                          8,
-                        ),
-                        child: Scrollbar(
-                          controller: _companyScrollController,
-                          thumbVisibility: true,
-                          trackVisibility: true,
-                          interactive: true,
-                          child:
-                              ListView.builder(
-                            controller: _companyScrollController,
-                            primary: false,
-                            physics:
-                                const AlwaysScrollableScrollPhysics(),
-                            padding:
-                                const EdgeInsets
-                                    .only(
-                              right: 8,
-                              bottom: 8,
-                            ),
-                            itemCount:
-                                companies.length,
-                            itemBuilder:
-                                (
-                              context,
-                              index,
-                            ) {
-                              final company =
-                                  companies[
-                                      index];
-
-                              return Padding(
-                                padding:
-                                    const EdgeInsets
-                                        .only(
-                                  bottom: 10,
-                                ),
-                                child:
-                                    _buildCompanyCard(
-                                  company:
-                                      company,
-                                  section:
-                                      section,
-                                  color:
-                                      color,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Open assets',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.arrow_forward,
+                      size: 15,
+                      color: AppColors.primary,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1083,167 +684,47 @@ class _UserAssetLibraryPageState
     );
   }
 
-  // ============================================================
-  // COMPANY CARD
-  // ============================================================
-
-  Widget _buildCompanyCard({
-    required CompanyModel company,
-    required String section,
-    required Color color,
-  }) {
-    final assets =
-        _assets.where(
-      (asset) =>
-          asset.companyId ==
-              company.id &&
-          asset.section ==
-              section,
-    ).toList();
-
-    return Material(
-      color:
-          const Color(0xFFFAFBFD),
-      borderRadius:
-          BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius:
-            BorderRadius.circular(12),
-        onTap: () {
-          _openCompany(
-            company,
-            section,
-          );
-        },
-        child: Container(
-          width: double.infinity,
-          padding:
-              const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
-          ),
-          decoration:
-              BoxDecoration(
-            borderRadius:
-                BorderRadius.circular(12),
-            border: Border.all(
-              color:
-                  AppColors.border,
+  Widget _accessBadge() {
+    final enabled = _canDownload;
+    final bg = enabled ? const Color(0xFFE7F8EF) : const Color(0xFFF1F5F9);
+    final fg = enabled ? const Color(0xFF15803D) : AppColors.textSecondary;
+    final icon = enabled ? Icons.check_circle : Icons.visibility_outlined;
+    final label = enabled ? 'Download access enabled' : 'View only access';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: fg,
             ),
           ),
-          child: Row(
-            children: [
-              // ================================================
-              // COMPANY INITIAL
-              // ================================================
-
-              _buildCompanyLogo(
-                company: company,
-                color: color,
-              ),
-
-              const SizedBox(
-                width: 12,
-              ),
-
-              // ================================================
-              // COMPANY DETAILS
-              // ================================================
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment
-                          .start,
-                  children: [
-                    Text(
-                      company.name,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                      style:
-                          const TextStyle(
-                        fontSize: 15,
-                        fontWeight:
-                            FontWeight.w700,
-                        color:
-                            AppColors
-                                .textPrimary,
-                      ),
-                    ),
-
-                    const SizedBox(
-                      height: 4,
-                    ),
-
-                    Text(
-                      '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
-                      style:
-                          const TextStyle(
-                        fontSize: 13,
-                        color:
-                            AppColors
-                                .textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ================================================
-              // OPEN ARROW
-              // ================================================
-
-              Container(
-                width: 36,
-                height: 36,
-                alignment:
-                    Alignment.center,
-                decoration:
-                    BoxDecoration(
-                  color:
-                      Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
-                  border: Border.all(
-                    color:
-                        AppColors.border,
-                  ),
-                ),
-                child: Icon(
-                  Icons.chevron_right,
-                  size: 22,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
 
   // ============================================================
-  // CREATE COMPANY
+  // CREATE COMPANY  (unchanged logic)
   // ============================================================
 
-  Future<void> _showCreateCompanyDialog(
-    String section,
-  ) async {
-    if (!_canCreateCompany) {
-      return;
-    }
+  Future<void> _showCreateCompanyDialog(String section) async {
+    if (!_canCreateCompany) return;
 
     final controller = TextEditingController();
-
     String? selectedLogoName;
     Uint8List? selectedLogoBytes;
     bool companyCreated = false;
-
-    // Section is determined automatically from the current tab — no user selection needed.
     final selectedSections = <String>{section};
 
     try {
@@ -1252,7 +733,6 @@ class _UserAssetLibraryPageState
         barrierDismissible: true,
         builder: (dialogContext) {
           bool isCreating = false;
-
           return StatefulBuilder(
             builder: (context, setDialogState) {
               Future<void> pickLogo() async {
@@ -1266,18 +746,13 @@ class _UserAssetLibraryPageState
                       ? selection.files.first
                       : null;
                   final bytes = file?.bytes;
-                  if (file == null || bytes == null) {
-                    return;
-                  }
+                  if (file == null || bytes == null) return;
 
                   if (bytes.isEmpty) {
                     if (!dialogContext.mounted) return;
-
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Unable to read the selected image.',
-                        ),
+                        content: Text('Unable to read the selected image.'),
                       ),
                     );
                     return;
@@ -1285,12 +760,9 @@ class _UserAssetLibraryPageState
 
                   if (bytes.length > 5 * 1024 * 1024) {
                     if (!dialogContext.mounted) return;
-
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Company logo must be 5 MB or smaller.',
-                        ),
+                        content: Text('Company logo must be 5 MB or smaller.'),
                       ),
                     );
                     return;
@@ -1302,7 +774,6 @@ class _UserAssetLibraryPageState
                   });
                 } catch (error) {
                   if (!dialogContext.mounted) return;
-
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1316,21 +787,16 @@ class _UserAssetLibraryPageState
 
               Future<void> saveCompany() async {
                 final name = controller.text.trim();
-
                 if (name.isEmpty) {
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'Please enter a company name.',
-                      ),
+                      content: Text('Please enter a company name.'),
                     ),
                   );
                   return;
                 }
 
-                setDialogState(() {
-                  isCreating = true;
-                });
+                setDialogState(() => isCreating = true);
 
                 try {
                   await ApiService.createCompany(
@@ -1339,19 +805,12 @@ class _UserAssetLibraryPageState
                     logoFileName: selectedLogoName,
                     logoBytes: selectedLogoBytes,
                   );
-
                   companyCreated = true;
-
                   if (!dialogContext.mounted) return;
-
                   Navigator.of(dialogContext).pop();
                 } catch (error) {
                   if (!dialogContext.mounted) return;
-
-                  setDialogState(() {
-                    isCreating = false;
-                  });
-
+                  setDialogState(() => isCreating = false);
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1364,9 +823,9 @@ class _UserAssetLibraryPageState
               }
 
               return AlertDialog(
-                title: const Text(
-                  'Create Company',
-                  style: TextStyle(
+                title: Text(
+                  'Create Company · $section',
+                  style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
@@ -1377,8 +836,7 @@ class _UserAssetLibraryPageState
                   child: SingleChildScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         TextField(
                           controller: controller,
@@ -1387,9 +845,7 @@ class _UserAssetLibraryPageState
                           decoration: const InputDecoration(
                             labelText: 'Company Name',
                             hintText: 'Enter company name',
-                            prefixIcon: Icon(
-                              Icons.business_outlined,
-                            ),
+                            prefixIcon: Icon(Icons.business_outlined),
                           ),
                         ),
                         const SizedBox(height: 18),
@@ -1403,22 +859,17 @@ class _UserAssetLibraryPageState
                         ),
                         const SizedBox(height: 8),
                         Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Container(
                               width: 72,
                               height: 72,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF5F7FA),
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: AppColors.border,
-                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.border),
                               ),
-                              clipBehavior:
-                                  Clip.antiAlias,
+                              clipBehavior: Clip.antiAlias,
                               child: selectedLogoBytes != null
                                   ? Image.memory(
                                       selectedLogoBytes!,
@@ -1427,24 +878,18 @@ class _UserAssetLibraryPageState
                                   : const Icon(
                                       Icons.image_outlined,
                                       size: 30,
-                                      color:
-                                          AppColors.textSecondary,
+                                      color: AppColors.textSecondary,
                                     ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   OutlinedButton.icon(
-                                    onPressed:
-                                        isCreating
-                                            ? null
-                                            : pickLogo,
+                                    onPressed: isCreating ? null : pickLogo,
                                     icon: const Icon(
-                                      Icons
-                                          .cloud_upload_outlined,
+                                      Icons.cloud_upload_outlined,
                                       size: 18,
                                     ),
                                     label: Text(
@@ -1458,12 +903,10 @@ class _UserAssetLibraryPageState
                                     selectedLogoName ??
                                         'Optional. JPG, JPEG, PNG, WEBP or GIF. Maximum 5 MB.',
                                     maxLines: 3,
-                                    overflow:
-                                        TextOverflow.ellipsis,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color:
-                                          AppColors.textSecondary,
+                                      color: AppColors.textSecondary,
                                     ),
                                   ),
                                 ],
@@ -1479,30 +922,22 @@ class _UserAssetLibraryPageState
                   TextButton(
                     onPressed: isCreating
                         ? null
-                        : () =>
-                            Navigator.of(dialogContext).pop(),
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
                   FilledButton.icon(
-                    onPressed:
-                        isCreating ? null : saveCompany,
+                    onPressed: isCreating ? null : saveCompany,
                     icon: isCreating
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child:
-                                CircularProgressIndicator(
+                            child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
                             ),
                           )
-                        : const Icon(
-                            Icons.add_business_outlined,
-                            size: 18,
-                          ),
-                    label: Text(
-                      isCreating ? 'Creating...' : 'Create',
-                    ),
+                        : const Icon(Icons.add_business_outlined, size: 18),
+                    label: Text(isCreating ? 'Creating...' : 'Create'),
                   ),
                 ],
               );
@@ -1511,22 +946,15 @@ class _UserAssetLibraryPageState
         },
       );
 
-      if (!companyCreated || !mounted) {
-        return;
-      }
+      if (!companyCreated || !mounted) return;
 
       await _loadData();
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
-      // Reloading here keeps the new company immediately visible.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Company created successfully.',
-          ),
+          content: Text('Company created successfully.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1535,139 +963,36 @@ class _UserAssetLibraryPageState
     }
   }
 
-  // ============================================================
-  // OPEN COMPANY
-  // ============================================================
-
-  void _openCompany(
-    CompanyModel company,
-    String section,
-  ) {
+  // ── Open company (unchanged) ────────────────────────────────
+  void _openCompany(CompanyModel company, String section) {
     if (widget.onOpenCompany != null) {
       widget.onOpenCompany!(company, section);
       return;
     }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) {
-          return CompanyAssetsPage(
-            company: company,
-            section: section,
-          );
-        },
+        builder: (_) => CompanyAssetsPage(company: company, section: section),
       ),
     );
   }
 
-  // ============================================================
-  // GET COMPANIES
-  // ============================================================
-
-  List<CompanyModel> _getCompanies({
-    required String section,
-    required String filter,
-    required String search,
-  }) {
-    final query = search.trim().toLowerCase();
-
-    final matchingCompanies = <CompanyModel>[];
-
-    for (final company in _companies) {
-      if (company.section != section) {
-        continue;
-      }
-
-      final companyAssets = _assets.where(
-        (asset) {
-          return asset.companyId == company.id &&
-              asset.section == section;
-        },
-      ).toList();
-
-      if (filter != 'All') {
-        final hasMatchingType = companyAssets.any(
-          (asset) => asset.type == filter,
-        );
-
-        if (!hasMatchingType) {
-          continue;
-        }
-      }
-
-      if (query.isNotEmpty) {
-        final companyMatches =
-            company.name.toLowerCase().contains(query);
-
-        final assetMatches = companyAssets.any(
-          (asset) {
-            return asset.name
-                    .toLowerCase()
-                    .contains(query) ||
-                asset.type
-                    .toLowerCase()
-                    .contains(query);
-          },
-        );
-
-        if (!companyMatches && !assetMatches) {
-          continue;
-        }
-      }
-
-      matchingCompanies.add(company);
-    }
-
-    matchingCompanies.sort(
-      (a, b) {
-        return a.name
-            .toLowerCase()
-            .compareTo(
-              b.name.toLowerCase(),
-            );
-      },
-    );
-
-    return matchingCompanies;
-  }
-
-  // ============================================================
-  // GET SECTION ASSETS
-  // ============================================================
-
-  List<AssetModel> _getSectionAssets(
-    String section,
-  ) {
-    return _assets
-        .where(
-          (asset) =>
-              asset.section == section,
-        )
-        .toList();
-  }
-
-  // ============================================================
-  // COMPANY LOGO
-  // ============================================================
-
-  Widget _buildCompanyLogo({
-    required CompanyModel company,
-    required Color color,
-  }) {
+  // ── Company logo (unchanged) ────────────────────────────────
+  Widget _buildCompanyLogo({required CompanyModel company}) {
     final logoUrl = company.logoUrl?.trim();
 
     if (logoUrl == null || logoUrl.isEmpty) {
       return Container(
-        width: 50,
-        height: 50,
+        width: 52,
+        height: 52,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(11),
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
           _companyInitials(company.name),
           style: const TextStyle(
-            fontSize: 15,
+            fontSize: 16,
             fontWeight: FontWeight.w800,
             color: Colors.white,
           ),
@@ -1676,23 +1001,17 @@ class _UserAssetLibraryPageState
     }
 
     final parsed = Uri.tryParse(logoUrl);
-
-    final imageUrl =
-        parsed != null && parsed.hasScheme
-            ? logoUrl
-            : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${
-                logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'
-              }';
+    final imageUrl = parsed != null && parsed.hasScheme
+        ? logoUrl
+        : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'}';
 
     return Container(
-      width: 50,
-      height: 50,
+      width: 52,
+      height: 52,
       decoration: BoxDecoration(
         color: const Color(0xFFF5F7FA),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Image.network(
@@ -1701,11 +1020,11 @@ class _UserAssetLibraryPageState
         errorBuilder: (context, error, stackTrace) {
           return Container(
             alignment: Alignment.center,
-            color: color,
+            color: AppColors.primary,
             child: Text(
               _companyInitials(company.name),
               style: const TextStyle(
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: FontWeight.w800,
                 color: Colors.white,
               ),
@@ -1716,136 +1035,114 @@ class _UserAssetLibraryPageState
     );
   }
 
-  // ============================================================
-  // COMPANY INITIALS
-  // ============================================================
-
-  String _companyInitials(
-    String name,
-  ) {
-    final trimmed =
-        name.trim();
-
-    if (trimmed.isEmpty) {
-      return 'CO';
-    }
-
-    final words =
-        trimmed.split(
-      RegExp(r'\s+'),
-    );
-
+  String _companyInitials(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'CO';
+    final words = trimmed.split(RegExp(r'\s+'));
     if (words.length >= 2) {
-      return (
-        '${words[0][0]}${words[1][0]}'
-      ).toUpperCase();
+      return ('${words[0][0]}${words[1][0]}').toUpperCase();
     }
-
-    if (trimmed.length >= 2) {
-      return trimmed
-          .substring(0, 2)
-          .toUpperCase();
-    }
-
-    return trimmed[0]
-        .toUpperCase();
+    if (trimmed.length >= 2) return trimmed.substring(0, 2).toUpperCase();
+    return trimmed[0].toUpperCase();
   }
 
-  // ============================================================
-  // FILTER LABEL
-  // ============================================================
-
-  String _filterLabel(
-    String filter,
-  ) {
-    switch (filter) {
-      case 'Poster':
-        return 'Posters';
-
-      case 'Reel / Video':
-        return 'Reels / Videos';
-
-      case 'Document':
-        return 'Documents';
-
-      case 'Website Link':
-        return 'Website Links';
-
-      case 'Web Application':
-        return 'Web Applications';
-
-      case 'Mobile Application':
-        return 'Mobile Applications';
-
-      default:
-        return filter;
-    }
+  String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  // ============================================================
-  // EMPTY COMPANY STATE
-  // ============================================================
-
+  // ── Empty + error states ────────────────────────────────────
   Widget _buildEmptyCompanies() {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 30,
-        horizontal: 15,
-      ),
-      decoration:
-          BoxDecoration(
-        color:
-            const Color(0xFFF8FAFD),
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color:
-              AppColors.border,
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
       ),
       child: const Column(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.business_outlined,
-            size: 38,
-            color:
-                AppColors
-                    .textSecondary,
+            size: 44,
+            color: AppColors.textSecondary,
           ),
-
-          SizedBox(height: 10),
-
+          SizedBox(height: 12),
           Text(
             'No companies found',
             style: TextStyle(
-              fontSize: 15,
-              fontWeight:
-                  FontWeight.w700,
-              color:
-                  AppColors
-                      .textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
-
           SizedBox(height: 4),
-
           Text(
             'Try changing the search or filter.',
-            textAlign:
-                TextAlign.center,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Container(
+      color: AppColors.background,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.error_outline,
+            size: 42,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Unable to load assets',
             style: TextStyle(
-              fontSize: 13,
-              color:
-                  AppColors
-                      .textSecondary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _loadError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
           ),
         ],
       ),
     );
   }
 }
+
+

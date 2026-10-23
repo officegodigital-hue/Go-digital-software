@@ -1,26 +1,21 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../services/auth_service.dart';
 import '../services/api_service.dart';
 
 import '../core/theme/app_theme.dart';
 import '../features/user/asset_library/asset_library_page.dart';
 import '../features/user/company_assets/company_assets_page.dart';
+import '../features/user/dashboard/dashboard_page.dart';
+import '../features/user/downloads/downloads_page.dart';
 import '../models/company_model.dart';
-import '../services/download_history.dart';
 
 class UserLayout extends StatefulWidget {
   final VoidCallback onLogout;
 
-  const UserLayout({
-    super.key,
-    required this.onLogout,
-  });
+  const UserLayout({super.key, required this.onLogout});
 
   @override
   State<UserLayout> createState() => _UserLayoutState();
@@ -50,18 +45,16 @@ class _UserLayoutState extends State<UserLayout> {
     });
   }
 
-  final List<String> _pageTitles = const [
-    'Assets',
-    'Downloads',
-    'Profile',
-  ];
-
   // ============================================================
   // DOWNLOAD HISTORY
   // ============================================================
 
   List<Map<String, dynamic>> _downloadHistory = [];
   bool _isLoadingDownloads = false;
+  String? _downloadError;
+  String _downloadSearch = '';
+  final TextEditingController _downloadSearchController =
+      TextEditingController();
 
   // ============================================================
   // PROFILE
@@ -73,8 +66,6 @@ class _UserLayoutState extends State<UserLayout> {
 
   String? _profilePhotoUrl;
   Uint8List? _profilePhotoBytes;
-  bool _isUploadingProfilePhoto = false;
-  String _userRole = 'Employee';
 
   @override
   void initState() {
@@ -97,7 +88,6 @@ class _UserLayoutState extends State<UserLayout> {
       final profile = await ApiService.getMyProfile();
       final name = profile['name']?.toString();
       final email = profile['email']?.toString();
-      final role = profile['role']?.toString();
       final photoUrl = profile['profile_photo_url']?.toString();
 
       if (!mounted) {
@@ -105,16 +95,12 @@ class _UserLayoutState extends State<UserLayout> {
       }
 
       setState(() {
-        _nameController.text =
-            name != null && name.trim().isNotEmpty
-                ? name.trim()
-                : '';
+        _nameController.text = name != null && name.trim().isNotEmpty
+            ? name.trim()
+            : '';
 
         _emailController.text = email?.trim() ?? '';
         _mobileController.text = profile['mobile']?.toString().trim() ?? '';
-        _userRole = role != null && role.trim().isNotEmpty
-            ? role.trim()
-            : 'Employee';
         _profilePhotoUrl = photoUrl != null && photoUrl.trim().isNotEmpty
             ? photoUrl.trim()
             : _profilePhotoUrl;
@@ -130,6 +116,7 @@ class _UserLayoutState extends State<UserLayout> {
     _nameController.dispose();
     _emailController.dispose();
     _mobileController.dispose();
+    _downloadSearchController.dispose();
 
     super.dispose();
   }
@@ -148,10 +135,6 @@ class _UserLayoutState extends State<UserLayout> {
       _openCompany = null;
       _openSection = null;
     });
-
-    if (index == 1) {
-      _loadDownloadHistory();
-    }
   }
 
   Future<void> _loadDownloadHistory() async {
@@ -161,20 +144,32 @@ class _UserLayoutState extends State<UserLayout> {
 
     setState(() {
       _isLoadingDownloads = true;
+      _downloadError = null;
     });
 
     try {
-      final history = await DownloadHistory.getAll();
+      final history = await ApiService.getDownloadLogs();
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _downloadHistory = history;
+        _downloadHistory = history.map<Map<String, dynamic>>((item) {
+          final row = item is Map
+              ? Map<String, dynamic>.from(item)
+              : <String, dynamic>{};
+          return <String, dynamic>{
+            'fileName': row['file_name'],
+            'assetName': row['asset_name'],
+            'companyName': row['company_name'],
+            'assetType': row['asset_type'],
+            'downloadedAt': row['created_at'],
+          };
+        }).toList();
         _isLoadingDownloads = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
@@ -182,8 +177,24 @@ class _UserLayoutState extends State<UserLayout> {
       setState(() {
         _downloadHistory = [];
         _isLoadingDownloads = false;
+        _downloadError = error.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  List<Map<String, dynamic>> get _filteredDownloads {
+    final q = _downloadSearch.trim().toLowerCase();
+    if (q.isEmpty) return _downloadHistory;
+    return _downloadHistory.where((item) {
+      final file = (item['fileName'] ?? '').toString().toLowerCase();
+      final asset = (item['assetName'] ?? '').toString().toLowerCase();
+      final company = (item['companyName'] ?? '').toString().toLowerCase();
+      final type = (item['assetType'] ?? '').toString().toLowerCase();
+      return file.contains(q) ||
+          asset.contains(q) ||
+          company.contains(q) ||
+          type.contains(q);
+    }).toList();
   }
 
   // ============================================================
@@ -218,14 +229,11 @@ class _UserLayoutState extends State<UserLayout> {
           children: [
             _buildMobileTopBar(),
 
-            Expanded(
-              child: _buildPage(),
-            ),
+            Expanded(child: _buildPage()),
           ],
         ),
       ),
-      bottomNavigationBar:
-          _buildMobileBottomNavigation(),
+      bottomNavigationBar: _buildMobileBottomNavigation(),
     );
   }
 
@@ -236,9 +244,7 @@ class _UserLayoutState extends State<UserLayout> {
   Widget _buildMobileTopBar() {
     return Container(
       height: 72,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
       color: Colors.white,
       child: Row(
         children: [
@@ -248,10 +254,8 @@ class _UserLayoutState extends State<UserLayout> {
 
           const Expanded(
             child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Go Digital',
@@ -267,8 +271,7 @@ class _UserLayoutState extends State<UserLayout> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color:
-                        AppColors.textSecondary,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
@@ -292,177 +295,115 @@ class _UserLayoutState extends State<UserLayout> {
   Widget _buildDesktopLayout() {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Row(
+      body: Column(
         children: [
-          _buildDesktopSidebar(),
-
-          Expanded(
-            child: Column(
-              children: [
-                _buildDesktopTopBar(),
-
-                Expanded(
-                  child: _buildPage(),
-                ),
-              ],
-            ),
-          ),
+          _buildDesktopTopNav(),
+          Expanded(child: _buildPage()),
         ],
       ),
     );
   }
 
   // ============================================================
-  // DESKTOP SIDEBAR
+  // DESKTOP TOP NAVIGATION BAR
   // ============================================================
 
-  Widget _buildDesktopSidebar() {
+  Widget _buildDesktopTopNav() {
+    const navItems = [(0, 'Dashboard'), (1, 'Assets'), (2, 'Downloads')];
+
     return Container(
-      width: 250,
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          right: BorderSide(
-            color: AppColors.border,
-          ),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          const SizedBox(height: 24),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 20,
-            ),
-            child: Row(
-              children: [
-                _buildLogo(),
-
-                const SizedBox(width: 10),
-
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Go Digital',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight:
-                              FontWeight.w800,
-                          color:
-                              AppColors.primary,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'User Portal',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight:
-                              FontWeight.w600,
-                          color: AppColors
-                              .textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          // Logo (left)
+          _buildLogo(),
+          const SizedBox(width: 10),
+          const Text(
+            'Go Digital',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.primary,
             ),
           ),
 
-          const SizedBox(height: 32),
-
+          // Centered tabs
           Expanded(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 14,
-              ),
-              child: Column(
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ASSETS
-                  _buildDesktopNavItem(
-                    index: 0,
-                    icon: Icons.folder_outlined,
-                    selectedIcon: Icons.folder,
-                    title: 'Assets',
-                  ),
-
-                  // DOWNLOADS
-                  _buildDesktopNavItem(
-                    index: 1,
-                    icon:
-                        Icons.download_outlined,
-                    selectedIcon:
-                        Icons.download,
-                    title: 'Downloads',
-                  ),
-
-                  // PROFILE
-                  _buildDesktopNavItem(
-                    index: 2,
-                    icon: Icons.person_outline,
-                    selectedIcon: Icons.person,
-                    title: 'Profile',
-                  ),
+                  for (final item in navItems) ...[
+                    _buildTopNavTab(index: item.$1, label: item.$2),
+                    const SizedBox(width: 6),
+                  ],
                 ],
               ),
             ),
           ),
 
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: _buildLogoutButton(),
-          ),
-
-          const SizedBox(height: 10),
+          // Right actions
+          _buildNotificationButton(),
+          const SizedBox(width: 12),
+          _buildDesktopUserInfo(),
+          const SizedBox(width: 12),
+          _buildAvatarMenu(),
         ],
       ),
     );
   }
 
-  // ============================================================
-  // DESKTOP TOP BAR
-  // ============================================================
-
-  Widget _buildDesktopTopBar() {
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 24,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(
-            color: AppColors.border,
+  Widget _buildTopNavTab({required int index, required String label}) {
+    final selected = _selectedIndex == index;
+    return Material(
+      color: selected ? const Color(0xFFEFF6FF) : Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _selectPage(index),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? AppColors.primary : AppColors.textSecondary,
+            ),
           ),
         ),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              _pageTitles[_selectedIndex],
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
+    );
+  }
+
+  Widget _buildAvatarMenu() {
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      offset: const Offset(0, 50),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) {
+        if (value == 'logout') {
+          _confirmLogout();
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 19, color: AppColors.danger),
+              SizedBox(width: 10),
+              Text('Logout', style: TextStyle(color: AppColors.danger)),
+            ],
           ),
-
-          _buildNotificationButton(),
-
-          const SizedBox(width: 12),
-
-          _buildDesktopUserInfo(),
-        ],
-      ),
+        ),
+      ],
+      child: _buildAvatar(size: 38, fontSize: 15),
     );
   }
 
@@ -527,8 +468,7 @@ class _UserLayoutState extends State<UserLayout> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius:
-            BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12),
         onTap: _showNotifications,
         child: SizedBox(
           width: 42,
@@ -537,8 +477,7 @@ class _UserLayoutState extends State<UserLayout> {
             children: [
               const Center(
                 child: Icon(
-                  Icons
-                      .notifications_none_outlined,
+                  Icons.notifications_none_outlined,
                   size: 25,
                   color: AppColors.primary,
                 ),
@@ -550,8 +489,7 @@ class _UserLayoutState extends State<UserLayout> {
                 child: Container(
                   width: 8,
                   height: 8,
-                  decoration:
-                      const BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: Colors.red,
                     shape: BoxShape.circle,
                   ),
@@ -569,16 +507,10 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildUserAvatar() {
-    return _buildAvatar(
-      size: 42,
-      fontSize: 18,
-    );
+    return _buildAvatar(size: 42, fontSize: 18);
   }
 
-  Widget _buildAvatar({
-    required double size,
-    required double fontSize,
-  }) {
+  Widget _buildAvatar({required double size, required double fontSize}) {
     final photoBytes = _profilePhotoBytes;
     final photoUrl = _profilePhotoUrl;
 
@@ -599,191 +531,41 @@ class _UserLayoutState extends State<UserLayout> {
               fit: BoxFit.cover,
             )
           : photoUrl != null && photoUrl.isNotEmpty
-              ? Image.network(
-                  _profilePhotoNetworkUrl(photoUrl),
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Text(
-                    'U',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: fontSize,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                )
-              : Text(
-                  _initialsFromName(_nameController.text),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w700,
-                  ),
+          ? Image.network(
+              _profilePhotoNetworkUrl(photoUrl),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Text(
+                'U',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w700,
                 ),
+              ),
+            )
+          : Text(
+              _initialsFromName(_nameController.text),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
     );
   }
 
   String _initialsFromName(String value) {
-    final parts = value.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    final parts = value
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return 'U';
     return parts.length == 1
         ? parts.first.substring(0, 1).toUpperCase()
         : '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-  }
-
-  bool get _hasProfilePhoto =>
-      _profilePhotoBytes != null || (_profilePhotoUrl?.trim().isNotEmpty ?? false);
-
-  void _showProfilePhotoPreview() {
-    if (!_hasProfilePhoto) {
-      _showMessage('No profile photo is available yet.');
-      return;
-    }
-
-    final photoBytes = _profilePhotoBytes;
-    final photoUrl = _profilePhotoUrl?.trim();
-    final name = _nameController.text.trim().isEmpty
-        ? 'Profile photo'
-        : _nameController.text.trim();
-
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.66),
-      builder: (dialogContext) {
-        final screen = MediaQuery.sizeOf(dialogContext);
-        final photoSize = (screen.shortestSide * 0.62).clamp(220.0, 420.0).toDouble();
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.all(24),
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.topCenter,
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: photoSize,
-                    height: photoSize,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: const [
-                        BoxShadow(color: Colors.black38, blurRadius: 28, offset: Offset(0, 12)),
-                      ],
-                    ),
-                    child: photoBytes != null
-                        ? Image.memory(photoBytes, fit: BoxFit.cover)
-                        : Image.network(
-                            _profilePhotoNetworkUrl(photoUrl!),
-                            fit: BoxFit.cover,
-                            loadingBuilder: (context, child, progress) => progress == null
-                                ? child
-                                : const Center(child: CircularProgressIndicator(color: Colors.white)),
-                            errorBuilder: (context, error, stackTrace) => const ColoredBox(
-                              color: AppColors.textSecondary,
-                              child: Center(
-                                child: Icon(Icons.broken_image_outlined, size: 48, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                  ),
-                  const SizedBox(height: 22),
-                  Text(
-                    name,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    _userRole,
-                    style: const TextStyle(color: Color(0xFFD8E1F1), fontSize: 15),
-                  ),
-                  const SizedBox(height: 22),
-                  TextButton.icon(
-                    onPressed: _isUploadingProfilePhoto
-                        ? null
-                        : () async {
-                            Navigator.of(dialogContext).pop();
-                            await _confirmAndRemoveProfilePhoto();
-                          },
-                    icon: const Icon(Icons.delete_outline_rounded, size: 19),
-                    label: const Text('Remove photo'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFFF7D7D),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                    ),
-                  ),
-                ],
-              ),
-              Positioned(
-                right: -8,
-                top: -8,
-                child: Material(
-                  color: const Color(0x33111C2E),
-                  shape: const CircleBorder(),
-                  child: IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _confirmAndRemoveProfilePhoto() async {
-    final shouldRemove = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove profile photo?'),
-        content: const Text('Your profile will show your initials until you upload another photo.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldRemove != true || !mounted) return;
-
-    setState(() => _isUploadingProfilePhoto = true);
-    try {
-      await ApiService.removeProfilePhoto();
-      await context.read<AuthService>().updateProfileCache({
-        'name': _nameController.text.trim(),
-        'fullName': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'profile_photo_url': null,
-      });
-      final email = await ApiService.getLoggedInUserEmail();
-      if (email != null && email.trim().isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(_profilePhotoStorageKey(email));
-      }
-      if (!mounted) return;
-      setState(() {
-        _profilePhotoBytes = null;
-        _profilePhotoUrl = null;
-        _isUploadingProfilePhoto = false;
-      });
-      _showMessage('Profile photo removed');
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isUploadingProfilePhoto = false);
-      _showMessage(error.toString().replaceFirst('Exception: ', ''));
-    }
   }
 
   // ============================================================
@@ -797,8 +579,7 @@ class _UserLayoutState extends State<UserLayout> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color:
-                Colors.black.withValues(alpha: 0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 12,
             offset: const Offset(0, -2),
           ),
@@ -808,9 +589,17 @@ class _UserLayoutState extends State<UserLayout> {
         top: false,
         child: Row(
           children: [
-            // ASSETS
+            // DASHBOARD
             _buildBottomNavItem(
               index: 0,
+              icon: Icons.grid_view_outlined,
+              selectedIcon: Icons.grid_view_rounded,
+              label: 'Dashboard',
+            ),
+
+            // ASSETS
+            _buildBottomNavItem(
+              index: 1,
               icon: Icons.folder_outlined,
               selectedIcon: Icons.folder,
               label: 'Assets',
@@ -818,18 +607,10 @@ class _UserLayoutState extends State<UserLayout> {
 
             // DOWNLOADS
             _buildBottomNavItem(
-              index: 1,
+              index: 2,
               icon: Icons.download_outlined,
               selectedIcon: Icons.download,
               label: 'Downloads',
-            ),
-
-            // PROFILE
-            _buildBottomNavItem(
-              index: 2,
-              icon: Icons.person_outline,
-              selectedIcon: Icons.person,
-              label: 'Profile',
             ),
           ],
         ),
@@ -847,8 +628,7 @@ class _UserLayoutState extends State<UserLayout> {
     required IconData selectedIcon,
     required String label,
   }) {
-    final selected =
-        _selectedIndex == index;
+    final selected = _selectedIndex == index;
 
     return Expanded(
       child: InkWell(
@@ -858,17 +638,12 @@ class _UserLayoutState extends State<UserLayout> {
         child: SizedBox(
           height: 76,
           child: Column(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                selected
-                    ? selectedIcon
-                    : icon,
+                selected ? selectedIcon : icon,
                 size: 25,
-                color: selected
-                    ? AppColors.primary
-                    : AppColors.textSecondary,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
               ),
 
               const SizedBox(height: 4),
@@ -877,129 +652,8 @@ class _UserLayoutState extends State<UserLayout> {
                 label,
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: selected
-                      ? FontWeight.w800
-                      : FontWeight.w600,
-                  color: selected
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // DESKTOP NAV ITEM
-  // ============================================================
-
-  Widget _buildDesktopNavItem({
-    required int index,
-    required IconData icon,
-    required IconData selectedIcon,
-    required String title,
-  }) {
-    final selected =
-        _selectedIndex == index;
-
-    return Padding(
-      padding:
-          const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: selected
-            ? const Color(0xFFEAF2FF)
-            : Colors.transparent,
-        borderRadius:
-            BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius:
-              BorderRadius.circular(10),
-          onTap: () {
-            _selectPage(index);
-          },
-          child: Container(
-            height: 48,
-            padding:
-                const EdgeInsets.symmetric(
-              horizontal: 14,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  selected
-                      ? selectedIcon
-                      : icon,
-                  size: 22,
-                  color: selected
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                ),
-
-                const SizedBox(width: 12),
-
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: selected
-                        ? FontWeight.w700
-                        : FontWeight.w600,
-                    color: selected
-                        ? AppColors.primary
-                        : AppColors.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // LOGOUT BUTTON
-  // ============================================================
-
-  Widget _buildLogoutButton() {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius:
-            BorderRadius.circular(10),
-        onTap: _confirmLogout,
-        child: Container(
-          height: 46,
-          padding:
-              const EdgeInsets.symmetric(
-            horizontal: 14,
-          ),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: AppColors.border,
-            ),
-            borderRadius:
-                BorderRadius.circular(10),
-          ),
-          child: const Row(
-            children: [
-              Icon(
-                Icons.logout,
-                size: 20,
-                color: AppColors.danger,
-              ),
-
-              SizedBox(width: 10),
-
-              Text(
-                'Logout',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.danger,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
                 ),
               ),
             ],
@@ -1014,7 +668,7 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildPage() {
-    if (_selectedIndex == 0 && _openCompany != null) {
+    if (_selectedIndex == 1 && _openCompany != null) {
       return CompanyAssetsPage(
         key: ValueKey(_openCompany!.id + (_openSection ?? '')),
         company: _openCompany!,
@@ -1024,15 +678,15 @@ class _UserLayoutState extends State<UserLayout> {
     }
     switch (_selectedIndex) {
       case 0:
-        return UserAssetLibraryPage(onOpenCompany: _handleOpenCompany);
+        // Dashboard — tapping a section card jumps to the Assets library.
+        return UserDashboardPage(onOpenSection: (_) => _selectPage(1));
 
       case 1:
-        // Downloads
-        return _buildDownloadsPage();
+        return UserAssetLibraryPage(onOpenCompany: _handleOpenCompany);
 
       case 2:
-        // Profile
-        return _buildProfilePage();
+        // The API-backed page reads the server download log for this employee.
+        return const DownloadsPage();
 
       default:
         return const UserAssetLibraryPage();
@@ -1044,116 +698,470 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildDownloadsPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 1050,
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final mobile = constraints.maxWidth < 760;
+        final pad = mobile ? 16.0 : 28.0;
+        final total = _downloadHistory.length;
+        final rows = _filteredDownloads;
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(pad, mobile ? 20 : 28, pad, 36),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Downloads',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
+              // Header
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'My Downloads',
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Your downloaded files from the asset library.',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingDownloads
+                        ? null
+                        : _loadDownloadHistory,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Refresh'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
-              const SizedBox(height: 6),
+              const SizedBox(height: 22),
 
-              const Text(
-                'Your downloaded assets will appear here.',
-                style: TextStyle(
-                  fontSize: 15,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-
-              const SizedBox(height: 26),
-
+              // Summary card
               Container(
-                width: double.infinity,
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.border,
-                  ),
+                  border: Border.all(color: AppColors.border),
                 ),
-                child: _isLoadingDownloads
-                    ? const Padding(
-                        padding: EdgeInsets.all(60),
-                        child: Center(
-                          child: CircularProgressIndicator(),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEFF6FF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.download_rounded,
+                        size: 26,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Total Downloads',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$total',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                            height: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Files available in your history',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Search
+              Container(
+                height: 52,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.search,
+                      size: 20,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _downloadSearchController,
+                        onChanged: (v) => setState(() => _downloadSearch = v),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textPrimary,
+                        ),
+                        decoration: const InputDecoration(
+                          isCollapsed: true,
+                          border: InputBorder.none,
+                          hintText: 'Search file, asset or company...',
+                          hintStyle: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_downloadSearch.isNotEmpty)
+                      InkWell(
+                        onTap: () {
+                          _downloadSearchController.clear();
+                          setState(() => _downloadSearch = '');
+                        },
+                        child: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Body states
+              if (_isLoadingDownloads)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 70),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_downloadError != null)
+                _buildDownloadsError()
+              else if (_downloadHistory.isEmpty)
+                _buildDownloadsEmpty(
+                  icon: Icons.download_outlined,
+                  title: 'No downloads recorded yet.',
+                  message: 'Assets that you download will be listed here.',
+                )
+              else if (rows.isEmpty)
+                _buildDownloadsEmpty(
+                  icon: Icons.search_off_outlined,
+                  title: 'No matching download records found.',
+                  message: 'Try a different file, asset or company name.',
+                )
+              else if (mobile)
+                Column(
+                  children: rows
+                      .map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildDownloadCard(item),
                         ),
                       )
-                    : _downloadHistory.isEmpty
-                        ? _buildEmptyDownloads()
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _downloadHistory.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              return _buildDownloadItem(
-                                _downloadHistory[index],
-                              );
-                            },
-                          ),
-              ),
+                      .toList(),
+                )
+              else
+                _buildDownloadsTable(rows),
             ],
           ),
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDownloadsTable(List<Map<String, dynamic>> rows) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            color: const Color(0xFFF8FAFC),
+            child: Row(
+              children: const [
+                Expanded(flex: 26, child: _DlHead('File')),
+                Expanded(flex: 24, child: _DlHead('Asset')),
+                Expanded(flex: 20, child: _DlHead('Company')),
+                Expanded(flex: 14, child: _DlHead('Type')),
+                Expanded(flex: 16, child: _DlHead('Downloaded at')),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          for (int i = 0; i < rows.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            _buildDownloadRow(rows[i]),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _buildEmptyDownloads() {
+  Widget _buildDownloadRow(Map<String, dynamic> item) {
+    final fileName = item['fileName']?.toString() ?? 'Downloaded file';
+    final assetName = item['assetName']?.toString() ?? '—';
+    final companyName = item['companyName']?.toString() ?? '—';
+    final assetType = item['assetType']?.toString() ?? '';
+    final downloadedAt = DateTime.tryParse(
+      item['downloadedAt']?.toString() ?? '',
+    );
+
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            flex: 26,
+            child: Row(
+              children: [
+                _downloadFileIcon(fileName, assetType),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 24,
+            child: Text(
+              assetName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 20,
+            child: Text(
+              companyName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          Expanded(flex: 14, child: _downloadTypeBadge(fileName, assetType)),
+          Expanded(
+            flex: 16,
+            child: Text(
+              downloadedAt != null ? _formatDownloadDate(downloadedAt) : '—',
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDownloadCard(Map<String, dynamic> item) {
+    final fileName = item['fileName']?.toString() ?? 'Downloaded file';
+    final assetName = item['assetName']?.toString() ?? '';
+    final companyName = item['companyName']?.toString() ?? '';
+    final assetType = item['assetType']?.toString() ?? '';
+    final downloadedAt = DateTime.tryParse(
+      item['downloadedAt']?.toString() ?? '',
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _downloadFileIcon(fileName, assetType),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    if (assetName.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        assetName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              _downloadTypeBadge(fileName, assetType),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(
+                Icons.business_outlined,
+                size: 15,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  companyName.isEmpty ? '—' : companyName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.schedule,
+                size: 15,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                downloadedAt != null ? _formatDownloadDate(downloadedAt) : '—',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDownloadsEmpty({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         children: [
           Container(
-            width: 82,
-            height: 82,
+            width: 72,
+            height: 72,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFFEAF2FF),
+              color: Color(0xFFEFF6FF),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.download_outlined,
-              size: 38,
-              color: AppColors.primary,
-            ),
+            child: Icon(icon, size: 34, color: AppColors.primary),
           ),
-
-          const SizedBox(height: 18),
-
-          const Text(
-            'No Downloads Yet',
-            style: TextStyle(
-              fontSize: 24,
+          const SizedBox(height: 16),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
               fontWeight: FontWeight.w800,
               color: AppColors.textPrimary,
             ),
           ),
-
-          const SizedBox(height: 8),
-
-          const Text(
-            'Assets that you download will be listed here.',
+          const SizedBox(height: 6),
+          Text(
+            message,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textSecondary,
             ),
@@ -1163,507 +1171,212 @@ class _UserLayoutState extends State<UserLayout> {
     );
   }
 
-  Widget _buildDownloadItem(Map<String, dynamic> item) {
-    final fileName = item['fileName']?.toString() ?? 'Downloaded file';
-    final assetName = item['assetName']?.toString() ?? '';
-    final assetType = item['assetType']?.toString() ?? '';
-    final companyName = item['companyName']?.toString() ?? '';
-    final downloadedAt = DateTime.tryParse(
-      item['downloadedAt']?.toString() ?? '',
-    );
-
+  Widget _buildDownloadsError() {
     return Container(
-      padding: const EdgeInsets.all(15),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 50, horizontal: 20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.all(
-                Radius.circular(10),
-              ),
-            ),
-            child: const Icon(
-              Icons.insert_drive_file_outlined,
-              color: AppColors.primary,
-              size: 25,
+          const Icon(Icons.error_outline, size: 44, color: Colors.redAccent),
+          const SizedBox(height: 12),
+          const Text(
+            'Unable to load downloads',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
-
-          const SizedBox(width: 13),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-
-                if (assetName.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    assetName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 6),
-
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (companyName.isNotEmpty)
-                      _buildDownloadMeta(companyName),
-                    if (assetType.isNotEmpty)
-                      _buildDownloadMeta(assetType),
-                    if (downloadedAt != null)
-                      _buildDownloadMeta(
-                        _formatDownloadDate(downloadedAt),
-                      ),
-                  ],
-                ),
-              ],
+          const SizedBox(height: 6),
+          Text(
+            _downloadError ?? 'Something went wrong.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
             ),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: _loadDownloadHistory,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Try Again'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDownloadMeta(String text) {
+  // File extension helpers for download rows.
+  String _downloadExt(String fileName) {
+    final clean = fileName.split('?').first;
+    final dot = clean.lastIndexOf('.');
+    if (dot < 0 || dot == clean.length - 1) return '';
+    return clean.substring(dot + 1).toLowerCase();
+  }
+
+  static const _dlImageExts = {
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'bmp',
+    'svg',
+    'heic',
+    'avif',
+  };
+  static const _dlVideoExts = {
+    'mp4',
+    'mov',
+    'avi',
+    'mkv',
+    'webm',
+    'm4v',
+    'mpeg',
+    'mpg',
+    '3gp',
+  };
+  static const _dlArchiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
+  static const _dlAppExts = {'apk', 'aab', 'ipa'};
+
+  Widget _downloadFileIcon(String fileName, String assetType) {
+    final ext = _downloadExt(fileName);
+    IconData icon;
+    Color color;
+    Color bg;
+    if (ext == 'pdf') {
+      icon = Icons.picture_as_pdf_rounded;
+      color = const Color(0xFFDC2626);
+      bg = const Color(0xFFFDE7EC);
+    } else if (_dlArchiveExts.contains(ext)) {
+      icon = Icons.folder_zip_outlined;
+      color = const Color(0xFFB45309);
+      bg = const Color(0xFFFEF3C7);
+    } else if (_dlAppExts.contains(ext)) {
+      icon = Icons.android;
+      color = const Color(0xFF16A34A);
+      bg = const Color(0xFFE7F8EF);
+    } else if (_dlImageExts.contains(ext)) {
+      icon = Icons.image_outlined;
+      color = AppColors.primary;
+      bg = const Color(0xFFEFF6FF);
+    } else if (_dlVideoExts.contains(ext)) {
+      icon = Icons.play_circle_outline;
+      color = const Color(0xFF7C3AED);
+      bg = const Color(0xFFEDE9FE);
+    } else if (assetType == 'Web Application' || assetType == 'Website Links') {
+      icon = Icons.language_outlined;
+      color = AppColors.primary;
+      bg = const Color(0xFFEFF6FF);
+    } else {
+      icon = Icons.insert_drive_file_outlined;
+      color = AppColors.textSecondary;
+      bg = const Color(0xFFF1F5F9);
+    }
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 4,
-      ),
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        color: bg,
+        borderRadius: BorderRadius.circular(9),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textSecondary,
+      child: Icon(icon, size: 18, color: color),
+    );
+  }
+
+  Widget _downloadTypeBadge(String fileName, String assetType) {
+    final ext = _downloadExt(fileName);
+    String label;
+    Color bg;
+    Color fg;
+    if (ext == 'pdf') {
+      label = 'PDF';
+      bg = const Color(0xFFFDE7EC);
+      fg = const Color(0xFFDC2626);
+    } else if (_dlArchiveExts.contains(ext)) {
+      label = 'Archive';
+      bg = const Color(0xFFFEF3C7);
+      fg = const Color(0xFFB45309);
+    } else if (_dlAppExts.contains(ext)) {
+      label = 'App';
+      bg = const Color(0xFFE7F8EF);
+      fg = const Color(0xFF16A34A);
+    } else if (_dlVideoExts.contains(ext) || assetType == 'Reels / Videos') {
+      label = 'Video';
+      bg = const Color(0xFFEDE9FE);
+      fg = const Color(0xFF7C3AED);
+    } else if (_dlImageExts.contains(ext) || assetType == 'Posters') {
+      label = assetType == 'Posters' ? 'Poster' : 'Image';
+      bg = const Color(0xFFEFF6FF);
+      fg = AppColors.primary;
+    } else if (assetType == 'Web Application') {
+      label = 'Web App';
+      bg = const Color(0xFFDBEAFE);
+      fg = const Color(0xFF2563EB);
+    } else if (assetType == 'Mobile Application') {
+      label = 'Mobile App';
+      bg = const Color(0xFFEDE9FE);
+      fg = const Color(0xFF7C3AED);
+    } else if (assetType == 'Documents') {
+      label = 'Document';
+      bg = const Color(0xFFE7F8EF);
+      fg = const Color(0xFF15803D);
+    } else {
+      label = assetType.isNotEmpty ? assetType : 'File';
+      bg = const Color(0xFFF1F5F9);
+      fg = AppColors.textSecondary;
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: fg,
+          ),
         ),
       ),
     );
   }
 
   String _formatDownloadDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final local = date.toLocal();
-    final day = local.day.toString().padLeft(2, '0');
-    final month = local.month.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$day/$month/${local.year} $hour:$minute';
-  }
-
-  // ============================================================
-  // PROFILE PAGE
-  // ============================================================
-
-  Widget _buildProfilePage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          // ======================================================
-          // PROFILE INFORMATION CARD
-          // ======================================================
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(16),
-              border: Border.all(
-                color: AppColors.border,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                // ==================================================
-                // PROFILE HEADER
-                // ==================================================
-
-                Center(
-                  child: Column(
-                    children: [
-                      Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          Semantics(
-                            button: true,
-                            label: 'View profile photo',
-                            child: GestureDetector(
-                              onTap: _showProfilePhotoPreview,
-                              child: _buildAvatar(
-                                size: 82,
-                                fontSize: 32,
-                              ),
-                            ),
-                          ),
-                          Material(
-                            color: Colors.white,
-                            shape: const CircleBorder(),
-                            elevation: 2,
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: _isUploadingProfilePhoto
-                                  ? null
-                                  : _pickAndUploadProfilePhoto,
-                              child: Padding(
-                                padding: const EdgeInsets.all(7),
-                                child: _isUploadingProfilePhoto
-                                    ? const SizedBox(
-                                        width: 17,
-                                        height: 17,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.camera_alt_outlined,
-                                        size: 17,
-                                        color: AppColors.primary,
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      if (false)
-                        OutlinedButton.icon(
-                        onPressed: _isUploadingProfilePhoto
-                            ? null
-                            : _pickAndUploadProfilePhoto,
-                        icon: const Icon(
-                          Icons.upload_outlined,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Change Photo',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 40),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      const Text(
-                        'My Profile',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight:
-                              FontWeight.w800,
-                          color:
-                              AppColors.textPrimary,
-                        ),
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      const Text(
-                        'Update your account information',
-                        textAlign:
-                            TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color:
-                              AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 28),
-
-                // ==================================================
-                // NAME
-                // ==================================================
-
-                _buildProfileField(
-                  label: 'Name',
-                  controller: _nameController,
-                  icon: Icons.person_outline,
-                  hint: 'Enter your name',
-                  keyboardType:
-                      TextInputType.name,
-                ),
-
-                const SizedBox(height: 18),
-
-                // ==================================================
-                // EMAIL
-                // ==================================================
-
-                _buildProfileField(
-                  label: 'Email',
-                  controller: _emailController,
-                  icon: Icons.email_outlined,
-                  hint: 'Enter your email',
-                  keyboardType:
-                      TextInputType.emailAddress,
-                ),
-
-                const SizedBox(height: 18),
-
-                // ==================================================
-                // MOBILE
-                // ==================================================
-
-                _buildProfileField(
-                  label: 'Mobile Number',
-                  controller:
-                      _mobileController,
-                  icon: Icons.phone_outlined,
-                  hint: 'Enter mobile number',
-                  keyboardType:
-                      TextInputType.phone,
-                ),
-
-                const SizedBox(height: 24),
-
-                // ==================================================
-                // UPDATE PROFILE BUTTON
-                // ==================================================
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: FilledButton.icon(
-                    onPressed:
-                        _updateProfile,
-                    icon: const Icon(
-                      Icons.save_outlined,
-                    ),
-                    label: const Text(
-                      'Update Profile',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          // ========================================================
-          // ACCOUNT / LOGOUT CARD
-          // ========================================================
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(16),
-              border: Border.all(
-                color: AppColors.border,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Account',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight:
-                        FontWeight.w800,
-                    color:
-                        AppColors.textPrimary,
-                  ),
-                ),
-
-                const SizedBox(height: 5),
-
-                const Text(
-                  'Sign out of your Go Digital account.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color:
-                        AppColors.textSecondary,
-                  ),
-                ),
-
-                const SizedBox(height: 15),
-
-                // ==================================================
-                // MOBILE LOGOUT BUTTON
-                // ==================================================
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        _confirmLogout,
-                    icon: const Icon(
-                      Icons.logout,
-                      color:
-                          AppColors.danger,
-                    ),
-                    label: const Text(
-                      'Logout',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            FontWeight.w700,
-                        color:
-                            AppColors.danger,
-                      ),
-                    ),
-                    style:
-                        OutlinedButton.styleFrom(
-                      side: const BorderSide(
-                        color:
-                            AppColors.danger,
-                      ),
-                      shape:
-                          RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(
-                          10,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // PROFILE FIELD
-  // ============================================================
-
-  Widget _buildProfileField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    required String hint,
-    required TextInputType keyboardType,
-  }) {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
-        ),
-
-        const SizedBox(height: 7),
-
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: Icon(icon),
-
-            contentPadding:
-                const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 14,
-            ),
-
-            border: OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(10),
-            ),
-
-            enabledBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(10),
-              borderSide:
-                  const BorderSide(
-                color: AppColors.border,
-              ),
-            ),
-
-            focusedBorder:
-                OutlineInputBorder(
-              borderRadius:
-                  BorderRadius.circular(10),
-              borderSide:
-                  const BorderSide(
-                color: AppColors.primary,
-                width: 1.5,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    int hour = local.hour % 12;
+    if (hour == 0) hour = 12;
+    final min = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.day} ${months[local.month - 1]} ${local.year} '
+        '${hour.toString().padLeft(2, '0')}:$min $ampm';
   }
 
   // ============================================================
@@ -1693,209 +1406,23 @@ class _UserLayoutState extends State<UserLayout> {
     }
   }
 
-  Future<void> _pickAndUploadProfilePhoto() async {
-    if (_isUploadingProfilePhoto) {
-      return;
-    }
-
-    try {
-      final selection = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowMultiple: false,
-        withData: true,
-        allowedExtensions: const [
-          'jpg',
-          'jpeg',
-          'png',
-          'webp',
-        ],
-      );
-
-      final file = selection != null && selection.files.isNotEmpty
-          ? selection.files.first
-          : null;
-      final bytes = file?.bytes;
-      if (file == null || bytes == null) {
-        return;
-      }
-
-      if (bytes.isEmpty) {
-        _showMessage('Unable to read the selected photo');
-        return;
-      }
-
-      if (bytes.length > 5 * 1024 * 1024) {
-        _showMessage('Profile photo must be 5 MB or smaller');
-        return;
-      }
-
-      final fileName = file.name.trim();
-      final lastDot = fileName.lastIndexOf('.');
-
-      final extension = lastDot >= 0 && lastDot < fileName.length - 1
-          ? fileName.substring(lastDot + 1).toLowerCase()
-          : '';
-
-      if (!const ['jpg', 'jpeg', 'png', 'webp'].contains(extension)) {
-        _showMessage(
-          'Only JPG, JPEG, PNG and WEBP photos are allowed',
-        );
-        return;
-      }
-
-      setState(() {
-        _isUploadingProfilePhoto = true;
-        _profilePhotoBytes = bytes;
-      });
-
-      final user = await ApiService.uploadProfilePhoto(
-        photoBytes: bytes,
-        fileName: file.name,
-      );
-
-      final returnedUrl = user['profile_photo_url']?.toString().trim();
-
-      if (returnedUrl == null || returnedUrl.isEmpty) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _profilePhotoBytes = null;
-          _isUploadingProfilePhoto = false;
-        });
-        _showMessage('Photo uploaded, but the server did not return a photo URL');
-        return;
-      }
-
-      final email = await ApiService.getLoggedInUserEmail();
-      if (email != null && email.trim().isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(
-          _profilePhotoStorageKey(email),
-          returnedUrl,
-        );
-      }
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _profilePhotoUrl = returnedUrl;
-        _profilePhotoBytes = null;
-        _isUploadingProfilePhoto = false;
-      });
-
-      _showMessage('Profile photo updated successfully');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _profilePhotoBytes = null;
-        _isUploadingProfilePhoto = false;
-      });
-
-      final message = error.toString().replaceFirst('Exception: ', '').trim();
-      _showMessage(
-        message.isEmpty ? 'Unable to upload profile photo' : message,
-      );
-    }
-  }
-
   String _profilePhotoStorageKey(String email) {
     return 'profile_photo_url_${email.trim().toLowerCase()}';
   }
 
   String _profilePhotoNetworkUrl(String value) {
     final trimmed = value.trim();
-
-    if (trimmed.startsWith('http://') ||
-        trimmed.startsWith('https://')) {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return trimmed;
     }
-
     final apiUri = Uri.parse(ApiService.baseUrl);
     final origin = Uri(
       scheme: apiUri.scheme,
       host: apiUri.host,
       port: apiUri.hasPort ? apiUri.port : null,
     );
-
     final path = trimmed.startsWith('/') ? trimmed : '/$trimmed';
     return origin.resolve(path).toString();
-  }
-
-  // ============================================================
-  // UPDATE PROFILE
-  // ============================================================
-
-  Future<void> _updateProfile() async {
-    final name =
-        _nameController.text.trim();
-    final email =
-        _emailController.text.trim();
-    final mobile =
-        _mobileController.text.trim();
-
-    if (name.isEmpty) {
-      _showMessage(
-        'Name is required',
-      );
-      return;
-    }
-
-    if (email.isEmpty) {
-      _showMessage(
-        'Email is required',
-      );
-      return;
-    }
-
-    if (mobile.isEmpty) {
-      _showMessage(
-        'Mobile number is required',
-      );
-      return;
-    }
-
-    FocusScope.of(context).unfocus();
-    try {
-      final profile = await ApiService.updateMyProfile(
-        name: name,
-        email: email,
-        mobile: mobile,
-      );
-      if (!mounted) return;
-      await context.read<AuthService>().updateProfileCache(profile);
-      if (!mounted) return;
-      setState(() {
-        _nameController.text = profile['name']?.toString() ?? name;
-        _emailController.text = profile['email']?.toString() ?? email;
-        _mobileController.text = profile['mobile']?.toString() ?? mobile;
-      });
-      _showMessage('Profile updated across your GoDigital workspaces.');
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage(error.toString().replaceFirst('Exception: ', ''));
-    }
-  }
-
-  // ============================================================
-  // SHOW MESSAGE
-  // ============================================================
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior:
-              SnackBarBehavior.floating,
-        ),
-      );
   }
 
   // ============================================================
@@ -1906,22 +1433,16 @@ class _UserLayoutState extends State<UserLayout> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
-      shape:
-          const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(
-          top: Radius.circular(20),
-        ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
-              mainAxisSize:
-                  MainAxisSize.min,
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
@@ -1930,23 +1451,17 @@ class _UserLayoutState extends State<UserLayout> {
                         'Notifications',
                         style: TextStyle(
                           fontSize: 20,
-                          fontWeight:
-                              FontWeight.w800,
-                          color:
-                              AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ),
 
                     IconButton(
                       onPressed: () {
-                        Navigator.pop(
-                          context,
-                        );
+                        Navigator.pop(context);
                       },
-                      icon: const Icon(
-                        Icons.close,
-                      ),
+                      icon: const Icon(Icons.close),
                     ),
                   ],
                 ),
@@ -1955,24 +1470,16 @@ class _UserLayoutState extends State<UserLayout> {
 
                 Container(
                   width: double.infinity,
-                  padding:
-                      const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(
-                      0xFFF5F8FF,
-                    ),
-                    borderRadius:
-                        BorderRadius.circular(
-                      12,
-                    ),
+                    color: const Color(0xFFF5F8FF),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Row(
                     children: [
                       Icon(
-                        Icons
-                            .notifications_outlined,
-                        color:
-                            AppColors.primary,
+                        Icons.notifications_outlined,
+                        color: AppColors.primary,
                       ),
 
                       SizedBox(width: 12),
@@ -1982,8 +1489,7 @@ class _UserLayoutState extends State<UserLayout> {
                           'No new notifications.',
                           style: TextStyle(
                             fontSize: 14,
-                            color: AppColors
-                                .textSecondary,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -2009,39 +1515,46 @@ class _UserLayoutState extends State<UserLayout> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text(
-            'Logout',
-          ),
-          content: const Text(
-            'Are you sure you want to logout?',
-          ),
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                );
+                Navigator.pop(dialogContext);
               },
-              child: const Text(
-                'Cancel',
-              ),
+              child: const Text('Cancel'),
             ),
 
             FilledButton(
               onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                );
+                Navigator.pop(dialogContext);
 
                 widget.onLogout();
               },
-              child: const Text(
-                'Logout',
-              ),
+              child: const Text('Logout'),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+// Column header label for the downloads table.
+class _DlHead extends StatelessWidget {
+  final String label;
+  const _DlHead(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textSecondary,
+        letterSpacing: 0.2,
+      ),
     );
   }
 }

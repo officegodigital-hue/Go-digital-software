@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -9,25 +9,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
 
-class AdminTopBar extends StatefulWidget {
+/// Shared desktop navigation for every Admin Assets screen.
+class NavbarWidget extends StatefulWidget {
   final VoidCallback? onMenu;
   final ValueChanged<String>? onSearch;
   final VoidCallback? onLogout;
+  final int selectedIndex;
+  final ValueChanged<int>? onNavigate;
 
-  const AdminTopBar({
+  const NavbarWidget({
     super.key,
     this.onMenu,
     this.onSearch,
     this.onLogout,
+    this.selectedIndex = 0,
+    this.onNavigate,
   });
 
   @override
-  State<AdminTopBar> createState() => _AdminTopBarState();
+  State<NavbarWidget> createState() => _NavbarWidgetState();
 }
 
-class _AdminTopBarState extends State<AdminTopBar> {
-  final TextEditingController _searchController =
-      TextEditingController();
+class _NavbarWidgetState extends State<NavbarWidget> {
+  final TextEditingController _searchController = TextEditingController();
 
   Timer? _notificationTimer;
 
@@ -51,12 +55,9 @@ class _AdminTopBarState extends State<AdminTopBar> {
     _loadLoggedInAdminProfile();
     _loadUnreadNotificationCount();
 
-    _notificationTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) {
-        _loadUnreadNotificationCount();
-      },
-    );
+    _notificationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _loadUnreadNotificationCount();
+    });
   }
 
   @override
@@ -81,9 +82,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
       final cachedRole = await ApiService.getLoggedInUserRole();
       if (mounted) {
         setState(() {
-          if (cachedName != null && cachedName.trim().isNotEmpty) _adminName = cachedName.trim();
-          if (cachedEmail != null && cachedEmail.trim().isNotEmpty) _adminEmail = cachedEmail.trim();
-          if (cachedRole != null && cachedRole.trim().isNotEmpty) _adminRole = cachedRole.trim();
+          if (cachedName != null && cachedName.trim().isNotEmpty)
+            _adminName = cachedName.trim();
+          if (cachedEmail != null && cachedEmail.trim().isNotEmpty)
+            _adminEmail = cachedEmail.trim();
+          if (cachedRole != null && cachedRole.trim().isNotEmpty)
+            _adminRole = cachedRole.trim();
         });
       }
       final profile = await ApiService.getMyProfile();
@@ -106,16 +110,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
         }
 
         if (role != null && role.isNotEmpty) {
-          _adminRole =
-              role == 'Admin'
-                  ? 'Administrator'
-                  : role;
+          _adminRole = role == 'Admin' ? 'Administrator' : role;
         }
 
-        _adminPhotoUrl =
-            photoUrl != null && photoUrl.isNotEmpty
-                ? photoUrl
-                : null;
+        _adminPhotoUrl = photoUrl != null && photoUrl.isNotEmpty
+            ? photoUrl
+            : null;
       });
     } catch (_) {
       // Retain the most recently loaded profile if the API is temporarily unavailable.
@@ -128,8 +128,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
   Future<void> _loadUnreadNotificationCount() async {
     try {
-      final count =
-          await ApiService.getUnreadNotificationCount();
+      final count = await ApiService.getUnreadNotificationCount();
 
       if (!mounted) {
         return;
@@ -158,8 +157,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
     });
 
     try {
-      final notifications =
-          await ApiService.getNotifications();
+      final notifications = await ApiService.getNotifications();
 
       if (!mounted) {
         return;
@@ -179,10 +177,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
           SnackBar(
             content: Text(
               'Failed to load notifications: '
-              '${error.toString().replaceFirst(
-                'Exception: ',
-                '',
-              )}',
+              '${error.toString().replaceFirst('Exception: ', '')}',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -213,24 +208,10 @@ class _AdminTopBarState extends State<AdminTopBar> {
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (
-            dialogContext,
-            setDialogState,
-          ) {
+          builder: (dialogContext, setDialogState) {
             return AlertDialog(
-              titlePadding: const EdgeInsets.fromLTRB(
-                24,
-                20,
-                16,
-                12,
-              ),
-              contentPadding:
-                  const EdgeInsets.fromLTRB(
-                16,
-                0,
-                16,
-                16,
-              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 20, 16, 12),
+              contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               title: Row(
                 children: [
                   const Expanded(
@@ -248,8 +229,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                     TextButton(
                       onPressed: () async {
                         try {
-                          await ApiService
-                              .markAllNotificationsAsRead();
+                          await ApiService.markAllNotificationsAsRead();
 
                           if (!mounted) {
                             return;
@@ -260,16 +240,13 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
                             for (
                               var index = 0;
-                              index <
-                                  _notifications.length;
+                              index < _notifications.length;
                               index++
                             ) {
-                              final item =
-                                  _notifications[index];
+                              final item = _notifications[index];
 
                               if (item is Map) {
-                                _notifications[index] =
-                                    {
+                                _notifications[index] = {
                                   ...item,
                                   'is_read': true,
                                 };
@@ -286,8 +263,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                                 content: Text(
                                   'All notifications marked as read.',
                                 ),
-                                behavior:
-                                    SnackBarBehavior.floating,
+                                behavior: SnackBarBehavior.floating,
                               ),
                             );
                         } catch (error) {
@@ -301,20 +277,14 @@ class _AdminTopBarState extends State<AdminTopBar> {
                               SnackBar(
                                 content: Text(
                                   'Failed to mark notifications as read: '
-                                  '${error.toString().replaceFirst(
-                                    'Exception: ',
-                                    '',
-                                  )}',
+                                  '${error.toString().replaceFirst('Exception: ', '')}',
                                 ),
-                                behavior:
-                                    SnackBarBehavior.floating,
+                                behavior: SnackBarBehavior.floating,
                               ),
                             );
                         }
                       },
-                      child: const Text(
-                        'Mark all as read',
-                      ),
+                      child: const Text('Mark all as read'),
                     ),
 
                   IconButton(
@@ -322,9 +292,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
                     },
-                    icon: const Icon(
-                      Icons.close,
-                    ),
+                    icon: const Icon(Icons.close),
                   ),
                 ],
               ),
@@ -332,15 +300,10 @@ class _AdminTopBarState extends State<AdminTopBar> {
                 width: 560,
                 height: 520,
                 child: _loadingNotifications
-                    ? const Center(
-                        child: CircularProgressIndicator(),
-                      )
+                    ? const Center(child: CircularProgressIndicator())
                     : _notifications.isEmpty
-                        ? _buildEmptyNotifications()
-                        : _buildNotificationList(
-                            dialogContext,
-                            setDialogState,
-                          ),
+                    ? _buildEmptyNotifications()
+                    : _buildNotificationList(dialogContext, setDialogState),
               ),
             );
           },
@@ -358,17 +321,14 @@ class _AdminTopBarState extends State<AdminTopBar> {
   Widget _buildEmptyNotifications() {
     return Center(
       child: Column(
-        mainAxisAlignment:
-            MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
             width: 64,
             height: 64,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(
-                alpha: 0.08,
-              ),
+              color: AppColors.primary.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -393,10 +353,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
           const Text(
             'There are no notifications to show.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -414,55 +371,37 @@ class _AdminTopBarState extends State<AdminTopBar> {
     return ListView.separated(
       itemCount: _notifications.length,
       separatorBuilder: (_, _) {
-        return const Divider(
-          height: 1,
-        );
+        return const Divider(height: 1);
       },
-      itemBuilder: (
-        context,
-        index,
-      ) {
-        final item =
-            _notifications[index];
+      itemBuilder: (context, index) {
+        final item = _notifications[index];
 
         if (item is! Map) {
           return const SizedBox.shrink();
         }
 
-        final title =
-            item['title']?.toString().trim() ??
-                'Notification';
+        final title = item['title']?.toString().trim() ?? 'Notification';
 
         final message = _notificationPreview(item['message']);
 
-        final isRead =
-            item['is_read'] == true;
+        final isRead = item['is_read'] == true;
 
-        final id =
-            item['id'];
+        final id = item['id'];
 
         final createdAt = _formatNotificationTime(
           item['created_at']?.toString().trim() ?? '',
         );
 
         return Container(
-          padding:
-              const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           decoration: BoxDecoration(
             color: isRead
                 ? Colors.white
-                : AppColors.primary.withValues(
-                    alpha: 0.05,
-                  ),
-            borderRadius:
-                BorderRadius.circular(10),
+                : AppColors.primary.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 42,
@@ -470,24 +409,14 @@ class _AdminTopBarState extends State<AdminTopBar> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: isRead
-                      ? const Color(
-                          0xFFF2F4F7,
-                        )
-                      : AppColors.primary
-                          .withValues(
-                          alpha: 0.10,
-                        ),
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
+                      ? const Color(0xFFF2F4F7)
+                      : AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   Icons.notifications_outlined,
                   size: 21,
-                  color: isRead
-                      ? AppColors.textSecondary
-                      : AppColors.primary,
+                  color: isRead ? AppColors.textSecondary : AppColors.primary,
                 ),
               ),
 
@@ -495,24 +424,20 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
                             title,
                             style: TextStyle(
                               fontSize: 15,
-                              fontWeight:
-                                  isRead
-                                      ? FontWeight.w600
-                                      : FontWeight.w800,
-                              color:
-                                  AppColors.textPrimary,
+                              fontWeight: isRead
+                                  ? FontWeight.w600
+                                  : FontWeight.w800,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                         ),
@@ -521,17 +446,10 @@ class _AdminTopBarState extends State<AdminTopBar> {
                           Container(
                             width: 8,
                             height: 8,
-                            margin:
-                                const EdgeInsets.only(
-                              left: 8,
-                              top: 6,
-                            ),
-                            decoration:
-                                const BoxDecoration(
-                              color:
-                                  AppColors.primary,
-                              shape:
-                                  BoxShape.circle,
+                            margin: const EdgeInsets.only(left: 8, top: 6),
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
                             ),
                           ),
                       ],
@@ -541,12 +459,10 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
                     Text(
                       message,
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
                         height: 1.4,
-                        color:
-                            AppColors.textSecondary,
+                        color: AppColors.textSecondary,
                       ),
                     ),
 
@@ -555,27 +471,22 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
                       Text(
                         createdAt,
-                        style:
-                            const TextStyle(
+                        style: const TextStyle(
                           fontSize: 11,
-                          color:
-                              AppColors.textSecondary,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ],
 
-                    if (!isRead &&
-                        id != null) ...[
+                    if (!isRead && id != null) ...[
                       const SizedBox(height: 6),
 
                       Align(
-                        alignment:
-                            Alignment.centerLeft,
+                        alignment: Alignment.centerLeft,
                         child: TextButton(
                           onPressed: () async {
                             try {
-                              await ApiService
-                                  .markNotificationAsRead(
+                              await ApiService.markNotificationAsRead(
                                 id.toString(),
                               );
 
@@ -584,17 +495,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
                               }
 
                               setState(() {
-                                _notifications[
-                                    index] = {
+                                _notifications[index] = {
                                   ...item,
-                                  'is_read':
-                                      true,
+                                  'is_read': true,
                                 };
 
-                                if (
-                                  _unreadNotificationCount >
-                                      0
-                                ) {
+                                if (_unreadNotificationCount > 0) {
                                   _unreadNotificationCount--;
                                 }
                               });
@@ -605,41 +511,23 @@ class _AdminTopBarState extends State<AdminTopBar> {
                                 return;
                               }
 
-                              ScaffoldMessenger.of(
-                                context,
-                              )
-                                  .showSnackBar(
+                              ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
                                     'Failed to mark notification as read: '
-                                    '${error.toString().replaceFirst(
-                                      'Exception: ',
-                                      '',
-                                    )}',
+                                    '${error.toString().replaceFirst('Exception: ', '')}',
                                   ),
-                                  behavior:
-                                      SnackBarBehavior
-                                          .floating,
+                                  behavior: SnackBarBehavior.floating,
                                 ),
                               );
                             }
                           },
-                          style:
-                              TextButton.styleFrom(
-                            padding:
-                                EdgeInsets.zero,
-                            minimumSize:
-                                const Size(
-                              0,
-                              30,
-                            ),
-                            tapTargetSize:
-                                MaterialTapTargetSize
-                                    .shrinkWrap,
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 30),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
-                          child: const Text(
-                            'Mark as read',
-                          ),
+                          child: const Text('Mark as read'),
                         ),
                       ),
                     ],
@@ -672,7 +560,9 @@ class _AdminTopBarState extends State<AdminTopBar> {
     } catch (_) {}
 
     // Fallback: regex-extract "preview":"..." even if JSON is malformed
-    final previewMatch = RegExp(r'"preview"\s*:\s*"([^"]+)"').firstMatch(message);
+    final previewMatch = RegExp(
+      r'"preview"\s*:\s*"([^"]+)"',
+    ).firstMatch(message);
     if (previewMatch != null) {
       final val = previewMatch.group(1)?.trim() ?? '';
       if (val.isNotEmpty) return val;
@@ -689,8 +579,18 @@ class _AdminTopBarState extends State<AdminTopBar> {
     }
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final hour = timestamp.hour % 12 == 0 ? 12 : timestamp.hour % 12;
     final minute = timestamp.minute.toString().padLeft(2, '0');
@@ -734,9 +634,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                       Stack(
                         alignment: Alignment.bottomRight,
                         children: [
-                          _buildAdminProfileAvatar(
-                            size: 84,
-                          ),
+                          _buildAdminProfileAvatar(size: 84),
                           Material(
                             color: Colors.white,
                             shape: const CircleBorder(),
@@ -751,14 +649,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
                                       );
                                     },
                               child: Padding(
-                                padding:
-                                    const EdgeInsets.all(7),
+                                padding: const EdgeInsets.all(7),
                                 child: _isUploadingAdminPhoto
                                     ? const SizedBox(
                                         width: 17,
                                         height: 17,
-                                        child:
-                                            CircularProgressIndicator(
+                                        child: CircularProgressIndicator(
                                           strokeWidth: 2,
                                         ),
                                       )
@@ -804,12 +700,10 @@ class _AdminTopBarState extends State<AdminTopBar> {
                               child: Text(
                                 _adminEmail,
                                 maxLines: 2,
-                                overflow:
-                                    TextOverflow.ellipsis,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 14,
-                                  color:
-                                      AppColors.textPrimary,
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
                             ),
@@ -827,9 +721,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                                     setDialogState,
                                   );
                                 },
-                          icon: const Icon(
-                            Icons.upload_outlined,
-                          ),
+                          icon: const Icon(Icons.upload_outlined),
                           label: const Text(
                             'Change Photo',
                             style: TextStyle(
@@ -847,9 +739,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                             Navigator.of(dialogContext).pop();
                             _showChangeAdminPasswordDialog();
                           },
-                          icon: const Icon(
-                            Icons.lock_outline,
-                          ),
+                          icon: const Icon(Icons.lock_outline),
                           label: const Text(
                             'Change Password',
                             style: TextStyle(
@@ -878,9 +768,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
     );
   }
 
-  Widget _buildAdminProfileAvatar({
-    required double size,
-  }) {
+  Widget _buildAdminProfileAvatar({required double size}) {
     if (_adminPhotoBytes != null) {
       return CircleAvatar(
         radius: size / 2,
@@ -889,19 +777,17 @@ class _AdminTopBarState extends State<AdminTopBar> {
       );
     }
 
-    if (_adminPhotoUrl != null &&
-        _adminPhotoUrl!.isNotEmpty) {
+    if (_adminPhotoUrl != null && _adminPhotoUrl!.isNotEmpty) {
       return CircleAvatar(
         radius: size / 2,
         backgroundColor: AppColors.primary,
-        backgroundImage:
-            NetworkImage(_profilePhotoNetworkUrl(_adminPhotoUrl!)),
+        backgroundImage: NetworkImage(_profilePhotoNetworkUrl(_adminPhotoUrl!)),
       );
     }
 
     return CircleAvatar(
       radius: size / 2,
-      backgroundColor: AppColors.primary,
+      backgroundColor: const Color(0xFFDBEAFE),
       child: Text(
         _initialsFromName(_adminName),
         style: TextStyle(
@@ -913,9 +799,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
     );
   }
 
-  Widget _buildAdminTopBarAvatar({
-    required double size,
-  }) {
+  Widget _buildAdminTopBarAvatar({required double size}) {
     if (_adminPhotoBytes != null) {
       return Container(
         width: size,
@@ -934,8 +818,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
       );
     }
 
-    if (_adminPhotoUrl != null &&
-        _adminPhotoUrl!.isNotEmpty) {
+    if (_adminPhotoUrl != null && _adminPhotoUrl!.isNotEmpty) {
       return Container(
         width: size,
         height: size,
@@ -967,7 +850,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
     return CircleAvatar(
       radius: size / 2,
-      backgroundColor: AppColors.primary,
+      backgroundColor: const Color(0xFF9CA3AF),
       child: Text(
         _initialsFromName(_adminName),
         style: TextStyle(
@@ -994,16 +877,14 @@ class _AdminTopBarState extends State<AdminTopBar> {
       return parts.first.substring(0, 1).toUpperCase();
     }
 
-    return (parts.first.substring(0, 1) +
-            parts.last.substring(0, 1))
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
 
   String _profilePhotoNetworkUrl(String value) {
     final trimmed = value.trim();
 
-    if (trimmed.startsWith('http://') ||
-        trimmed.startsWith('https://')) {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return trimmed;
     }
 
@@ -1015,15 +896,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
       port: apiUri.hasPort ? apiUri.port : null,
     );
 
-    final path =
-        trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    final path = trimmed.startsWith('/') ? trimmed : '/$trimmed';
 
     return origin.resolve(path).toString();
   }
 
-  Future<void> _pickAndUploadAdminPhoto(
-    StateSetter setDialogState,
-  ) async {
+  Future<void> _pickAndUploadAdminPhoto(StateSetter setDialogState) async {
     if (_isUploadingAdminPhoto) {
       return;
     }
@@ -1033,12 +911,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
         type: FileType.custom,
         allowMultiple: false,
         withData: true,
-        allowedExtensions: const [
-          'jpg',
-          'jpeg',
-          'png',
-          'webp',
-        ],
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
       );
 
       final file = selection != null && selection.files.isNotEmpty
@@ -1050,16 +923,12 @@ class _AdminTopBarState extends State<AdminTopBar> {
       }
 
       if (bytes.isEmpty) {
-        _showTopBarMessage(
-          'Unable to read the selected photo.',
-        );
+        _showTopBarMessage('Unable to read the selected photo.');
         return;
       }
 
       if (bytes.length > 5 * 1024 * 1024) {
-        _showTopBarMessage(
-          'Profile photo must be 5 MB or smaller.',
-        );
+        _showTopBarMessage('Profile photo must be 5 MB or smaller.');
         return;
       }
 
@@ -1070,31 +939,23 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
       setDialogState(() {});
 
-      final updatedUser =
-          await ApiService.uploadProfilePhoto(
+      final updatedUser = await ApiService.uploadProfilePhoto(
         photoBytes: bytes,
         fileName: file.name,
       );
 
-      final returnedUrl =
-          updatedUser['profile_photo_url']
-              ?.toString()
-              .trim();
+      final returnedUrl = updatedUser['profile_photo_url']?.toString().trim();
 
-      if (returnedUrl == null ||
-          returnedUrl.isEmpty) {
+      if (returnedUrl == null || returnedUrl.isEmpty) {
         throw Exception(
           'Photo uploaded, but the server did not return a photo URL.',
         );
       }
 
-      final email =
-          await ApiService.getLoggedInUserEmail();
+      final email = await ApiService.getLoggedInUserEmail();
 
-      if (email != null &&
-          email.trim().isNotEmpty) {
-        final prefs =
-            await SharedPreferences.getInstance();
+      if (email != null && email.trim().isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
 
         await prefs.setString(
           'profile_photo_url_${email.trim().toLowerCase()}',
@@ -1114,9 +975,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
 
       setDialogState(() {});
 
-      _showTopBarMessage(
-        'Profile photo updated successfully.',
-      );
+      _showTopBarMessage('Profile photo updated successfully.');
     } catch (error) {
       if (!mounted) {
         return;
@@ -1130,19 +989,14 @@ class _AdminTopBarState extends State<AdminTopBar> {
       setDialogState(() {});
 
       _showTopBarMessage(
-        error
-            .toString()
-            .replaceFirst('Exception: ', '')
-            .trim(),
+        error.toString().replaceFirst('Exception: ', '').trim(),
       );
     }
   }
 
   Future<void> _showChangeAdminPasswordDialog() async {
-    final passwordController =
-        TextEditingController();
-    final confirmController =
-        TextEditingController();
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
 
     var obscurePassword = true;
     var obscureConfirm = true;
@@ -1153,17 +1007,11 @@ class _AdminTopBarState extends State<AdminTopBar> {
         context: context,
         builder: (dialogContext) {
           return StatefulBuilder(
-            builder: (
-              dialogContext,
-              setDialogState,
-            ) {
+            builder: (dialogContext, setDialogState) {
               return AlertDialog(
                 title: const Text(
                   'Change Password',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 content: SizedBox(
                   width: 360,
@@ -1175,21 +1023,17 @@ class _AdminTopBarState extends State<AdminTopBar> {
                         obscureText: obscurePassword,
                         decoration: InputDecoration(
                           labelText: 'New Password',
-                          prefixIcon: const Icon(
-                            Icons.lock_outline,
-                          ),
+                          prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             onPressed: () {
                               setDialogState(() {
-                                obscurePassword =
-                                    !obscurePassword;
+                                obscurePassword = !obscurePassword;
                               });
                             },
                             icon: Icon(
                               obscurePassword
                                   ? Icons.visibility_outlined
-                                  : Icons
-                                      .visibility_off_outlined,
+                                  : Icons.visibility_off_outlined,
                             ),
                           ),
                         ),
@@ -1199,23 +1043,18 @@ class _AdminTopBarState extends State<AdminTopBar> {
                         controller: confirmController,
                         obscureText: obscureConfirm,
                         decoration: InputDecoration(
-                          labelText:
-                              'Confirm New Password',
-                          prefixIcon: const Icon(
-                            Icons.lock_outline,
-                          ),
+                          labelText: 'Confirm New Password',
+                          prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             onPressed: () {
                               setDialogState(() {
-                                obscureConfirm =
-                                    !obscureConfirm;
+                                obscureConfirm = !obscureConfirm;
                               });
                             },
                             icon: Icon(
                               obscureConfirm
                                   ? Icons.visibility_outlined
-                                  : Icons
-                                      .visibility_off_outlined,
+                                  : Icons.visibility_off_outlined,
                             ),
                           ),
                         ),
@@ -1236,24 +1075,18 @@ class _AdminTopBarState extends State<AdminTopBar> {
                     onPressed: saving
                         ? null
                         : () async {
-                            final newPassword =
-                                passwordController.text;
-                            final confirmation =
-                                confirmController.text;
+                            final newPassword = passwordController.text;
+                            final confirmation = confirmController.text;
 
-                            if (newPassword.length <
-                                8) {
+                            if (newPassword.length < 8) {
                               _showTopBarMessage(
                                 'Password must be at least 8 characters.',
                               );
                               return;
                             }
 
-                            if (newPassword !=
-                                confirmation) {
-                              _showTopBarMessage(
-                                'Passwords do not match.',
-                              );
+                            if (newPassword != confirmation) {
+                              _showTopBarMessage('Passwords do not match.');
                               return;
                             }
 
@@ -1262,72 +1095,49 @@ class _AdminTopBarState extends State<AdminTopBar> {
                             });
 
                             try {
-                              final users =
-                                  await ApiService.getUsers();
+                              final users = await ApiService.getUsers();
 
                               dynamic adminUser;
 
-                              for (final item
-                                  in users) {
+                              for (final item in users) {
                                 if (item is! Map) {
                                   continue;
                                 }
 
                                 final email =
-                                    item['email']
-                                            ?.toString()
-                                            .trim() ??
-                                        '';
+                                    item['email']?.toString().trim() ?? '';
 
-                                if (_adminEmail
-                                        .trim()
-                                        .isNotEmpty &&
+                                if (_adminEmail.trim().isNotEmpty &&
                                     email.toLowerCase() ==
-                                        _adminEmail
-                                            .trim()
-                                            .toLowerCase()) {
+                                        _adminEmail.trim().toLowerCase()) {
                                   adminUser = item;
                                   break;
                                 }
                               }
 
-                              if (adminUser ==
-                                  null) {
+                              if (adminUser == null) {
                                 throw Exception(
                                   'Logged-in Admin account was not found.',
                                 );
                               }
 
                               await ApiService.updateUser(
-                                userId:
-                                    adminUser['id']
-                                        .toString(),
+                                userId: adminUser['id'].toString(),
                                 name:
-                                    adminUser['name']
-                                            ?.toString() ??
-                                        _adminName,
+                                    adminUser['name']?.toString() ?? _adminName,
                                 email:
-                                    adminUser['email']
-                                            ?.toString() ??
-                                        _adminEmail,
-                                mobile:
-                                    adminUser['mobile']
-                                        ?.toString(),
-                                role:
-                                    adminUser['role']
-                                            ?.toString() ??
-                                        'Admin',
-                                password:
-                                    newPassword,
+                                    adminUser['email']?.toString() ??
+                                    _adminEmail,
+                                mobile: adminUser['mobile']?.toString(),
+                                role: adminUser['role']?.toString() ?? 'Admin',
+                                password: newPassword,
                               );
 
                               if (!mounted) {
                                 return;
                               }
 
-                              Navigator.of(
-                                dialogContext,
-                              ).pop();
+                              Navigator.of(dialogContext).pop();
 
                               _showTopBarMessage(
                                 'Password changed successfully.',
@@ -1344,10 +1154,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                               _showTopBarMessage(
                                 error
                                     .toString()
-                                    .replaceFirst(
-                                      'Exception: ',
-                                      '',
-                                    )
+                                    .replaceFirst('Exception: ', '')
                                     .trim(),
                               );
                             }
@@ -1356,10 +1163,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child:
-                                CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Change Password'),
                   ),
@@ -1384,13 +1188,8 @@ class _AdminTopBarState extends State<AdminTopBar> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            message.isEmpty
-                ? 'Request failed.'
-                : message,
-          ),
-          behavior:
-              SnackBarBehavior.floating,
+          content: Text(message.isEmpty ? 'Request failed.' : message),
+          behavior: SnackBarBehavior.floating,
         ),
       );
   }
@@ -1402,10 +1201,7 @@ class _AdminTopBarState extends State<AdminTopBar> {
         return AlertDialog(
           title: const Text(
             'Logout',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           content: const Text(
             'Are you sure you want to logout?',
@@ -1439,206 +1235,368 @@ class _AdminTopBarState extends State<AdminTopBar> {
   }
 
   // ============================================================
+  // NAV ITEMS
+  // ============================================================
+
+  static const _navItems = [
+    _NavItem(
+      icon: Icons.folder_outlined,
+      activeIcon: Icons.folder_rounded,
+      label: 'Assets',
+    ),
+    _NavItem(
+      icon: Icons.person_outline,
+      activeIcon: Icons.person_rounded,
+      label: 'Users',
+    ),
+    _NavItem(
+      icon: Icons.shield_outlined,
+      activeIcon: Icons.shield_rounded,
+      label: 'Permissions',
+    ),
+    _NavItem(
+      icon: Icons.download_outlined,
+      activeIcon: Icons.download_rounded,
+      label: 'Downloads',
+    ),
+  ];
+
+  // ============================================================
   // BUILD
   // ============================================================
 
   @override
   Widget build(BuildContext context) {
+    // Mobile navigation is supplied by AdminLayout's drawer. Keep this header
+    // intentionally compact so every Admin Assets page remains usable on a
+    // phone without losing notifications or profile access.
+    if (widget.onMenu != null) {
+      return _buildMobileBar();
+    }
+
     return Container(
-      height: 80,
+      height: 64,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(
-            color: AppColors.border,
-          ),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
       ),
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 24,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (widget.onMenu != null)
-            IconButton(
-              onPressed:
-                  widget.onMenu,
-              icon: const Icon(
-                Icons.menu,
+          // ── Left: Logo + brand + divider + portal label ───────
+          // Go Digital logo image
+          Image.asset(
+            'assets/images/godigital_logo.png',
+            width: 36,
+            height: 36,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(width: 8),
+          // "Go Digital" brand name — hidden on mobile
+          if (widget.onMenu == null)
+            const Text(
+              'Go Digital',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
               ),
             ),
+          // Vertical divider + "Admin Portal" — desktop only
+          if (widget.onMenu == null) ...[
+            Container(
+              width: 1,
+              height: 24,
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              color: const Color(0xFFE5E7EB),
+            ),
+            const Text(
+              'Admin Portal',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(width: 32),
+          ],
 
+          // ── Center: Nav items ─────────────────────────────────
           Expanded(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(
-                maxWidth: 465,
-              ),
-              child: TextField(
-                onChanged: (value) {
-                  setState(() {});
-                },
-                onSubmitted:
-                    widget.onSearch,
-                controller:
-                    _searchController,
-                textInputAction:
-                    TextInputAction.search,
-                decoration:
-                    InputDecoration(
-                  prefixIcon:
-                      const Icon(
-                    Icons.search,
+            child: widget.onMenu != null
+                ? const SizedBox.shrink()
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (int i = 0; i < _navItems.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 4),
+                        _buildNavItem(i),
+                      ],
+                    ],
                   ),
-                  hintText:
-                      'Search assets, companies, links...',
-                  suffixIcon:
-                      _searchController
-                              .text
-                              .isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip:
-                                  'Clear search',
-                              onPressed: () {
-                                _searchController
-                                    .clear();
-
-                                setState(
-                                  () {},
-                                );
-
-                                widget.onSearch
-                                    ?.call(
-                                  '',
-                                );
-                              },
-                              icon:
-                                  const Icon(
-                                Icons.close,
-                              ),
-                            ),
-                ),
-              ),
-            ),
           ),
 
-          const Spacer(),
+          const SizedBox(width: 16),
 
-          // ======================================================
-          // NOTIFICATION BELL
-          // ======================================================
+          // ── Right: bell | workspace | logout | avatar ──────────
 
+          // Notification bell
           Stack(
-            clipBehavior:
-                Clip.none,
+            clipBehavior: Clip.none,
             children: [
               IconButton(
-                tooltip:
-                    'Notifications',
-                onPressed:
-                    _showNotifications,
-                icon:
-                    const Icon(
-                  Icons
-                      .notifications_none,
-                  size: 26,
+                tooltip: 'Notifications',
+                onPressed: _showNotifications,
+                icon: const Icon(
+                  Icons.notifications_none_outlined,
+                  size: 22,
+                  color: Color(0xFF374151),
                 ),
               ),
-
-              if (_unreadNotificationCount >
-                  0)
+              if (_unreadNotificationCount > 0)
                 Positioned(
-                  right: 5,
-                  top: 4,
+                  right: 6,
+                  top: 6,
                   child: Container(
-                    constraints:
-                        const BoxConstraints(
-                      minWidth: 18,
-                      minHeight: 18,
-                    ),
-                    padding:
-                        const EdgeInsets
-                            .symmetric(
-                      horizontal: 4,
-                    ),
-                    alignment:
-                        Alignment.center,
-                    decoration:
-                        BoxDecoration(
-                      color:
-                          Colors.red,
-                      borderRadius:
-                          BorderRadius.circular(
-                        10,
-                      ),
-                      border:
-                          Border.all(
-                        color:
-                            Colors.white,
-                        width: 1.5,
-                      ),
-                    ),
-                    child:
-                        Text(
-                      _unreadNotificationCount >
-                              99
-                          ? '99+'
-                          : _unreadNotificationCount
-                              .toString(),
-                      style:
-                          const TextStyle(
-                        fontSize: 9,
-                        fontWeight:
-                            FontWeight.w800,
-                        color:
-                            Colors.white,
-                      ),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
                     ),
                   ),
                 ),
             ],
           ),
 
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.help_outline,
-              size: 26,
+          // Divider
+          Container(
+            width: 1,
+            height: 24,
+            color: const Color(0xFFE5E7EB),
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+          ),
+
+          // Workspace button
+          Tooltip(
+            message: 'Workspace',
+            child: InkWell(
+              onTap: () => Navigator.of(
+                context,
+              ).pushNamedAndRemoveUntil('/home', (route) => false),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                ),
+                child: const Icon(
+                  Icons.grid_view_rounded,
+                  size: 18,
+                  color: Color(0xFF374151),
+                ),
+              ),
             ),
           ),
 
-          const SizedBox(
-            width: 12,
+          const SizedBox(width: 8),
+
+          // Logout button
+          Tooltip(
+            message: 'Logout',
+            child: InkWell(
+              onTap: _handleLogout,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFECACA)),
+                ),
+                child: const Icon(
+                  Icons.logout_rounded,
+                  size: 18,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+            ),
           ),
 
+          // Divider
           Container(
             width: 1,
-            height: 38,
-            color: AppColors.border,
+            height: 24,
+            color: const Color(0xFFE5E7EB),
+            margin: const EdgeInsets.symmetric(horizontal: 6),
           ),
 
-          const SizedBox(
-            width: 18,
-          ),
-
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(
-              context,
-              rootNavigator: true,
-            ).pushNamedAndRemoveUntil('/home', (route) => false),
-            icon: const Icon(Icons.grid_view_rounded, size: 19),
-            label: const Text('Workspace'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.textPrimary,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              side: const BorderSide(color: AppColors.border),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          // Avatar + name + chevron
+          GestureDetector(
+            onTap: _showAdminProfile,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildAdminTopBarAvatar(size: 32),
+                const SizedBox(width: 6),
+                Text(
+                  _adminName.isEmpty ? 'Admin' : _adminName.split(' ').first,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: Color(0xFF6B7280),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildMobileBar() {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Menu',
+            onPressed: widget.onMenu,
+            icon: const Icon(Icons.menu_rounded, color: Color(0xFF374151)),
+          ),
+          Image.asset(
+            'assets/images/godigital_logo.png',
+            width: 28,
+            height: 28,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Admin Portal',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
+              ),
+            ),
+          ),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: 'Notifications',
+                onPressed: _showNotifications,
+                icon: const Icon(
+                  Icons.notifications_none_outlined,
+                  size: 22,
+                  color: Color(0xFF374151),
+                ),
+              ),
+              if (_unreadNotificationCount > 0)
+                Positioned(
+                  right: 7,
+                  top: 7,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          InkWell(
+            onTap: _showAdminProfile,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: _buildAdminTopBarAvatar(size: 32),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index) {
+    final item = _navItems[index];
+    final isActive = widget.selectedIndex == index;
+
+    return InkWell(
+      onTap: () => widget.onNavigate?.call(index),
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: isActive
+            ? const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFF2563EB), width: 2),
+                ),
+              )
+            : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              isActive ? item.activeIcon : item.icon,
+              size: 16,
+              color: isActive
+                  ? const Color(0xFF2563EB)
+                  : const Color(0xFF6B7280),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              item.label,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                color: isActive
+                    ? const Color(0xFF2563EB)
+                    : const Color(0xFF6B7280),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
+}
+
+
