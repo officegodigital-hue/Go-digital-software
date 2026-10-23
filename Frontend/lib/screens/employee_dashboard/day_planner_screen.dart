@@ -10,7 +10,10 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
 class DayPlannerScreen extends StatefulWidget {
-  const DayPlannerScreen({super.key});
+  /// Opens a row's task in Employee Workspace: {client, due_date, section}.
+  final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
+
+  const DayPlannerScreen({super.key, this.onOpenWorkspace});
 
   @override
   State<DayPlannerScreen> createState() => _DayPlannerScreenState();
@@ -695,7 +698,55 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     }
   }
 
+  // Held tasks from an earlier day are copied into TODAY's plan automatically
+  // (once per day per open screen; never twice — the server checks).
+  String _carriedForDay = '';
+
+  Future<void> _carryForwardHeldTasks() async {
+    final todayKey =
+        "${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}";
+    if (!isToday() || _carriedForDay == todayKey || employeeName.trim().isEmpty) return;
+    _carriedForDay = todayKey;
+    try {
+      final res = await http.post(
+        Uri.parse('$_baseUrl/workspace-tasks/day-plan/carry-forward'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'employee': employeeName}),
+      );
+      if (res.statusCode != 200 || !mounted) return;
+      final added = (jsonDecode(res.body)['added'] as num?)?.toInt() ?? 0;
+      if (added > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$added held task${added == 1 ? '' : 's'} from an earlier day added to today\'s plan',
+            ),
+            backgroundColor: const Color(0xFF5C4AC7),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Carry forward error: $e');
+    }
+  }
+
+  /// Open this planner row in Employee Workspace (client card + tab).
+  void _openInWorkspace(Map<String, dynamic> row) {
+    final open = widget.onOpenWorkspace;
+    if (open == null) return;
+    final ref = _refFor(row);
+    final item = ref == null ? null : _planItems[ref];
+    final client = '${item?['client'] ?? row['client'] ?? ''}'.trim();
+    if (client.isEmpty) return;
+    open({
+      'client': client,
+      'due_date': item?['due_date'] ?? row['maintenance_date'] ?? '',
+      'section': item?['section'] ?? 'My Tasks',
+    });
+  }
+
   Future<void> loadTodayDayPlan() async {
+    await _carryForwardHeldTasks();
     // Format the date as YYYY-MM-DD to ensure the backend filters correctly
     String formattedDate =
         "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
@@ -3230,7 +3281,32 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                 _scheduleAutoSave(row);
               },
             )
-          : Text(
+          : linked && widget.onOpenWorkspace != null
+              // Task / category row → tap to open it in Employee Workspace.
+              ? InkWell(
+                  onTap: () => _openInWorkspace(row),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          value.isEmpty ? '—' : value,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0757D5),
+                            decoration: TextDecoration.underline,
+                            decorationColor: Color(0x660757D5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.open_in_new_rounded, size: 12, color: Color(0xFF0757D5)),
+                    ],
+                  ),
+                )
+              : Text(
               value.isEmpty ? '—' : value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -3498,6 +3574,25 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                         ),
                       ),
           ),
+          if (widget.onOpenWorkspace != null && client.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Open in Employee Workspace',
+              child: InkWell(
+                onTap: () => _openInWorkspace(row),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF2FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF0757D5)),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 4),
           Tooltip(
             message: 'Delete row',

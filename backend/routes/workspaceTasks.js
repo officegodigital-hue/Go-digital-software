@@ -1748,63 +1748,110 @@ router.get('/items-by-ref', async (req, res) => {
   }
 });
 
-// GET /live-all?employee=&date=  → everything worked on that day, all clients
+// ── "Today" for Live Tracking and the top bar ───────────────────────────────
+// Days follow the office clock (India, UTC+05:30 — APP_TZ_OFFSET_MINUTES to
+// change), whatever time zone the server runs in.
+const APP_TZ_MIN = Number(process.env.APP_TZ_OFFSET_MINUTES ?? 330);
+function appDay(d = new Date()) {
+  const t = new Date(d.getTime() + APP_TZ_MIN * 60000);
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+function appBounds(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d) - APP_TZ_MIN * 60000);
+  return { from, to: new Date(from.getTime() + 86400000) };
+}
+const inDay = (v, from, to) => {
+  if (!v) return false;
+  const t = new Date(v).getTime();
+  return t >= from.getTime() && t < to.getTime();
+};
+
+/**
+ * Work done on one day:
+ *  · only sessions STARTED that day count (started / restarted that day),
+ *    so a task left running from an earlier day adds nothing until the
+ *    employee holds and restarts it;
+ *  · an item is listed when it was started, restarted, held or completed
+ *    that day — an old held task shows again only once it is restarted;
+ *  · for today, anything still running from an earlier day is listed too
+ *    (flagged stale_running) so it can be put on hold.
+ */
+async function dayWork(employee, day) {
+  const now = new Date();
+  const today = appDay(now);
+  const { from, to } = appBounds(day);
+  const end = to < now ? to : now;
+  const items = [];
+  let totalSecs = 0;
+
+  for (const { raw, row } of await employeeTaskItems(employee)) {
+    const intervals = workIntervals(raw, now);
+    let secs = 0;
+    for (const [a, b] of intervals) {
+      if (a >= from && a < to) secs += Math.max(Math.floor((Math.min(b, end) - a) / 1000), 0);
+    }
+    const events = [raw.start_time, raw.complete_time];
+    for (let i = 1; i <= 10; i += 1) events.push(raw[`hold_time_${i}`], raw[`restart_time_${i}`]);
+    const actedToday = events.some((v) => inDay(v, from, to));
+    const running = row.state === 'IN PROGRESS';
+    const session = running ? sessionStart(raw) : null;
+    const stale = running && day === today && session && session < from;
+    if (!actedToday && !stale) continue;
+    totalSecs += secs;
+    items.push({
+      ...taskItem({ raw, row }),
+      seconds_on_date: secs,
+      today_running: running && day === today && !stale,
+      stale_running: Boolean(stale),
+      running_since: stale ? dateKey(session) : null,
+    });
+  }
+
+  for (const s of await employeeSheets(employee)) {
+    const started = s.session_started_at ? new Date(s.session_started_at) : null;
+    const runningToday = s.running && day === today && started && started >= from;
+    const stale = s.running && day === today && started && started < from;
+    const actedToday = inDay(s.last_activity_at, from, to) || (started && started >= from && started < to);
+    if (!actedToday && !stale && !runningToday) continue;
+    const secs = runningToday ? Math.max(Math.floor((now - started) / 1000), 0) : 0;
+    totalSecs += secs;
+    items.push({
+      ...s,
+      seconds_on_date: secs,
+      today_running: Boolean(runningToday),
+      stale_running: Boolean(stale),
+      running_since: stale ? dateKey(started) : null,
+    });
+  }
+
+  const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
+  items.sort((a, b) => rank(a) - rank(b) || String(a.client).localeCompare(String(b.client)));
+  return { items, totalSecs, now };
+}
+
+// GET /live-all?employee=&date=  → what was worked on that day, all clients
 router.get('/live-all', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
-  const day = dateKey(req.query.date) || localDay(new Date());
-  const today = localDay(new Date());
+  const day = dateKey(req.query.date) || appDay();
   try {
-    const { from, to } = dayBounds(day);
-    const now = new Date();
-    const tasks = (await employeeTaskItems(employee))
-      .filter(({ raw, row }) => touchedOn(raw, day) ||
-        (day === today && ['IN PROGRESS', 'ON HOLD', 'REWORK'].includes(row.state)))
-      .map(({ raw, row }) => ({
-        ...taskItem({ raw, row }),
-        seconds_on_date: secondsBetween(workIntervals(raw, now), from, to < now ? to : now),
-      }));
-    const sheets = (await employeeSheets(employee))
-      .filter((s) => (s.last_activity_at && localDay(new Date(s.last_activity_at)) === day) ||
-        (day === today && ['IN PROGRESS', 'ON HOLD'].includes(s.status)))
-      .map((s) => ({
-        ...s,
-        seconds_on_date: s.running && day === today
-          ? Math.max(Math.floor((now - new Date(s.session_started_at)) / 1000), 0)
-          : 0,
-      }));
-    const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
-    const data = [...sheets, ...tasks].sort((a, b) => rank(a) - rank(b) ||
-      String(a.client).localeCompare(String(b.client)));
-    const totalSecs = data.reduce((t, i) => t + (Number(i.seconds_on_date) || 0), 0);
-    return res.json({ success: true, date: day, totalSecs, data });
+    const { items, totalSecs, now } = await dayWork(employee, day);
+    return res.json({ success: true, date: day, serverNow: now.toISOString(), totalSecs, data: items });
   } catch (err) {
     console.error('GET /workspace-tasks/live-all ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// GET /running?employee=  → { running, totalSecs (today), serverNow } for the top bar
+// GET /running?employee=  → { running, totalSecs (today only), serverNow } for the top bar
 router.get('/running', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
   try {
-    const now = new Date();
-    const day = localDay(now);
-    const { from } = dayBounds(day);
-    const items = await employeeTaskItems(employee);
-    let totalSecs = 0;
-    let running = null;
-    for (const { raw, row } of items) {
-      if (!touchedOn(raw, day) && row.state !== 'IN PROGRESS') continue;
-      totalSecs += secondsBetween(workIntervals(raw, now), from, now);
-      if (row.state === 'IN PROGRESS' && !running) running = taskItem({ raw, row });
-    }
-    for (const sheet of await employeeSheets(employee)) {
-      if (!sheet.running) continue;
-      totalSecs += Math.max(Math.floor((now - new Date(sheet.session_started_at)) / 1000), 0);
-      if (!running) running = sheet;
-    }
+    const { items, totalSecs, now } = await dayWork(employee, appDay());
+    // Prefer what is running today; else an old forgotten one (to hold it).
+    const running = items.find((i) => i.today_running) || items.find((i) => i.stale_running) || null;
     return res.json({
       success: true,
       serverNow: now.toISOString(),
@@ -2248,6 +2295,87 @@ router.post('/day-plan/add', async (req, res) => {
 });
 
 // GET /day-plan/rows?employee=  → task row ids already in today's planner
+// POST /day-plan/carry-forward { employee }
+// Opening today's Day Planner: tasks left ON HOLD (or still running) from an
+// earlier day are added to TODAY's plan automatically — unless they are
+// already in it. Works for My Tasks rows and Content Calendar categories.
+router.post('/day-plan/carry-forward', async (req, res) => {
+  const employee = employeeFrom(req);
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  try {
+    const [today] = await db.query(
+      `SELECT today_plan, is_submitted FROM day_plan_rows
+       WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND plan_date = CURDATE()`,
+      [employee],
+    );
+    const inPlan = new Set();
+    let submitted = 0;
+    for (const r of today) {
+      if (Number(r.is_submitted) === 1) submitted = 1;
+      for (const m of String(r.today_plan || '').matchAll(/\[Task Row #(\d+)\]/g)) inPlan.add(`task:${m[1]}`);
+      for (const m of String(r.today_plan || '').matchAll(/\[Calendar Row #(\d+)\]/g)) inPlan.add(`cc:${m[1]}`);
+    }
+    const [[roleRow]] = await db.query(
+      'SELECT role FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1',
+      [employee],
+    );
+    const insert = (client, due, plan, status) => db.query(
+      `INSERT INTO day_plan_rows
+         (employee_name, employee_role, plan_date, report_type, client_name,
+          maintenance_date, today_plan, status, remarks, is_submitted)
+       VALUES (?, ?, CURDATE(), 'Morning', ?, ?, ?, ?, ?, ?)`,
+      [employee, roleRow?.role || null, client || null, due ? String(due).slice(0, 10) : null,
+        plan, status, 'Carried forward — on hold from an earlier day', submitted],
+    );
+
+    const added = [];
+    // My Tasks rows (only rows the employee really has in Employee Workspace).
+    const all = await employeeTaskItems(employee);
+    const visible = await workspaceVisible(employee, all);
+    for (const entry of all.filter(visible)) {
+      const { raw, row } = entry;
+      if (!['ON HOLD', 'IN PROGRESS'].includes(row.state)) continue;
+      if (inPlan.has(`task:${row.id}`)) continue;
+      // Only work from an earlier day (today's holds are already in today's plan).
+      const last = dateKey(raw.updated_at instanceof Date ? raw.updated_at : new Date(raw.updated_at || 0));
+      if (last && last >= dateKey(new Date())) continue;
+      const headline = String(row.hook_headline || '').trim();
+      await insert(
+        row.client_name,
+        dueKey(raw),
+        `[Task Row #${row.id}] ${row.deliverable} · Row ${row.display_no}${headline ? ` — ${headline}` : ''}`,
+        row.state === 'IN PROGRESS' ? 'PROCESSING' : 'HOLD',
+      );
+      inPlan.add(`task:${row.id}`);
+      added.push({ kind: 'TASK', client: row.client_name, title: `${row.deliverable} · Row ${row.display_no}` });
+    }
+    // Content Calendar categories this handler prepares.
+    for (const sh of await employeeSheets(employee)) {
+      if (!['ON HOLD', 'IN PROGRESS'].includes(sh.status)) continue;
+      if (sh.calendar_ids.some((id) => inPlan.has(`cc:${id}`))) continue;
+      const last = sh.last_activity_at ? dateKey(new Date(sh.last_activity_at)) : '';
+      if (last && last >= dateKey(new Date())) continue;
+      const leader = sh.calendar_ids[0];
+      await insert(
+        sh.client,
+        sh.submit_date,
+        `[Calendar Row #${leader}] Prepare ${sh.deliverable} (${sh.calendar_ids.length} rows)`,
+        sh.status === 'IN PROGRESS' ? 'PROCESSING' : 'HOLD',
+      );
+      sh.calendar_ids.forEach((id) => inPlan.add(`cc:${id}`));
+      added.push({ kind: 'CONTENT_CALENDAR', client: sh.client, title: `Content Calendar · ${sh.deliverable}` });
+    }
+    if (added.length) {
+      await syncDayPlanStatus(employee).catch(() => {});
+      emit(req, { type: 'DAY_PLAN_UPDATED', carried: added.length });
+    }
+    return res.json({ success: true, added: added.length, items: added });
+  } catch (err) {
+    console.error('POST /workspace-tasks/day-plan/carry-forward ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/day-plan/rows', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });

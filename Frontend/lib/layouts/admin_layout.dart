@@ -341,8 +341,10 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                         ),
                       ),
                     ),
-                    // Sidebar Content
-                    Column(
+                    // Sidebar Content — kept below the phone status bar
+                    SafeArea(
+                      right: false,
+                      child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
@@ -481,6 +483,7 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                         const SizedBox(height: 12),
                       ],
                     ),
+                    ),
                   ],
                 ),
               );
@@ -488,10 +491,15 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
           ),
         );
 
+        // Mobile app: the top bar starts below the phone's status bar
+        // (clock / battery) instead of drawing under it.
         return Scaffold(
-          backgroundColor: const Color(0xFFF6F9FE),
+          backgroundColor: Colors.white,
           drawer: isDesktop ? null : Drawer(child: sidebarWidget),
-          body: Row(
+          body: SafeArea(
+            child: ColoredBox(
+              color: const Color(0xFFF6F9FE),
+              child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (isDesktop) sidebarWidget,
@@ -790,6 +798,8 @@ class _AdminLayoutState extends State<AdminLayout> with TickerProviderStateMixin
                 ),
               ),
             ],
+          ),
+            ),
           ),
         );
       },
