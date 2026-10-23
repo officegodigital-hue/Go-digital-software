@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:html' as html;
+import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
 import 'package:http/http.dart' as http;
 import 'api_config.dart';
 import 'auth_storage.dart';

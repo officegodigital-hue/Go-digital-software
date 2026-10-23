@@ -1,4 +1,4 @@
-// notification_page.dart
+﻿// notification_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5484,3 +5484,5 @@ class _ChatBackdropPainter extends CustomPainter {
         oldDelegate.secondary != secondary;
   }
 }
+
+

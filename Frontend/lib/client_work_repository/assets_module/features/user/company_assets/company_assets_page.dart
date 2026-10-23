@@ -1,9 +1,11 @@
 
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:ui_web' as ui;
+// import 'dart:html' as html;
+// // ignore: avoid_web_libraries_in_flutter
+// import 'dart:ui_web' as ui;
 
+import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
+import 'package:godigital_portal/ui_web_stub.dart' if (dart.library.html) 'dart:ui_web' as ui;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';

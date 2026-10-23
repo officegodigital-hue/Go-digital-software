@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
