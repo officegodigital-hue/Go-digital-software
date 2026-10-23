@@ -2665,74 +2665,111 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              Wrap(
-                spacing: 14,
-                runSpacing: 12,
-                children: [
-                  // Website Designer: only a Word-style description and the
-                  // submit date (top chip) — no hook, caption, CTA or post date.
-                  if (_isWebsiteRow(row))
-                    _calendarCardField(
-                      'DESCRIPTION',
-                      RichDescription.preview(
-                        deltaJson: _str(row['description_rich']),
-                        fallbackPlain: _str(row['description_points']),
-                        editable: !_isAssigned(row),
-                        width: 440,
-                        emptyLabel: 'Click to write the website content…',
-                        onOpen: () => _openRichDescription(row),
+              LayoutBuilder(
+                builder: (context, gridConstraints) {
+                  final gridWidth = gridConstraints.maxWidth;
+                  final contentColumns = gridWidth >= 1000
+                      ? 4
+                      : (gridWidth >= 560 ? 2 : 1);
+                  final contentFieldWidth =
+                      (gridWidth - (contentColumns - 1) * 14) /
+                          contentColumns;
+                  final showAction =
+                      _asInt(row['source_assignment_id']) == 0;
+                  final detailsColumns = gridWidth >= 1000
+                      ? (showAction ? 5 : 4)
+                      : (gridWidth >= 560 ? 2 : 1);
+                  final detailFieldWidth =
+                      (gridWidth - (detailsColumns - 1) * 14) /
+                          detailsColumns;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_isWebsiteRow(row))
+                        _calendarCardField(
+                          'DESCRIPTION',
+                          RichDescription.preview(
+                            deltaJson: _str(row['description_rich']),
+                            fallbackPlain: _str(row['description_points']),
+                            editable: !_isAssigned(row),
+                            width: gridWidth >= 460 ? 440 : gridWidth - 10,
+                            emptyLabel: 'Click to write the website content…',
+                            onOpen: () => _openRichDescription(row),
+                          ),
+                          width: gridWidth,
+                        )
+                      else
+                        Wrap(
+                          spacing: 14,
+                          runSpacing: 12,
+                          children: [
+                            _calendarCardField(
+                              'HOOK / HEADLINE',
+                              _sheetTextCell(row, 'hook_headline',
+                                  'Type headline...', contentFieldWidth - 10),
+                              width: contentFieldWidth,
+                            ),
+                            _calendarCardField(
+                              'DESCRIPTION',
+                              _sheetTextCell(row, 'description_points',
+                                  'Type description...', contentFieldWidth - 10),
+                              width: contentFieldWidth,
+                            ),
+                            _calendarCardField(
+                              'CAPTION',
+                              _sheetTextCell(row, 'caption',
+                                  'Type caption...', contentFieldWidth - 10),
+                              width: contentFieldWidth,
+                            ),
+                            _calendarCardField(
+                              'CTA',
+                              _sheetTextCell(row, 'cta',
+                                  'Type CTA...', contentFieldWidth - 10),
+                              width: contentFieldWidth,
+                            ),
+                          ],
+                        ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 12,
+                        children: [
+                          if (!_isWebsiteRow(row))
+                            _calendarCardField(
+                              'POST DATE',
+                              _buildDateChip(row, 'publish_date'),
+                              width: detailFieldWidth,
+                            ),
+                          _calendarCardField(
+                            'NOTES',
+                            _sheetTextCell(row, 'notes',
+                                'Add notes...', detailFieldWidth - 10),
+                            width: detailFieldWidth,
+                          ),
+                          if (showAction)
+                            _calendarCardField(
+                              'ACTION',
+                              _buildPreparationCell(row),
+                              width: detailFieldWidth,
+                            ),
+                          _calendarCardField(
+                            _isAssigned(row) ? 'EMPLOYEE STATUS' : 'STATUS',
+                            _buildStatusCell(row),
+                            width: detailFieldWidth,
+                          ),
+                          _calendarCardField(
+                            _isAssigned(row)
+                                ? 'EDIT ASSIGNMENT'
+                                : 'EMERGENCY ASSIGN',
+                            _buildEmergencyCell(row),
+                            width: detailFieldWidth,
+                          ),
+                        ],
                       ),
-                      width: 450,
-                    )
-                  else ...[
-                  _calendarCardField(
-                    'HOOK / HEADLINE',
-                    _sheetTextCell(row, 'hook_headline', 'Type headline...', 240),
-                    width: 250,
-                  ),
-                  _calendarCardField(
-                    'DESCRIPTION',
-                    _sheetTextCell(row, 'description_points', 'Type description...', 280),
-                    width: 290,
-                  ),
-                  _calendarCardField(
-                    'CAPTION',
-                    _sheetTextCell(row, 'caption', 'Type caption...', 240),
-                    width: 250,
-                  ),
-                  _calendarCardField(
-                    'CTA',
-                    _sheetTextCell(row, 'cta', 'Type CTA...', 180),
-                    width: 190,
-                  ),
-                  _calendarCardField(
-                    'POST DATE',
-                    _buildDateChip(row, 'publish_date'),
-                    width: 170,
-                  ),
-                  ],
-                  _calendarCardField(
-                    'NOTES',
-                    _sheetTextCell(row, 'notes', 'Add notes...', 220),
-                    width: 230,
-                  ),
-                  if (_asInt(row['source_assignment_id']) == 0)
-                    _calendarCardField(
-                      'ACTION',
-                      _buildPreparationCell(row),
-                      width: 220,
-                    ),
-                  _calendarCardField(
-                    _isAssigned(row) ? 'EMPLOYEE STATUS' : 'STATUS',
-                    _buildStatusCell(row),
-                    width: _isAssigned(row) ? 250 : 170,
-                  ),
-                  _calendarCardField(
-                    _isAssigned(row) ? 'EDIT ASSIGNMENT' : 'EMERGENCY ASSIGN',
-                    _buildEmergencyCell(row),
-                    width: 180,
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -2742,20 +2779,38 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   }
 
   Widget _calendarCardField(String label, Widget child, {double width = 220}) {
+    // GD_CALENDAR_HEADING_STYLE_V1: style only; preserve existing field behavior.
+    final isStatus = label == 'STATUS' || label == 'EMPLOYEE STATUS';
+    final isEmergency = label == 'EMERGENCY ASSIGN' ||
+        label == 'EDIT ASSIGNMENT';
+    final accent = isEmergency
+        ? const Color(0xFFDC2626)
+        : (isStatus ? const Color(0xFF15803D) : const Color(0xFF0052CC));
+    final lightBackground = isEmergency
+        ? const Color(0xFFFFF1F2)
+        : (isStatus ? const Color(0xFFF0FDF4) : const Color(0xFFEFF6FF));
+
     return SizedBox(
       width: width,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 5),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: lightBackground,
+              border: Border(left: BorderSide(color: accent, width: 3)),
+              borderRadius: BorderRadius.circular(7),
+            ),
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.45,
-                color: _kMuted,
+                color: accent,
               ),
             ),
           ),
@@ -2764,8 +2819,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       ),
     );
   }
-
-  DataColumn _sheetColumn(
+DataColumn _sheetColumn(
     String label,
     TextStyle style, {
     bool center = false,
