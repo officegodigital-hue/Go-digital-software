@@ -25,17 +25,42 @@ class ClientWorkRepositoryPage extends StatefulWidget {
 }
 
 class _ClientWorkRepositoryPageState extends State<ClientWorkRepositoryPage> {
-  late final Future<bool> _isAdmin = _loadUserType();
+  Future<bool>? _isAdmin;
+  String? _roleToken;
 
-  Future<bool> _loadUserType() async {
-    final token = context.read<AuthService>().token;
-    if (token == null || token.isEmpty) return false;
+  bool _hasAdminAccess(Map<String, dynamic>? user) {
+    if (user == null) return false;
 
+    final userType = user['userType']?.toString().trim().toLowerCase() ?? '';
+    final role = user['role']?.toString().trim().toLowerCase() ?? '';
+    final mainAdmin = user['is_main_admin'];
+    final isMainAdmin = mainAdmin == true || mainAdmin == 1 || mainAdmin == '1';
+
+    if (userType == 'admin' || role == 'admin' || isMainAdmin) return true;
+
+    final rawAccess = user['application_access'];
+    if (rawAccess is! Map) return false;
+
+    final repositoryAccess = rawAccess['client_repository'];
+    if (repositoryAccess is Map) {
+      return repositoryAccess['access_type']?.toString().toLowerCase() ==
+          'admin';
+    }
+
+    return false;
+  }
+
+  Future<bool> _loadUserType({
+    required String token,
+    required bool hasCachedAdminAccess,
+  }) async {
     try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/auth/me'),
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .get(
+            Uri.parse('${ApiConfig.baseUrl}/auth/me'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return false;
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -46,19 +71,36 @@ class _ClientWorkRepositoryPageState extends State<ClientWorkRepositoryPage> {
       // that may not carry userType in their payload).
       if (userType == 'admin' || role == 'admin') return true;
       // If API returned 200 but neither field says admin, trust the response.
-      if (userType.isNotEmpty || role.isNotEmpty) return false;
+      if (userType.isNotEmpty || role.isNotEmpty) return hasCachedAdminAccess;
       // Fields were both empty — fall back to cached value.
-      return context.read<AuthService>().userType?.trim().toLowerCase() ==
-          'admin';
+      return hasCachedAdminAccess;
     } catch (_) {
       // Use the existing cached login only if the local server is unavailable.
-      return context.read<AuthService>().userType?.trim().toLowerCase() ==
-          'admin';
+      return hasCachedAdminAccess;
     }
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
+  Widget build(BuildContext context) => Consumer<AuthService>(
+    builder: (context, auth, _) {
+      if (!auth.isInitialized) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+
+      final token = auth.token;
+      if (token == null || token.isEmpty) {
+        return _buildUserLayout(context);
+      }
+
+      if (_roleToken != token || _isAdmin == null) {
+        _roleToken = token;
+        _isAdmin = _loadUserType(
+          token: token,
+          hasCachedAdminAccess: _hasAdminAccess(auth.user),
+        );
+      }
+
+      return FutureBuilder<bool>(
         future: _isAdmin,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
@@ -71,23 +113,20 @@ class _ClientWorkRepositoryPageState extends State<ClientWorkRepositoryPage> {
               onLogout: () async {
                 await context.read<AuthService>().logout();
                 if (context.mounted) {
-                  Navigator.of(context)
-                      .pushNamedAndRemoveUntil('/', (route) => false);
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/', (route) => false);
                 }
               },
               childBuilder: (index, onNavigate) {
                 switch (index) {
                   case 0:
-                    return AdminDashboardPage(
-                      onOpenAssets: () => onNavigate(1),
-                    );
-                  case 1:
                     return const AssetManagerPage();
-                  case 2:
+                  case 1:
                     return const UsersPage();
-                  case 3:
+                  case 2:
                     return const PermissionsPage();
-                  case 4:
+                  case 3:
                     return const AdminDownloadsPage();
                   default:
                     return const AssetManagerPage();
@@ -95,15 +134,18 @@ class _ClientWorkRepositoryPageState extends State<ClientWorkRepositoryPage> {
               },
             );
           }
-          return UserLayout(
-            onLogout: () async {
-              await context.read<AuthService>().logout();
-              if (context.mounted) {
-                Navigator.of(context)
-                    .pushNamedAndRemoveUntil('/', (route) => false);
-              }
-            },
-          );
+          return _buildUserLayout(context);
         },
       );
+    },
+  );
+
+  Widget _buildUserLayout(BuildContext context) => UserLayout(
+    onLogout: () async {
+      await context.read<AuthService>().logout();
+      if (context.mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      }
+    },
+  );
 }
