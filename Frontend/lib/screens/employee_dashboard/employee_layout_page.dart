@@ -232,7 +232,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       case 'Dashboard':
         return getDashboardByRole(loggedInRole);
       case 'Day Planner':
-        return const DayPlannerScreen();
+        return DayPlannerScreen(onOpenWorkspace: _openWorkspaceItem);
       case 'Assigned Task':
         return AssignedTasksContent(role: loggedInRole);
       case 'History':
@@ -240,7 +240,10 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       case 'Additional Task':
         return AdditionalTasksPage(role: loggedInRole);
       case 'Live Tracking Tasks':
-        return LiveTrackingTasksPage(searchQuery: searchQuery);
+        return LiveTrackingTasksPage(
+          searchQuery: searchQuery,
+          onOpenWorkspace: _openWorkspaceItem,
+        );
       case 'Daily Reports':
         return const DailyReportsPage();
       case 'Task Planner':
@@ -311,10 +314,15 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
               isMobileDrawer: !isDesktop,
             );
 
+            // Mobile app: keep the top bar and the drawer below the phone's
+            // status bar (clock / battery) instead of drawing under it.
             return Scaffold(
-              backgroundColor: const Color(0xFFF4F6FA),
-              drawer: isDesktop ? null : sidebarWidget,
-              body: Row(
+              backgroundColor: Colors.white,
+              drawer: isDesktop ? null : SafeArea(right: false, child: sidebarWidget),
+              body: SafeArea(
+                child: ColoredBox(
+                  color: const Color(0xFFF4F6FA),
+                  child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Desktop fixed sidebar
@@ -363,6 +371,8 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
                     ),
                   ),
                 ],
+              ),
+                ),
               ),
             );
           },

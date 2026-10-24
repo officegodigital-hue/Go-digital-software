@@ -1748,63 +1748,110 @@ router.get('/items-by-ref', async (req, res) => {
   }
 });
 
-// GET /live-all?employee=&date=  → everything worked on that day, all clients
+// ── "Today" for Live Tracking and the top bar ───────────────────────────────
+// Days follow the office clock (India, UTC+05:30 — APP_TZ_OFFSET_MINUTES to
+// change), whatever time zone the server runs in.
+const APP_TZ_MIN = Number(process.env.APP_TZ_OFFSET_MINUTES ?? 330);
+function appDay(d = new Date()) {
+  const t = new Date(d.getTime() + APP_TZ_MIN * 60000);
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+function appBounds(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d) - APP_TZ_MIN * 60000);
+  return { from, to: new Date(from.getTime() + 86400000) };
+}
+const inDay = (v, from, to) => {
+  if (!v) return false;
+  const t = new Date(v).getTime();
+  return t >= from.getTime() && t < to.getTime();
+};
+
+/**
+ * Work done on one day:
+ *  · only sessions STARTED that day count (started / restarted that day),
+ *    so a task left running from an earlier day adds nothing until the
+ *    employee holds and restarts it;
+ *  · an item is listed when it was started, restarted, held or completed
+ *    that day — an old held task shows again only once it is restarted;
+ *  · for today, anything still running from an earlier day is listed too
+ *    (flagged stale_running) so it can be put on hold.
+ */
+async function dayWork(employee, day) {
+  const now = new Date();
+  const today = appDay(now);
+  const { from, to } = appBounds(day);
+  const end = to < now ? to : now;
+  const items = [];
+  let totalSecs = 0;
+
+  for (const { raw, row } of await employeeTaskItems(employee)) {
+    const intervals = workIntervals(raw, now);
+    let secs = 0;
+    for (const [a, b] of intervals) {
+      if (a >= from && a < to) secs += Math.max(Math.floor((Math.min(b, end) - a) / 1000), 0);
+    }
+    const events = [raw.start_time, raw.complete_time];
+    for (let i = 1; i <= 10; i += 1) events.push(raw[`hold_time_${i}`], raw[`restart_time_${i}`]);
+    const actedToday = events.some((v) => inDay(v, from, to));
+    const running = row.state === 'IN PROGRESS';
+    const session = running ? sessionStart(raw) : null;
+    const stale = running && day === today && session && session < from;
+    if (!actedToday && !stale) continue;
+    totalSecs += secs;
+    items.push({
+      ...taskItem({ raw, row }),
+      seconds_on_date: secs,
+      today_running: running && day === today && !stale,
+      stale_running: Boolean(stale),
+      running_since: stale ? dateKey(session) : null,
+    });
+  }
+
+  for (const s of await employeeSheets(employee)) {
+    const started = s.session_started_at ? new Date(s.session_started_at) : null;
+    const runningToday = s.running && day === today && started && started >= from;
+    const stale = s.running && day === today && started && started < from;
+    const actedToday = inDay(s.last_activity_at, from, to) || (started && started >= from && started < to);
+    if (!actedToday && !stale && !runningToday) continue;
+    const secs = runningToday ? Math.max(Math.floor((now - started) / 1000), 0) : 0;
+    totalSecs += secs;
+    items.push({
+      ...s,
+      seconds_on_date: secs,
+      today_running: Boolean(runningToday),
+      stale_running: Boolean(stale),
+      running_since: stale ? dateKey(started) : null,
+    });
+  }
+
+  const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
+  items.sort((a, b) => rank(a) - rank(b) || String(a.client).localeCompare(String(b.client)));
+  return { items, totalSecs, now };
+}
+
+// GET /live-all?employee=&date=  → what was worked on that day, all clients
 router.get('/live-all', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
-  const day = dateKey(req.query.date) || localDay(new Date());
-  const today = localDay(new Date());
+  const day = dateKey(req.query.date) || appDay();
   try {
-    const { from, to } = dayBounds(day);
-    const now = new Date();
-    const tasks = (await employeeTaskItems(employee))
-      .filter(({ raw, row }) => touchedOn(raw, day) ||
-        (day === today && ['IN PROGRESS', 'ON HOLD', 'REWORK'].includes(row.state)))
-      .map(({ raw, row }) => ({
-        ...taskItem({ raw, row }),
-        seconds_on_date: secondsBetween(workIntervals(raw, now), from, to < now ? to : now),
-      }));
-    const sheets = (await employeeSheets(employee))
-      .filter((s) => (s.last_activity_at && localDay(new Date(s.last_activity_at)) === day) ||
-        (day === today && ['IN PROGRESS', 'ON HOLD'].includes(s.status)))
-      .map((s) => ({
-        ...s,
-        seconds_on_date: s.running && day === today
-          ? Math.max(Math.floor((now - new Date(s.session_started_at)) / 1000), 0)
-          : 0,
-      }));
-    const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
-    const data = [...sheets, ...tasks].sort((a, b) => rank(a) - rank(b) ||
-      String(a.client).localeCompare(String(b.client)));
-    const totalSecs = data.reduce((t, i) => t + (Number(i.seconds_on_date) || 0), 0);
-    return res.json({ success: true, date: day, totalSecs, data });
+    const { items, totalSecs, now } = await dayWork(employee, day);
+    return res.json({ success: true, date: day, serverNow: now.toISOString(), totalSecs, data: items });
   } catch (err) {
     console.error('GET /workspace-tasks/live-all ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// GET /running?employee=  → { running, totalSecs (today), serverNow } for the top bar
+// GET /running?employee=  → { running, totalSecs (today only), serverNow } for the top bar
 router.get('/running', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
   try {
-    const now = new Date();
-    const day = localDay(now);
-    const { from } = dayBounds(day);
-    const items = await employeeTaskItems(employee);
-    let totalSecs = 0;
-    let running = null;
-    for (const { raw, row } of items) {
-      if (!touchedOn(raw, day) && row.state !== 'IN PROGRESS') continue;
-      totalSecs += secondsBetween(workIntervals(raw, now), from, now);
-      if (row.state === 'IN PROGRESS' && !running) running = taskItem({ raw, row });
-    }
-    for (const sheet of await employeeSheets(employee)) {
-      if (!sheet.running) continue;
-      totalSecs += Math.max(Math.floor((now - new Date(sheet.session_started_at)) / 1000), 0);
-      if (!running) running = sheet;
-    }
+    const { items, totalSecs, now } = await dayWork(employee, appDay());
+    // Prefer what is running today; else an old forgotten one (to hold it).
+    const running = items.find((i) => i.today_running) || items.find((i) => i.stale_running) || null;
     return res.json({
       success: true,
       serverNow: now.toISOString(),
@@ -2248,6 +2295,87 @@ router.post('/day-plan/add', async (req, res) => {
 });
 
 // GET /day-plan/rows?employee=  → task row ids already in today's planner
+// POST /day-plan/carry-forward { employee }
+// Opening today's Day Planner: tasks left ON HOLD (or still running) from an
+// earlier day are added to TODAY's plan automatically — unless they are
+// already in it. Works for My Tasks rows and Content Calendar categories.
+router.post('/day-plan/carry-forward', async (req, res) => {
+  const employee = employeeFrom(req);
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  try {
+    const [today] = await db.query(
+      `SELECT today_plan, is_submitted FROM day_plan_rows
+       WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND plan_date = CURDATE()`,
+      [employee],
+    );
+    const inPlan = new Set();
+    let submitted = 0;
+    for (const r of today) {
+      if (Number(r.is_submitted) === 1) submitted = 1;
+      for (const m of String(r.today_plan || '').matchAll(/\[Task Row #(\d+)\]/g)) inPlan.add(`task:${m[1]}`);
+      for (const m of String(r.today_plan || '').matchAll(/\[Calendar Row #(\d+)\]/g)) inPlan.add(`cc:${m[1]}`);
+    }
+    const [[roleRow]] = await db.query(
+      'SELECT role FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1',
+      [employee],
+    );
+    const insert = (client, due, plan, status) => db.query(
+      `INSERT INTO day_plan_rows
+         (employee_name, employee_role, plan_date, report_type, client_name,
+          maintenance_date, today_plan, status, remarks, is_submitted)
+       VALUES (?, ?, CURDATE(), 'Morning', ?, ?, ?, ?, ?, ?)`,
+      [employee, roleRow?.role || null, client || null, due ? String(due).slice(0, 10) : null,
+        plan, status, 'Carried forward — on hold from an earlier day', submitted],
+    );
+
+    const added = [];
+    // My Tasks rows (only rows the employee really has in Employee Workspace).
+    const all = await employeeTaskItems(employee);
+    const visible = await workspaceVisible(employee, all);
+    for (const entry of all.filter(visible)) {
+      const { raw, row } = entry;
+      if (!['ON HOLD', 'IN PROGRESS'].includes(row.state)) continue;
+      if (inPlan.has(`task:${row.id}`)) continue;
+      // Only work from an earlier day (today's holds are already in today's plan).
+      const last = dateKey(raw.updated_at instanceof Date ? raw.updated_at : new Date(raw.updated_at || 0));
+      if (last && last >= dateKey(new Date())) continue;
+      const headline = String(row.hook_headline || '').trim();
+      await insert(
+        row.client_name,
+        dueKey(raw),
+        `[Task Row #${row.id}] ${row.deliverable} · Row ${row.display_no}${headline ? ` — ${headline}` : ''}`,
+        row.state === 'IN PROGRESS' ? 'PROCESSING' : 'HOLD',
+      );
+      inPlan.add(`task:${row.id}`);
+      added.push({ kind: 'TASK', client: row.client_name, title: `${row.deliverable} · Row ${row.display_no}` });
+    }
+    // Content Calendar categories this handler prepares.
+    for (const sh of await employeeSheets(employee)) {
+      if (!['ON HOLD', 'IN PROGRESS'].includes(sh.status)) continue;
+      if (sh.calendar_ids.some((id) => inPlan.has(`cc:${id}`))) continue;
+      const last = sh.last_activity_at ? dateKey(new Date(sh.last_activity_at)) : '';
+      if (last && last >= dateKey(new Date())) continue;
+      const leader = sh.calendar_ids[0];
+      await insert(
+        sh.client,
+        sh.submit_date,
+        `[Calendar Row #${leader}] Prepare ${sh.deliverable} (${sh.calendar_ids.length} rows)`,
+        sh.status === 'IN PROGRESS' ? 'PROCESSING' : 'HOLD',
+      );
+      sh.calendar_ids.forEach((id) => inPlan.add(`cc:${id}`));
+      added.push({ kind: 'CONTENT_CALENDAR', client: sh.client, title: `Content Calendar · ${sh.deliverable}` });
+    }
+    if (added.length) {
+      await syncDayPlanStatus(employee).catch(() => {});
+      emit(req, { type: 'DAY_PLAN_UPDATED', carried: added.length });
+    }
+    return res.json({ success: true, added: added.length, items: added });
+  } catch (err) {
+    console.error('POST /workspace-tasks/day-plan/carry-forward ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/day-plan/rows', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
@@ -2265,6 +2393,637 @@ router.get('/day-plan/rows', async (req, res) => {
     }
     return res.json({ success: true, data: [...ids], calendar: [...calendar] });
   } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Employee Performance (admin) — built on the same tracking data as
+// Employee Workspace, Live Tracking and the top bar.
+//
+//   GET /performance/overview?mode=daily&date=YYYY-MM-DD
+//   GET /performance/overview?mode=monthly&fromDate=…&toDate=…
+//   GET /performance/detail?employeeName=…&(same range)
+//
+// Rules (shown on the screen too):
+//  · Days follow office time (UTC+05:30). A work session counts only up to the
+//    end of the day it started — a task left running overnight must be held
+//    and restarted to count again.
+//  · Tasks in the period = tasks due in the period + tasks started, held,
+//    restarted, completed or reviewed in the period.
+//  · Available time = working days (Mon–Sat, up to today) × WORK_DAY_HOURS (8).
+//  · Score = Completion 35 · Productive time 20 · On-time 20 · Approval 15 ·
+//    Day Planner 10. A part with no data is left out and the rest re-weighted.
+// ═════════════════════════════════════════════════════════════════════════════
+const WORK_DAY_SECS = Math.round((Number(process.env.WORK_DAY_HOURS) || 8) * 3600);
+const MAX_SESSION_SECS = Math.round((Number(process.env.MAX_SESSION_HOURS) || 10) * 3600);
+const PERF_CACHE_MS = 20000;
+const perfCache = new Map();
+
+const SCORE_WEIGHTS = [
+  { key: 'completion', label: 'Task completion', weight: 35 },
+  { key: 'productivity', label: 'Productive time', weight: 20 },
+  { key: 'onTime', label: 'On-time delivery', weight: 20 },
+  { key: 'approval', label: 'Manager approval', weight: 15 },
+  { key: 'planner', label: 'Day Planner', weight: 10 },
+];
+
+const pct = (part, whole) => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0);
+function fmtSecs(secs) {
+  const s = Math.max(0, Math.round(Number(secs) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+function gradeFor(score, active) {
+  if (!active) return 'No Activity';
+  if (score >= 85) return 'Excellent';
+  if (score >= 70) return 'Good';
+  if (score >= 50) return 'Average';
+  return 'Needs Improvement';
+}
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).filter((w) => /[a-z]/i.test(w))
+  .slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+
+function perfRange(q) {
+  const today = appDay();
+  let fromDay;
+  let toDay;
+  if (String(q.mode || 'daily') === 'daily') {
+    fromDay = dateKey(q.date) || today;
+    toDay = fromDay;
+  } else {
+    fromDay = dateKey(q.fromDate) || `${today.slice(0, 8)}01`;
+    toDay = dateKey(q.toDate) || today;
+  }
+  if (toDay < fromDay) [fromDay, toDay] = [toDay, fromDay];
+  const from = appBounds(fromDay).from;
+  const to = appBounds(toDay).to;
+  // Calendar days of the range (max 92) and working days (Mon–Sat, ≤ today).
+  const days = [];
+  for (let t = from.getTime(); t < to.getTime() && days.length < 92; t += 86400000) {
+    days.push(appDay(new Date(t + 3600000)));
+  }
+  const workDays = days.filter((d) => {
+    if (d > today) return false;
+    const [y, m, dd] = d.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, dd)).getUTCDay() !== 0;
+  });
+  return { fromDay, toDay, from, to, days, workDays, today };
+}
+
+// Work sessions of a task row, each cut at the end of the day it started and
+// at MAX_SESSION_HOURS (10h) — a forgotten Hold cannot add a whole day.
+function cappedSessions(raw, now) {
+  return workIntervals(raw, now).map(([a, b]) => {
+    const dayEnd = appBounds(appDay(a)).to;
+    const maxEnd = new Date(a.getTime() + MAX_SESSION_SECS * 1000);
+    let end = b;
+    if (end > dayEnd) end = dayEnd;
+    if (end > maxEnd) end = maxEnd;
+    return [a, end];
+  }).filter(([a, b]) => b > a);
+}
+
+function sessionsInRange(sessions, from, to, now) {
+  const end = to < now ? to : now;
+  const out = [];
+  for (const [a, b] of sessions) {
+    const s = a > from ? a : from;
+    const e = b < end ? b : end;
+    if (e > s) out.push({ day: appDay(s), secs: Math.floor((e - s) / 1000) });
+  }
+  return out;
+}
+
+/** Everything the performance screen needs, for every employee in one go. */
+async function buildPerformance(range) {
+  const cacheKey = `${range.fromDay}|${range.toDay}`;
+  const hit = perfCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < PERF_CACHE_MS) return hit.data;
+
+  const now = new Date();
+  const { from, to, fromDay, toDay } = range;
+  const inRange = (v) => v && new Date(v) >= from && new Date(v) < to;
+
+  // ── 1. Employees ──
+  const [users] = await db.query(
+    `SELECT id, full_name, initials, staff_id, role, user_type, is_main_admin
+     FROM employee_users WHERE is_active = 1 ORDER BY full_name`,
+  );
+  const byId = new Map(users.map((u) => [Number(u.id), u]));
+  const byKey = new Map(users.map((u) => [personKey(u.full_name), u]));
+  const userFor = (id, name) => byId.get(Number(id)) || byKey.get(personKey(name)) || null;
+
+  // ── 2. Active clients + assignments (who is named on what) ──
+  const active = await activeClientSet();
+  const [assignRows] = await db.query('SELECT * FROM task_assignments WHERE is_assigned = 1');
+  const named = new Map(); // userId → Map("assignmentId|task" → direct?)
+  for (const a of assignRows) {
+    if (!active.has(norm(a.client_name))) continue;
+    for (const role of ROLES) {
+      const cell = a[role.emp];
+      if (!cell) continue;
+      for (const u of users) {
+        if (!namesEmployee(cell, u.full_name)) continue;
+        if (!named.has(u.id)) named.set(u.id, new Map());
+        const m = named.get(u.id);
+        for (const task of parseTasks(a[role.tasks])) {
+          const k = `${a.id}|${norm(task.name)}`;
+          m.set(k, m.get(k) === true || Boolean(role.direct));
+        }
+      }
+    }
+  }
+
+  // ── 3. Task rows: worked on / open since before the range end, or not started ──
+  const [taskRows] = await db.query(
+    `SELECT tti.*, tl.deliverables, tl.client_name, tl.employee_name,
+            tl.employee_id AS tl_employee_id, tl.task_assignment_id AS tl_assignment_id,
+            tl.additional_task_id AS tl_additional, tl.submission_date AS tl_submission_date,
+            ta.deadline AS ta_deadline, ta.maintenance_date AS ta_maintenance,
+            mr.manager_action, mr.manager_comment, mr.reviewed_at
+     FROM time_tracking_task_items tti
+     JOIN task_list tl ON tl.id = tti.task_list_id
+     LEFT JOIN task_assignments ta ON ta.id = tl.task_assignment_id
+     LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
+     WHERE tti.start_time IS NULL
+        OR (tti.start_time < ? AND (tti.complete_time IS NULL OR tti.complete_time >= ?
+            OR mr.reviewed_at >= ?))`,
+    [to, from, from],
+  );
+
+  const people = new Map(); // userId → accumulator
+  const acc = (u) => {
+    if (!people.has(u.id)) people.set(u.id, { user: u, tasks: [], planner: new Map() });
+    return people.get(u.id);
+  };
+
+  for (const raw of taskRows) {
+    if (!active.has(norm(raw.client_name))) continue;
+    const u = userFor(raw.tl_employee_id, raw.employee_name);
+    if (!u) continue;
+    // Same visibility as Employee Workspace → My Tasks.
+    const started = Boolean(raw.start_time) || upper(raw.status || 'IDLE') !== 'IDLE';
+    if (!started && !raw.tl_additional) {
+      const handed = Number(raw.content_calendar_assigned) === 1 || Boolean(raw.parent_item_id);
+      const direct = raw.tl_assignment_id
+        ? named.get(u.id)?.get(`${raw.tl_assignment_id}|${norm(raw.deliverables)}`)
+        : undefined;
+      if (!(direct === true || handed)) continue;
+    }
+
+    const due = dueKey(raw);
+    const state = rowState(raw);
+    const sessions = cappedSessions(raw, now);
+    const worked = sessionsInRange(sessions, from, to, now);
+    const events = [];
+    const push = (v, type) => { if (inRange(v)) events.push({ at: new Date(v), type }); };
+    push(raw.start_time, 'TASK_STARTED');
+    for (let i = 1; i <= 10; i += 1) {
+      push(raw[`hold_time_${i}`], 'TASK_HELD');
+      push(raw[`restart_time_${i}`], 'TASK_RESTARTED');
+    }
+    push(raw.complete_time, 'TASK_COMPLETED');
+    const review = upper(raw.review_status);
+    if (['APPROVED', 'REWORK', 'REJECTED'].includes(review)) push(raw.reviewed_at, `MANAGER_${review}`);
+
+    const dueIn = due && due >= fromDay && due <= toDay;
+    if (!dueIn && !events.length && !worked.length) continue;
+
+    const completedAt = raw.complete_time ? new Date(raw.complete_time) : null;
+    acc(u).tasks.push({
+      kind: 'TASK',
+      id: raw.id,
+      client: raw.client_name,
+      deliverable: raw.deliverables,
+      rowLabel: `Row ${Number(raw.sub_no) > 0 ? `${raw.s_no}.${raw.sub_no}` : raw.s_no}`,
+      state,
+      due,
+      completedAt,
+      review: ['APPROVED', 'REWORK', 'REJECTED'].includes(review) ? review : null,
+      worked,
+      events,
+      staleRunning: state === 'IN PROGRESS' && sessions.length > 0 &&
+        sessions[sessions.length - 1][1] < now && !raw.complete_time,
+    });
+  }
+
+  // ── 4. Content Calendar categories prepared by Page / Ads Handlers ──
+  const [ccRows] = await db.query(
+    `SELECT id, client_name, deliverable, source_assignment_id, source_role, source_task_index,
+            source_row_number, submit_date, cc_status, cc_duration_secs, cc_started_at,
+            cc_hold_reason, cc_last_activity_at, cc_handoff_at, assigned_to_name,
+            cc_prepared_by_id, cc_prepared_by_name
+     FROM content_calendar
+     WHERE source_assignment_id IS NOT NULL AND source_active = 1
+       AND (cc_prepared_by_id IS NOT NULL OR COALESCE(cc_prepared_by_name, '') <> '')
+       AND (cc_last_activity_at >= ? OR cc_handoff_at >= ? OR UPPER(cc_status) = 'IN PROGRESS'
+            OR submit_date >= ?)`,
+    [from, from, fromDay],
+  );
+  const ccByUser = new Map();
+  for (const r of ccRows) {
+    if (!active.has(norm(r.client_name))) continue;
+    const u = userFor(r.cc_prepared_by_id, r.cc_prepared_by_name);
+    if (!u) continue;
+    if (!ccByUser.has(u.id)) ccByUser.set(u.id, { u, rows: [] });
+    ccByUser.get(u.id).rows.push(r);
+  }
+  for (const { u, rows } of ccByUser.values()) {
+    const byKey2 = new Map();
+    for (const r of rows) {
+      const k = `${r.source_assignment_id}:${r.source_role}:${r.source_task_index}`;
+      if (!byKey2.has(k)) byKey2.set(k, []);
+      byKey2.get(k).push(r);
+    }
+    for (const group of byKey2.values()) {
+      const [sheet] = groupSheets(group);
+      if (!sheet) continue;
+      const handoffs = group.map((r) => r.cc_handoff_at).filter(Boolean).map((t) => new Date(t));
+      const handedAt = handoffs.length === group.length && handoffs.length
+        ? new Date(Math.max(...handoffs)) : null;
+      const due = sheet.submit_date;
+      const events = [];
+      if (inRange(handedAt)) events.push({ at: handedAt, type: 'TASK_COMPLETED' });
+      const lastAct = sheet.last_activity_at ? new Date(sheet.last_activity_at) : null;
+      // Time: the running session (cut at its day end) + banked time on the
+      // day of the last activity (the calendar keeps no per-session history).
+      const worked = [];
+      if (sheet.running && sheet.session_started_at) {
+        worked.push(...sessionsInRange(cappedSessions({ start_time: sheet.session_started_at }, now), from, to, now));
+      }
+      if (inRange(lastAct) && Number(sheet.banked_secs) > 0) {
+        worked.push({ day: appDay(lastAct), secs: Number(sheet.banked_secs) });
+      }
+      const dueIn = due && due >= fromDay && due <= toDay;
+      if (!dueIn && !events.length && !worked.length && !inRange(lastAct)) continue;
+      const state = sheet.status === 'ASSIGNED' ? 'SHARED'
+        : sheet.status === 'COMPLETED' ? 'IN REVIEW' : sheet.status;
+      acc(u).tasks.push({
+        kind: 'CONTENT_CALENDAR',
+        id: sheet.key,
+        client: sheet.client,
+        deliverable: `Content Calendar · ${sheet.deliverable}`,
+        rowLabel: `${group.length} rows`,
+        state,
+        due,
+        completedAt: handedAt,
+        review: null,
+        worked,
+        events,
+        staleRunning: false,
+      });
+    }
+  }
+
+  // ── 5. Day Planner submissions ──
+  const [planRows] = await db.query(
+    `SELECT employee_name, plan_date, report_type, MAX(is_submitted) AS submitted,
+            MAX(submitted_at) AS submitted_at
+     FROM day_plan_rows WHERE plan_date BETWEEN ? AND ?
+     GROUP BY employee_name, plan_date, report_type`,
+    [fromDay, toDay],
+  );
+  for (const p of planRows) {
+    const u = userFor(null, p.employee_name);
+    if (!u || !Number(p.submitted)) continue;
+    const day = dateKey(p.plan_date);
+    const a = acc(u);
+    const rec = a.planner.get(day) || { morning: false, evening: false, at: null };
+    if (/^even/i.test(String(p.report_type || ''))) rec.evening = true;
+    else rec.morning = true;
+    if (p.submitted_at && (!rec.at || new Date(p.submitted_at) > rec.at)) rec.at = new Date(p.submitted_at);
+    a.planner.set(day, rec);
+  }
+
+  // ── 6. Employees shown: every non-admin + anyone with work in the period ──
+  for (const u of users) {
+    const isAdmin = String(u.user_type || '').toLowerCase() === 'admin' || Number(u.is_main_admin) === 1;
+    if (!isAdmin) acc(u);
+  }
+
+  const data = [...people.values()].map((p) => summarise(p, range, now));
+  perfCache.set(cacheKey, { at: Date.now(), data });
+  if (perfCache.size > 30) perfCache.delete(perfCache.keys().next().value);
+  return data;
+}
+
+function groupOf(state) {
+  switch (state) {
+    case 'IN REVIEW':
+    case 'APPROVED':
+    case 'SHARED':
+    case 'COMPLETED':
+      return 'completed';
+    case 'IN PROGRESS':
+      return 'processing';
+    case 'ON HOLD':
+      return 'onHold';
+    case 'REWORK':
+    case 'REJECTED':
+      return 'rejected';
+    default:
+      return 'pending';
+  }
+}
+const STATUS_LABEL = {
+  IDLE: 'Not started',
+  'IN PROGRESS': 'In progress',
+  'ON HOLD': 'On hold',
+  REWORK: 'Rework',
+  REJECTED: 'Rejected',
+  'IN REVIEW': 'Completed · in review',
+  APPROVED: 'Approved',
+  COMPLETED: 'Completed',
+  SHARED: 'Shared with team',
+};
+
+function summarise({ user, tasks, planner }, range, now) {
+  const { workDays, days, today } = range;
+  const counts = { completed: 0, processing: 0, onHold: 0, pending: 0, rejected: 0 };
+  let workedSecs = 0;
+  let onTime = 0;
+  let late = 0;
+  const review = { approved: 0, rework: 0, rejected: 0, pendingReview: 0 };
+  const perDay = new Map(days.map((d) => [d, { secs: 0, completed: 0, started: 0 }]));
+  const clients = new Map();
+  const timeline = [];
+
+  for (const t of tasks) {
+    const g = groupOf(t.state);
+    counts[g] += 1;
+    const secs = t.worked.reduce((s, w) => s + w.secs, 0);
+    workedSecs += secs;
+    for (const w of t.worked) if (perDay.has(w.day)) perDay.get(w.day).secs += w.secs;
+    for (const e of t.events) {
+      const d = perDay.get(appDay(e.at));
+      if (d && e.type === 'TASK_COMPLETED') d.completed += 1;
+      if (d && e.type === 'TASK_STARTED') d.started += 1;
+    }
+
+    let timing = '—';
+    if (g === 'completed' && t.completedAt) {
+      const doneDay = appDay(t.completedAt);
+      if (t.due) {
+        if (doneDay <= t.due) { onTime += 1; timing = 'On time'; } else { late += 1; timing = 'Late'; }
+      } else timing = 'Done';
+    } else if (t.due) {
+      timing = t.due < today ? 'Overdue' : t.due === today ? 'Due today' : 'Upcoming';
+    }
+
+    if (t.review === 'APPROVED') review.approved += 1;
+    else if (t.review === 'REWORK') review.rework += 1;
+    else if (t.review === 'REJECTED') review.rejected += 1;
+    else if (t.state === 'IN REVIEW') review.pendingReview += 1;
+
+    const c = clients.get(t.client) || { clientName: t.client, tasks: [], secs: 0, ...Object.fromEntries(Object.keys(counts).map((k) => [k, 0])) };
+    c[g] += 1;
+    c.secs += secs;
+    c.tasks.push({
+      kind: t.kind,
+      deliverable: t.deliverable,
+      rowLabel: t.rowLabel,
+      roleName: t.kind === 'CONTENT_CALENDAR' ? 'Content Calendar' : 'Task',
+      status: t.state,
+      statusGroup: g,
+      statusLabel: STATUS_LABEL[t.state] || t.state,
+      duration: fmtSecs(secs),
+      secs,
+      due: t.due || null,
+      completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+      timing,
+      performance: timing,
+      reviewStatus: t.review || (t.state === 'IN REVIEW' ? 'Pending' : '-'),
+      staleRunning: t.staleRunning,
+    });
+    clients.set(t.client, c);
+
+    for (const e of t.events) {
+      const verb = {
+        TASK_STARTED: 'Started',
+        TASK_HELD: 'Put on hold',
+        TASK_RESTARTED: 'Restarted',
+        TASK_COMPLETED: t.kind === 'CONTENT_CALENDAR' ? 'Shared with team' : 'Completed',
+        MANAGER_APPROVED: 'Approved by manager',
+        MANAGER_REWORK: 'Sent back for rework',
+        MANAGER_REJECTED: 'Rejected by manager',
+      }[e.type] || e.type;
+      timeline.push({
+        date: e.at.toISOString(),
+        type: e.type,
+        label: `${verb} · ${t.deliverable} ${t.rowLabel} · ${t.client}`,
+      });
+    }
+  }
+
+  // Day Planner
+  let morning = 0;
+  let evening = 0;
+  let submittedDays = 0;
+  const plannerDays = workDays.map((d) => {
+    const rec = planner.get(d) || { morning: false, evening: false };
+    if (rec.morning) morning += 1;
+    if (rec.evening) evening += 1;
+    if (rec.morning || rec.evening) submittedDays += 1;
+    if (rec.at) timeline.push({ date: rec.at.toISOString(), type: 'PLANNER_SUBMITTED', label: `Day Planner submitted (${d})` });
+    return { date: d, morningSubmitted: rec.morning, eveningSubmitted: rec.evening };
+  });
+
+  const total = tasks.length;
+  const availableSecs = workDays.length * WORK_DAY_SECS;
+  const productivityPct = Math.min(100, pct(workedSecs, availableSecs));
+  const completedWithDue = onTime + late;
+  const reviewed = review.approved + review.rework + review.rejected;
+
+  const values = {
+    completion: total ? pct(counts.completed, total) : null,
+    productivity: availableSecs ? productivityPct : null,
+    onTime: completedWithDue ? pct(onTime, completedWithDue) : null,
+    approval: reviewed ? pct(review.approved, reviewed) : null,
+    planner: workDays.length ? pct(submittedDays, workDays.length) : null,
+  };
+  const hasActivity = total > 0 || workedSecs > 0;
+  const usable = SCORE_WEIGHTS.filter((w) => values[w.key] !== null);
+  const weightSum = usable.reduce((s, w) => s + w.weight, 0);
+  const score = hasActivity && weightSum
+    ? Math.round(usable.reduce((s, w) => s + values[w.key] * w.weight, 0) / weightSum)
+    : 0;
+  const parts = SCORE_WEIGHTS.map((w) => ({
+    key: w.key,
+    label: w.label,
+    weight: w.weight,
+    valuePct: values[w.key],
+    points: values[w.key] === null || !weightSum ? null
+      : Math.round((values[w.key] * w.weight) / weightSum * 10) / 10,
+  }));
+
+  const activeDays = [...perDay.values()].filter((d) => d.secs > 0).length;
+  const clientList = [...clients.values()].map((c) => {
+    const n = c.tasks.length;
+    const rank = { processing: 0, onHold: 1, rejected: 2, pending: 3, completed: 4 };
+    c.tasks.sort((a, b) => rank[a.statusGroup] - rank[b.statusGroup] || String(a.due).localeCompare(String(b.due)));
+    return {
+      clientName: c.clientName,
+      totalTasks: n,
+      completed: c.completed,
+      processing: c.processing,
+      onHold: c.onHold,
+      pending: c.pending,
+      rejected: c.rejected,
+      'ON HOLD': c.onHold,
+      REJECTED: c.rejected,
+      completionPct: Math.round(pct(c.completed, n)),
+      totalSecs: c.secs,
+      totalDuration: fmtSecs(c.secs),
+      tasks: c.tasks,
+    };
+  }).sort((a, b) => b.totalSecs - a.totalSecs || b.totalTasks - a.totalTasks);
+
+  timeline.sort((a, b) => b.date.localeCompare(a.date));
+  const running = tasks.some((t) => t.state === 'IN PROGRESS' && !t.staleRunning);
+
+  return {
+    employee: {
+      id: user.id,
+      fullName: user.full_name,
+      role: user.role || '',
+      staffId: user.staff_id || '',
+      initials: user.initials || initialsOf(user.full_name),
+    },
+    running,
+    staleRunning: tasks.filter((t) => t.staleRunning).length,
+    performance: { score, grade: gradeFor(score, hasActivity), parts },
+    summary: {
+      totalClients: clients.size,
+      totalTasks: total,
+      ...counts,
+      completedPct: pct(counts.completed, total),
+      processingPct: pct(counts.processing, total),
+      onHoldPct: pct(counts.onHold, total),
+      pendingPct: pct(counts.pending, total),
+      rejectedPct: pct(counts.rejected, total),
+      onTime,
+      late,
+      overdue: tasks.filter((t) => groupOf(t.state) !== 'completed' && t.due && t.due < today).length,
+    },
+    workingHours: {
+      totalSecs: workedSecs,
+      availableSecs,
+      idleSecs: Math.max(0, availableSecs - workedSecs),
+      total: fmtSecs(workedSecs),
+      productive: fmtSecs(workedSecs),
+      available: fmtSecs(availableSecs),
+      idle: fmtSecs(Math.max(0, availableSecs - workedSecs)),
+      workingDays: workDays.length,
+      activeDays,
+      dayHours: WORK_DAY_SECS / 3600,
+      avgDaily: fmtSecs(activeDays ? workedSecs / activeDays : 0),
+      avgTask: fmtSecs(counts.completed ? workedSecs / counts.completed : 0),
+      productivityPct,
+      efficiencyPct: values.onTime ?? 0,
+    },
+    managerReview: { ...review, reviewed, approvalRatePct: values.approval ?? 0 },
+    dayPlanner: {
+      workingDays: workDays.length,
+      submittedDays,
+      missedDays: Math.max(0, workDays.length - submittedDays),
+      morningSubmittedCount: morning,
+      eveningSubmittedCount: evening,
+      consistencyPct: values.planner ?? 0,
+      days: plannerDays,
+    },
+    trend: [...perDay.entries()].map(([date, d]) => ({
+      date,
+      workedSecs: d.secs,
+      worked: fmtSecs(d.secs),
+      completed: d.completed,
+      started: d.started,
+      dayPerformancePct: Math.min(100, pct(d.secs, WORK_DAY_SECS)),
+    })),
+    clients: clientList,
+    timeline: timeline.slice(0, 80),
+  };
+}
+
+function overviewRow(p) {
+  return {
+    ...p.employee,
+    running: p.running,
+    staleRunning: p.staleRunning,
+    performancePct: p.performance.score,
+    performanceGrade: p.performance.grade,
+    totalTasks: p.summary.totalTasks,
+    totalClients: p.summary.totalClients,
+    completed: p.summary.completed,
+    processing: p.summary.processing,
+    onHold: p.summary.onHold,
+    pending: p.summary.pending,
+    rejected: p.summary.rejected,
+    overdue: p.summary.overdue,
+    completedPct: p.summary.completedPct,
+    processingPct: p.summary.processingPct,
+    onHoldPct: p.summary.onHoldPct,
+    pendingPct: p.summary.pendingPct,
+    rejectedPct: p.summary.rejectedPct,
+    workingSecs: p.workingHours.totalSecs,
+    workingHours: p.workingHours.total,
+    productivityPct: p.workingHours.productivityPct,
+    onTimePct: p.workingHours.efficiencyPct,
+    approvalRatePct: p.managerReview.approvalRatePct,
+    plannerPct: p.dayPlanner.consistencyPct,
+  };
+}
+
+router.get('/performance/overview', async (req, res) => {
+  try {
+    const range = perfRange(req.query);
+    const people = await buildPerformance(range);
+    const employees = people.map(overviewRow);
+    const sum = (k) => employees.reduce((s, e) => s + (Number(e[k]) || 0), 0);
+    const activeOnes = employees.filter((e) => e.totalTasks > 0 || e.workingSecs > 0);
+    return res.json({
+      success: true,
+      data: {
+        range: { from: range.fromDay, to: range.toDay, workingDays: range.workDays.length },
+        weights: SCORE_WEIGHTS,
+        team: {
+          employees: employees.length,
+          activeEmployees: activeOnes.length,
+          runningNow: employees.filter((e) => e.running).length,
+          totalTasks: sum('totalTasks'),
+          completed: sum('completed'),
+          overdue: sum('overdue'),
+          workingSecs: sum('workingSecs'),
+          workingHours: fmtSecs(sum('workingSecs')),
+          avgScore: activeOnes.length
+            ? Math.round(activeOnes.reduce((s, e) => s + e.performancePct, 0) / activeOnes.length) : 0,
+        },
+        employees,
+      },
+    });
+  } catch (err) {
+    console.error('GET /workspace-tasks/performance/overview ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/performance/detail', async (req, res) => {
+  const name = String(req.query.employeeName || req.query.employee || '').trim();
+  if (!name) return res.status(400).json({ success: false, message: 'employeeName is required' });
+  try {
+    const range = perfRange(req.query);
+    const people = await buildPerformance(range);
+    const p = people.find((x) => personKey(x.employee.fullName) === personKey(name));
+    if (!p) return res.status(404).json({ success: false, message: `No employee named ${name}` });
+    return res.json({
+      success: true,
+      data: { ...p, range: { from: range.fromDay, to: range.toDay, workingDays: range.workDays.length }, weights: SCORE_WEIGHTS },
+    });
+  } catch (err) {
+    console.error('GET /workspace-tasks/performance/detail ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

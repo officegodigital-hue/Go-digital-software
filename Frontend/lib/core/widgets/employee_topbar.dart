@@ -1003,10 +1003,14 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     }
   }
 
-  // Ticks every second: today's total grows only while a task is running.
+  // Today's work only: the server counts sessions started today, and the
+  // total ticks only while such a session is running. A task left running
+  // from an earlier day adds nothing until it is held and restarted.
+  bool get _runningToday => _running != null && _running!['today_running'] == true;
+
   void _recomputeWorkingDisplay() {
     int total = _baseTotalSecs;
-    if (_running != null) total += DateTime.now().difference(_baseAt).inSeconds;
+    if (_runningToday) total += DateTime.now().difference(_baseAt).inSeconds;
     final h = total ~/ 3600;
     final m = (total % 3600) ~/ 60;
     final sec = total % 60;
@@ -1014,7 +1018,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     final text =
         '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
         '${sec.toString().padLeft(2, '0')}s';
-    if (_running != null || text != formattedTotalWorkingTime) {
+    if (_runningToday || text != formattedTotalWorkingTime) {
       setState(() => formattedTotalWorkingTime = text);
     }
   }
@@ -1059,10 +1063,16 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     final client = (running['client'] ?? '').toString();
     var title = '${client.isEmpty ? '' : '$client · '}${running['task'] ?? ''}';
     if (title.length > 32) title = '${title.substring(0, 32)}…';
+    // Still running from an earlier day → ask to hold it (not counted today).
+    final stale = running['stale_running'] == true;
+    final since = '${running['running_since'] ?? ''}'.split('-');
+    final staleText = since.length == 3
+        ? 'Running since ${since[2]}/${since[1]} · hold it'
+        : 'Running from an earlier day · hold it';
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Material(
-        color: const Color(0xFFDCFCE7),
+        color: stale ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
@@ -1079,12 +1089,14 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
+                Icon(stale ? Icons.warning_amber_rounded : Icons.circle,
+                    size: stale ? 13 : 9, color: stale ? const Color(0xFFDC2626) : const Color(0xFF16A34A)),
                 const SizedBox(width: 6),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+<<<<<<< HEAD
                     Text(
                       title,
                       style: const TextStyle(
@@ -1101,6 +1113,15 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                         color: Color(0xFF166534),
                       ),
                     ),
+=======
+                    Text(title,
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
+                    Text(stale ? staleText : _runningTimerText(),
+                        style: TextStyle(
+                            fontSize: stale ? 10 : 11.5,
+                            fontWeight: FontWeight.w900,
+                            color: stale ? const Color(0xFFB91C1C) : const Color(0xFF166534))),
+>>>>>>> 0a3053d6eba56793301724dbaebede767b4f6fdf
                   ],
                 ),
                 const SizedBox(width: 8),

@@ -8,13 +8,18 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
 class LiveTrackingTasksPage extends StatefulWidget {
   final String searchQuery;
 
+  /// Open a task's client card (and tab) in Employee Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
+
   const LiveTrackingTasksPage({
     super.key,
     this.searchQuery = '',
+    this.onOpenWorkspace,
   });
 
   @override
@@ -70,6 +75,35 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
   String formattedTotalWorkingTime = "00h 00m";
 
   Timer? _refreshTimer;
+  Timer? _durationTicker;
+
+  int _durationSeconds(dynamic value) =>
+      value is num ? value.toInt() : int.tryParse(value?.toString() ?? '') ?? 0;
+
+  String _formatTaskDuration(int seconds) {
+    final safeSeconds = seconds < 0 ? 0 : seconds;
+    final hours = safeSeconds ~/ 3600;
+    final minutes = (safeSeconds % 3600) ~/ 60;
+    final remainingSeconds = safeSeconds % 60;
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  String get _token => context.read<AuthService>().token ?? '';
+
+  // Total = time actually worked on the selected date (all clients).
+  void _updateTotalWorkingTime() {
+    final totalSeconds = liveTasksData.fold<int>(
+      0,
+      (total, task) => total + _durationSeconds(task['secondsOnDate']),
+    );
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    formattedTotalWorkingTime =
+        '${hours.toString().padLeft(2, '0')}h '
+        '${minutes.toString().padLeft(2, '0')}m';
+  }
 
   // ─────────────────────────────────────────────────────────────
   // INIT
@@ -95,6 +129,27 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
 
       _fetchLiveTasks();
       _initSocketListener();
+      _durationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        var hasRunningTask = false;
+        for (final task in liveTasksData) {
+          if (task['status'].toString().toUpperCase() != 'IN PROGRESS') {
+            continue;
+          }
+          final seconds = _durationSeconds(task['durationSeconds']) + 1;
+          task['durationSeconds'] = seconds;
+          // Today's total grows only for sessions started today.
+          final item = task['_item'];
+          if (item is Map && item['today_running'] == true) {
+            task['secondsOnDate'] = _durationSeconds(task['secondsOnDate']) + 1;
+          }
+          task['duration'] = _formatTaskDuration(seconds);
+          hasRunningTask = true;
+        }
+        if (hasRunningTask) {
+          setState(_updateTotalWorkingTime);
+        }
+      });
 
       _refreshTimer = Timer.periodic(
         const Duration(seconds: 30),
@@ -195,13 +250,14 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
           "${selectedDate.month.toString().padLeft(2, '0')}-"
           "${selectedDate.day.toString().padLeft(2, '0')}";
 
-      final encodedEmployee =
-          Uri.encodeComponent(loggedInEmployeeName);
-
+      // Every client the employee worked on that day (tasks + Content
+      // Calendar categories), with live durations and actions.
       final response = await http.get(
-        Uri.parse(
-          '$_baseUrl/dashboard/live-tracking-tasks/'
-          '$encodedEmployee?date=$formattedDate',
+        Uri.parse('$_baseUrl/workspace-tasks/live-all').replace(
+          queryParameters: {
+            'employee': loggedInEmployeeName,
+            'date': formattedDate,
+          },
         ),
       );
 
@@ -215,67 +271,32 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
         );
 
         final parsedTasks =
-            rows.map<Map<String, dynamic>>((row) {
+            rows.whereType<Map>().map<Map<String, dynamic>>((raw) {
+          final row = Map<String, dynamic>.from(raw);
           return {
-            "trackingItemId": row['trackingItemId'],
-            "client": row['client_name'] ?? '',
-            "task": row['task'] ?? '',
-            "taskDescription":
-                row['task_description'] ?? '',
-            "duration": row['duration'] ?? 'N/A',
+            "trackingItemId": row['task_id'],
+            "client": row['client'] ?? '',
+            "task": row['title'] ?? '',
+            "taskDescription": row['heading'] ?? '',
+            "duration": '',
+            "durationSeconds": _durationSeconds(row['duration_secs']),
+            "secondsOnDate": _durationSeconds(row['seconds_on_date']),
             "status": row['status'] ?? 'IDLE',
-            "action": row['manager_action'] ?? 'ACTION',
-            "comment": row['comment'] ?? '',
+            "action": row['review_action'] ?? 'ACTION',
+            "comment": row['comment'] ?? row['hold_reason'] ?? '',
+            "taskType": row['kind'] == 'CONTENT_CALENDAR' ? 'CONTENT CALENDAR' : 'TASK',
+            "_item": row,
           };
         }).toList();
 
-        int totalSumSeconds = 0;
-
         for (final task in parsedTasks) {
-          final duration =
-              task["duration"].toString().toLowerCase();
-
-          int hrs = 0;
-          int mins = 0;
-
-          final hourMatch = RegExp(
-            r'(\d+)\s*(?:hrs|hr)',
-          ).firstMatch(duration);
-
-          final minMatch = RegExp(
-            r'(\d+)\s*(?:mins|min)',
-          ).firstMatch(duration);
-
-          if (hourMatch != null) {
-            hrs = int.tryParse(
-                  hourMatch.group(1) ?? '',
-                ) ??
-                0;
-          }
-
-          if (minMatch != null) {
-            mins = int.tryParse(
-                  minMatch.group(1) ?? '',
-                ) ??
-                0;
-          }
-
-          totalSumSeconds +=
-              (hrs * 3600) + (mins * 60);
+          final seconds = _durationSeconds(task['durationSeconds']);
+          task['duration'] = _formatTaskDuration(seconds);
         }
 
-        final totalHours =
-            totalSumSeconds ~/ 3600;
-
-        final totalMinutes =
-            (totalSumSeconds % 3600) ~/ 60;
-
         setState(() {
-          formattedTotalWorkingTime =
-              '${totalHours.toString().padLeft(2, '0')}h '
-              '${totalMinutes.toString().padLeft(2, '0')}m';
-
           liveTasksData = parsedTasks;
+          _updateTotalWorkingTime();
           _loading = false;
           _error = null;
         });
@@ -307,6 +328,7 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _durationTicker?.cancel();
     socket.dispose();
     super.dispose();
   }
@@ -662,7 +684,7 @@ Widget _buildHero(
         const SizedBox(height: 7),
 
         Text(
-          'Monitor your tasks, working time and live progress in real-time.',
+          'Only work started today is shown and counted. An earlier held task comes back here when you restart it.',
           style: TextStyle(
             fontSize: 12.5,
             height: 1.45,
@@ -1256,588 +1278,313 @@ Widget _buildHero(
       return _buildErrorState();
     }
 
-    if (isMobile) {
-      return tasks.isEmpty ? _buildEmptyState() : _buildMobileTaskList(tasks);
-    }
-
-    return _buildDesktopTable(
-      tasks,
-      isTablet,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (liveTasksData.isNotEmpty) _buildFilterChips(),
+        if (tasks.isEmpty) _buildEmptyState() else _buildTaskCards(tasks, isMobile),
+      ],
     );
   }
 
   // ─────────────────────────────────────────────────────────────
-  // DESKTOP TABLE
+  // STATUS FILTER CHIPS
   // ─────────────────────────────────────────────────────────────
 
-  Widget _buildDesktopTable(
-    List<Map<String, dynamic>> tasks,
-    bool isTablet,
-  ) {
-    return ClipRRect(
-      borderRadius:
-          const BorderRadius.vertical(
-        bottom: Radius.circular(22),
-      ),
+  static const _filters = ['All', 'IN PROGRESS', 'ON HOLD', 'REWORK', 'COMPLETED'];
+
+  Widget _buildFilterChips() {
+    int count(String f) => f == 'All'
+        ? liveTasksData.length
+        : liveTasksData.where((e) => '${e['status']}'.toUpperCase() == f).length;
+    String label(String f) => f == 'All'
+        ? 'All'
+        : f.split(' ').map((w) => w[0] + w.substring(1).toLowerCase()).join(' ');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
       child: SingleChildScrollView(
-        scrollDirection:
-            Axis.horizontal,
-        child: SizedBox(
-          width: isTablet
-              ? 1100
-              : 1280,
-          child: Column(
-            children: [
-              _buildTableHeader(),
-
-              const Divider(
-                height: 1,
-                color: _border,
-              ),
-
-              if (tasks.isEmpty)
-                _buildEmptyState()
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics:
-                      const NeverScrollableScrollPhysics(),
-                  itemCount: tasks.length,
-                  separatorBuilder:
-                      (_, _) =>
-                          const Divider(
-                    height: 1,
-                    color: Color(0xFFF1F5F9),
-                  ),
-                  itemBuilder:
-                      (context, index) {
-                    return _buildDesktopRow(
-                      tasks[index],
-                      index,
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTableHeader() {
-    return Container(
-      height: 52,
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 20,
-      ),
-      decoration: const BoxDecoration(
-        color: _primary,
-      ),
-      child: Row(
-        children: [
-          const _HeaderCell(
-            title: 'CLIENT',
-            flex: 2,
-          ),
-          const _HeaderCell(
-            title: 'TASK',
-            flex: 2,
-          ),
-          const _HeaderCell(
-            title: 'DURATION',
-            flex: 1,
-          ),
-          const _HeaderCell(
-            title: 'TASK DESCRIPTION',
-            flex: 3,
-          ),
-          // 🟢 STATUS Column Header with interactive dropdown filter
-          Expanded(
-            flex: 2,
-            child: PopupMenuButton<String>(
-              initialValue: activeFilter,
-              onSelected: (val) {
-                setState(() {
-                  activeFilter = val;
-                });
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'All',
-                  child: Text('All Statuses', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-                const PopupMenuItem(
-                  value: 'IN PROGRESS',
-                  child: Text('IN PROGRESS', style: TextStyle(fontSize: 12, color: Color(0xFF0284C7), fontWeight: FontWeight.bold)),
-                ),
-                const PopupMenuItem(
-                  value: 'ON HOLD',
-                  child: Text('ON HOLD', style: TextStyle(fontSize: 12, color: Color(0xFFD97706), fontWeight: FontWeight.bold)),
-                ),
-                const PopupMenuItem(
-                  value: 'COMPLETED',
-                  child: Text('COMPLETED', style: TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.bold)),
-                ),
-              ],
-              child: Row(
-                children: [
-                  Expanded(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final f in _filters)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(30),
+                  onTap: () => setState(() => activeFilter = f),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: activeFilter == f ? _primary : Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: activeFilter == f ? _primary : _border),
+                    ),
                     child: Text(
-                      activeFilter == 'All' ? 'STATUS ▾' : 'STATUS: $activeFilter ▾',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                        letterSpacing: .75,
+                      '${label(f)}  ${count(f)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: activeFilter == f ? Colors.white : _text,
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-          const _HeaderCell(
-            title: 'REVIEW ACTION',
-            flex: 2,
-          ),
-          const _HeaderCell(
-            title: 'COMMENT',
-            flex: 3,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDesktopRow(
-    Map<String, dynamic> row,
-    int index,
-  ) {
-    final client =
-        row["client"].toString();
-
-    final task =
-        row["task"].toString();
-
-    final duration =
-        row["duration"].toString();
-
-    final description =
-        row["taskDescription"].toString();
-
-    final status =
-        row["status"].toString();
-
-    final action =
-        row["action"].toString();
-
-    final comment =
-        row["comment"].toString();
-
-    return Container(
-      constraints:
-          const BoxConstraints(
-        minHeight: 68,
-      ),
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 10,
-      ),
-      color: index.isEven
-          ? Colors.white
-          : const Color(0xFFFBFDFF),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: _tableText(
-              client,
-              bold: true,
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: _tableText(
-              task,
-            ),
-          ),
-
-          Expanded(
-            flex: 1,
-            child: _durationBadge(
-              duration,
-            ),
-          ),
-
-          Expanded(
-            flex: 3,
-            child: _tableText(
-              description,
-              muted: true,
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: Align(
-              alignment:
-                  Alignment.centerLeft,
-              child:
-                  _buildStatusBadge(
-                status,
-              ),
-            ),
-          ),
-
-          Expanded(
-            flex: 2,
-            child: _actionBadge(
-              action,
-            ),
-          ),
-
-          Expanded(
-            flex: 3,
-            child: _tableText(
-              comment.isEmpty
-                  ? '-'
-                  : comment,
-              muted: true,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tableText(
-    String text, {
-    bool bold = false,
-    bool muted = false,
-  }) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(
-        right: 12,
-      ),
-      child: Text(
-        text.isEmpty ? '-' : text,
-        maxLines: 2,
-        overflow:
-            TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 11.5,
-          height: 1.35,
-          fontWeight: bold
-              ? FontWeight.w800
-              : FontWeight.w500,
-          color: muted
-              ? _muted
-              : _text,
+          ],
         ),
       ),
     );
   }
 
   // ─────────────────────────────────────────────────────────────
-  // MOBILE TASK LIST
+  // TASK CARDS (invoice-style: header strip + detail tiles)
   // ─────────────────────────────────────────────────────────────
 
-  Widget _buildMobileTaskList(
-    List<Map<String, dynamic>> tasks,
-  ) {
+  Widget _buildTaskCards(List<Map<String, dynamic>> tasks, bool isMobile) {
     return ListView.separated(
       shrinkWrap: true,
-      physics:
-          const NeverScrollableScrollPhysics(),
-      padding:
-          const EdgeInsets.all(12),
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
       itemCount: tasks.length,
-      separatorBuilder:
-          (_, _) =>
-              const SizedBox(height: 10),
-      itemBuilder:
-          (context, index) {
-        return _buildMobileTaskCard(
-          tasks[index],
-          index,
-        );
-      },
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) => _buildTaskCard(tasks[index], index),
     );
   }
 
-  Widget _buildMobileTaskCard(
-    Map<String, dynamic> row,
-    int index,
-  ) {
-    final client =
-        row["client"].toString();
+  String _dmy(dynamic v) {
+    final s = '${v ?? ''}';
+    final p = s.length >= 10 ? s.substring(0, 10).split('-') : <String>[];
+    return p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : '—';
+  }
 
-    final task =
-        row["task"].toString();
-
-    final duration =
-        row["duration"].toString();
-
-    final description =
-        row["taskDescription"]
-            .toString();
-
-    final status =
-        row["status"].toString();
-
-    final action =
-        row["action"].toString();
-
-    final comment =
-        row["comment"].toString();
+  Widget _buildTaskCard(Map<String, dynamic> row, int index) {
+    final item = row['_item'] is Map
+        ? Map<String, dynamic>.from(row['_item'] as Map)
+        : <String, dynamic>{};
+    final status = '${row['status']}';
+    final isCalendar = item['kind'] == 'CONTENT_CALENDAR';
+    final running = status.toUpperCase() == 'IN PROGRESS';
+    final review = '${row['action']}';
+    final comment = '${row['comment'] ?? ''}'.trim();
+    final deliverable = '${item['deliverable'] ?? ''}';
+    final todaySecs = _durationSeconds(row['secondsOnDate']);
 
     return Container(
-      padding:
-          const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: _border,
+          color: running ? _primary.withValues(alpha: .35) : _border,
+          width: running ? 1.4 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color:
-                Colors.black.withValues(alpha: .025),
-            blurRadius: 12,
-            offset:
-                const Offset(0, 4),
+            color: Colors.black.withValues(alpha: .035),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(14),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final w = c.maxWidth;
+          final narrow = w < 760;
+
+          // ── Header strip ──
+          final pills = <Widget>[
+            _labelPill('S.NO', (index + 1).toString().padLeft(2, '0')),
+            _labelPill(isCalendar ? 'CALENDAR' : 'TASK', '${row['task']}', maxValueWidth: narrow ? w - 120 : 300),
+            _buildStatusBadge(status),
+          ];
+          final dateBlock = _dateBlock('Submit Date', _dmy(item['submit_date'] ?? item['due_date']));
+          final buttons = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  gradient:
-                      const LinearGradient(
-                    colors: [
-                      _primary,
-                      Color(0xFF2879EE),
-                    ],
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
-                ),
-                alignment:
-                    Alignment.center,
-                child: Text(
-                  '${index + 1}',
-                  style:
-                      const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight:
-                        FontWeight.w900,
-                  ),
-                ),
-              ),
+              _rowActions(row),
+              _openButton(item),
+            ],
+          );
 
-              const SizedBox(width: 10),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+          final header = narrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'CLIENT',
-                      style: TextStyle(
-                        fontSize: 8,
-                        fontWeight:
-                            FontWeight.w900,
-                        color: _muted,
-                        letterSpacing:
-                            .7,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      client.isEmpty
-                          ? '-'
-                          : client,
-                      maxLines: 2,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            FontWeight.w900,
-                        color: _ink,
-                      ),
-                    ),
+                    Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: pills),
+                    _staleNote(row),
+                    const SizedBox(height: 10),
+                    dateBlock,
+                    const SizedBox(height: 10),
+                    buttons,
                   ],
-                ),
-              ),
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: pills),
+                          _staleNote(row),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    dateBlock,
+                    const SizedBox(width: 16),
+                    buttons,
+                  ],
+                );
 
-              const SizedBox(width: 8),
+          // ── Detail tiles ──
+          final tiles = <Widget>[
+            _tile(Icons.person_rounded, 'Client Name', '${row['client']}', tone: _primary),
+            _tile(Icons.layers_rounded, 'Deliverable', deliverable.isEmpty ? '${row['task']}' : deliverable, tone: _primary),
+            _tile(Icons.notes_rounded, 'Description', '${row['taskDescription']}', tone: _primary, lines: 2),
+            _tile(Icons.timer_rounded, 'Total Time', '${row['duration']}',
+                tone: const Color(0xFF0284C7), soft: const Color(0xFFE0F2FE), big: true),
+            _tile(Icons.bolt_rounded, 'Today', _formatTaskDuration(todaySecs),
+                tone: _success, soft: _successSoft, big: true),
+            _tile(Icons.rate_review_rounded, 'Review', review.isEmpty ? '—' : review,
+                tone: _reviewColor(review), soft: _reviewColor(review).withValues(alpha: .10)),
+            _tile(Icons.chat_bubble_rounded, 'Comment', comment.isEmpty ? '—' : comment,
+                tone: _warning, soft: const Color(0xFFFFF7ED), lines: 2),
+          ];
+          final cols = w >= 1150 ? 7 : w >= 860 ? 4 : w >= 520 ? 3 : 2;
+          const gap = 8.0;
+          final tileW = (w - gap * (cols - 1)) / cols;
 
-              _buildStatusBadge(
-                status,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          _mobileInfoBlock(
-            icon:
-                Icons.task_alt_rounded,
-            label: 'TASK',
-            value: task,
-          ),
-
-          const SizedBox(height: 10),
-
-          Row(
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child:
-                    _mobileSmallInfo(
-                  icon:
-                      Icons.timer_outlined,
-                  label: 'DURATION',
-                  child:
-                      _durationBadge(
-                    duration,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child:
-                    _mobileSmallInfo(
-                  icon:
-                      Icons.rate_review_outlined,
-                  label: 'ACTION',
-                  child:
-                      _actionBadge(
-                    action,
-                  ),
-                ),
+              header,
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (var i = 0; i < tiles.length; i++)
+                    SizedBox(
+                      // On phones the description spans the full row.
+                      width: cols == 2 && i == 2 ? w : tileW,
+                      child: tiles[i],
+                    ),
+                ],
               ),
             ],
-          ),
+          );
+        },
+      ),
+    );
+  }
 
-          if (description
-              .trim()
-              .isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _mobileInfoBlock(
-              icon:
-                  Icons.description_outlined,
-              label:
-                  'TASK DESCRIPTION',
-              value: description,
+  Color _reviewColor(String review) {
+    final r = review.toUpperCase();
+    if (r.contains('APPROVED')) return _success;
+    if (r.contains('REJECT') || r.contains('REWORK')) return _danger;
+    return _primary;
+  }
+
+  Widget _labelPill(String label, String value, {double maxValueWidth = 300}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _primarySoft,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _primary, letterSpacing: .4),
             ),
-          ],
-
-          const SizedBox(height: 10),
-
-          _mobileInfoBlock(
-            icon:
-                Icons.chat_bubble_outline_rounded,
-            label: 'COMMENT',
-            value: comment.trim().isEmpty
-                ? '-'
-                : comment,
+          ),
+          Container(
+            constraints: BoxConstraints(maxWidth: maxValueWidth < 80 ? 80 : maxValueWidth),
+            margin: const EdgeInsets.all(3),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              value.isEmpty ? '—' : value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _primaryDark),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _mobileInfoBlock({
-    required IconData icon,
-    required String label,
-    required String value,
+  Widget _dateBlock(String label, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.calendar_month_rounded, size: 20, color: _primary),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 10, color: _muted, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(value, style: const TextStyle(fontSize: 12.5, color: _ink, fontWeight: FontWeight.w800)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _tile(
+    IconData icon,
+    String label,
+    String value, {
+    required Color tone,
+    Color? soft,
+    bool big = false,
+    int lines = 1,
   }) {
     return Container(
-      width: double.infinity,
-      padding:
-          const EdgeInsets.all(10),
+      constraints: const BoxConstraints(minHeight: 64),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFE5EEFC),
-        ),
+        color: soft ?? _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: soft == null ? _border : tone.withValues(alpha: .18)),
       ),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: _primarySoft,
-              borderRadius:
-                  BorderRadius.circular(9),
-            ),
-            child: Icon(
-              icon,
-              size: 15,
-              color: _primary,
-            ),
-          ),
-          const SizedBox(width: 9),
+          Icon(icon, size: 17, color: tone),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style:
-                      const TextStyle(
-                    fontSize: 7.5,
-                    fontWeight:
-                        FontWeight.w900,
-                    color: _muted,
-                    letterSpacing:
-                        .65,
-                  ),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: soft == null ? _muted : tone),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 4),
                 Text(
-                  value.isEmpty
-                      ? '-'
-                      : value,
-                  maxLines: 3,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(
-                    fontSize: 11.5,
-                    height: 1.35,
-                    fontWeight:
-                        FontWeight.w600,
-                    color: _text,
+                  value.isEmpty ? '—' : value,
+                  maxLines: lines,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: big ? 15 : 12.5,
+                    height: 1.3,
+                    fontWeight: big ? FontWeight.w900 : FontWeight.w700,
+                    color: soft == null ? _ink : tone,
+                    fontFeatures: big ? const [FontFeature.tabularFigures()] : null,
                   ),
                 ),
               ],
@@ -1848,236 +1595,89 @@ Widget _buildHero(
     );
   }
 
-  Widget _mobileSmallInfo({
-    required IconData icon,
-    required String label,
-    required Widget child,
-  }) {
-    return Container(
-      padding:
-          const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius:
-            BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFE5EEFC),
+  // Opens this task's client card on the right tab in Employee Workspace.
+  Widget _openButton(Map<String, dynamic> item) {
+    final canOpen = widget.onOpenWorkspace != null && '${item['client'] ?? ''}'.isNotEmpty;
+    return Tooltip(
+      message: 'Open in Employee Workspace',
+      child: FilledButton.icon(
+        onPressed: canOpen ? () => widget.onOpenWorkspace!(item) : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: _primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(0, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          visualDensity: VisualDensity.compact,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                icon,
-                size: 13,
-                color: _primary,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style:
-                    const TextStyle(
-                  fontSize: 7.5,
-                  fontWeight:
-                      FontWeight.w900,
-                  color: _muted,
-                  letterSpacing: .55,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          child,
-        ],
+        icon: const Icon(Icons.open_in_new_rounded, size: 15),
+        label: const Text('Open', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
       ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // DURATION
-  // ─────────────────────────────────────────────────────────────
 
-  Widget _durationBadge(
-    String duration,
-  ) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: _primarySoft,
-        borderRadius:
-            BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFD6E5FF),
-        ),
-      ),
+  // A task still running from an earlier day: it adds nothing to today's
+  // time until it is put on hold and restarted.
+  Widget _staleNote(Map<String, dynamic> row) {
+    final item = row['_item'];
+    if (item is! Map || item['stale_running'] != true) return const SizedBox.shrink();
+    final since = '${item['running_since'] ?? ''}';
+    final parts = since.split('-');
+    final shown = parts.length == 3 ? '${parts[2]}/${parts[1]}' : since;
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
       child: Text(
-        duration.isEmpty
-            ? 'N/A'
-            : duration,
-        maxLines: 1,
-        overflow:
-            TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: 9.5,
-          fontWeight:
-              FontWeight.w900,
-          color: _primary,
-        ),
+        'Running since $shown — hold & restart to count today',
+        style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: _danger),
       ),
     );
   }
 
+  // Start / Hold / Complete / Restart for this row.
+  Widget _rowActions(Map<String, dynamic> row) {
+    final item = row['_item'];
+    if (item is! Map<String, dynamic>) return const Text('—');
+    return TaskActionButtons(
+      item: item,
+      token: _token,
+      dense: true,
+      onDone: () => _fetchLiveTasks(showLoader: false),
+    );
+  }
+
+
   // ─────────────────────────────────────────────────────────────
-  // ACTION
+  // STATUS PILL
   // ─────────────────────────────────────────────────────────────
 
-  Widget _actionBadge(
-    String action,
-  ) {
-    final normalized =
-        action.toUpperCase();
-
-    Color bg =
-        const Color(0xFFF1F5F9);
-
-    Color color = _muted;
-
-    if (normalized.contains(
-      'APPROVED',
-    )) {
-      bg = _successSoft;
-      color = _success;
-    } else if (normalized.contains(
-      'REJECT',
-    )) {
-      bg = _dangerSoft;
-      color = _danger;
-    } else if (normalized.contains(
-      'ACTION',
-    )) {
-      bg = _primarySoft;
-      color = _primary;
-    }
-
+  Widget _buildStatusBadge(String status) {
+    final s = status.isEmpty ? 'IDLE' : status.toUpperCase();
+    final (Color bg, Color fg) = switch (s) {
+      'IN PROGRESS' => (const Color(0xFFE0F2FE), const Color(0xFF0369A1)),
+      'ON HOLD' => (_warningSoft, const Color(0xFFB45309)),
+      'REWORK' || 'REJECTED' => (_dangerSoft, _danger),
+      'COMPLETED' || 'APPROVED' || 'IN REVIEW' || 'ASSIGNED' => (_successSoft, const Color(0xFF15803D)),
+      _ => (const Color(0xFFF1F5F9), _muted),
+    };
+    final label = s.split(' ').map((w) => w.isEmpty ? w : w[0] + w.substring(1).toLowerCase()).join(' ');
     return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 5,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius:
-            BorderRadius.circular(8),
-      ),
-      child: Text(
-        action.isEmpty
-            ? '-'
-            : action,
-        maxLines: 1,
-        overflow:
-            TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 8.5,
-          fontWeight:
-              FontWeight.w900,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // STATUS
-  // ─────────────────────────────────────────────────────────────
-
-  Widget _buildStatusBadge(
-    String status,
-  ) {
-    final normalized =
-        status.toUpperCase();
-
-    Color bg =
-        const Color(0xFFF1F5F9);
-
-    Color txt = _muted;
-
-    IconData icon =
-        Icons.circle_outlined;
-
-    if (normalized ==
-        "IN PROGRESS") {
-      bg = _primarySoft;
-      txt = const Color(0xFF0284C7);
-      icon =
-          Icons.play_circle_fill_rounded;
-    } else if (normalized ==
-        "ON HOLD") {
-      bg = _warningSoft;
-      txt = _warning;
-      icon =
-          Icons.pause_circle_filled_rounded;
-    } else if (normalized ==
-        "COMPLETED") {
-      bg = _successSoft;
-      txt = _success;
-      icon =
-          Icons.check_circle_rounded;
-    } else if (normalized ==
-        "IDLE") {
-      bg = const Color(0xFFF1F5F9);
-      txt = _muted;
-      icon =
-          Icons.hourglass_empty_rounded;
-    }
-
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius:
-            BorderRadius.circular(9),
-        border: Border.all(
-          color: txt.withValues(alpha: .12),
-        ),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: fg.withValues(alpha: .15)),
       ),
       child: Row(
-        mainAxisSize:
-            MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 11,
-            color: txt,
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
           ),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              status.isEmpty
-                  ? 'IDLE'
-                  : status,
-              maxLines: 1,
-              overflow:
-                  TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 8,
-                fontWeight:
-                    FontWeight.w900,
-                color: txt,
-              ),
-            ),
-          ),
+          const SizedBox(width: 7),
+          Text(label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: fg)),
         ],
       ),
     );
@@ -2253,7 +1853,7 @@ Widget _buildHero(
           Text(
             hasFilter
                 ? 'No matching tasks'
-                : 'No live task logs',
+                : 'Nothing started today',
             style: const TextStyle(
               fontSize: 14,
               fontWeight:
@@ -2265,7 +1865,7 @@ Widget _buildHero(
           Text(
             hasFilter
                 ? 'Try changing the active status filter above.'
-                : 'There are no tracking logs for the selected date.',
+                : 'Start a task from Employee Workspace or the Day Planner. Held tasks from earlier days show here once you restart them.',
             textAlign:
                 TextAlign.center,
             style: const TextStyle(
@@ -2314,46 +1914,4 @@ class _MetricData {
     required this.value,
     required this.color,
   });
-}
-
-// ─────────────────────────────────────────────────────────────
-// TABLE HEADER
-// ─────────────────────────────────────────────────────────────
-
-class _HeaderCell extends StatelessWidget {
-  final String title;
-  final int flex;
-
-  const _HeaderCell({
-    required this.title,
-    required this.flex,
-  });
-
-  @override
-  Widget build(
-    BuildContext context,
-  ) {
-    return Expanded(
-      flex: flex,
-      child: Padding(
-        padding:
-            const EdgeInsets.only(
-          right: 12,
-        ),
-        child: Text(
-          title,
-          maxLines: 1,
-          overflow:
-              TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 9,
-            fontWeight:
-                FontWeight.w900,
-            color: Colors.white,
-            letterSpacing: .75,
-          ),
-        ),
-      ),
-    );
-  }
 }
