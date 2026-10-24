@@ -6,10 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/widgets/premium_ui.dart';
 import '../features/user/asset_library/asset_library_page.dart';
 import '../features/user/company_assets/company_assets_page.dart';
 import '../features/user/dashboard/dashboard_page.dart';
 import '../features/user/downloads/downloads_page.dart';
+import '../../../profile_page.dart';
 import '../models/company_model.dart';
 
 class UserLayout extends StatefulWidget {
@@ -222,7 +224,7 @@ class _UserLayoutState extends State<UserLayout> {
 
   Widget _buildMobileLayout() {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PremiumColors.surface,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -243,12 +245,15 @@ class _UserLayoutState extends State<UserLayout> {
 
   Widget _buildMobileTopBar() {
     return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      color: Colors.white,
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: PremiumColors.line)),
+      ),
       child: Row(
         children: [
-          _buildLogo(),
+          _buildLogo(size: 38),
 
           const SizedBox(width: 10),
 
@@ -260,18 +265,18 @@ class _UserLayoutState extends State<UserLayout> {
                 Text(
                   'Go Digital',
                   style: TextStyle(
-                    fontSize: 19,
+                    fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+                    letterSpacing: -0.3,
+                    color: PremiumColors.blueDeep,
                   ),
                 ),
-                SizedBox(height: 1),
                 Text(
                   'User Portal',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    color: PremiumColors.muted,
                   ),
                 ),
               ],
@@ -280,9 +285,9 @@ class _UserLayoutState extends State<UserLayout> {
 
           _buildNotificationButton(),
 
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
-          _buildUserAvatar(),
+          _buildAvatarMenu(size: 36),
         ],
       ),
     );
@@ -294,7 +299,7 @@ class _UserLayoutState extends State<UserLayout> {
 
   Widget _buildDesktopLayout() {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PremiumColors.surface,
       body: Column(
         children: [
           _buildDesktopTopNav(),
@@ -309,101 +314,287 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildDesktopTopNav() {
-    const navItems = [(0, 'Dashboard'), (1, 'Assets'), (2, 'Downloads')];
+    const navItems = [
+      (0, 'Dashboard', Icons.grid_view_rounded),
+      (1, 'Assets', Icons.folder_rounded),
+      (2, 'Downloads', Icons.download_rounded),
+    ];
 
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Row(
-        children: [
-          // Logo (left)
-          _buildLogo(),
-          const SizedBox(width: 10),
-          const Text(
-            'Go Digital',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: AppColors.primary,
-            ),
-          ),
-
-          // Centered tabs
-          Expanded(
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final item in navItems) ...[
-                    _buildTopNavTab(index: item.$1, label: item.$2),
-                    const SizedBox(width: 6),
-                  ],
-                ],
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Narrow laptops and tablets drop the portal label and shrink the
+        // Workspace button so the bar never overflows.
+        final roomy = box.maxWidth >= 1000;
+        final compact = box.maxWidth < 820;
+        return Container(
+          height: 64,
+          padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: PremiumColors.line)),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x0D1E40AF),
+                blurRadius: 12,
+                offset: Offset(0, 4),
               ),
-            ),
+            ],
           ),
+          child: Row(
+            children: [
+              // Logo (left)
+              _buildLogo(size: 38),
+              const SizedBox(width: 10),
+              const Text(
+                'Go Digital',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: PremiumColors.blueDeep,
+                ),
+              ),
+              if (roomy) ...[
+                Container(
+                  width: 1,
+                  height: 22,
+                  margin: const EdgeInsets.symmetric(horizontal: 14),
+                  color: PremiumColors.line,
+                ),
+                const Text(
+                  'User Portal',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: PremiumColors.muted,
+                  ),
+                ),
+              ],
 
-          // Right actions
-          _buildNotificationButton(),
-          const SizedBox(width: 12),
-          _buildDesktopUserInfo(),
-          const SizedBox(width: 12),
-          _buildAvatarMenu(),
-        ],
-      ),
+              // Centered tabs
+              Expanded(
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: PremiumColors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: PremiumColors.line),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final item in navItems)
+                            _buildTopNavTab(
+                              index: item.$1,
+                              label: item.$2,
+                              icon: item.$3,
+                              compact: compact,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Right actions
+              _buildNotificationButton(),
+              const SizedBox(width: 10),
+              if (roomy) ...[
+                _buildDesktopUserInfo(),
+                const SizedBox(width: 12),
+              ] else ...[
+                PremiumIconButton(
+                  icon: Icons.grid_view_rounded,
+                  tooltip: 'Workspace',
+                  onPressed: () => Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pushNamedAndRemoveUntil('/home', (route) => false),
+                ),
+                const SizedBox(width: 10),
+              ],
+              _buildAvatarMenu(size: 38),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTopNavTab({required int index, required String label}) {
+  Widget _buildTopNavTab({
+    required int index,
+    required String label,
+    required IconData icon,
+    bool compact = false,
+  }) {
     final selected = _selectedIndex == index;
-    return Material(
-      color: selected ? const Color(0xFFEFF6FF) : Colors.transparent,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+    return HoverBuilder(
+      cursor: SystemMouseCursors.click,
+      builder: (context, hovered) => GestureDetector(
         onTap: () => _selectPage(index),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-            ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 16,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            gradient: selected ? PremiumColors.heroGradient : null,
+            color: selected
+                ? null
+                : hovered
+                ? Colors.white
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              if (selected)
+                const BoxShadow(
+                  color: Color(0x401B5FE8),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
+                ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected
+                    ? Colors.white
+                    : hovered
+                    ? PremiumColors.blue
+                    : PremiumColors.muted,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  color: selected
+                      ? Colors.white
+                      : hovered
+                      ? PremiumColors.blue
+                      : PremiumColors.body,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildAvatarMenu() {
+  Widget _buildAvatarMenu({double size = 38}) {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
     return PopupMenuButton<String>(
       tooltip: 'Account',
-      offset: const Offset(0, 50),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      offset: Offset(0, size + 10),
+      color: Colors.white,
+      surfaceTintColor: Colors.white,
+      elevation: 10,
+      shadowColor: const Color(0x401E40AF),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: PremiumColors.line),
+      ),
       onSelected: (value) {
+        if (value == 'profile') {
+          // Opens your existing Profile Settings screen (it has its own
+          // back button).
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const ProfilePage()));
+        }
         if (value == 'logout') {
           _confirmLogout();
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem(
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Row(
+            children: [
+              _buildAvatar(size: 40, fontSize: 15),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'My Account' : name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: PremiumColors.ink,
+                      ),
+                    ),
+                    if (email.isNotEmpty)
+                      Text(
+                        email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: PremiumColors.muted,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 1),
+        const PopupMenuItem(
+          value: 'profile',
+          child: Row(
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 19,
+                color: PremiumColors.blue,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'My Profile',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: PremiumColors.ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
           value: 'logout',
           child: Row(
             children: [
-              Icon(Icons.logout, size: 19, color: AppColors.danger),
+              Icon(Icons.logout, size: 19, color: PremiumColors.blueDeep),
               SizedBox(width: 10),
-              Text('Logout', style: TextStyle(color: AppColors.danger)),
+              Text(
+                'Logout',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: PremiumColors.blueDeep,
+                ),
+              ),
             ],
           ),
         ),
       ],
-      child: _buildAvatar(size: 38, fontSize: 15),
+      child: _buildAvatar(size: size, fontSize: size * 0.4),
     );
   }
 
@@ -412,19 +603,16 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildDesktopUserInfo() {
-    return OutlinedButton.icon(
+    return PremiumButton(
+      label: 'Workspace',
+      icon: Icons.grid_view_rounded,
+      iconLeading: true,
+      small: true,
+      variant: PremiumButtonVariant.outlined,
       onPressed: () => Navigator.of(
         context,
         rootNavigator: true,
       ).pushNamedAndRemoveUntil('/home', (route) => false),
-      icon: const Icon(Icons.grid_view_rounded, size: 19),
-      label: const Text('Workspace'),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.textPrimary,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        side: const BorderSide(color: AppColors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
     );
   }
 
@@ -432,27 +620,27 @@ class _UserLayoutState extends State<UserLayout> {
   // LOGO
   // ============================================================
 
-  Widget _buildLogo() {
+  Widget _buildLogo({double size = 40}) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Image.asset(
         'assets/images/godigital_logo.png',
-        width: 52,
-        height: 52,
+        width: size,
+        height: size,
         fit: BoxFit.contain,
         errorBuilder: (context, error, stackTrace) {
           return Container(
-            width: 52,
-            height: 52,
+            width: size,
+            height: size,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              gradient: PremiumColors.heroGradient,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(
-              Icons.broken_image_outlined,
-              color: AppColors.primary,
-              size: 24,
+            child: Icon(
+              Icons.view_in_ar_rounded,
+              color: Colors.white,
+              size: size * 0.55,
             ),
           );
         },
@@ -465,33 +653,39 @@ class _UserLayoutState extends State<UserLayout> {
   // ============================================================
 
   Widget _buildNotificationButton() {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+    return HoverBuilder(
+      cursor: SystemMouseCursors.click,
+      builder: (context, hovered) => GestureDetector(
         onTap: _showNotifications,
-        child: SizedBox(
-          width: 42,
-          height: 42,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: hovered ? PremiumColors.soft : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: PremiumColors.line),
+          ),
           child: Stack(
             children: [
               const Center(
                 child: Icon(
-                  Icons.notifications_none_outlined,
-                  size: 25,
-                  color: AppColors.primary,
+                  Icons.notifications_none_rounded,
+                  size: 22,
+                  color: PremiumColors.blue,
                 ),
               ),
 
               Positioned(
-                top: 7,
-                right: 7,
+                top: 8,
+                right: 9,
                 child: Container(
                   width: 8,
                   height: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
+                  decoration: BoxDecoration(
+                    gradient: PremiumColors.heroGradient,
                     shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
                   ),
                 ),
               ),
@@ -506,10 +700,6 @@ class _UserLayoutState extends State<UserLayout> {
   // USER AVATAR
   // ============================================================
 
-  Widget _buildUserAvatar() {
-    return _buildAvatar(size: 42, fontSize: 18);
-  }
-
   Widget _buildAvatar({required double size, required double fontSize}) {
     final photoBytes = _profilePhotoBytes;
     final photoUrl = _profilePhotoUrl;
@@ -519,9 +709,17 @@ class _UserLayoutState extends State<UserLayout> {
       height: size,
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: AppColors.primary,
+      decoration: BoxDecoration(
+        gradient: PremiumColors.heroGradient,
         shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x331B5FE8),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: photoBytes != null
           ? Image.memory(
@@ -574,45 +772,48 @@ class _UserLayoutState extends State<UserLayout> {
 
   Widget _buildMobileBottomNavigation() {
     return Container(
-      height: 76,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
+        border: Border(top: BorderSide(color: PremiumColors.line)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
+            color: Color(0x141E40AF),
+            blurRadius: 16,
+            offset: Offset(0, -4),
           ),
         ],
       ),
       child: SafeArea(
         top: false,
-        child: Row(
-          children: [
-            // DASHBOARD
-            _buildBottomNavItem(
-              index: 0,
-              icon: Icons.grid_view_outlined,
-              selectedIcon: Icons.grid_view_rounded,
-              label: 'Dashboard',
-            ),
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            children: [
+              // DASHBOARD
+              _buildBottomNavItem(
+                index: 0,
+                icon: Icons.grid_view_outlined,
+                selectedIcon: Icons.grid_view_rounded,
+                label: 'Dashboard',
+              ),
 
-            // ASSETS
-            _buildBottomNavItem(
-              index: 1,
-              icon: Icons.folder_outlined,
-              selectedIcon: Icons.folder,
-              label: 'Assets',
-            ),
+              // ASSETS
+              _buildBottomNavItem(
+                index: 1,
+                icon: Icons.folder_outlined,
+                selectedIcon: Icons.folder_rounded,
+                label: 'Assets',
+              ),
 
-            // DOWNLOADS
-            _buildBottomNavItem(
-              index: 2,
-              icon: Icons.download_outlined,
-              selectedIcon: Icons.download,
-              label: 'Downloads',
-            ),
-          ],
+              // DOWNLOADS
+              _buildBottomNavItem(
+                index: 2,
+                icon: Icons.download_outlined,
+                selectedIcon: Icons.download_rounded,
+                label: 'Downloads',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -635,29 +836,45 @@ class _UserLayoutState extends State<UserLayout> {
         onTap: () {
           _selectPage(index);
         },
-        child: SizedBox(
-          height: 76,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              width: selected ? 52 : 40,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: selected ? PremiumColors.heroGradient : null,
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  if (selected)
+                    const BoxShadow(
+                      color: Color(0x401B5FE8),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                ],
+              ),
+              child: Icon(
                 selected ? selectedIcon : icon,
-                size: 25,
-                color: selected ? AppColors.primary : AppColors.textSecondary,
+                size: 20,
+                color: selected ? Colors.white : PremiumColors.faint,
               ),
+            ),
 
-              const SizedBox(height: 4),
+            const SizedBox(height: 3),
 
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  color: selected ? AppColors.primary : AppColors.textSecondary,
-                ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? PremiumColors.blue : PremiumColors.muted,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -930,7 +1147,7 @@ class _UserLayoutState extends State<UserLayout> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            color: const Color(0xFFF8FAFC),
+            color: const Color(0xFFF6F9FF),
             child: Row(
               children: const [
                 Expanded(flex: 26, child: _DlHead('File')),
@@ -943,7 +1160,7 @@ class _UserLayoutState extends State<UserLayout> {
           ),
           const Divider(height: 1, color: AppColors.border),
           for (int i = 0; i < rows.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            if (i > 0) const Divider(height: 1, color: Color(0xFFEFF5FF)),
             _buildDownloadRow(rows[i]),
           ],
         ],
@@ -1182,7 +1399,11 @@ class _UserLayoutState extends State<UserLayout> {
       ),
       child: Column(
         children: [
-          const Icon(Icons.error_outline, size: 44, color: Colors.redAccent),
+          const Icon(
+            Icons.error_outline,
+            size: 44,
+            color: PremiumColors.blueDeep,
+          ),
           const SizedBox(height: 12),
           const Text(
             'Unable to load downloads',
@@ -1252,24 +1473,24 @@ class _UserLayoutState extends State<UserLayout> {
     Color bg;
     if (ext == 'pdf') {
       icon = Icons.picture_as_pdf_rounded;
-      color = const Color(0xFFDC2626);
-      bg = const Color(0xFFFDE7EC);
+      color = const Color(0xFF1240C4);
+      bg = const Color(0xFFE3ECFF);
     } else if (_dlArchiveExts.contains(ext)) {
       icon = Icons.folder_zip_outlined;
-      color = const Color(0xFFB45309);
-      bg = const Color(0xFFFEF3C7);
+      color = const Color(0xFF1E3A8A);
+      bg = const Color(0xFFE6EEFB);
     } else if (_dlAppExts.contains(ext)) {
       icon = Icons.android;
-      color = const Color(0xFF16A34A);
-      bg = const Color(0xFFE7F8EF);
+      color = const Color(0xFF0E7DC2);
+      bg = const Color(0xFFE5F3FC);
     } else if (_dlImageExts.contains(ext)) {
       icon = Icons.image_outlined;
       color = AppColors.primary;
       bg = const Color(0xFFEFF6FF);
     } else if (_dlVideoExts.contains(ext)) {
       icon = Icons.play_circle_outline;
-      color = const Color(0xFF7C3AED);
-      bg = const Color(0xFFEDE9FE);
+      color = const Color(0xFF3B4FD8);
+      bg = const Color(0xFFE8EBFD);
     } else if (assetType == 'Web Application' || assetType == 'Website Links') {
       icon = Icons.language_outlined;
       color = AppColors.primary;
@@ -1277,7 +1498,7 @@ class _UserLayoutState extends State<UserLayout> {
     } else {
       icon = Icons.insert_drive_file_outlined;
       color = AppColors.textSecondary;
-      bg = const Color(0xFFF1F5F9);
+      bg = const Color(0xFFEFF5FF);
     }
     return Container(
       width: 34,
@@ -1298,20 +1519,20 @@ class _UserLayoutState extends State<UserLayout> {
     Color fg;
     if (ext == 'pdf') {
       label = 'PDF';
-      bg = const Color(0xFFFDE7EC);
-      fg = const Color(0xFFDC2626);
+      bg = const Color(0xFFE3ECFF);
+      fg = const Color(0xFF1240C4);
     } else if (_dlArchiveExts.contains(ext)) {
       label = 'Archive';
-      bg = const Color(0xFFFEF3C7);
-      fg = const Color(0xFFB45309);
+      bg = const Color(0xFFE6EEFB);
+      fg = const Color(0xFF1E3A8A);
     } else if (_dlAppExts.contains(ext)) {
       label = 'App';
-      bg = const Color(0xFFE7F8EF);
-      fg = const Color(0xFF16A34A);
+      bg = const Color(0xFFE5F3FC);
+      fg = const Color(0xFF0E7DC2);
     } else if (_dlVideoExts.contains(ext) || assetType == 'Reels / Videos') {
       label = 'Video';
-      bg = const Color(0xFFEDE9FE);
-      fg = const Color(0xFF7C3AED);
+      bg = const Color(0xFFE8EBFD);
+      fg = const Color(0xFF3B4FD8);
     } else if (_dlImageExts.contains(ext) || assetType == 'Posters') {
       label = assetType == 'Posters' ? 'Poster' : 'Image';
       bg = const Color(0xFFEFF6FF);
@@ -1322,15 +1543,15 @@ class _UserLayoutState extends State<UserLayout> {
       fg = const Color(0xFF2563EB);
     } else if (assetType == 'Mobile Application') {
       label = 'Mobile App';
-      bg = const Color(0xFFEDE9FE);
-      fg = const Color(0xFF7C3AED);
+      bg = const Color(0xFFE8EBFD);
+      fg = const Color(0xFF3B4FD8);
     } else if (assetType == 'Documents') {
       label = 'Document';
-      bg = const Color(0xFFE7F8EF);
-      fg = const Color(0xFF15803D);
+      bg = const Color(0xFFE5F3FC);
+      fg = const Color(0xFF1B5FE8);
     } else {
       label = assetType.isNotEmpty ? assetType : 'File';
-      bg = const Color(0xFFF1F5F9);
+      bg = const Color(0xFFEFF5FF);
       fg = AppColors.textSecondary;
     }
     return Align(
@@ -1433,53 +1654,58 @@ class _UserLayoutState extends State<UserLayout> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
+      constraints: const BoxConstraints(maxWidth: 560),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (context) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Notifications',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: PremiumColors.line,
+                      borderRadius: BorderRadius.circular(999),
                     ),
-
-                    IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                PremiumSectionHeader(
+                  title: 'Notifications',
+                  icon: Icons.notifications_rounded,
+                  subtitle: 'Updates about your assets and downloads',
+                  compact: true,
+                  trailing: PremiumIconButton(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Close',
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                  ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
 
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF5F8FF),
-                    borderRadius: BorderRadius.circular(12),
+                    color: PremiumColors.soft,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFCFE0FF)),
                   ),
                   child: const Row(
                     children: [
                       Icon(
-                        Icons.notifications_outlined,
-                        color: AppColors.primary,
+                        Icons.mark_email_read_outlined,
+                        color: PremiumColors.blue,
                       ),
 
                       SizedBox(width: 12),
@@ -1489,7 +1715,8 @@ class _UserLayoutState extends State<UserLayout> {
                           'No new notifications.',
                           style: TextStyle(
                             fontSize: 14,
-                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                            color: PremiumColors.body,
                           ),
                         ),
                       ),
@@ -1497,7 +1724,7 @@ class _UserLayoutState extends State<UserLayout> {
                   ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 4),
               ],
             ),
           ),
@@ -1514,26 +1741,69 @@ class _UserLayoutState extends State<UserLayout> {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Cancel'),
-            ),
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const PremiumIconTile(icon: Icons.logout_rounded, size: 52),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Logout',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: PremiumColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Are you sure you want to logout?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: PremiumColors.muted),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: PremiumButton(
+                          label: 'Cancel',
+                          icon: Icons.close_rounded,
+                          iconLeading: true,
+                          expand: true,
+                          variant: PremiumButtonVariant.outlined,
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: PremiumButton(
+                          label: 'Logout',
+                          icon: Icons.logout_rounded,
+                          iconLeading: true,
+                          expand: true,
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
 
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-
-                widget.onLogout();
-              },
-              child: const Text('Logout'),
+                            widget.onLogout();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         );
       },
     );
@@ -1552,7 +1822,7 @@ class _DlHead extends StatelessWidget {
       style: const TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w700,
-        color: AppColors.textSecondary,
+        color: PremiumColors.headerText,
         letterSpacing: 0.2,
       ),
     );

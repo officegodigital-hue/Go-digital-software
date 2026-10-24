@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/theme/app_theme.dart';
+import '../../core/widgets/premium_ui.dart';
 import '../../services/api_service.dart';
 
 /// Shared desktop navigation for every Admin Assets screen.
@@ -183,13 +183,11 @@ class _NavbarWidgetState extends State<NavbarWidget> {
           ),
         );
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _loadingNotifications = false;
+        });
       }
-
-      setState(() {
-        _loadingNotifications = false;
-      });
     }
   }
 
@@ -209,101 +207,128 @@ class _NavbarWidgetState extends State<NavbarWidget> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              titlePadding: const EdgeInsets.fromLTRB(24, 20, 16, 12),
-              contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              title: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Notifications',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+            return Dialog(
+              backgroundColor: Colors.white,
+              insetPadding: const EdgeInsets.all(20),
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 560,
+                  maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.82,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _DialogBanner(
+                      icon: Icons.notifications_rounded,
+                      title: 'Notifications',
+                      subtitle: _unreadNotificationCount > 0
+                          ? '$_unreadNotificationCount unread'
+                          : 'You are all caught up',
+                      onClose: () {
+                        Navigator.of(dialogContext).pop();
+                      },
+                      action: _notifications.isEmpty
+                          ? null
+                          : TextButton.icon(
+                              onPressed: () async {
+                                try {
+                                  await ApiService.markAllNotificationsAsRead();
+
+                                  if (!mounted) {
+                                    return;
+                                  }
+
+                                  setState(() {
+                                    _unreadNotificationCount = 0;
+
+                                    for (
+                                      var index = 0;
+                                      index < _notifications.length;
+                                      index++
+                                    ) {
+                                      final item = _notifications[index];
+
+                                      if (item is Map) {
+                                        _notifications[index] = {
+                                          ...item,
+                                          'is_read': true,
+                                        };
+                                      }
+                                    }
+                                  });
+
+                                  setDialogState(() {});
+
+                                  ScaffoldMessenger.of(context)
+                                    ..hideCurrentSnackBar()
+                                    ..showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'All notifications marked as read.',
+                                        ),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                } catch (error) {
+                                  if (!mounted) {
+                                    return;
+                                  }
+
+                                  ScaffoldMessenger.of(context)
+                                    ..hideCurrentSnackBar()
+                                    ..showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Failed to mark notifications as read: '
+                                          '${error.toString().replaceFirst('Exception: ', '')}',
+                                        ),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                }
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: const Color(0x26FFFFFF),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              icon: const Icon(Icons.done_all_rounded, size: 17),
+                              label: const Text(
+                                'Mark all as read',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                    ),
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 460),
+                        child: _loadingNotifications
+                            ? const SizedBox(
+                                height: 240,
+                                child: PremiumLoading(
+                                  label: 'Loading notifications...',
+                                ),
+                              )
+                            : _notifications.isEmpty
+                            ? SizedBox(
+                                height: 260,
+                                child: _buildEmptyNotifications(),
+                              )
+                            : _buildNotificationList(
+                                dialogContext,
+                                setDialogState,
+                              ),
                       ),
                     ),
-                  ),
-
-                  if (_notifications.isNotEmpty)
-                    TextButton(
-                      onPressed: () async {
-                        try {
-                          await ApiService.markAllNotificationsAsRead();
-
-                          if (!mounted) {
-                            return;
-                          }
-
-                          setState(() {
-                            _unreadNotificationCount = 0;
-
-                            for (
-                              var index = 0;
-                              index < _notifications.length;
-                              index++
-                            ) {
-                              final item = _notifications[index];
-
-                              if (item is Map) {
-                                _notifications[index] = {
-                                  ...item,
-                                  'is_read': true,
-                                };
-                              }
-                            }
-                          });
-
-                          setDialogState(() {});
-
-                          ScaffoldMessenger.of(context)
-                            ..hideCurrentSnackBar()
-                            ..showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'All notifications marked as read.',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                        } catch (error) {
-                          if (!mounted) {
-                            return;
-                          }
-
-                          ScaffoldMessenger.of(context)
-                            ..hideCurrentSnackBar()
-                            ..showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Failed to mark notifications as read: '
-                                  '${error.toString().replaceFirst('Exception: ', '')}',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                        }
-                      },
-                      child: const Text('Mark all as read'),
-                    ),
-
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                    },
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: 560,
-                height: 520,
-                child: _loadingNotifications
-                    ? const Center(child: CircularProgressIndicator())
-                    : _notifications.isEmpty
-                    ? _buildEmptyNotifications()
-                    : _buildNotificationList(dialogContext, setDialogState),
+                  ],
+                ),
               ),
             );
           },
@@ -319,43 +344,11 @@ class _NavbarWidgetState extends State<NavbarWidget> {
   // ============================================================
 
   Widget _buildEmptyNotifications() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.notifications_none_outlined,
-              size: 32,
-              color: AppColors.primary,
-            ),
-          ),
-
-          const SizedBox(height: 14),
-
-          const Text(
-            'No notifications',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          const Text(
-            'There are no notifications to show.',
-            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-          ),
-        ],
+    return const Center(
+      child: PremiumEmptyState(
+        icon: Icons.notifications_none_rounded,
+        title: 'No notifications',
+        message: 'There are no notifications to show.',
       ),
     );
   }
@@ -369,9 +362,11 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     StateSetter setDialogState,
   ) {
     return ListView.separated(
+      shrinkWrap: true,
+      padding: const EdgeInsets.all(14),
       itemCount: _notifications.length,
       separatorBuilder: (_, _) {
-        return const Divider(height: 1);
+        return const SizedBox(height: 8);
       },
       itemBuilder: (context, index) {
         final item = _notifications[index];
@@ -393,31 +388,23 @@ class _NavbarWidgetState extends State<NavbarWidget> {
         );
 
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isRead
-                ? Colors.white
-                : AppColors.primary.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(10),
+            color: isRead ? Colors.white : PremiumColors.soft,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isRead ? PremiumColors.line : const Color(0xFFCFE0FF),
+            ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isRead
-                      ? const Color(0xFFF2F4F7)
-                      : AppColors.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.notifications_outlined,
-                  size: 21,
-                  color: isRead ? AppColors.textSecondary : AppColors.primary,
-                ),
+              PremiumIconTile(
+                icon: isRead
+                    ? Icons.notifications_none_rounded
+                    : Icons.notifications_active_rounded,
+                accent: isRead ? PremiumAccent.slate : PremiumAccent.blue,
+                size: 38,
               ),
 
               const SizedBox(width: 12),
@@ -433,11 +420,11 @@ class _NavbarWidgetState extends State<NavbarWidget> {
                           child: Text(
                             title,
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 14.5,
                               fontWeight: isRead
                                   ? FontWeight.w600
                                   : FontWeight.w800,
-                              color: AppColors.textPrimary,
+                              color: PremiumColors.ink,
                             ),
                           ),
                         ),
@@ -448,33 +435,43 @@ class _NavbarWidgetState extends State<NavbarWidget> {
                             height: 8,
                             margin: const EdgeInsets.only(left: 8, top: 6),
                             decoration: const BoxDecoration(
-                              color: AppColors.primary,
+                              gradient: PremiumColors.heroGradient,
                               shape: BoxShape.circle,
                             ),
                           ),
                       ],
                     ),
 
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
 
                     Text(
                       message,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 13.5,
                         height: 1.4,
-                        color: AppColors.textSecondary,
+                        color: PremiumColors.body,
                       ),
                     ),
 
                     if (createdAt.isNotEmpty) ...[
                       const SizedBox(height: 6),
 
-                      Text(
-                        createdAt,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppColors.textSecondary,
-                        ),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.schedule_rounded,
+                            size: 13,
+                            color: PremiumColors.faint,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            createdAt,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: PremiumColors.muted,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
 
@@ -523,9 +520,14 @@ class _NavbarWidgetState extends State<NavbarWidget> {
                             }
                           },
                           style: TextButton.styleFrom(
+                            foregroundColor: PremiumColors.blue,
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(0, 30),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           child: const Text('Mark as read'),
                         ),
@@ -616,151 +618,209 @@ class _NavbarWidgetState extends State<NavbarWidget> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text(
-                'Admin Profile',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
+            return Dialog(
+              backgroundColor: Colors.white,
+              insetPadding: const EdgeInsets.all(20),
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 360,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          _buildAdminProfileAvatar(size: 84),
-                          Material(
-                            color: Colors.white,
-                            shape: const CircleBorder(),
-                            elevation: 2,
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: _isUploadingAdminPhoto
+                      // Gradient cover with the avatar overlapping it.
+                      SizedBox(
+                        height: 150,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              height: 96,
+                              decoration: const BoxDecoration(
+                                gradient: PremiumColors.heroGradient,
+                              ),
+                              child: const Align(
+                                alignment: Alignment.centerRight,
+                                child: SizedBox(
+                                  width: 180,
+                                  child: PremiumDots(color: Color(0x4DFFFFFF)),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: IconButton(
+                                tooltip: 'Close',
+                                onPressed: () {
+                                  Navigator.of(dialogContext).pop();
+                                },
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              top: 50,
+                              child: Center(
+                                child: Stack(
+                                  alignment: Alignment.bottomRight,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Color(0x331B5FE8),
+                                            blurRadius: 16,
+                                            offset: Offset(0, 6),
+                                          ),
+                                        ],
+                                      ),
+                                      child: _buildAdminProfileAvatar(size: 88),
+                                    ),
+                                    Material(
+                                      color: Colors.white,
+                                      shape: const CircleBorder(
+                                        side: BorderSide(
+                                          color: PremiumColors.line,
+                                        ),
+                                      ),
+                                      elevation: 2,
+                                      child: InkWell(
+                                        customBorder: const CircleBorder(),
+                                        onTap: _isUploadingAdminPhoto
+                                            ? null
+                                            : () async {
+                                                await _pickAndUploadAdminPhoto(
+                                                  setDialogState,
+                                                );
+                                              },
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(7),
+                                          child: _isUploadingAdminPhoto
+                                              ? const SizedBox(
+                                                  width: 17,
+                                                  height: 17,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color:
+                                                            PremiumColors.blue,
+                                                      ),
+                                                )
+                                              : const Icon(
+                                                  Icons.camera_alt_outlined,
+                                                  size: 17,
+                                                  color: PremiumColors.blue,
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(22, 4, 22, 22),
+                        child: Column(
+                          children: [
+                            Text(
+                              _adminName,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.3,
+                                color: PremiumColors.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            PremiumBadge(
+                              label: _adminRole,
+                              icon: Icons.admin_panel_settings_outlined,
+                            ),
+                            if (_adminEmail.isNotEmpty) ...[
+                              const SizedBox(height: 14),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: PremiumColors.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: PremiumColors.line),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.email_outlined,
+                                      size: 18,
+                                      color: PremiumColors.blue,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        _adminEmail,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: PremiumColors.ink,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            PremiumButton(
+                              label: 'Change Photo',
+                              icon: Icons.upload_outlined,
+                              iconLeading: true,
+                              expand: true,
+                              variant: PremiumButtonVariant.outlined,
+                              onPressed: _isUploadingAdminPhoto
                                   ? null
                                   : () async {
                                       await _pickAndUploadAdminPhoto(
                                         setDialogState,
                                       );
                                     },
-                              child: Padding(
-                                padding: const EdgeInsets.all(7),
-                                child: _isUploadingAdminPhoto
-                                    ? const SizedBox(
-                                        width: 17,
-                                        height: 17,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.camera_alt_outlined,
-                                        size: 17,
-                                        color: AppColors.primary,
-                                      ),
-                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _adminName,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _adminRole,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      if (_adminEmail.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.email_outlined,
-                              size: 18,
-                              color: AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _adminEmail,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
+                            const SizedBox(height: 10),
+                            PremiumButton(
+                              label: 'Change Password',
+                              icon: Icons.lock_outline,
+                              iconLeading: true,
+                              expand: true,
+                              onPressed: () {
+                                Navigator.of(dialogContext).pop();
+                                _showChangeAdminPasswordDialog();
+                              },
                             ),
                           ],
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _isUploadingAdminPhoto
-                              ? null
-                              : () async {
-                                  await _pickAndUploadAdminPhoto(
-                                    setDialogState,
-                                  );
-                                },
-                          icon: const Icon(Icons.upload_outlined),
-                          label: const Text(
-                            'Change Photo',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            Navigator.of(dialogContext).pop();
-                            _showChangeAdminPasswordDialog();
-                          },
-                          icon: const Icon(Icons.lock_outline),
-                          label: const Text(
-                            'Change Password',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Close'),
-                ),
-              ],
             );
           },
         );
@@ -772,7 +832,7 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     if (_adminPhotoBytes != null) {
       return CircleAvatar(
         radius: size / 2,
-        backgroundColor: AppColors.primary,
+        backgroundColor: PremiumColors.blue,
         backgroundImage: MemoryImage(_adminPhotoBytes!),
       );
     }
@@ -780,23 +840,12 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     if (_adminPhotoUrl != null && _adminPhotoUrl!.isNotEmpty) {
       return CircleAvatar(
         radius: size / 2,
-        backgroundColor: AppColors.primary,
+        backgroundColor: PremiumColors.blue,
         backgroundImage: NetworkImage(_profilePhotoNetworkUrl(_adminPhotoUrl!)),
       );
     }
 
-    return CircleAvatar(
-      radius: size / 2,
-      backgroundColor: const Color(0xFFDBEAFE),
-      child: Text(
-        _initialsFromName(_adminName),
-        style: TextStyle(
-          fontSize: size * 0.30,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        ),
-      ),
-    );
+    return _initialsAvatar(size);
   }
 
   Widget _buildAdminTopBarAvatar({required double size}) {
@@ -805,10 +854,7 @@ class _NavbarWidgetState extends State<NavbarWidget> {
         width: size,
         height: size,
         clipBehavior: Clip.antiAlias,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.primary,
-        ),
+        decoration: _avatarRing,
         child: Image.memory(
           _adminPhotoBytes!,
           width: size,
@@ -823,10 +869,7 @@ class _NavbarWidgetState extends State<NavbarWidget> {
         width: size,
         height: size,
         clipBehavior: Clip.antiAlias,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.primary,
-        ),
+        decoration: _avatarRing,
         child: Image.network(
           _profilePhotoNetworkUrl(_adminPhotoUrl!),
           width: size,
@@ -848,14 +891,29 @@ class _NavbarWidgetState extends State<NavbarWidget> {
       );
     }
 
-    return CircleAvatar(
-      radius: size / 2,
-      backgroundColor: const Color(0xFF9CA3AF),
+    return _initialsAvatar(size);
+  }
+
+  BoxDecoration get _avatarRing => BoxDecoration(
+    gradient: PremiumColors.heroGradient,
+    shape: BoxShape.circle,
+    border: Border.all(color: Colors.white, width: 2),
+    boxShadow: const [
+      BoxShadow(color: Color(0x331B5FE8), blurRadius: 8, offset: Offset(0, 3)),
+    ],
+  );
+
+  Widget _initialsAvatar(double size) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: _avatarRing,
       child: Text(
         _initialsFromName(_adminName),
         style: TextStyle(
           color: Colors.white,
-          fontSize: size * 0.40,
+          fontSize: size * 0.38,
           fontWeight: FontWeight.w700,
         ),
       ),
@@ -994,6 +1052,35 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     }
   }
 
+  InputDecoration _passwordDecoration({
+    required String label,
+    required bool obscure,
+    required VoidCallback onToggle,
+  }) {
+    OutlineInputBorder outline(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: color, width: width),
+        );
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: PremiumColors.muted),
+      prefixIcon: const Icon(Icons.lock_outline, color: PremiumColors.blue),
+      suffixIcon: IconButton(
+        onPressed: onToggle,
+        icon: Icon(
+          obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+          color: PremiumColors.muted,
+        ),
+      ),
+      filled: true,
+      fillColor: PremiumColors.surface,
+      border: outline(PremiumColors.line),
+      enabledBorder: outline(PremiumColors.line),
+      focusedBorder: outline(PremiumColors.blue, 1.4),
+    );
+  }
+
   Future<void> _showChangeAdminPasswordDialog() async {
     final passwordController = TextEditingController();
     final confirmController = TextEditingController();
@@ -1008,174 +1095,218 @@ class _NavbarWidgetState extends State<NavbarWidget> {
         builder: (dialogContext) {
           return StatefulBuilder(
             builder: (dialogContext, setDialogState) {
-              return AlertDialog(
-                title: const Text(
-                  'Change Password',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              return Dialog(
+                backgroundColor: Colors.white,
+                insetPadding: const EdgeInsets.all(20),
+                clipBehavior: Clip.antiAlias,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                content: SizedBox(
-                  width: 360,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextField(
-                        controller: passwordController,
-                        obscureText: obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: 'New Password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            onPressed: () {
-                              setDialogState(() {
-                                obscurePassword = !obscurePassword;
-                              });
-                            },
-                            icon: Icon(
-                              obscurePassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                            ),
-                          ),
-                        ),
+                      _DialogBanner(
+                        icon: Icons.lock_reset_rounded,
+                        title: 'Change Password',
+                        subtitle: 'Use at least 8 characters',
+                        onClose: saving
+                            ? null
+                            : () {
+                                Navigator.of(dialogContext).pop();
+                              },
                       ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: confirmController,
-                        obscureText: obscureConfirm,
-                        decoration: InputDecoration(
-                          labelText: 'Confirm New Password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            onPressed: () {
-                              setDialogState(() {
-                                obscureConfirm = !obscureConfirm;
-                              });
-                            },
-                            icon: Icon(
-                              obscureConfirm
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextField(
+                              controller: passwordController,
+                              obscureText: obscurePassword,
+                              decoration: _passwordDecoration(
+                                label: 'New Password',
+                                obscure: obscurePassword,
+                                onToggle: () {
+                                  setDialogState(() {
+                                    obscurePassword = !obscurePassword;
+                                  });
+                                },
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: confirmController,
+                              obscureText: obscureConfirm,
+                              decoration: _passwordDecoration(
+                                label: 'Confirm New Password',
+                                obscure: obscureConfirm,
+                                onToggle: () {
+                                  setDialogState(() {
+                                    obscureConfirm = !obscureConfirm;
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: PremiumButton(
+                                    label: 'Cancel',
+                                    icon: Icons.close_rounded,
+                                    iconLeading: true,
+                                    expand: true,
+                                    variant: PremiumButtonVariant.outlined,
+                                    onPressed: saving
+                                        ? null
+                                        : () {
+                                            Navigator.of(dialogContext).pop();
+                                          },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: PremiumButton(
+                                    label: 'Change',
+                                    icon: Icons.check_rounded,
+                                    iconLeading: true,
+                                    expand: true,
+                                    loading: saving,
+                                    onPressed: saving
+                                        ? null
+                                        : () async {
+                                            final newPassword =
+                                                passwordController.text;
+                                            final confirmation =
+                                                confirmController.text;
+
+                                            if (newPassword.length < 8) {
+                                              _showTopBarMessage(
+                                                'Password must be at least 8 characters.',
+                                              );
+                                              return;
+                                            }
+
+                                            if (newPassword != confirmation) {
+                                              _showTopBarMessage(
+                                                'Passwords do not match.',
+                                              );
+                                              return;
+                                            }
+
+                                            setDialogState(() {
+                                              saving = true;
+                                            });
+
+                                            try {
+                                              final users =
+                                                  await ApiService.getUsers();
+
+                                              dynamic adminUser;
+
+                                              for (final item in users) {
+                                                if (item is! Map) {
+                                                  continue;
+                                                }
+
+                                                final email =
+                                                    item['email']
+                                                        ?.toString()
+                                                        .trim() ??
+                                                    '';
+
+                                                if (_adminEmail
+                                                        .trim()
+                                                        .isNotEmpty &&
+                                                    email.toLowerCase() ==
+                                                        _adminEmail
+                                                            .trim()
+                                                            .toLowerCase()) {
+                                                  adminUser = item;
+                                                  break;
+                                                }
+                                              }
+
+                                              if (adminUser == null) {
+                                                throw Exception(
+                                                  'Logged-in Admin account was not found.',
+                                                );
+                                              }
+
+                                              await ApiService.updateUser(
+                                                userId: adminUser['id']
+                                                    .toString(),
+                                                name:
+                                                    adminUser['name']
+                                                        ?.toString() ??
+                                                    _adminName,
+                                                email:
+                                                    adminUser['email']
+                                                        ?.toString() ??
+                                                    _adminEmail,
+                                                mobile: adminUser['mobile']
+                                                    ?.toString(),
+                                                role:
+                                                    adminUser['role']
+                                                        ?.toString() ??
+                                                    'Admin',
+                                                password: newPassword,
+                                              );
+
+                                              if (!mounted) {
+                                                return;
+                                              }
+
+                                              Navigator.of(dialogContext).pop();
+
+                                              _showTopBarMessage(
+                                                'Password changed successfully.',
+                                              );
+                                            } catch (error) {
+                                              if (!mounted) {
+                                                return;
+                                              }
+
+                                              setDialogState(() {
+                                                saving = false;
+                                              });
+
+                                              _showTopBarMessage(
+                                                error
+                                                    .toString()
+                                                    .replaceFirst(
+                                                      'Exception: ',
+                                                      '',
+                                                    )
+                                                    .trim(),
+                                              );
+                                            }
+                                          },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: saving
-                        ? null
-                        : () {
-                            Navigator.of(dialogContext).pop();
-                          },
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            final newPassword = passwordController.text;
-                            final confirmation = confirmController.text;
-
-                            if (newPassword.length < 8) {
-                              _showTopBarMessage(
-                                'Password must be at least 8 characters.',
-                              );
-                              return;
-                            }
-
-                            if (newPassword != confirmation) {
-                              _showTopBarMessage('Passwords do not match.');
-                              return;
-                            }
-
-                            setDialogState(() {
-                              saving = true;
-                            });
-
-                            try {
-                              final users = await ApiService.getUsers();
-
-                              dynamic adminUser;
-
-                              for (final item in users) {
-                                if (item is! Map) {
-                                  continue;
-                                }
-
-                                final email =
-                                    item['email']?.toString().trim() ?? '';
-
-                                if (_adminEmail.trim().isNotEmpty &&
-                                    email.toLowerCase() ==
-                                        _adminEmail.trim().toLowerCase()) {
-                                  adminUser = item;
-                                  break;
-                                }
-                              }
-
-                              if (adminUser == null) {
-                                throw Exception(
-                                  'Logged-in Admin account was not found.',
-                                );
-                              }
-
-                              await ApiService.updateUser(
-                                userId: adminUser['id'].toString(),
-                                name:
-                                    adminUser['name']?.toString() ?? _adminName,
-                                email:
-                                    adminUser['email']?.toString() ??
-                                    _adminEmail,
-                                mobile: adminUser['mobile']?.toString(),
-                                role: adminUser['role']?.toString() ?? 'Admin',
-                                password: newPassword,
-                              );
-
-                              if (!mounted) {
-                                return;
-                              }
-
-                              Navigator.of(dialogContext).pop();
-
-                              _showTopBarMessage(
-                                'Password changed successfully.',
-                              );
-                            } catch (error) {
-                              if (!mounted) {
-                                return;
-                              }
-
-                              setDialogState(() {
-                                saving = false;
-                              });
-
-                              _showTopBarMessage(
-                                error
-                                    .toString()
-                                    .replaceFirst('Exception: ', '')
-                                    .trim(),
-                              );
-                            }
-                          },
-                    child: saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Change Password'),
-                  ),
-                ],
               );
             },
           );
         },
       );
     } finally {
-      passwordController.dispose();
-      confirmController.dispose();
+      // Wait for the dialog's closing animation before disposing, otherwise
+      // the fading TextFields touch disposed controllers.
+      Future<void>.delayed(const Duration(milliseconds: 400), () {
+        passwordController.dispose();
+        confirmController.dispose();
+      });
     }
   }
 
@@ -1198,33 +1329,67 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text(
-            'Logout',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
-          content: const Text(
-            'Are you sure you want to logout?',
-            style: TextStyle(fontSize: 14),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(false);
-              },
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(true);
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const PremiumIconTile(icon: Icons.logout_rounded, size: 52),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Logout',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: PremiumColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Are you sure you want to logout?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: PremiumColors.muted),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: PremiumButton(
+                          label: 'Cancel',
+                          icon: Icons.close_rounded,
+                          iconLeading: true,
+                          expand: true,
+                          variant: PremiumButtonVariant.outlined,
+                          onPressed: () {
+                            Navigator.of(dialogContext).pop(false);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: PremiumButton(
+                          label: 'Logout',
+                          icon: Icons.logout_rounded,
+                          iconLeading: true,
+                          expand: true,
+                          onPressed: () {
+                            Navigator.of(dialogContext).pop(true);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              child: const Text('Logout'),
             ),
-          ],
+          ),
         );
       },
     );
@@ -1267,274 +1432,222 @@ class _NavbarWidgetState extends State<NavbarWidget> {
 
   @override
   Widget build(BuildContext context) {
-    // Mobile navigation is supplied by AdminLayout's drawer. Keep this header
-    // intentionally compact so every Admin Assets page remains usable on a
-    // phone without losing notifications or profile access.
+    // Mobile navigation is supplied by AdminLayout's bottom bar. Keep this
+    // header compact so every Admin Assets page remains usable on a phone
+    // without losing notifications or profile access.
     if (widget.onMenu != null) {
       return _buildMobileBar();
     }
 
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // ── Left: Logo + brand + divider + portal label ───────
-          // Go Digital logo image
-          Image.asset(
-            'assets/images/godigital_logo.png',
-            width: 36,
-            height: 36,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(width: 8),
-          // "Go Digital" brand name — hidden on mobile
-          if (widget.onMenu == null)
-            const Text(
-              'Go Digital',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF111827),
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Narrow laptops drop the portal label and the name next to the
+        // avatar so the bar never overflows.
+        final wide = box.maxWidth >= 1240;
+        final compactTabs = box.maxWidth < 1120;
+
+        return Container(
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: PremiumColors.line)),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x0D1E40AF),
+                blurRadius: 12,
+                offset: Offset(0, 4),
               ),
-            ),
-          // Vertical divider + "Admin Portal" — desktop only
-          if (widget.onMenu == null) ...[
-            Container(
-              width: 1,
-              height: 24,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              color: const Color(0xFFE5E7EB),
-            ),
-            const Text(
-              'Admin Portal',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-            const SizedBox(width: 32),
-          ],
-
-          // ── Center: Nav items ─────────────────────────────────
-          Expanded(
-            child: widget.onMenu != null
-                ? const SizedBox.shrink()
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (int i = 0; i < _navItems.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 4),
-                        _buildNavItem(i),
-                      ],
-                    ],
-                  ),
+            ],
           ),
-
-          const SizedBox(width: 16),
-
-          // ── Right: bell | workspace | logout | avatar ──────────
-
-          // Notification bell
-          Stack(
-            clipBehavior: Clip.none,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              IconButton(
-                tooltip: 'Notifications',
-                onPressed: _showNotifications,
-                icon: const Icon(
-                  Icons.notifications_none_outlined,
-                  size: 22,
-                  color: Color(0xFF374151),
+              // ── Left: Logo + brand + divider + portal label ───────
+              _buildLogo(38),
+              const SizedBox(width: 10),
+              const Text(
+                'Go Digital',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: PremiumColors.blueDeep,
                 ),
               ),
-              if (_unreadNotificationCount > 0)
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
+              if (wide) ...[
+                Container(
+                  width: 1,
+                  height: 22,
+                  margin: const EdgeInsets.symmetric(horizontal: 14),
+                  color: PremiumColors.line,
+                ),
+                const Text(
+                  'Admin Portal',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: PremiumColors.muted,
+                  ),
+                ),
+              ],
+
+              // ── Center: Nav items in a pill track ─────────────────
+              Expanded(
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: PremiumColors.surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: PremiumColors.line),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (int i = 0; i < _navItems.length; i++)
+                            _buildNavItem(i, compact: compactTabs),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-            ],
-          ),
-
-          // Divider
-          Container(
-            width: 1,
-            height: 24,
-            color: const Color(0xFFE5E7EB),
-            margin: const EdgeInsets.symmetric(horizontal: 6),
-          ),
-
-          // Workspace button
-          Tooltip(
-            message: 'Workspace',
-            child: InkWell(
-              onTap: () => Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil('/home', (route) => false),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                ),
-                child: const Icon(
-                  Icons.grid_view_rounded,
-                  size: 18,
-                  color: Color(0xFF374151),
-                ),
               ),
-            ),
-          ),
 
-          const SizedBox(width: 8),
+              const SizedBox(width: 12),
 
-          // Logout button
-          Tooltip(
-            message: 'Logout',
-            child: InkWell(
-              onTap: _handleLogout,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFFECACA)),
-                ),
-                child: const Icon(
-                  Icons.logout_rounded,
-                  size: 18,
-                  color: Color(0xFFDC2626),
-                ),
+              // ── Right: bell | workspace | logout | avatar ──────────
+              _buildSquareButton(
+                icon: Icons.notifications_none_rounded,
+                tooltip: 'Notifications',
+                onTap: _showNotifications,
+                badge: _unreadNotificationCount,
               ),
-            ),
-          ),
+              const SizedBox(width: 8),
+              _buildSquareButton(
+                icon: Icons.grid_view_rounded,
+                tooltip: 'Workspace',
+                onTap: () => Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/home', (route) => false),
+              ),
+              const SizedBox(width: 8),
+              _buildSquareButton(
+                icon: Icons.logout_rounded,
+                tooltip: 'Logout',
+                onTap: _handleLogout,
+              ),
 
-          // Divider
-          Container(
-            width: 1,
-            height: 24,
-            color: const Color(0xFFE5E7EB),
-            margin: const EdgeInsets.symmetric(horizontal: 6),
-          ),
+              Container(
+                width: 1,
+                height: 24,
+                color: PremiumColors.line,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
 
-          // Avatar + name + chevron
-          GestureDetector(
-            onTap: _showAdminProfile,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildAdminTopBarAvatar(size: 32),
-                const SizedBox(width: 6),
-                Text(
-                  _adminName.isEmpty ? 'Admin' : _adminName.split(' ').first,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF374151),
+              // Avatar + name + chevron
+              HoverBuilder(
+                cursor: SystemMouseCursors.click,
+                builder: (context, hovered) => GestureDetector(
+                  onTap: _showAdminProfile,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+                    decoration: BoxDecoration(
+                      color: hovered ? PremiumColors.soft : Colors.transparent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildAdminTopBarAvatar(size: 34),
+                        if (wide) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            _adminName.isEmpty
+                                ? 'Admin'
+                                : _adminName.split(' ').first,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: PremiumColors.ink,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 2),
+                        const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 18,
+                          color: PremiumColors.muted,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 2),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  size: 18,
-                  color: Color(0xFF6B7280),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildMobileBar() {
     return Container(
       height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+        border: Border(bottom: BorderSide(color: PremiumColors.line)),
       ),
       child: Row(
         children: [
-          IconButton(
-            tooltip: 'Menu',
-            onPressed: widget.onMenu,
-            icon: const Icon(Icons.menu_rounded, color: Color(0xFF374151)),
-          ),
-          Image.asset(
-            'assets/images/godigital_logo.png',
-            width: 28,
-            height: 28,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(width: 8),
+          _buildLogo(34),
+          const SizedBox(width: 10),
           const Expanded(
-            child: Text(
-              'Admin Portal',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF111827),
-              ),
-            ),
-          ),
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              IconButton(
-                tooltip: 'Notifications',
-                onPressed: _showNotifications,
-                icon: const Icon(
-                  Icons.notifications_none_outlined,
-                  size: 22,
-                  color: Color(0xFF374151),
-                ),
-              ),
-              if (_unreadNotificationCount > 0)
-                Positioned(
-                  right: 7,
-                  top: 7,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
-                    ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Go Digital',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    color: PremiumColors.blueDeep,
                   ),
                 ),
-            ],
+                Text(
+                  'Admin Portal',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: PremiumColors.muted,
+                  ),
+                ),
+              ],
+            ),
           ),
+          _buildSquareButton(
+            icon: Icons.notifications_none_rounded,
+            tooltip: 'Notifications',
+            onTap: _showNotifications,
+            badge: _unreadNotificationCount,
+          ),
+          const SizedBox(width: 8),
           InkWell(
             onTap: _showAdminProfile,
             borderRadius: BorderRadius.circular(20),
             child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: _buildAdminTopBarAvatar(size: 32),
+              padding: const EdgeInsets.all(2),
+              child: _buildAdminTopBarAvatar(size: 34),
             ),
           ),
         ],
@@ -1542,46 +1655,152 @@ class _NavbarWidgetState extends State<NavbarWidget> {
     );
   }
 
-  Widget _buildNavItem(int index) {
+  Widget _buildLogo(double size) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.asset(
+        'assets/images/godigital_logo.png',
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: PremiumColors.heroGradient,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            Icons.view_in_ar_rounded,
+            color: Colors.white,
+            size: size * 0.55,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSquareButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    int badge = 0,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: HoverBuilder(
+        cursor: SystemMouseCursors.click,
+        builder: (context, hovered) => GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: hovered ? PremiumColors.soft : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hovered ? const Color(0xFFCFE0FF) : PremiumColors.line,
+              ),
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Center(child: Icon(icon, size: 19, color: PremiumColors.blue)),
+                if (badge > 0)
+                  Positioned(
+                    right: -5,
+                    top: -5,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18),
+                      height: 18,
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        gradient: PremiumColors.heroGradient,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      child: Text(
+                        badge > 99 ? '99+' : '$badge',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, {bool compact = false}) {
     final item = _navItems[index];
     final isActive = widget.selectedIndex == index;
 
-    return InkWell(
-      onTap: () => widget.onNavigate?.call(index),
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: isActive
-            ? const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFF2563EB), width: 2),
+    return HoverBuilder(
+      cursor: SystemMouseCursors.click,
+      builder: (context, hovered) => GestureDetector(
+        onTap: () => widget.onNavigate?.call(index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 16,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            gradient: isActive ? PremiumColors.heroGradient : null,
+            color: isActive
+                ? null
+                : hovered
+                ? Colors.white
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              if (isActive)
+                const BoxShadow(
+                  color: Color(0x401B5FE8),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
                 ),
-              )
-            : null,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(
-              isActive ? item.activeIcon : item.icon,
-              size: 16,
-              color: isActive
-                  ? const Color(0xFF2563EB)
-                  : const Color(0xFF6B7280),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              item.label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                isActive ? item.activeIcon : item.icon,
+                size: 16,
                 color: isActive
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF6B7280),
+                    ? Colors.white
+                    : hovered
+                    ? PremiumColors.blue
+                    : PremiumColors.muted,
               ),
-            ),
-          ],
+              const SizedBox(width: 7),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                  color: isActive
+                      ? Colors.white
+                      : hovered
+                      ? PremiumColors.blue
+                      : PremiumColors.body,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1599,4 +1818,88 @@ class _NavItem {
   });
 }
 
+/// Blue gradient header used by the top bar's dialogs.
+class _DialogBanner extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onClose;
+  final Widget? action;
 
+  const _DialogBanner({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onClose,
+    this.action,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(gradient: PremiumColors.heroGradient),
+      child: Stack(
+        children: [
+          const Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 180,
+            child: PremiumDots(color: Color(0x40FFFFFF)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 8, 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0x26FFFFFF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0x33FFFFFF)),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 21),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: Color(0xD9FFFFFF),
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (action != null) ...[action!, const SizedBox(width: 4)],
+                if (onClose != null)
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
