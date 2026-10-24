@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 class PremiumColors {
   PremiumColors._();
 
+
   static const ink = Color(0xFF0B1B3F);
   static const body = Color(0xFF2A3B5F);
   static const muted = Color(0xFF5B6B8C);
