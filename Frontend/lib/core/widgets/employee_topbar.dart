@@ -1096,7 +1096,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-<<<<<<< HEAD
                     Text(
                       title,
                       style: const TextStyle(
@@ -1113,7 +1112,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                         color: Color(0xFF166534),
                       ),
                     ),
-=======
+
                     Text(title,
                         style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
                     Text(stale ? staleText : _runningTimerText(),
@@ -1121,7 +1120,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                             fontSize: stale ? 10 : 11.5,
                             fontWeight: FontWeight.w900,
                             color: stale ? const Color(0xFFB91C1C) : const Color(0xFF166534))),
->>>>>>> 0a3053d6eba56793301724dbaebede767b4f6fdf
+
                   ],
                 ),
                 const SizedBox(width: 8),
