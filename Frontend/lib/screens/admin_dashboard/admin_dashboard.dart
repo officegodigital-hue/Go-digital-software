@@ -645,13 +645,6 @@ class _AdminDashboardState extends State<AdminDashboard>
   static const Map<String, List<_NavTile>> _navGroups = {
     'Clients': [
       _NavTile(
-        'Client Details',
-        'Browse & manage clients',
-        Icons.groups_rounded,
-        _Palette.primary2,
-        '/client',
-      ),
-      _NavTile(
         'Client History',
         'Past activity & records',
         Icons.history_rounded,
@@ -735,6 +728,13 @@ class _AdminDashboardState extends State<AdminDashboard>
       ),
     ],
     'Admin & System': [
+      _NavTile(
+        'Profile Settings',
+        'Manage your profile',
+        Icons.manage_accounts_rounded,
+        Color(0xFF0757D5),
+        '/profile',
+      ),
       _NavTile(
         'Admin Panel',
         'Roles, users & access',
@@ -1269,7 +1269,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             label: 'Currently active',
             icon: Icons.groups_rounded,
             color: _Palette.primary,
-            route: '/client',
+            route: '/client-history',
           ),
           _KpiData(
             title: 'Total Employees',
