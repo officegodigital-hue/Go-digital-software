@@ -1,6 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../services/api_service.dart';
 
 class AdminDownloadsPage extends StatefulWidget {
@@ -15,11 +17,18 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
   String? _error;
   List<dynamic> _logs = [];
   String _search = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadLogs();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   // ── Backend: load ──────────────────────────────────────────────
@@ -113,249 +122,221 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
     return Icons.image_outlined;
   }
 
+  PremiumAccent _typeAccent(String type) {
+    final v = type.toLowerCase();
+    if (v.contains('poster') || v.contains('image')) return PremiumAccent.rose;
+    if (v.contains('reel') || v.contains('video')) return PremiumAccent.violet;
+    if (v.contains('document') || v.contains('pdf')) return PremiumAccent.blue;
+    if (v.contains('web')) return PremiumAccent.cyan;
+    if (v.contains('mobile') || v.contains('application')) {
+      return PremiumAccent.green;
+    }
+    return PremiumAccent.amber;
+  }
+
+  int _uniqueCount(String key, [String? fallbackKey]) => _logs
+      .whereType<Map>()
+      .map((item) {
+        final value = _text(item[key], '');
+        return (value.isEmpty && fallbackKey != null
+                ? _text(item[fallbackKey], '')
+                : value)
+            .toLowerCase();
+      })
+      .where((value) => value.isNotEmpty)
+      .toSet()
+      .length;
+
+  String _initial(String userName) => userName.trim().isEmpty || userName == '—'
+      ? 'U'
+      : userName.trim()[0].toUpperCase();
+
   // ── BUILD ──────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isDesktop = constraints.maxWidth >= 800;
-        return Scaffold(
-          backgroundColor: const Color(0xFFF3F4F6),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                isDesktop ? 32 : 16,
-                28,
-                isDesktop ? 32 : 16,
-                28,
+    return Scaffold(
+      backgroundColor: PremiumColors.surface,
+      body: SafeArea(
+        child: PremiumPage(
+          builder: (context, bp) {
+            final isDesktop = bp.width >= 800;
+            return [
+              Reveal(child: _buildHeader(bp.mobile)),
+              SizedBox(height: bp.gap),
+              _buildSummaryStats(),
+              SizedBox(height: bp.gap),
+              Reveal(
+                delay: const Duration(milliseconds: 380),
+                child: _buildTableCard(isDesktop),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 20),
-                  _buildSummaryBadge(),
-                  const SizedBox(height: 20),
-                  _buildTableCard(isDesktop),
-                  const SizedBox(height: 16),
-                  _buildInfoBar(),
-                ],
+              SizedBox(height: bp.gap),
+              Reveal(
+                delay: const Duration(milliseconds: 460),
+                child: _buildInfoBar(),
               ),
-            ),
-          ),
-        );
-      },
+            ];
+          },
+        ),
+      ),
     );
   }
 
   // ── Header ─────────────────────────────────────────────────────
-  Widget _buildHeader() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Download history',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF111827),
-                  height: 1.2,
-                ),
-              ),
-              SizedBox(height: 5),
-              Text(
-                'View files downloaded by users across the asset library.',
-                style: TextStyle(fontSize: 15, color: Color(0xFF6B7280)),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        OutlinedButton.icon(
+  Widget _buildHeader(bool compact) {
+    return PremiumHero(
+      compact: compact,
+      eyebrow: 'Activity log',
+      eyebrowIcon: Icons.history_rounded,
+      title: 'Download history',
+      subtitle: 'View files downloaded by users across the asset library.',
+      actions: [
+        PremiumButton(
+          label: 'Refresh',
+          icon: Icons.refresh_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.glass,
+          loading: _loading,
           onPressed: _loading ? null : _loadLogs,
-          icon: const Icon(Icons.refresh_rounded, size: 16),
-          label: const Text('Refresh'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF2563EB),
-            side: const BorderSide(color: Color(0xFFBFDBFE)),
-            backgroundColor: const Color(0xFFEFF6FF),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
         ),
       ],
+      trailing: _buildSummaryBadge(),
     );
   }
 
   // ── Summary badge ───────────────────────────────────────────────
   Widget _buildSummaryBadge() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: const Color(0xFF2563EB),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: const Icon(
-              Icons.download_outlined,
-              size: 16,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '${_logs.length} total download${_logs.length == 1 ? '' : 's'}',
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2563EB),
-            ),
-          ),
-        ],
-      ),
+    return PremiumGlassStat(
+      icon: Icons.download_rounded,
+      value: _logs.length,
+      label: 'total download${_logs.length == 1 ? '' : 's'}',
+    );
+  }
+
+  Widget _buildSummaryStats() {
+    return PremiumStatRow(
+      stats: [
+        PremiumStat(
+          label: 'Users',
+          value: _uniqueCount('user_email', 'user_name'),
+          icon: Icons.people_alt_rounded,
+          accent: PremiumAccent.violet,
+          caption: 'People who downloaded',
+        ),
+        PremiumStat(
+          label: 'Files',
+          value: _uniqueCount('file_name'),
+          icon: Icons.insert_drive_file_rounded,
+          accent: PremiumAccent.blue,
+          caption: 'Different files downloaded',
+        ),
+        PremiumStat(
+          label: 'Companies',
+          value: _uniqueCount('company_name'),
+          icon: Icons.business_rounded,
+          accent: PremiumAccent.green,
+          caption: 'Companies with downloads',
+        ),
+      ],
     );
   }
 
   // ── Table card ──────────────────────────────────────────────────
   Widget _buildTableCard(bool isDesktop) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x08000000),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
+    final count = _filteredLogs.length;
+    return PremiumPanel(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Search row inside card
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 42,
-                    child: TextField(
-                      onChanged: (v) => setState(() => _search = v),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Color(0xFF111827),
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Search user, file, asset or company...',
-                        hintStyle: const TextStyle(
-                          fontSize: 15,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          size: 18,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                        suffixIcon: _search.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () => setState(() => _search = ''),
-                                icon: const Icon(
-                                  Icons.close,
-                                  size: 16,
-                                  color: Color(0xFF9CA3AF),
-                                ),
-                              ),
-                        filled: true,
-                        fillColor: const Color(0xFFF9FAFB),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 0,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE5E7EB),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF2563EB),
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Text(
-                  '${_filteredLogs.length} record${_filteredLogs.length == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF9CA3AF),
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.all(14),
+            child: LayoutBuilder(
+              builder: (context, box) {
+                final search = PremiumSearchField(
+                  controller: _searchController,
+                  hint: 'Search user, file, asset or company...',
+                  onChanged: (v) => setState(() => _search = v),
+                  onClear: () => setState(() => _search = ''),
+                );
+                final badge = PremiumBadge(
+                  label: '$count record${count == 1 ? '' : 's'}',
+                  icon: Icons.receipt_long_rounded,
+                  accent: PremiumAccent.slate,
+                );
+                if (box.maxWidth < 480) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [search, const SizedBox(height: 12), badge],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: search),
+                    const SizedBox(width: 16),
+                    badge,
+                  ],
+                );
+              },
             ),
           ),
 
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          const Divider(height: 1, color: PremiumColors.line),
 
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 60),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            _buildError()
-          else if (_filteredLogs.isEmpty)
-            _buildEmptyState()
-          else if (isDesktop)
-            _buildDesktopTable()
-          else
-            _buildMobileList(),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: KeyedSubtree(
+              key: ValueKey(
+                _loading
+                    ? 'loading'
+                    : _error != null
+                    ? 'error'
+                    : count == 0
+                    ? 'empty'
+                    : 'list',
+              ),
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: PremiumLoading(label: 'Loading downloads...'),
+                    )
+                  : _error != null
+                  ? _buildError()
+                  : count == 0
+                  ? _buildEmptyState()
+                  : isDesktop
+                  ? _buildDesktopTable()
+                  : _buildMobileList(),
+            ),
+          ),
 
           // Footer
-          if (!_loading && _error == null && _filteredLogs.isNotEmpty)
+          if (!_loading && _error == null && count > 0)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                gradient: PremiumColors.tableHeaderGradient,
+                border: Border(top: BorderSide(color: PremiumColors.line)),
               ),
-              child: Text(
-                'Showing ${_filteredLogs.length} download record${_filteredLogs.length == 1 ? '' : 's'}.',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 16,
+                    color: Color(0xFF059669),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Showing $count download record${count == 1 ? '' : 's'}.',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: PremiumColors.muted,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -365,53 +346,22 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
 
   // ── Column header row ──────────────────────────────────────────
   Widget _buildColumnHeader() {
-    const style = TextStyle(
-      fontSize: 13,
-      fontWeight: FontWeight.w600,
-      color: Color(0xFF9CA3AF),
-      letterSpacing: 0.3,
-    );
     const p = EdgeInsets.symmetric(horizontal: 16);
-    return Container(
-      height: 44,
-      color: const Color(0xFFF9FAFB),
+    Widget cell(int flex, String label) => Expanded(
+      flex: flex,
+      child: Padding(
+        padding: p,
+        child: Text(label.toUpperCase(), style: PremiumColors.tableHeaderStyle),
+      ),
+    );
+    return PremiumTableHeader(
       child: Row(
         children: [
-          Expanded(
-            flex: 34,
-            child: Padding(
-              padding: p,
-              child: const Text('File / asset', style: style),
-            ),
-          ),
-          Expanded(
-            flex: 24,
-            child: Padding(
-              padding: p,
-              child: const Text('Downloaded by', style: style),
-            ),
-          ),
-          Expanded(
-            flex: 16,
-            child: Padding(
-              padding: p,
-              child: const Text('Company', style: style),
-            ),
-          ),
-          Expanded(
-            flex: 12,
-            child: Padding(
-              padding: p,
-              child: const Text('Type', style: style),
-            ),
-          ),
-          Expanded(
-            flex: 14,
-            child: Padding(
-              padding: p,
-              child: const Text('Downloaded at', style: style),
-            ),
-          ),
+          cell(34, 'File / asset'),
+          cell(24, 'Downloaded by'),
+          cell(16, 'Company'),
+          cell(12, 'Type'),
+          cell(14, 'Downloaded at'),
         ],
       ),
     );
@@ -419,21 +369,13 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
 
   // ── Desktop table ───────────────────────────────────────────────
   Widget _buildDesktopTable() {
-    return Column(
-      children: [
-        _buildColumnHeader(),
-        const Divider(height: 1, color: Color(0xFFE5E7EB)),
-        ...List.generate(_filteredLogs.length, (i) {
-          final map = _filteredLogs[i] is Map ? _filteredLogs[i] as Map : {};
-          return Column(
-            children: [
-              _buildRow(map),
-              if (i < _filteredLogs.length - 1)
-                const Divider(height: 1, color: Color(0xFFF3F4F6)),
-            ],
-          );
-        }),
-      ],
+    final logs = _filteredLogs;
+    return PremiumTable(
+      minWidth: 900,
+      header: _buildColumnHeader(),
+      itemCount: logs.length,
+      itemBuilder: (context, i) =>
+          _buildRow(logs[i] is Map ? logs[i] as Map : {}),
     );
   }
 
@@ -445,306 +387,82 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
     final company = _text(map['company_name']);
     final type = _text(map['asset_type']);
     final dateParts = _formatDate(map['created_at']);
-    final initial = userName.trim().isEmpty
-        ? 'U'
-        : userName.trim()[0].toUpperCase();
     const p = EdgeInsets.symmetric(horizontal: 16);
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // File / asset
-          Expanded(
-            flex: 34,
-            child: Padding(
-              padding: p,
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      _assetIcon(type),
-                      size: 20,
-                      color: const Color(0xFF2563EB),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          fileName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Asset: ${assetName.isEmpty ? '—' : assetName}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF6B7280),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return HoverBuilder(
+      builder: (context, hovered) => AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: hovered ? PremiumColors.rowHover : Colors.white,
+          border: const Border(
+            bottom: BorderSide(color: PremiumColors.rowLine),
           ),
-          // Downloaded by
-          Expanded(
-            flex: 24,
-            child: Padding(
-              padding: p,
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFE5E7EB),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text(
-                      initial,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF374151),
+        ),
+        child: Row(
+          children: [
+            // File / asset
+            Expanded(
+              flex: 34,
+              child: Padding(
+                padding: p,
+                child: Row(
+                  children: [
+                    AnimatedScale(
+                      scale: hovered ? 1.08 : 1,
+                      duration: const Duration(milliseconds: 220),
+                      child: PremiumIconTile(
+                        icon: _assetIcon(type),
+                        accent: _typeAccent(type),
+                        size: 36,
+                        iconSize: 18,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          userName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF111827),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            fileName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: PremiumColors.ink,
+                            ),
                           ),
-                        ),
-                        if (email.isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Text(
-                            email,
+                            'Asset: ${assetName.isEmpty ? '—' : assetName}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF6B7280),
+                              color: PremiumColors.muted,
                             ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Company
-          Expanded(
-            flex: 16,
-            child: Padding(
-              padding: p,
-              child: Text(
-                company,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 15, color: Color(0xFF374151)),
-              ),
-            ),
-          ),
-          // Type chip
-          Expanded(
-            flex: 12,
-            child: Padding(padding: p, child: _typeChip(type, map['section'])),
-          ),
-          // Downloaded at
-          Expanded(
-            flex: 14,
-            child: Padding(
-              padding: p,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    dateParts[0],
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  if (dateParts[1].isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      dateParts[1],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF6B7280),
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Type chip ──────────────────────────────────────────────────
-  Widget _typeChip(String type, dynamic section) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F0FF),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(_assetIcon(type), size: 13, color: const Color(0xFF7C3AED)),
-          const SizedBox(width: 5),
-          Text(
-            type,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF7C3AED),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Mobile list ────────────────────────────────────────────────
-  Widget _buildMobileList() {
-    return Column(
-      children: _filteredLogs.map((item) {
-        final map = item is Map ? item as Map : {};
-        final fileName = _text(map['file_name']);
-        final assetName = _text(map['asset_name'], '');
-        final userName = _text(map['user_name']);
-        final email = _text(map['user_email'], '');
-        final company = _text(map['company_name']);
-        final type = _text(map['asset_type']);
-        final dateParts = _formatDate(map['created_at']);
-        final initial = userName.trim().isEmpty
-            ? 'U'
-            : userName.trim()[0].toUpperCase();
-
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      _assetIcon(type),
-                      size: 20,
-                      color: const Color(0xFF2563EB),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          fileName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF111827),
-                          ),
-                        ),
-                        Text(
-                          'Asset: ${assetName.isEmpty ? '—' : assetName}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF6B7280),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _typeChip(type, map['section']),
-                ],
-              ),
-              const SizedBox(height: 14),
-              const Divider(color: Color(0xFFE5E7EB), height: 1),
-              const SizedBox(height: 10),
-              _mobileDetailRow(
-                'Downloaded by',
-                Row(
+            // Downloaded by
+            Expanded(
+              flex: 24,
+              child: Padding(
+                padding: p,
+                child: Row(
                   children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE5E7EB),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        initial,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF374151),
-                        ),
-                      ),
+                    PremiumAvatar(
+                      text: _initial(userName),
+                      accent: PremiumAccent.forText(userName),
+                      size: 36,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -756,63 +474,275 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF111827),
+                              color: PremiumColors.ink,
                             ),
                           ),
-                          if (email.isNotEmpty)
+                          if (email.isNotEmpty) ...[
+                            const SizedBox(height: 2),
                             Text(
                               email,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF6B7280),
+                                fontSize: 13,
+                                color: PremiumColors.muted,
                               ),
                             ),
+                          ],
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              _mobileDetailRow(
-                'Company',
-                Text(
+            ),
+            // Company
+            Expanded(
+              flex: 16,
+              child: Padding(
+                padding: p,
+                child: Text(
                   company,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF374151),
+                    fontWeight: FontWeight.w500,
+                    color: PremiumColors.body,
                   ),
                 ),
               ),
-              _mobileDetailRow(
-                'Downloaded at',
-                Text(
-                  '${dateParts[0]}${dateParts[1].isNotEmpty ? '  ${dateParts[1]}' : ''}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF374151),
-                  ),
+            ),
+            // Type chip
+            Expanded(
+              flex: 12,
+              child: Padding(
+                padding: p,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _typeChip(type, map['section']),
+                ),
+              ),
+            ),
+            // Downloaded at
+            Expanded(
+              flex: 14,
+              child: Padding(
+                padding: p,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      dateParts[0],
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: PremiumColors.ink,
+                      ),
+                    ),
+                    if (dateParts[1].isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.schedule_rounded,
+                            size: 13,
+                            color: PremiumColors.faint,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              dateParts[1],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: PremiumColors.muted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Type chip ──────────────────────────────────────────────────
+  Widget _typeChip(String type, dynamic section) {
+    return PremiumBadge(
+      label: type,
+      icon: _assetIcon(type),
+      accent: _typeAccent(type),
+      maxWidth: 160,
+    );
+  }
+
+  // ── Mobile list ────────────────────────────────────────────────
+  Widget _buildMobileList() {
+    final items = _filteredLogs;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        children: [
+          for (var i = 0; i < items.length; i++)
+            Reveal(
+              delay: Duration(milliseconds: 40 * math.min(i, 10)),
+              child: _buildMobileCard(items[i] is Map ? items[i] as Map : {}),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileCard(Map map) {
+    final fileName = _text(map['file_name']);
+    final assetName = _text(map['asset_name'], '');
+    final userName = _text(map['user_name']);
+    final email = _text(map['user_email'], '');
+    final company = _text(map['company_name']);
+    final type = _text(map['asset_type']);
+    final dateParts = _formatDate(map['created_at']);
+    final accent = _typeAccent(type);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [accent.soft, Colors.white],
+          stops: const [0, 0.45],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: PremiumColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PremiumIconTile(
+                icon: _assetIcon(type),
+                accent: accent,
+                size: 42,
+                iconSize: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: PremiumColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Asset: ${assetName.isEmpty ? '—' : assetName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: PremiumColors.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        );
-      }).toList(),
+          const SizedBox(height: 10),
+          _typeChip(type, map['section']),
+          const SizedBox(height: 12),
+          const Divider(color: PremiumColors.line, height: 1),
+          const SizedBox(height: 8),
+          _mobileDetailRow(
+            'Downloaded by',
+            Row(
+              children: [
+                PremiumAvatar(
+                  text: _initial(userName),
+                  accent: PremiumAccent.forText(userName),
+                  size: 30,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: PremiumColors.ink,
+                        ),
+                      ),
+                      if (email.isNotEmpty)
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: PremiumColors.muted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _mobileDetailRow(
+            'Company',
+            Text(
+              company,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: PremiumColors.body,
+              ),
+            ),
+          ),
+          _mobileDetailRow(
+            'Downloaded at',
+            Text(
+              '${dateParts[0]}${dateParts[1].isNotEmpty ? '  ·  ${dateParts[1]}' : ''}',
+              style: const TextStyle(fontSize: 14, color: PremiumColors.body),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _mobileDetailRow(String label, Widget value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 112,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+              style: const TextStyle(fontSize: 13, color: PremiumColors.faint),
             ),
           ),
           Expanded(child: value),
@@ -823,87 +753,30 @@ class _DownloadsPageState extends State<AdminDownloadsPage> {
 
   // ── Info bar ───────────────────────────────────────────────────
   Widget _buildInfoBar() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
-        Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF9CA3AF)),
-        SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'Download history records who downloaded each asset and when.',
-            style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
-          ),
-        ),
-      ],
+    return const PremiumInfoNote(
+      text: 'Download history records who downloaded each asset and when.',
     );
   }
 
   // ── Error state ────────────────────────────────────────────────
   Widget _buildError() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 44, color: Colors.redAccent),
-            const SizedBox(height: 12),
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 14),
-            ElevatedButton.icon(
-              onPressed: _loadLogs,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try Again'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return PremiumErrorState(
+      title: 'Unable to load downloads',
+      message: _error!,
+      retryLabel: 'Try Again',
+      onRetry: _loadLogs,
     );
   }
 
   // ── Empty state ────────────────────────────────────────────────
   Widget _buildEmptyState() {
     final hasSearch = _search.trim().isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 60),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              hasSearch ? Icons.search_off_outlined : Icons.download_outlined,
-              size: 54,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              hasSearch
-                  ? 'No matching download records found.'
-                  : 'No downloads recorded yet.',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            if (hasSearch) ...[
-              const SizedBox(height: 6),
-              const Text(
-                'Try a different search term.',
-                style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return PremiumEmptyState(
+      icon: hasSearch ? Icons.search_off_rounded : Icons.download_rounded,
+      title: hasSearch
+          ? 'No matching download records found.'
+          : 'No downloads recorded yet.',
+      message: hasSearch ? 'Try a different search term.' : null,
     );
   }
 }
