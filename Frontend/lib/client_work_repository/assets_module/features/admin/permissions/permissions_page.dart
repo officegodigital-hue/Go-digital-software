@@ -1,6 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../services/api_service.dart';
 
 class PermissionsPage extends StatefulWidget {
@@ -16,11 +18,18 @@ class _PermissionsPageState extends State<PermissionsPage> {
   String _searchQuery = '';
   List<Map<String, dynamic>> _permissions = [];
   final Set<int> _expandedCards = {};
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadPermissions();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   // ── Backend: load ──────────────────────────────────────────────
@@ -113,9 +122,8 @@ class _PermissionsPageState extends State<PermissionsPage> {
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _initials(String name) {
@@ -165,249 +173,226 @@ class _PermissionsPageState extends State<PermissionsPage> {
         _avatarPalette[key.codeUnitAt(0) % _avatarPalette.length];
   }
 
+  // ── Permission groups ──────────────────────────────────────────
+  static const _assetAccent = PremiumAccent.blue;
+  static const _companyAccent = PremiumAccent.green;
+  static const _manageAccent = PremiumAccent.amber;
+
+  PremiumAccent _accentForKey(String key) => switch (key) {
+    'can_create_company' => _companyAccent,
+    'can_edit' || 'can_delete' => _manageAccent,
+    _ => _assetAccent,
+  };
+
+  bool _hasAllPermissions(Map<String, dynamic> user) =>
+      _permDefs.every((p) => _permissionValue(user, p.$2));
+
   // ── BUILD ──────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 700;
-        return Scaffold(
-          backgroundColor: const Color(0xFFF3F4F6),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                isMobile ? 16 : 32,
-                28,
-                isMobile ? 16 : 32,
-                28,
+    return Scaffold(
+      backgroundColor: PremiumColors.surface,
+      body: SafeArea(
+        child: PremiumPage(
+          builder: (context, bp) {
+            final isMobile = bp.width < 700;
+            return [
+              Reveal(child: _buildHeader(bp.mobile)),
+              SizedBox(height: bp.gap),
+              _buildSummaryStats(),
+              SizedBox(height: bp.gap),
+              Reveal(
+                delay: const Duration(milliseconds: 380),
+                child: _buildSearchRow(isMobile),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 20),
-                  _buildSearchRow(),
-                  const SizedBox(height: 16),
-                  _isLoading
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 60),
-                          child: Center(child: CircularProgressIndicator()),
+              const SizedBox(height: 12),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: KeyedSubtree(
+                  key: ValueKey(
+                    _isLoading
+                        ? 'loading'
+                        : _filteredPermissions.isEmpty
+                        ? 'empty'
+                        : isMobile
+                        ? 'mobile'
+                        : 'desktop',
+                  ),
+                  child: _isLoading
+                      ? const PremiumPanel(
+                          padding: EdgeInsets.symmetric(vertical: 40),
+                          child: PremiumLoading(
+                            label: 'Loading permissions...',
+                          ),
                         )
                       : _filteredPermissions.isEmpty
                       ? _buildEmptyState()
                       : isMobile
                       ? _buildMobileList()
                       : _buildDesktopTable(),
-                ],
+                ),
               ),
-            ),
-          ),
-        );
-      },
+            ];
+          },
+        ),
+      ),
     );
   }
 
   // ── Header ─────────────────────────────────────────────────────
-  Widget _buildHeader() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Permissions',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF111827),
-                  height: 1.2,
-                ),
-              ),
-              SizedBox(height: 5),
-              Text(
-                'Control what each user can do with company assets.',
-                style: TextStyle(fontSize: 15, color: Color(0xFF6B7280)),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        OutlinedButton.icon(
+  Widget _buildHeader(bool compact) {
+    return PremiumHero(
+      compact: compact,
+      eyebrow: 'Access control',
+      eyebrowIcon: Icons.verified_user_rounded,
+      title: 'Permissions',
+      subtitle: 'Control what each user can do with company assets.',
+      actions: [
+        PremiumButton(
+          label: 'Refresh',
+          icon: Icons.refresh_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.glass,
+          loading: _isLoading,
           onPressed: _isLoading ? null : _loadPermissions,
-          icon: const Icon(Icons.refresh_rounded, size: 16),
-          label: const Text('Refresh'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF374151),
-            side: const BorderSide(color: Color(0xFFD1D5DB)),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryStats() {
+    final total = _permissions.length;
+    final full = _permissions.where(_hasAllPermissions).length;
+    final none = _permissions.where((u) => !_hasAnyPermission(u)).length;
+    return PremiumStatRow(
+      stats: [
+        PremiumStat(
+          label: 'Users',
+          value: total,
+          icon: Icons.people_alt_rounded,
+          accent: PremiumAccent.blue,
+          caption: 'Active users',
+        ),
+        PremiumStat(
+          label: 'Full access',
+          value: full,
+          icon: Icons.verified_rounded,
+          accent: PremiumAccent.green,
+          caption: 'Every permission on',
+        ),
+        PremiumStat(
+          label: 'No access',
+          value: none,
+          icon: Icons.block_rounded,
+          accent: PremiumAccent.amber,
+          caption: 'Every permission off',
         ),
       ],
     );
   }
 
   // ── Search + Legend row ─────────────────────────────────────────
-  Widget _buildSearchRow() {
-    final isNarrow = MediaQuery.sizeOf(context).width < 700;
-    return Flex(
-      direction: isNarrow ? Axis.vertical : Axis.horizontal,
-      crossAxisAlignment: isNarrow
-          ? CrossAxisAlignment.stretch
-          : CrossAxisAlignment.center,
+  Widget _buildSearchRow(bool isNarrow) {
+    final search = PremiumSearchField(
+      controller: _searchController,
+      hint: 'Search by name, email or mobile...',
+      onChanged: (v) => setState(() => _searchQuery = v),
+      onClear: () => setState(() => _searchQuery = ''),
+    );
+    final legend = Wrap(
+      spacing: 16,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        // Search input
-        isNarrow
-            ? SizedBox(
-                height: 44,
-                child: TextField(
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: Color(0xFF111827),
-                  ),
-                  decoration: _permissionSearchDecoration(),
-                ),
-              )
-            : Expanded(
-                child: SizedBox(
-                  height: 44,
-                  child: TextField(
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF111827),
-                    ),
-                    decoration: _permissionSearchDecoration(),
-                  ),
-                ),
-              ),
-        SizedBox(width: isNarrow ? 0 : 20, height: isNarrow ? 12 : 0),
-        // Legend
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
-                color: Color(0xFF2563EB),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'Allowed',
-              style: TextStyle(fontSize: 14, color: Color(0xFF374151)),
-            ),
-            const SizedBox(width: 16),
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
-                color: Color(0xFFD1D5DB),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'Not allowed',
-              style: TextStyle(fontSize: 14, color: Color(0xFF374151)),
-            ),
-            const SizedBox(width: 16),
-            Text(
-              '${_filteredPermissions.length} users',
-              style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
-            ),
-          ],
+        _legendDot(
+          'Allowed',
+          const LinearGradient(colors: [PremiumColors.blue, Color(0xFF38BDF8)]),
+        ),
+        _legendDot(
+          'Not allowed',
+          const LinearGradient(colors: [Color(0xFFCBD5E1), Color(0xFFE2E8F0)]),
+        ),
+        PremiumBadge(
+          label: '${_filteredPermissions.length} users',
+          icon: Icons.people_alt_rounded,
         ),
       ],
     );
+    return PremiumPanel(
+      padding: const EdgeInsets.all(12),
+      child: isNarrow
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [search, const SizedBox(height: 12), legend],
+            )
+          : Row(
+              children: [
+                Expanded(child: search),
+                const SizedBox(width: 20),
+                legend,
+              ],
+            ),
+    );
   }
 
-  InputDecoration _permissionSearchDecoration() => InputDecoration(
-    hintText: 'Search by name, email or mobile...',
-    hintStyle: const TextStyle(fontSize: 15, color: Color(0xFF9CA3AF)),
-    prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF9CA3AF)),
-    suffixIcon: _searchQuery.isEmpty
-        ? null
-        : IconButton(
-            onPressed: () => setState(() => _searchQuery = ''),
-            icon: const Icon(Icons.close, size: 16, color: Color(0xFF9CA3AF)),
-          ),
-    filled: true,
-    fillColor: Colors.white,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(999),
-      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(999),
-      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(999),
-      borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
-    ),
+  Widget _legendDot(String label, Gradient gradient) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(gradient: gradient, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 6),
+      Text(
+        label,
+        style: const TextStyle(fontSize: 14, color: PremiumColors.body),
+      ),
+    ],
   );
 
   // ── Desktop table ───────────────────────────────────────────────
   Widget _buildDesktopTable() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          children: [
-            _buildGroupHeader(),
-            _buildColumnHeader(),
-            const Divider(height: 1, color: Color(0xFFE5E7EB)),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _filteredPermissions.length,
-              separatorBuilder: (_, __) =>
-                  const Divider(height: 1, color: Color(0xFFF3F4F6)),
-              itemBuilder: (_, i) => _buildTableRow(_filteredPermissions[i]),
-            ),
-            _buildFooter(),
-          ],
+    final users = _filteredPermissions;
+    return PremiumPanel(
+      padding: EdgeInsets.zero,
+      child: PremiumTable(
+        minWidth: 980,
+        header: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [_buildGroupHeader(), _buildColumnHeader()],
         ),
+        itemCount: users.length,
+        itemBuilder: (context, i) => _buildTableRow(users[i]),
+        footer: _buildFooter(),
       ),
     );
   }
 
   // ── Group header (ASSET ACCESS / COMPANY ACCESS / MANAGEMENT) ──
   Widget _buildGroupHeader() {
-    const labelStyle = TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.w700,
-      color: Color(0xFF6B7280),
-      letterSpacing: 0.5,
+    Widget pill(String label, PremiumAccent accent) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: accent.soft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.start.withAlpha(60)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          color: accent.start,
+          letterSpacing: 0.6,
+        ),
+      ),
     );
     return Container(
-      height: 36,
-      color: const Color(0xFFF9FAFB),
+      height: 34,
+      color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
@@ -416,56 +401,17 @@ class _PermissionsPageState extends State<PermissionsPage> {
           // ASSET ACCESS spans View + Download + Add Asset
           Expanded(
             flex: 33,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFBFDBFE)),
-                ),
-                child: const Text('ASSET ACCESS', style: labelStyle),
-              ),
-            ),
+            child: Center(child: pill('ASSET ACCESS', _assetAccent)),
           ),
           // COMPANY ACCESS spans Add Company
           Expanded(
             flex: 13,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFBBF7D0)),
-                ),
-                child: const Text('COMPANY ACCESS', style: labelStyle),
-              ),
-            ),
+            child: Center(child: pill('COMPANY ACCESS', _companyAccent)),
           ),
           // MANAGEMENT spans Edit + Delete
           Expanded(
             flex: 18,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFFDE68A)),
-                ),
-                child: const Text('MANAGEMENT', style: labelStyle),
-              ),
-            ),
+            child: Center(child: pill('MANAGEMENT', _manageAccent)),
           ),
           // ACTION — no group label
           const Expanded(flex: 16, child: SizedBox()),
@@ -477,42 +423,23 @@ class _PermissionsPageState extends State<PermissionsPage> {
   // ── Column header with icons ───────────────────────────────────
   Widget _buildColumnHeader() {
     return Container(
-      height: 52,
-      color: const Color(0xFFF9FAFB),
+      height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: const BoxDecoration(
+        gradient: PremiumColors.tableHeaderGradient,
+        border: Border(top: BorderSide(color: PremiumColors.line)),
+      ),
       child: Row(
         children: [
           Expanded(
             flex: 26,
             child: _colHeaderLabel('USER', null, crossStart: true),
           ),
-          Expanded(
-            flex: 11,
-            child: _colHeaderLabel('View', Icons.visibility_outlined),
-          ),
-          Expanded(
-            flex: 11,
-            child: _colHeaderLabel('Download', Icons.download_outlined),
-          ),
-          Expanded(
-            flex: 11,
-            child: _colHeaderLabel(
-              'Add Asset',
-              Icons.add_photo_alternate_outlined,
+          for (final p in _permDefs)
+            Expanded(
+              flex: _flexForKey(p.$2),
+              child: _colHeaderLabel(p.$1, p.$3, accent: _accentForKey(p.$2)),
             ),
-          ),
-          Expanded(
-            flex: 13,
-            child: _colHeaderLabel('Add Company', Icons.business_outlined),
-          ),
-          Expanded(
-            flex: 9,
-            child: _colHeaderLabel('Edit', Icons.edit_outlined),
-          ),
-          Expanded(
-            flex: 9,
-            child: _colHeaderLabel('Delete', Icons.delete_outline),
-          ),
           Expanded(
             flex: 16,
             child: _colHeaderLabel('ACTION', null, crossStart: true),
@@ -522,10 +449,17 @@ class _PermissionsPageState extends State<PermissionsPage> {
     );
   }
 
+  int _flexForKey(String key) => switch (key) {
+    'can_create_company' => 13,
+    'can_edit' || 'can_delete' => 9,
+    _ => 11,
+  };
+
   Widget _colHeaderLabel(
     String label,
     IconData? icon, {
     bool crossStart = false,
+    PremiumAccent accent = PremiumAccent.blue,
   }) {
     final content = Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -534,15 +468,17 @@ class _PermissionsPageState extends State<PermissionsPage> {
           : CrossAxisAlignment.center,
       children: [
         if (icon != null) ...[
-          Icon(icon, size: 17, color: const Color(0xFF9CA3AF)),
-          const SizedBox(height: 3),
+          Icon(icon, size: 16, color: accent.start),
+          const SizedBox(height: 4),
         ],
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF9CA3AF),
+            color: Color(0xFF3B5B9A),
             letterSpacing: 0.4,
           ),
         ),
@@ -558,101 +494,83 @@ class _PermissionsPageState extends State<PermissionsPage> {
     final name = (user['user_name'] ?? '').toString();
     final email = (user['email'] ?? '').toString();
     final mobile = (user['mobile'] ?? '').toString();
-    final avatarColor = _avatarColor(name);
     final hasAny = _hasAnyPermission(user);
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // USER
-          Expanded(
-            flex: 26,
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: avatarColor,
-                    shape: BoxShape.circle,
+    return HoverBuilder(
+      builder: (context, hovered) => AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+        decoration: BoxDecoration(
+          color: hovered ? const Color(0xFFF5F9FF) : Colors.white,
+          border: const Border(top: BorderSide(color: Color(0xFFEDF2FA))),
+        ),
+        child: Row(
+          children: [
+            // USER
+            Expanded(
+              flex: 26,
+              child: Row(
+                children: [
+                  PremiumAvatar(
+                    text: _initials(name),
+                    accent: PremiumAccent.fromColor(_avatarColor(name)),
+                    size: 36,
                   ),
-                  child: Text(
-                    _initials(name),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name.isEmpty ? 'Unknown User' : name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF6B7280),
-                        ),
-                      ),
-                      if (mobile.isNotEmpty) ...[
-                        const SizedBox(height: 1),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          mobile,
+                          name.isEmpty ? 'Unknown User' : name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF9CA3AF),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: PremiumColors.ink,
                           ),
                         ),
+                        const SizedBox(height: 2),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: PremiumColors.muted,
+                          ),
+                        ),
+                        if (mobile.isNotEmpty) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            mobile,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: PremiumColors.faint,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // View
-          Expanded(flex: 11, child: _permSwitch(user, 'can_view')),
-          // Download
-          Expanded(flex: 11, child: _permSwitch(user, 'can_download')),
-          // Add Asset
-          Expanded(flex: 11, child: _permSwitch(user, 'can_create')),
-          // Add Company
-          Expanded(flex: 13, child: _permSwitch(user, 'can_create_company')),
-          // Edit
-          Expanded(flex: 9, child: _permSwitch(user, 'can_edit')),
-          // Delete
-          Expanded(flex: 9, child: _permSwitch(user, 'can_delete')),
-          // Action
-          Expanded(
-            flex: 16,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _saveButton(user, hasAny),
+            for (final p in _permDefs)
+              Expanded(flex: _flexForKey(p.$2), child: _permSwitch(user, p.$2)),
+            // Action
+            Expanded(
+              flex: 16,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _saveButton(user, hasAny),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -662,94 +580,63 @@ class _PermissionsPageState extends State<PermissionsPage> {
     final on = _permissionValue(user, key);
     return Align(
       alignment: Alignment.center,
-      child: GestureDetector(
-        onTap: () => _updateLocalPermission(user, key, !on),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          width: 48,
-          height: 26,
-          decoration: BoxDecoration(
-            color: on ? const Color(0xFF2563EB) : const Color(0xFFE5E7EB),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Stack(
-            alignment: on ? Alignment.centerRight : Alignment.centerLeft,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(3),
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: on
-                      ? const Icon(
-                          Icons.check_rounded,
-                          size: 13,
-                          color: Color(0xFF2563EB),
-                        )
-                      : null,
-                ),
-              ),
-            ],
-          ),
-        ),
+      child: PremiumToggle(
+        value: on,
+        accent: _accentForKey(key),
+        onChanged: (value) => _updateLocalPermission(user, key, value),
       ),
     );
   }
 
   // ── Save button ────────────────────────────────────────────────
-  Widget _saveButton(Map<String, dynamic> user, bool hasAny) {
-    if (hasAny) {
-      return ElevatedButton(
-        onPressed: _isSaving ? null : () => _savePermissions(user),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF2563EB),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          minimumSize: const Size(88, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        ),
-        child: const Text('Save'),
-      );
-    }
-    return OutlinedButton(
+  Widget _saveButton(
+    Map<String, dynamic> user,
+    bool hasAny, {
+    bool expand = false,
+  }) {
+    return PremiumButton(
+      label: 'Save',
+      icon: Icons.check_rounded,
+      iconLeading: true,
+      small: true,
+      expand: expand,
+      variant: hasAny
+          ? PremiumButtonVariant.filled
+          : PremiumButtonVariant.outlined,
       onPressed: _isSaving ? null : () => _savePermissions(user),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF2563EB),
-        side: const BorderSide(color: Color(0xFFD1D5DB)),
-        minimumSize: const Size(88, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-      ),
-      child: const Text('Save'),
     );
   }
 
   // ── Footer ─────────────────────────────────────────────────────
   Widget _buildFooter() {
     return Container(
-      height: 44,
+      height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+        gradient: PremiumColors.tableHeaderGradient,
+        border: Border(top: BorderSide(color: PremiumColors.line)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             'Showing ${_filteredPermissions.length} users',
-            style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+            style: const TextStyle(fontSize: 14, color: PremiumColors.muted),
           ),
-          const Text(
-            'Save applies to one user at a time.',
-            style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
+          const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 15,
+                color: PremiumColors.faint,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'Save applies to one user at a time.',
+                style: TextStyle(fontSize: 14, color: PremiumColors.faint),
+              ),
+            ],
           ),
         ],
       ),
@@ -758,12 +645,16 @@ class _PermissionsPageState extends State<PermissionsPage> {
 
   // ── Mobile list ────────────────────────────────────────────────
   Widget _buildMobileList() {
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _filteredPermissions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _buildMobileCard(_filteredPermissions[i], i),
+    return Column(
+      children: [
+        for (var i = 0; i < _filteredPermissions.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          Reveal(
+            delay: Duration(milliseconds: 40 * math.min(i, 10)),
+            child: _buildMobileCard(_filteredPermissions[i], i),
+          ),
+        ],
+      ],
     );
   }
 
@@ -783,253 +674,242 @@ class _PermissionsPageState extends State<PermissionsPage> {
     final isOpen = _expandedCards.contains(index);
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isOpen ? const Color(0xFFBFDBFE) : const Color(0xFFE5E7EB),
+          color: isOpen ? const Color(0xFF93C5FD) : PremiumColors.line,
         ),
-        boxShadow: isOpen
-            ? [
-                const BoxShadow(
-                  color: Color(0x0A2563EB),
-                  blurRadius: 8,
-                  offset: Offset(0, 2),
-                ),
-              ]
-            : [],
+        boxShadow: [
+          BoxShadow(
+            color: PremiumColors.blue.withAlpha(isOpen ? 36 : 10),
+            blurRadius: isOpen ? 24 : 12,
+            offset: Offset(0, isOpen ? 10 : 4),
+          ),
+        ],
       ),
-      child: Column(
-        children: [
-          // ── Collapsed header (always visible) ──
-          InkWell(
-            onTap: () => setState(() {
-              if (isOpen)
-                _expandedCards.remove(index);
-              else
-                _expandedCards.add(index);
-            }),
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  // Avatar
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: _avatarColor(name),
-                      shape: BoxShape.circle,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [
+            // ── Collapsed header (always visible) ──
+            InkWell(
+              onTap: () => setState(() {
+                if (isOpen) {
+                  _expandedCards.remove(index);
+                } else {
+                  _expandedCards.add(index);
+                }
+              }),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    PremiumAvatar(
+                      text: _initials(name),
+                      accent: PremiumAccent.fromColor(_avatarColor(name)),
+                      size: 38,
                     ),
-                    child: Text(
-                      _initials(name),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name.isEmpty ? 'Unknown User' : name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: PremiumColors.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            email,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: PremiumColors.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          // 6 permission dots
+                          Row(
+                            children: [
+                              for (final p in _permDefs)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 220),
+                                  width: 8,
+                                  height: 8,
+                                  margin: const EdgeInsets.only(right: 4),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: _permissionValue(user, p.$2)
+                                        ? _accentForKey(p.$2).gradient
+                                        : null,
+                                    color: _permissionValue(user, p.$2)
+                                        ? null
+                                        : const Color(0xFFD9E1EC),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Name + email
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name.isEmpty ? 'Unknown User' : name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF111827),
-                          ),
+                    const SizedBox(width: 8),
+                    // Chevron
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: isOpen ? PremiumColors.blue : PremiumColors.soft,
+                        shape: BoxShape.circle,
+                      ),
+                      child: AnimatedRotation(
+                        turns: isOpen ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 220),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 20,
+                          color: isOpen ? Colors.white : PremiumColors.blue,
                         ),
-                        Text(
-                          email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF6B7280),
-                          ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Expanded body ──
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 240),
+              firstCurve: Curves.easeOut,
+              secondCurve: Curves.easeIn,
+              sizeCurve: Curves.easeOutCubic,
+              crossFadeState: isOpen
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox(width: double.infinity),
+              secondChild: Column(
+                children: [
+                  const Divider(height: 1, color: PremiumColors.line),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                    child: Column(
+                      children: [
+                        // 2-column perm grid
+                        GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          childAspectRatio: 3.2,
+                          children: _permDefs.map((p) {
+                            final (label, key, icon) = p;
+                            return _mobilePermTile(user, label, key, icon);
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _saveButton(user, hasAny, expand: true),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // 6 permission dots
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: _permDefs.map((p) {
-                      final on = _permissionValue(user, p.$2);
-                      return Container(
-                        width: 7,
-                        height: 7,
-                        margin: const EdgeInsets.only(left: 3),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: on
-                              ? const Color(0xFF2563EB)
-                              : const Color(0xFFD1D5DB),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(width: 8),
-                  // Chevron
-                  AnimatedRotation(
-                    turns: isOpen ? 0.5 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: const Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      size: 20,
-                      color: Color(0xFF9CA3AF),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
 
-          // ── Expanded body ──
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 220),
-            firstCurve: Curves.easeOut,
-            secondCurve: Curves.easeIn,
-            crossFadeState: isOpen
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: Column(
-              children: [
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                  child: Column(
-                    children: [
-                      // 2-column perm grid
-                      GridView.count(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 8,
-                        crossAxisSpacing: 8,
-                        childAspectRatio: 3.2,
-                        children: _permDefs.map((p) {
-                          final (label, key, icon) = p;
-                          final enabled = _permissionValue(user, key);
-                          return GestureDetector(
-                            onTap: () =>
-                                _updateLocalPermission(user, key, !enabled),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: enabled
-                                    ? const Color(0xFFEFF6FF)
-                                    : const Color(0xFFF9FAFB),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: enabled
-                                      ? const Color(0xFFBFDBFE)
-                                      : const Color(0xFFE5E7EB),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    icon,
-                                    size: 14,
-                                    color: enabled
-                                        ? const Color(0xFF2563EB)
-                                        : const Color(0xFF9CA3AF),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                        color: enabled
-                                            ? const Color(0xFF1D4ED8)
-                                            : const Color(0xFF6B7280),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  // Compact on/off dot indicator
-                                  Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: enabled
-                                          ? const Color(0xFF2563EB)
-                                          : const Color(0xFFE5E7EB),
-                                    ),
-                                    child: enabled
-                                        ? const Icon(
-                                            Icons.check,
-                                            size: 11,
-                                            color: Colors.white,
-                                          )
-                                        : null,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: _saveButton(user, hasAny),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+  Widget _mobilePermTile(
+    Map<String, dynamic> user,
+    String label,
+    String key,
+    IconData icon,
+  ) {
+    final enabled = _permissionValue(user, key);
+    final accent = _accentForKey(key);
+    return GestureDetector(
+      onTap: () => _updateLocalPermission(user, key, !enabled),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: enabled ? accent.soft : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: enabled ? accent.start.withAlpha(80) : PremiumColors.line,
           ),
-        ],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: enabled ? accent.start : PremiumColors.faint,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: enabled ? accent.start : PremiumColors.muted,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: enabled ? accent.gradient : null,
+                color: enabled ? null : const Color(0xFFE2E8F0),
+              ),
+              child: AnimatedOpacity(
+                opacity: enabled ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: const Icon(Icons.check, size: 12, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   // ── Empty state ────────────────────────────────────────────────
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.admin_panel_settings_outlined,
-            size: 56,
-            color: Colors.grey.shade400,
-          ),
-          const SizedBox(height: 14),
-          Text(
-            _searchQuery.isEmpty
-                ? 'No active users found.'
-                : 'No users match your search.',
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
+    return PremiumPanel(
+      child: PremiumEmptyState(
+        icon: _searchQuery.isEmpty
+            ? Icons.admin_panel_settings_rounded
+            : Icons.search_off_rounded,
+        title: _searchQuery.isEmpty
+            ? 'No active users found.'
+            : 'No users match your search.',
       ),
     );
   }
