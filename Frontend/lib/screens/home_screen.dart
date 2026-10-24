@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/Attentance_admin/attendance_dashboard.dart';
 import 'package:godigital_portal/services/api_config.dart';
+import 'package:godigital_portal/widgets/godigital_support_button.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -88,11 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openTaskManager() {
     final authService = context.read<AuthService>();
 
-    final userType =
-        authService.userType?.toLowerCase().trim() ?? '';
+    final userType = authService.userType?.toLowerCase().trim() ?? '';
 
-    final role =
-        authService.userRole?.toLowerCase().trim() ?? '';
+    final role = authService.userRole?.toLowerCase().trim() ?? '';
 
     debugPrint('User Type: $userType');
     debugPrint('Role: $role');
@@ -114,15 +113,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // VIDEO
-    if (role.contains('video') ||
-        role.contains('editor')) {
+    if (role.contains('video') || role.contains('editor')) {
       Navigator.pushNamed(context, '/videographer');
       return;
     }
 
     // ADS / DIGITAL
-    if (role.contains('ads') ||
-        role.contains('digital')) {
+    if (role.contains('ads') || role.contains('digital')) {
       Navigator.pushNamed(context, '/adsHandler');
       return;
     }
@@ -144,9 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openAttendance() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const AttendanceDashboard(),
-      ),
+      MaterialPageRoute(builder: (_) => const AttendanceDashboard()),
     );
   }
 
@@ -197,18 +192,12 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _buildTopBar(),
 
-        const Divider(
-          height: 1,
-          thickness: 1,
-          color: Color(0xFFE5E7EB),
-        ),
+        const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
 
         Expanded(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 1150,
-              ),
+              constraints: const BoxConstraints(maxWidth: 1150),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 45,
@@ -216,17 +205,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    Expanded(
-                      flex: 5,
-                      child: _buildWelcomeSection(),
-                    ),
+                    Expanded(flex: 5, child: _buildWelcomeSection()),
 
                     const SizedBox(width: 60),
 
-                    Expanded(
-                      flex: 6,
-                      child: _buildMenuSection(),
-                    ),
+                    Expanded(flex: 6, child: _buildMenuSection()),
                   ],
                 ),
               ),
@@ -248,18 +231,11 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _buildTopBar(),
 
-        const Divider(
-          height: 1,
-          thickness: 1,
-          color: Color(0xFFE5E7EB),
-        ),
+        const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
 
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 35,
-              vertical: 30,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 30),
             child: Column(
               children: [
                 _buildWelcomeSection(),
@@ -286,21 +262,12 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _buildTopBar(),
 
-        const Divider(
-          height: 1,
-          thickness: 1,
-          color: Color(0xFFE5E7EB),
-        ),
+        const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
 
         Expanded(
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
-              20,
-              28,
-              20,
-              25,
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 25),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -325,10 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTopBar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       child: Row(
         children: [
           Container(
@@ -343,10 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
               'assets/images/godigital_logo.png',
               fit: BoxFit.contain,
               errorBuilder: (_, _, _) {
-                return const Icon(
-                  Icons.grid_view_rounded,
-                  color: primaryColor,
-                );
+                return const Icon(Icons.grid_view_rounded, color: primaryColor);
               },
             ),
           ),
@@ -364,22 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const Spacer(),
 
-          TextButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Support clicked'),
-                ),
-              );
-            },
-            child: const Text(
-              'Support',
-              style: TextStyle(
-                fontSize: 14,
-                color: Color(0xFF555555),
-              ),
-            ),
-          ),
+          const GoDigitalSupportButton(),
         ],
       ),
     );
@@ -395,9 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE2E5EC),
-        ),
+        border: Border.all(color: const Color(0xFFE2E5EC)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -415,10 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const Text(
             'Welcome to',
-            style: TextStyle(
-              fontSize: 16,
-              color: Color(0xFF777777),
-            ),
+            style: TextStyle(fontSize: 16, color: Color(0xFF777777)),
           ),
 
           const SizedBox(height: 5),
@@ -449,11 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 25),
 
-          Container(
-            height: 1,
-            width: 70,
-            color: const Color(0xFFD9DDE8),
-          ),
+          Container(height: 1, width: 70, color: const Color(0xFFD9DDE8)),
 
           const SizedBox(height: 22),
 
@@ -497,10 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const Text(
           'Your workspace at one place',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            color: Color(0xFF777777),
-          ),
+          style: TextStyle(fontSize: 13, color: Color(0xFF777777)),
         ),
       ],
     );
@@ -510,9 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // LOGO
   // ═══════════════════════════════════════════════════════════════
 
-  Widget _buildLogo({
-    double size = 145,
-  }) {
+  Widget _buildLogo({double size = 145}) {
     return Container(
       height: size,
       width: size,
@@ -525,11 +457,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'assets/images/godigital_logo.png',
         fit: BoxFit.contain,
         errorBuilder: (_, _, _) {
-          return const Icon(
-            Icons.business,
-            size: 70,
-            color: secondaryColor,
-          );
+          return const Icon(Icons.business, size: 70, color: secondaryColor);
         },
       ),
     );
@@ -556,10 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         const Text(
           'Choose where you want to continue.',
-          style: TextStyle(
-            fontSize: 13,
-            color: Color(0xFF888888),
-          ),
+          style: TextStyle(fontSize: 13, color: Color(0xFF888888)),
         ),
 
         const SizedBox(height: 20),
@@ -602,17 +527,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFooter() {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Text(
         '© ${DateTime.now().year} GoDigital Portal',
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 11,
-          color: Color(0xFF999999),
-        ),
+        style: const TextStyle(fontSize: 11, color: Color(0xFF999999)),
       ),
     );
   }
@@ -659,8 +578,8 @@ class _MenuButtonState extends State<_MenuButton> {
         cursor: isLocked
             ? SystemMouseCursors.forbidden
             : isLoading
-                ? SystemMouseCursors.wait
-                : SystemMouseCursors.click,
+            ? SystemMouseCursors.wait
+            : SystemMouseCursors.click,
         onEnter: (_) {
           if (interactive) setState(() => isHovered = true);
         },
@@ -669,23 +588,20 @@ class _MenuButtonState extends State<_MenuButton> {
           onTap: interactive ? widget.onPressed : null,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 18,
-              vertical: 17,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
             decoration: BoxDecoration(
               color: isLocked
                   ? const Color(0xFFF7F7F8)
                   : isHovered
-                      ? const Color(0xFFF3F6FF)
-                      : Colors.white,
+                  ? const Color(0xFFF3F6FF)
+                  : Colors.white,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: isLocked
                     ? const Color(0xFFDDDDE0)
                     : isHovered
-                        ? const Color(0xFF2A52BE)
-                        : const Color(0xFFE1E4EA),
+                    ? const Color(0xFF2A52BE)
+                    : const Color(0xFFE1E4EA),
                 width: isHovered ? 1.5 : 1,
               ),
               boxShadow: isHovered && interactive
@@ -715,8 +631,8 @@ class _MenuButtonState extends State<_MenuButton> {
                     color: isLocked
                         ? const Color(0xFFEEEEF0)
                         : isHovered
-                            ? const Color(0xFFE3EAFF)
-                            : const Color(0xFFF0F4FF),
+                        ? const Color(0xFFE3EAFF)
+                        : const Color(0xFFF0F4FF),
                     borderRadius: BorderRadius.circular(9),
                   ),
                   child: Icon(
@@ -743,8 +659,8 @@ class _MenuButtonState extends State<_MenuButton> {
                           color: isLocked
                               ? const Color(0xFFAAAAAA)
                               : isHovered
-                                  ? const Color(0xFF1A3A8F)
-                                  : const Color(0xFF222222),
+                              ? const Color(0xFF1A3A8F)
+                              : const Color(0xFF222222),
                         ),
                       ),
 
@@ -787,8 +703,8 @@ class _MenuButtonState extends State<_MenuButton> {
                       color: isLocked
                           ? const Color(0xFFEEEEF0)
                           : isHovered
-                              ? const Color(0xFF2A52BE)
-                              : const Color(0xFFF3F4F7),
+                          ? const Color(0xFF2A52BE)
+                          : const Color(0xFFF3F4F7),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -799,8 +715,8 @@ class _MenuButtonState extends State<_MenuButton> {
                       color: isLocked
                           ? const Color(0xFFAAAAAA)
                           : isHovered
-                              ? Colors.white
-                              : const Color(0xFF777777),
+                          ? Colors.white
+                          : const Color(0xFF777777),
                     ),
                   ),
               ],

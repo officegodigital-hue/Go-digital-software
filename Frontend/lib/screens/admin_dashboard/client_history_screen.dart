@@ -304,7 +304,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
     return AdminLayout(
       pageTitle: 'Client Onboarding',
-      currentRoute: '/client',
+      currentRoute: '/client-history',
       onSearch: _filterClients,
       child: LayoutBuilder(
         builder: (context, constraints) {

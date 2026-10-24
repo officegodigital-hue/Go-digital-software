@@ -120,7 +120,8 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
   assets:
-
+
+    - assets/icons/whatsapp.png
     - assets/icons/godigital_whatsapp_chat.png
     - assets/images/
     - assets/client_work_repository/

@@ -547,7 +547,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
     }
   }
 
-  Future<Uint8List?> _generateQuotationPDFBytes(double subtotal, double discount, double total, double tax, double paid, double balance) async {
+  Future<Uint8List?> _generateQuotationPDFBytes(double subtotal, double discount, double total, double tax, double paid, double balance, [bool includeSopInPrint = false]) async {
     try {
       final logoImage = pw.MemoryImage(
         (await rootBundle.load('assets/images/godigital_logo.png')).buffer.asUint8List(),
@@ -925,7 +925,32 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
         ),
       );
 
-      return pdf.save();
+            // Only for Save & Print / Print Quotation: append original two SOP pages.
+      // The quotation's existing PDF page(s), layout and calculations are unchanged.
+      if (includeSopInPrint) {
+        for (final sopAssetPath in <String>[
+          'assets/images/quotation_sop_page_1.png',
+          'assets/images/quotation_sop_page_2.png',
+        ]) {
+          final sopBytes = (await rootBundle.load(sopAssetPath)).buffer.asUint8List();
+          final sopImage = pw.MemoryImage(sopBytes);
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: pw.EdgeInsets.zero,
+              build: (pw.Context context) => pw.Center(
+                child: pw.Image(
+                  sopImage,
+                  width: PdfPageFormat.a4.width,
+                  height: PdfPageFormat.a4.height,
+                  fit: pw.BoxFit.contain,
+                ),
+              ),
+            ),
+          );
+        }
+      }
+return pdf.save();
     } catch (e) {
       return null; 
     }
@@ -956,7 +981,7 @@ class _CreateQuotationScreenState extends State<CreateQuotationScreen> {
   
   Future<void> _printQuotation(double subtotal, double discount, double total, double tax, double paid, double balance) async {
     try {
-      final pdfBytes = await _generateQuotationPDFBytes(subtotal, discount, total, tax, paid, balance);
+      final pdfBytes = await _generateQuotationPDFBytes(subtotal, discount, total, tax, paid, balance, true);
       if (pdfBytes == null || pdfBytes.isEmpty) return;
 
       await Printing.layoutPdf(

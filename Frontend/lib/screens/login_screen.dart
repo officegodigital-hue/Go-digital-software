@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/shared/branding_assets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:godigital_portal/widgets/godigital_support_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -56,12 +57,10 @@ class _LoginScreenState extends State<LoginScreen>
       curve: Curves.easeOutCubic,
     );
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.045),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(parent: _pageController, curve: Curves.easeOutCubic),
-    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.045), end: Offset.zero).animate(
+          CurvedAnimation(parent: _pageController, curve: Curves.easeOutCubic),
+        );
 
     _scaleAnimation = Tween<double>(begin: 0.975, end: 1.0).animate(
       CurvedAnimation(parent: _pageController, curve: Curves.easeOutBack),
@@ -139,8 +138,8 @@ class _LoginScreenState extends State<LoginScreen>
                                         maxWidth: isMobile
                                             ? 520
                                             : isCompact
-                                                ? 900
-                                                : 1040,
+                                            ? 900
+                                            : 1040,
                                       ),
                                       child: isMobile
                                           ? _buildMobileLayout()
@@ -203,10 +202,7 @@ class _LoginScreenState extends State<LoginScreen>
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
-      ),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 
@@ -281,29 +277,7 @@ class _LoginScreenState extends State<LoginScreen>
             ],
           ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-            decoration: BoxDecoration(
-              color: _blue50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _line),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.support_agent_rounded, size: 17, color: _blue800),
-                SizedBox(width: 7),
-                Text(
-                  'Support',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: _blue800,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const GoDigitalSupportButton(),
         ],
       ),
     );
@@ -316,11 +290,7 @@ class _LoginScreenState extends State<LoginScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(
-          child: Center(
-            child: _buildBrandPanel(),
-          ),
-        ),
+        Expanded(child: Center(child: _buildBrandPanel())),
         const SizedBox(width: 48),
         SizedBox(
           width: 410,
@@ -667,9 +637,8 @@ class _LoginScreenState extends State<LoginScreen>
               enabled: !authService.isLoading,
               suffixIcon: IconButton(
                 tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                onPressed: () => setState(
-                  () => _obscurePassword = !_obscurePassword,
-                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
                 icon: Icon(
                   _obscurePassword
                       ? Icons.visibility_off_rounded
@@ -690,9 +659,7 @@ class _LoginScreenState extends State<LoginScreen>
                     value: _rememberDevice,
                     onChanged: authService.isLoading
                         ? null
-                        : (v) => setState(
-                            () => _rememberDevice = v ?? false,
-                          ),
+                        : (v) => setState(() => _rememberDevice = v ?? false),
                     activeColor: _blue600,
                     checkColor: Colors.white,
                     shape: RoundedRectangleBorder(

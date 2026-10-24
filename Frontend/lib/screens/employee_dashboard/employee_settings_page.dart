@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/api_config.dart';
 import '../../core/constants/app_colors.dart';
+import '../godigital_app_preferences.dart';
 
 const List<String> _avatarColorOptions = [
   '#4F46E5','#0EA5E9','#16A34A','#D97706',
@@ -304,15 +305,10 @@ class _EmployeeSettingsPageState extends State<EmployeeSettingsPage> {
                 children: [
                   _header(mobile), const SizedBox(height: 20),
                   _profile(mobile), const SizedBox(height: 18),
-                  _section(Icons.person_outline_rounded, AppColors.primary, 'Personal Information',
-                    'Update the name displayed across your GoDigital account.', _personal(mobile)),
-                  const SizedBox(height: 18),
-                  _section(Icons.manage_accounts_outlined, const Color(0xFF7C3AED),
-                    'Account Information', 'Manage your username and email address.', _account(mobile)),
-                  const SizedBox(height: 18),
-                  _section(Icons.badge_outlined, const Color(0xFF0891B2),
-                    'Work Information', 'These details are controlled by the main admin.', _work(mobile)),
+                  _employeeDetailsCard(mobile),
                   const SizedBox(height: 18), _security(mobile),
+                  const SizedBox(height: 18),
+                  const GoDigitalAppPreferences(),
                   const SizedBox(height: 24), _actions(mobile),
                   const SizedBox(height: 18),
                   const Center(child: Text('GoDigital • Employee Settings', style: TextStyle(fontSize: 11, color: AppColors.textGrey))),
@@ -324,6 +320,212 @@ class _EmployeeSettingsPageState extends State<EmployeeSettingsPage> {
       }),
   );
 
+  
+  // GD_EMPLOYEE_SETTINGS_V2
+  // Personal, account and work information share one popup.
+
+  Widget _employeeDetailsCard(bool mobile) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _openEmployeeDetails,
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              _iconBox(
+                Icons.person_outline_rounded,
+                AppColors.primary,
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Personal Information',
+                      style: TextStyle(
+                        color: AppColors.textDark,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'View personal, account and work details',
+                      style: TextStyle(
+                        color: AppColors.textGrey,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.primary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openEmployeeDetails() async {
+    final oldFirst = _firstNameController.text;
+    final oldMiddle = _middleNameController.text;
+    final oldLast = _lastNameController.text;
+    final oldUsername = _usernameController.text;
+    final oldEmail = _emailController.text;
+
+    final applied = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final compact =
+            MediaQuery.sizeOf(dialogContext).width < 650;
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.manage_accounts_rounded,
+                color: AppColors.primary,
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Personal Information',
+                  style: TextStyle(
+                    color: AppColors.textDark,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Personal Information',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _personal(compact),
+
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 14),
+
+                  const Text(
+                    'Account Information',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _account(compact),
+
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 14),
+
+                  const Text(
+                    'Work Information',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'These details are controlled by your administrator.',
+                    style: TextStyle(
+                      color: AppColors.textGrey,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _work(compact),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: const Text('Apply Changes'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    if (applied != true) {
+      _firstNameController.text = oldFirst;
+      _middleNameController.text = oldMiddle;
+      _lastNameController.text = oldLast;
+      _usernameController.text = oldUsername;
+      _emailController.text = oldEmail;
+    }
+
+    setState(() {});
+
+    if (applied == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Changes applied. Click Save Settings to save your profile.',
+          ),
+        ),
+      );
+    }
+  }
   Widget _header(bool m) => Container(
     padding: EdgeInsets.symmetric(horizontal: m ? 18 : 26, vertical: m ? 20 : 24),
     decoration: BoxDecoration(
