@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../models/asset_model.dart';
 import '../../../models/company_model.dart';
 import '../../../services/api_service.dart';
@@ -189,16 +190,16 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     return '$mo month${mo == 1 ? '' : 's'} ago';
   }
 
-  // Thumbnail palette (cycles per row).
+  // Thumbnail accents (cycle per row), all shades of blue.
   static const _dmThumbs = [
-    Color(0xFFF59E0B),
-    Color(0xFF10B981),
-    Color(0xFF6366F1),
+    PremiumAccent.blue,
+    PremiumAccent.cyan,
+    PremiumAccent.violet,
   ];
   static const _sdThumbs = [
-    Color(0xFF3B82F6),
-    Color(0xFF8B5CF6),
-    Color(0xFF0F172A),
+    PremiumAccent.violet,
+    PremiumAccent.amber,
+    PremiumAccent.green,
   ];
 
   // ============================================================
@@ -207,87 +208,89 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 768;
-        return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            isMobile ? 16 : 32,
-            isMobile ? 24 : 40,
-            isMobile ? 16 : 32,
-            32,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 96),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null)
-                _buildErrorState()
-              else ...[
-                _buildHero(isMobile),
-                SizedBox(height: isMobile ? 20 : 28),
-                _buildPanels(isMobile),
-                SizedBox(height: isMobile ? 16 : 20),
-                _buildActivityStrip(isMobile),
-              ],
-            ],
-          ),
-        );
-      },
+    if (_loading) {
+      return const PremiumBackground(
+        child: PremiumLoading(label: 'Loading your workspace...'),
+      );
+    }
+    if (_error != null) return _buildErrorState();
+
+    final dmCompanies = _companyCount(AppConstants.digitalMarketing);
+    final sdCompanies = _companyCount(AppConstants.softwareDevelopment);
+    return PremiumPage(
+      builder: (context, bp) => [
+        Reveal(child: _buildHero(bp.mobile)),
+        SizedBox(height: bp.gap),
+        PremiumStatRow(
+          stats: [
+            PremiumStat(
+              label: 'Total assets',
+              value: _assets.length,
+              icon: Icons.layers_rounded,
+              accent: PremiumAccent.blue,
+              caption: 'Across both sections',
+            ),
+            PremiumStat(
+              label: 'Companies',
+              value: _companies.map((c) => c.id).toSet().length,
+              icon: Icons.apartment_rounded,
+              accent: PremiumAccent.violet,
+              caption: '$dmCompanies marketing · $sdCompanies software',
+            ),
+            PremiumStat(
+              label: 'Digital Marketing',
+              value: _assetCount(AppConstants.digitalMarketing),
+              icon: Icons.campaign_rounded,
+              accent: PremiumAccent.cyan,
+              caption: 'Marketing assets',
+            ),
+            PremiumStat(
+              label: 'Software Development',
+              value: _assetCount(AppConstants.softwareDevelopment),
+              icon: Icons.code_rounded,
+              accent: PremiumAccent.amber,
+              caption: 'Software assets',
+            ),
+          ],
+        ),
+        SizedBox(height: bp.gap),
+        Reveal(
+          delay: const Duration(milliseconds: 380),
+          child: _buildPanels(bp.mobile),
+        ),
+        SizedBox(height: bp.gap),
+        Reveal(
+          delay: const Duration(milliseconds: 480),
+          child: _buildActivityStrip(bp.mobile),
+        ),
+      ],
     );
   }
 
-  Widget _buildErrorState() => Center(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 80),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.cloud_off_outlined,
-            size: 46,
-            color: Color(0xFF64748B),
-          ),
-          const SizedBox(height: 14),
-          Text(_error ?? 'Unable to load assets.'),
-          const SizedBox(height: 14),
-          ElevatedButton.icon(
-            onPressed: _loadDashboardData,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Try Again'),
-          ),
-        ],
-      ),
+  Widget _buildErrorState() => PremiumBackground(
+    child: PremiumErrorState(
+      title: 'Unable to load assets',
+      message: _error ?? 'Unable to load assets.',
+      retryLabel: 'Try Again',
+      onRetry: _loadDashboardData,
     ),
   );
 
   // ─── Hero ───────────────────────────────────────────────────
   Widget _buildHero(bool isMobile) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Welcome back, $_employeeName',
-          style: TextStyle(
-            fontSize: isMobile ? 24 : 32,
-            height: 1.15,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0F172A),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Access your marketing and software assets in one place.',
-          style: TextStyle(
-            fontSize: isMobile ? 13 : 15,
-            height: 1.45,
-            fontWeight: FontWeight.w400,
-            color: const Color(0xFF64748B),
-          ),
+    return PremiumHero(
+      compact: isMobile,
+      eyebrow: 'Employee workspace',
+      eyebrowIcon: Icons.waving_hand_rounded,
+      title: 'Welcome back, $_employeeName',
+      subtitle: 'Access your marketing and software assets in one place.',
+      actions: [
+        PremiumButton(
+          label: 'Refresh',
+          icon: Icons.refresh_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.glass,
+          onPressed: _loadDashboardData,
         ),
       ],
     );
@@ -298,7 +301,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     final dm = _buildPanel(
       section: AppConstants.digitalMarketing,
       subtitle: 'Marketing assets for all your brands and campaigns.',
-      gradient: const [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
+      accent: PremiumAccent.blue,
       icon: Icons.campaign_rounded,
       thumbs: _dmThumbs,
       ctaLabel: 'Browse Digital Marketing',
@@ -307,268 +310,233 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     final sd = _buildPanel(
       section: AppConstants.softwareDevelopment,
       subtitle: 'Software assets, applications and technical resources.',
-      gradient: const [Color(0xFF14B8A6), Color(0xFF0D9488)],
+      accent: PremiumAccent.violet,
       icon: Icons.code_rounded,
       thumbs: _sdThumbs,
       ctaLabel: 'Browse Software Development',
       isMobile: isMobile,
     );
 
-    if (isMobile) {
-      return Column(children: [dm, const SizedBox(height: 16), sd]);
-    }
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: dm),
-          const SizedBox(width: 20),
-          Expanded(child: sd),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxWidth < 860) {
+          return Column(children: [dm, const SizedBox(height: 12), sd]);
+        }
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: dm),
+              const SizedBox(width: 16),
+              Expanded(child: sd),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildPanel({
     required String section,
     required String subtitle,
-    required List<Color> gradient,
+    required PremiumAccent accent,
     required IconData icon,
-    required List<Color> thumbs,
+    required List<PremiumAccent> thumbs,
     required String ctaLabel,
     required bool isMobile,
   }) {
     final assets = _assetCount(section);
     final companies = _companyCount(section);
     final recent = _recentAssets(section);
-    final iconSize = isMobile ? 48.0 : 64.0;
 
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 16 : 24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 4,
-            offset: Offset(0, 1),
+    return HoverBuilder(
+      builder: (context, hovered) => AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: hovered ? accent.start.withAlpha(90) : PremiumColors.line,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: iconSize,
-                height: iconSize,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: gradient,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  icon,
-                  size: isMobile ? 24 : 28,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(width: isMobile ? 12 : 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      section,
-                      style: TextStyle(
-                        fontSize: isMobile ? 18 : 20,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          SizedBox(height: isMobile ? 16 : 20),
-
-          // Stat boxes
-          Row(
-            children: [
-              Expanded(
-                child: _statBox(
-                  icon: Icons.apartment_rounded,
-                  value: '$companies',
-                  label: 'Companies',
-                  compact: isMobile,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _statBox(
-                  icon: Icons.description_outlined,
-                  value: '$assets',
-                  label: 'Assets',
-                  compact: isMobile,
-                ),
-              ),
-            ],
-          ),
-
-          SizedBox(height: isMobile ? 18 : 24),
-
-          // Recent assets
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Recent Assets',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => widget.onOpenSection?.call(section),
-                child: const Text(
-                  'View all',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF3B82F6)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          if (recent.isEmpty)
-            _emptyRecent()
-          else
-            ...List.generate(recent.length, (i) {
-              final a = recent[i];
-              return _assetRow(
-                asset: a,
-                thumbColor: thumbs[i % thumbs.length],
-                isLast: i == recent.length - 1,
-              );
-            }),
-
-          const SizedBox(height: 20),
-
-          // CTA
-          SizedBox(
-            width: double.infinity,
-            height: isMobile ? 46 : 48,
-            child: ElevatedButton(
-              onPressed: () => widget.onOpenSection?.call(section),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Flexible(
-                    child: Text(
-                      ctaLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: isMobile ? 14 : 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.arrow_forward, size: 18),
-                ],
-              ),
+          boxShadow: [
+            BoxShadow(
+              color: accent.start.withAlpha(hovered ? 30 : 10),
+              blurRadius: hovered ? 24 : 14,
+              offset: const Offset(0, 8),
             ),
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                AnimatedScale(
+                  scale: hovered ? 1.08 : 1,
+                  duration: const Duration(milliseconds: 240),
+                  curve: Curves.easeOutBack,
+                  child: PremiumIconTile(icon: icon, accent: accent, size: 44),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        section,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: PremiumColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: PremiumColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // Stat boxes
+            Row(
+              children: [
+                Expanded(
+                  child: _statBox(
+                    icon: Icons.apartment_rounded,
+                    value: companies,
+                    label: 'Companies',
+                    accent: accent,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _statBox(
+                    icon: Icons.description_outlined,
+                    value: assets,
+                    label: 'Assets',
+                    accent: accent,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // Recent assets
+            Row(
+              children: [
+                const Text(
+                  'RECENT ASSETS',
+                  style: PremiumColors.tableHeaderStyle,
+                ),
+                const Spacer(),
+                HoverBuilder(
+                  cursor: SystemMouseCursors.click,
+                  builder: (context, linkHovered) => GestureDetector(
+                    onTap: () => widget.onOpenSection?.call(section),
+                    child: Text(
+                      'View all',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: PremiumColors.blue,
+                        decoration: linkHovered
+                            ? TextDecoration.underline
+                            : TextDecoration.none,
+                        decorationColor: PremiumColors.blue,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            if (recent.isEmpty)
+              _emptyRecent()
+            else
+              ...List.generate(recent.length, (i) {
+                final a = recent[i];
+                return _assetRow(
+                  asset: a,
+                  thumb: thumbs[i % thumbs.length],
+                  isLast: i == recent.length - 1,
+                );
+              }),
+
+            const SizedBox(height: 12),
+
+            // CTA
+            PremiumButton(
+              label: ctaLabel,
+              icon: Icons.arrow_forward_rounded,
+              gradient: accent.gradient,
+              expand: true,
+              onPressed: () => widget.onOpenSection?.call(section),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _statBox({
     required IconData icon,
-    required String value,
+    required int value,
     required String label,
-    bool compact = false,
+    required PremiumAccent accent,
   }) {
-    final iconSize = compact ? 32.0 : 36.0;
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 16,
-        vertical: compact ? 12 : 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F6FF),
-        borderRadius: BorderRadius.circular(10),
+        color: accent.soft,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           Container(
-            width: iconSize,
-            height: iconSize,
+            width: 32,
+            height: 32,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: const Color(0xFFDBEAFE),
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(
-              icon,
-              size: compact ? 16 : 18,
-              color: const Color(0xFF3B82F6),
-            ),
+            child: Icon(icon, size: 16, color: accent.start),
           ),
-          SizedBox(width: compact ? 10 : 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: compact ? 20 : 22,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
+                AnimatedCount(
+                  value: value,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: PremiumColors.ink,
                     height: 1.1,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF64748B),
+                    color: PremiumColors.muted,
                   ),
                 ),
               ],
@@ -581,27 +549,28 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
 
   Widget _assetRow({
     required AssetModel asset,
-    required Color thumbColor,
+    required PremiumAccent thumb,
     required bool isLast,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         border: isLast
             ? null
-            : const Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+            : const Border(bottom: BorderSide(color: PremiumColors.rowLine)),
       ),
       child: Row(
         children: [
           Container(
-            width: 64,
-            height: 48,
+            width: 44,
+            height: 36,
             decoration: BoxDecoration(
-              color: thumbColor,
-              borderRadius: BorderRadius.circular(8),
+              gradient: thumb.gradient,
+              borderRadius: BorderRadius.circular(9),
             ),
+            child: Icon(_thumbIcon(asset.type), size: 17, color: Colors.white),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -611,40 +580,60 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF0F172A),
+                    color: PremiumColors.ink,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   asset.companyName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF64748B),
+                    color: PremiumColors.muted,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          Text(
-            asset.type,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+          const SizedBox(width: 8),
+          PremiumBadge(
+            label: _typeLabel(asset.type),
+            accent: thumb,
+            maxWidth: 120,
           ),
         ],
       ),
     );
   }
 
+  IconData _thumbIcon(String type) => switch (type) {
+    AppConstants.poster => Icons.image_outlined,
+    AppConstants.reelVideo => Icons.play_arrow_rounded,
+    AppConstants.document => Icons.description_outlined,
+    AppConstants.websiteLink => Icons.language_rounded,
+    AppConstants.webApplication => Icons.desktop_windows_outlined,
+    AppConstants.mobileApplication => Icons.phone_android_outlined,
+    _ => Icons.folder_outlined,
+  };
+
+  String _typeLabel(String type) => switch (type) {
+    AppConstants.poster => 'Poster',
+    AppConstants.reelVideo => 'Video',
+    AppConstants.document => 'Document',
+    AppConstants.websiteLink => 'Link',
+    AppConstants.webApplication => 'Web App',
+    AppConstants.mobileApplication => 'Mobile App',
+    _ => type,
+  };
+
   Widget _emptyRecent() {
     return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 18),
+      padding: EdgeInsets.symmetric(vertical: 14),
       child: Text(
         'No assets yet.',
-        style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+        style: TextStyle(fontSize: 13, color: PremiumColors.faint),
       ),
     );
   }
@@ -657,8 +646,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       final a = items[i];
       final isSd = a.section == AppConstants.softwareDevelopment;
       return _activityItem(
-        bgColor: isSd ? const Color(0xFFEDE9FE) : const Color(0xFFDBEAFE),
-        iconColor: isSd ? const Color(0xFF8B5CF6) : const Color(0xFF3B82F6),
+        accent: isSd ? PremiumAccent.violet : PremiumAccent.blue,
         icon: isSd ? Icons.visibility_outlined : Icons.download_rounded,
         verb: isSd ? 'You viewed' : 'You accessed',
         assetName: a.name,
@@ -666,64 +654,44 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       );
     });
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 4,
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
+    return PremiumPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text(
-                'Recent Activity',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const Spacer(),
-              const Text(
-                'View all',
-                style: TextStyle(fontSize: 13, color: Color(0xFF3B82F6)),
-              ),
-            ],
+          const PremiumSectionHeader(
+            title: 'Recent Activity',
+            icon: Icons.history_rounded,
+            compact: true,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           if (items.isEmpty)
             const Text(
               'No recent activity.',
-              style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-            )
-          else if (isMobile)
-            Column(
-              children: [
-                for (int i = 0; i < activityWidgets.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 12),
-                  activityWidgets[i],
-                ],
-              ],
+              style: TextStyle(fontSize: 13, color: PremiumColors.faint),
             )
           else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (int i = 0; i < activityWidgets.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 16),
-                  Expanded(child: activityWidgets[i]),
-                ],
-              ],
+            LayoutBuilder(
+              builder: (context, box) {
+                if (box.maxWidth < 700) {
+                  return Column(
+                    children: [
+                      for (int i = 0; i < activityWidgets.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 10),
+                        activityWidgets[i],
+                      ],
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (int i = 0; i < activityWidgets.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 12),
+                      Expanded(child: activityWidgets[i]),
+                    ],
+                  ],
+                );
+              },
             ),
         ],
       ),
@@ -731,59 +699,62 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
   }
 
   Widget _activityItem({
-    required Color bgColor,
-    required Color iconColor,
+    required PremiumAccent accent,
     required IconData icon,
     required String verb,
     required String assetName,
     required String meta,
   }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
-          child: Icon(icon, size: 18, color: iconColor),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              RichText(
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                text: TextSpan(
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF64748B),
-                  ),
-                  children: [
-                    TextSpan(text: '$verb '),
-                    TextSpan(
-                      text: assetName,
-                      style: const TextStyle(
-                        color: Color(0xFF3B82F6),
-                        fontWeight: FontWeight.w600,
-                      ),
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: PremiumColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PremiumColors.line),
+      ),
+      child: Row(
+        children: [
+          PremiumIconTile(icon: icon, accent: accent, size: 36),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: PremiumColors.muted,
                     ),
-                  ],
+                    children: [
+                      TextSpan(text: '$verb '),
+                      TextSpan(
+                        text: assetName,
+                        style: TextStyle(
+                          color: accent.start,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                meta,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: PremiumColors.faint,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

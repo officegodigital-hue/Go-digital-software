@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../models/asset_model.dart';
 import '../../../models/company_model.dart';
 import '../../../services/api_service.dart';
@@ -344,10 +345,8 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Container(
-        color: AppColors.background,
-        alignment: Alignment.center,
-        child: const CircularProgressIndicator(),
+      return const PremiumBackground(
+        child: PremiumLoading(label: 'Loading asset library...'),
       );
     }
 
@@ -355,73 +354,56 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
       return _buildErrorState();
     }
 
-    return Container(
-      color: AppColors.background,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final isMobile = w < 640;
-          final pad = isMobile ? 16.0 : 32.0;
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(pad, isMobile ? 20 : 28, pad, 36),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(isMobile),
-                const SizedBox(height: 22),
-                _buildSearchBar(),
-                const SizedBox(height: 16),
-                _buildFilterChips(),
-                const SizedBox(height: 22),
-                _buildCompanyGrid(w),
-              ],
-            ),
-          );
-        },
+    // Search and filters stay pinned at the top; the company cards
+    // scroll underneath them.
+    return PremiumStickyPage(
+      top: (context, bp) => [
+        Reveal(child: _buildHeader(bp.mobile)),
+        SizedBox(height: bp.gap),
+        _buildSummaryStats(),
+        const SizedBox(height: 4),
+      ],
+      pinnedHeight: (bp) => 112,
+      pinned: (context, bp) => PremiumPanel(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSearchBar(),
+            const SizedBox(height: 10),
+            _buildFilterChips(),
+          ],
+        ),
       ),
+      body: (context, bp) => [
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          child: KeyedSubtree(
+            key: ValueKey('$_filter|$_search'),
+            child: _buildCompanyGrid(0),
+          ),
+        ),
+      ],
     );
   }
 
   // ── Header ──────────────────────────────────────────────────
   Widget _buildHeader(bool isMobile) {
-    final title = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Asset Library',
-          style: TextStyle(
-            fontSize: isMobile ? 26 : 34,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            height: 1.1,
-          ),
+    return PremiumHero(
+      compact: isMobile,
+      eyebrow: 'Company assets',
+      eyebrowIcon: Icons.folder_special_rounded,
+      title: 'Asset Library',
+      subtitle: 'Find approved company assets and downloads',
+      actions: [
+        if (_canCreateCompany) _buildCreateCompanyButton(),
+        PremiumButton(
+          label: 'Refresh',
+          icon: Icons.refresh_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.glass,
+          onPressed: _loadData,
         ),
-        const SizedBox(height: 6),
-        const Text(
-          'Find approved company assets and downloads',
-          style: TextStyle(fontSize: 15, color: AppColors.textSecondary),
-        ),
-      ],
-    );
-
-    if (!_canCreateCompany) return title;
-
-    final createButton = _buildCreateCompanyButton();
-    if (isMobile) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          title,
-          const SizedBox(height: 12),
-          Align(alignment: Alignment.centerLeft, child: createButton),
-        ],
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: title),
-        createButton,
       ],
     );
   }
@@ -430,6 +412,8 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
     return PopupMenuButton<String>(
       tooltip: 'Create Company',
       onSelected: _showCreateCompanyDialog,
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       itemBuilder: (context) => const [
         PopupMenuItem(
           value: AppConstants.digitalMarketing,
@@ -440,66 +424,57 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
           child: Text('In Software Development'),
         ),
       ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.add, size: 18, color: Colors.white),
-            SizedBox(width: 6),
-            Text(
-              'Create Company',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ],
+      // The menu button handles the tap; the pill is only the look.
+      child: IgnorePointer(
+        child: PremiumButton(
+          label: 'Create Company',
+          icon: Icons.add_business_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.light,
+          onPressed: () {},
         ),
       ),
     );
   }
 
+  Widget _buildSummaryStats() {
+    final types = _assets.map((a) => a.type).toSet().length;
+    return PremiumStatRow(
+      stats: [
+        PremiumStat(
+          label: 'Companies',
+          value: _uniqueCompanies.length,
+          icon: Icons.business_rounded,
+          accent: PremiumAccent.blue,
+          caption: 'Available to you',
+        ),
+        PremiumStat(
+          label: 'Assets',
+          value: _assets.length,
+          icon: Icons.layers_rounded,
+          accent: PremiumAccent.violet,
+          caption: 'Approved files and links',
+        ),
+        PremiumStat(
+          label: 'Asset types',
+          value: types,
+          icon: Icons.category_rounded,
+          accent: PremiumAccent.cyan,
+          caption: _canDownload
+              ? 'Download access enabled'
+              : 'View only access',
+        ),
+      ],
+    );
+  }
+
   // ── Search bar ──────────────────────────────────────────────
   Widget _buildSearchBar() {
-    return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.search, size: 20, color: AppColors.textSecondary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              onChanged: (v) => setState(() => _search = v),
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textPrimary,
-              ),
-              decoration: const InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                hintText: 'Search assets or companies',
-                hintStyle: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return PremiumSearchField(
+      controller: _searchController,
+      hint: 'Search assets or companies',
+      onChanged: (v) => setState(() => _search = v),
+      onClear: () => setState(() => _search = ''),
     );
   }
 
@@ -508,37 +483,17 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: _filterChips.map((chip) {
-          final selected = _filter == chip;
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => setState(() => _filter = chip),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: selected ? AppColors.primary : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: selected ? AppColors.primary : AppColors.border,
-                  ),
-                ),
-                child: Text(
-                  chip,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: selected ? Colors.white : AppColors.textSecondary,
-                  ),
-                ),
+        children: [
+          for (final chip in _filterChips)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: PremiumFilterChip(
+                label: chip,
+                selected: _filter == chip,
+                onTap: () => setState(() => _filter = chip),
               ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
@@ -551,23 +506,29 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final cols = width >= 1040
+        final cols = width >= 1280
+            ? 4
+            : width >= 940
             ? 3
-            : width >= 680
+            : width >= 600
             ? 2
             : 1;
-        const gap = 20.0;
-        final cardWidth = (width - (cols - 1) * gap) / cols;
+        const gap = 12.0;
+        final cardWidth = ((width - (cols - 1) * gap) / cols).floorToDouble();
 
         return Wrap(
           spacing: gap,
           runSpacing: gap,
-          children: companies.map((company) {
-            return SizedBox(
-              width: cols == 1 ? double.infinity : cardWidth,
-              child: _buildCompanyCard(company),
-            );
-          }).toList(),
+          children: [
+            for (var i = 0; i < companies.length; i++)
+              Reveal(
+                delay: Duration(milliseconds: 40 * (i < 12 ? i : 12)),
+                child: SizedBox(
+                  width: cols == 1 ? width : cardWidth,
+                  child: _buildCompanyCard(companies[i]),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -580,21 +541,27 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
         ? company.allSections.first
         : (company.section ?? AppConstants.digitalMarketing);
 
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+    return HoverBuilder(
+      cursor: SystemMouseCursors.click,
+      builder: (context, hovered) => GestureDetector(
         onTap: () => _openCompany(company, section),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, hovered ? -3 : 0, 0),
           decoration: BoxDecoration(
+            color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
-            boxShadow: const [
+            border: Border.all(
+              color: hovered
+                  ? PremiumColors.blue.withAlpha(110)
+                  : PremiumColors.line,
+            ),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x0A000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
+                color: PremiumColors.blue.withAlpha(hovered ? 36 : 10),
+                blurRadius: hovered ? 22 : 12,
+                offset: Offset(0, hovered ? 10 : 4),
               ),
             ],
           ),
@@ -602,77 +569,108 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+                padding: const EdgeInsets.all(14),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildCompanyLogo(company: company),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                    AnimatedScale(
+                      scale: hovered ? 1.06 : 1,
+                      duration: const Duration(milliseconds: 220),
+                      child: _buildCompanyLogo(company: company),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            company.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: PremiumColors.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '$count ${count == 1 ? 'asset' : 'assets'}  ·  Updated ${_formatDate(updated)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: PremiumColors.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
                             children: [
-                              Text(
-                                company.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.textPrimary,
+                              for (final s
+                                  in company.allSections.isEmpty
+                                      ? [section]
+                                      : company.allSections)
+                                PremiumBadge(
+                                  label: s,
+                                  icon: s == AppConstants.softwareDevelopment
+                                      ? Icons.code_rounded
+                                      : Icons.campaign_rounded,
+                                  accent: s == AppConstants.softwareDevelopment
+                                      ? PremiumAccent.violet
+                                      : PremiumAccent.blue,
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '$count ${count == 1 ? 'asset' : 'assets'}  ·  Updated ${_formatDate(updated)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
                               _accessBadge(),
                             ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, color: AppColors.border),
               // Open assets footer
-              Padding(
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: hovered ? PremiumColors.soft : PremiumColors.surface,
+                  border: const Border(
+                    top: BorderSide(color: PremiumColors.line),
+                  ),
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(16),
+                  ),
                 ),
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.folder_outlined,
-                      size: 18,
-                      color: AppColors.primary,
+                      Icons.folder_open_rounded,
+                      size: 17,
+                      color: PremiumColors.blue,
                     ),
                     const SizedBox(width: 8),
                     const Text(
                       'Open assets',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
+                        color: PremiumColors.blue,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.arrow_forward,
-                      size: 15,
-                      color: AppColors.primary,
+                    const Spacer(),
+                    AnimatedSlide(
+                      offset: Offset(hovered ? 0.25 : 0, 0),
+                      duration: const Duration(milliseconds: 220),
+                      child: const Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 16,
+                        color: PremiumColors.blue,
+                      ),
                     ),
                   ],
                 ),
@@ -686,31 +684,10 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
 
   Widget _accessBadge() {
     final enabled = _canDownload;
-    final bg = enabled ? const Color(0xFFE7F8EF) : const Color(0xFFF1F5F9);
-    final fg = enabled ? const Color(0xFF15803D) : AppColors.textSecondary;
-    final icon = enabled ? Icons.check_circle : Icons.visibility_outlined;
-    final label = enabled ? 'Download access enabled' : 'View only access';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: fg),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: fg,
-            ),
-          ),
-        ],
-      ),
+    return PremiumBadge(
+      label: enabled ? 'Download access' : 'View only',
+      icon: enabled ? Icons.download_done_rounded : Icons.visibility_outlined,
+      accent: enabled ? PremiumAccent.green : PremiumAccent.slate,
     );
   }
 
@@ -900,8 +877,7 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
                                   ),
                                   const SizedBox(height: 5),
                                   Text(
-                                    selectedLogoName ??
-                                        'Optional. JPG, JPEG, PNG, WEBP or GIF. Maximum 5 MB.',
+                                    selectedLogoName ?? 'Optional. JPG, JPEG, PNG, WEBP or GIF. Maximum 5 MB.',
                                     maxLines: 3,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -976,28 +952,38 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
     );
   }
 
-  // ── Company logo (unchanged) ────────────────────────────────
+  // ── Company logo (same URL logic) ───────────────────────────
   Widget _buildCompanyLogo({required CompanyModel company}) {
     final logoUrl = company.logoUrl?.trim();
+    final initials = Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: PremiumAccent.forText(company.name).gradient,
+      ),
+      child: Text(
+        _companyInitials(company.name),
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
+      ),
+    );
+
+    Widget frame(Widget child) => Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(
+        color: PremiumColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PremiumColors.line),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
 
     if (logoUrl == null || logoUrl.isEmpty) {
-      return Container(
-        width: 52,
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          _companyInitials(company.name),
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-          ),
-        ),
-      );
+      return frame(initials);
     }
 
     final parsed = Uri.tryParse(logoUrl);
@@ -1005,32 +991,11 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
         ? logoUrl
         : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'}';
 
-    return Container(
-      width: 52,
-      height: 52,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F7FA),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.network(
+    return frame(
+      Image.network(
         imageUrl,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            alignment: Alignment.center,
-            color: AppColors.primary,
-            child: Text(
-              _companyInitials(company.name),
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-          );
-        },
+        errorBuilder: (context, error, stackTrace) => initials,
       ),
     );
   }
@@ -1066,83 +1031,22 @@ class _UserAssetLibraryPageState extends State<UserAssetLibraryPage> {
 
   // ── Empty + error states ────────────────────────────────────
   Widget _buildEmptyCompanies() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.business_outlined,
-            size: 44,
-            color: AppColors.textSecondary,
-          ),
-          SizedBox(height: 12),
-          Text(
-            'No companies found',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Try changing the search or filter.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
-        ],
+    return const PremiumPanel(
+      child: PremiumEmptyState(
+        icon: Icons.business_outlined,
+        title: 'No companies found',
+        message: 'Try changing the search or filter.',
       ),
     );
   }
 
   Widget _buildErrorState() {
-    return Container(
-      color: AppColors.background,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.error_outline,
-            size: 42,
-            color: AppColors.textSecondary,
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Unable to load assets',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _loadError!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
-          ),
-        ],
+    return PremiumBackground(
+      child: PremiumErrorState(
+        title: 'Unable to load assets',
+        message: _loadError!,
+        onRetry: _loadData,
       ),
     );
   }
 }
-
-

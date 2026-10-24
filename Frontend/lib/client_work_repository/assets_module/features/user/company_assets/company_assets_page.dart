@@ -1,10 +1,10 @@
-// ignore: avoid_web_libraries_in_flutter
-// import 'dart:html' as html;
-// // ignore: avoid_web_libraries_in_flutter
-// import 'dart:ui_web' as ui;
+import 'package:godigital_portal/web_stub.dart'
+    if (dart.library.html) 'dart:html'
+    as html;
+import 'package:godigital_portal/ui_web_stub.dart'
+    if (dart.library.html) 'dart:ui_web'
+    as ui;
 
-import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
-import 'package:godigital_portal/ui_web_stub.dart' if (dart.library.html) 'dart:ui_web' as ui;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../models/asset_model.dart';
 import '../../../models/company_model.dart';
 import '../../../services/api_service.dart';
@@ -476,7 +477,7 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: const Color(0xFF1E3A8A),
                 foregroundColor: Colors.white,
               ),
               child: const Text('Delete'),
@@ -692,95 +693,76 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: PremiumColors.surface,
       body: _buildBody(mobile),
     );
   }
 
   Widget _buildBody(bool mobile) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const PremiumBackground(
+        child: PremiumLoading(label: 'Loading assets...'),
+      );
     }
 
     if (_errorMessage != null) {
       return _buildErrorState();
     }
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        mobile ? 16 : 32,
-        mobile ? 16 : 24,
-        mobile ? 16 : 32,
-        36,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildBreadcrumb(),
-          const SizedBox(height: 16),
-          _buildCompanyHeader(mobile),
-          const SizedBox(height: 20),
-          _buildSearch(),
-          const SizedBox(height: 16),
-          _buildFilters(),
-          const SizedBox(height: 18),
-          if (_companyAssets.isEmpty)
-            _buildEmptyState()
-          else if (mobile)
-            Column(
-              children: _companyAssets
-                  .map(
-                    (asset) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildAssetCard(asset, true),
-                    ),
-                  )
-                  .toList(),
-            )
-          else
-            _buildAssetsTable(),
-        ],
-      ),
-    );
-  }
+    final assets = _companyAssets;
 
-  // ============================================================
-  // BREADCRUMB
-  // ============================================================
-
-  Widget _buildBreadcrumb() {
-    return Row(
-      children: [
-        InkWell(
-          onTap: () {
-            if (widget.onBack != null) {
-              widget.onBack!();
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
-          child: const Text(
-            'Asset Library',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        Flexible(
-          child: Text(
-            _companyName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
+    return PremiumPage(
+      builder: (context, bp) => [
+        _buildBreadcrumb(),
+        const SizedBox(height: 10),
+        Reveal(child: _buildCompanyHeader(bp.mobile)),
+        SizedBox(height: bp.gap),
+        Reveal(
+          delay: const Duration(milliseconds: 160),
+          child: PremiumPanel(
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSearch(),
+                      const SizedBox(height: 10),
+                      _buildFilters(),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: PremiumColors.line),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  child: KeyedSubtree(
+                    key: ValueKey('$_filter|$_search|${assets.length}'),
+                    child: assets.isEmpty
+                        ? _buildEmptyState()
+                        : LayoutBuilder(
+                            builder: (context, box) => box.maxWidth < 720
+                                ? Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      children: [
+                                        for (final asset in assets)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 10,
+                                            ),
+                                            child: _buildAssetCard(asset, true),
+                                          ),
+                                      ],
+                                    ),
+                                  )
+                                : _buildAssetsTable(),
+                          ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -789,173 +771,240 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   }
 
   // ============================================================
-  // ASSETS TABLE (desktop)
+  // BREADCRUMB
   // ============================================================
 
-  Widget _buildAssetsTable() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          // Header row
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            color: const Color(0xFFF8FAFC),
-            child: Row(
-              children: const [
-                Expanded(flex: 30, child: _ColHead('Asset')),
-                Expanded(flex: 14, child: _ColHead('Type')),
-                Expanded(flex: 28, child: _ColHead('Description')),
-                Expanded(flex: 14, child: _ColHead('Updated')),
-                Expanded(flex: 16, child: _ColHead('Actions')),
-              ],
+  void _goBack() {
+    if (widget.onBack != null) {
+      widget.onBack!();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Widget _buildBreadcrumb() {
+    return Row(
+      children: [
+        PremiumIconButton(
+          icon: Icons.arrow_back_rounded,
+          tooltip: 'Back to Asset Library',
+          onPressed: _goBack,
+        ),
+        const SizedBox(width: 6),
+        HoverBuilder(
+          cursor: SystemMouseCursors.click,
+          builder: (context, hovered) => GestureDetector(
+            onTap: _goBack,
+            child: Text(
+              'Asset Library',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: hovered ? PremiumColors.blue : PremiumColors.muted,
+              ),
             ),
           ),
-          const Divider(height: 1, color: AppColors.border),
-          // Rows
-          for (int i = 0; i < _companyAssets.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: Color(0xFFF1F5F9)),
-            _buildTableRow(_companyAssets[i]),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: Icon(
+            Icons.chevron_right_rounded,
+            size: 16,
+            color: PremiumColors.faint,
+          ),
+        ),
+        Flexible(
+          child: Text(
+            _companyName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: PremiumColors.blue,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // ASSETS TABLE (desktop) - fixed height, pinned header
+  // ============================================================
+
+  static const _actionsWidth = 210.0;
+
+  Widget _buildAssetsTable() {
+    final assets = _companyAssets;
+    const p = EdgeInsets.symmetric(horizontal: 12);
+    Widget head(int flex, String label) => Expanded(
+      flex: flex,
+      child: Padding(
+        padding: p,
+        child: Text(label.toUpperCase(), style: PremiumColors.tableHeaderStyle),
+      ),
+    );
+    return PremiumTable(
+      minWidth: 820,
+      header: PremiumTableHeader(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          children: [
+            head(30, 'Asset'),
+            head(14, 'Type'),
+            head(28, 'Description'),
+            head(14, 'Updated'),
+            const SizedBox(
+              width: _actionsWidth,
+              child: Padding(
+                padding: p,
+                child: Text(
+                  'ACTIONS',
+                  textAlign: TextAlign.right,
+                  style: PremiumColors.tableHeaderStyle,
+                ),
+              ),
+            ),
           ],
-        ],
+        ),
+      ),
+      itemCount: assets.length,
+      itemBuilder: (context, i) => _buildTableRow(assets[i]),
+      footer: PremiumTableFooter(
+        child: Text(
+          'Showing ${assets.length} of ${_companyAllAssets.length} assets',
+        ),
       ),
     );
   }
 
   Widget _buildTableRow(AssetModel asset) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    const p = EdgeInsets.symmetric(horizontal: 12);
+    return PremiumTableRow(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Asset (icon + name + filename)
           Expanded(
             flex: 30,
-            child: Row(
-              children: [
-                _buildAssetIcon(asset),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        asset.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
+            child: Padding(
+              padding: p,
+              child: Row(
+                children: [
+                  _buildAssetIcon(asset),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          asset.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: PremiumColors.ink,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        asset.fileName ?? asset.link ?? '—',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
+                        const SizedBox(height: 2),
+                        Text(
+                          asset.fileName ?? asset.link ?? '—',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: PremiumColors.muted,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           // Type chip
-          Expanded(flex: 14, child: _buildTypeChip(asset.type)),
+          Expanded(
+            flex: 14,
+            child: Padding(padding: p, child: _buildTypeChip(asset.type)),
+          ),
           // Description
           Expanded(
             flex: 28,
-            child: Text(
-              asset.description?.trim().isNotEmpty == true
-                  ? asset.description!.trim()
-                  : '—',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                height: 1.35,
-                color: AppColors.textSecondary,
+            child: Padding(
+              padding: p,
+              child: Text(
+                asset.description?.trim().isNotEmpty == true
+                    ? asset.description!.trim()
+                    : '—',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: PremiumColors.muted,
+                ),
               ),
             ),
           ),
           // Updated
           Expanded(
             flex: 14,
-            child: Text(
-              _formatDate(asset.updatedAt),
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textPrimary,
+            child: Padding(
+              padding: p,
+              child: Text(
+                _formatDate(asset.updatedAt),
+                style: const TextStyle(fontSize: 13, color: PremiumColors.body),
               ),
             ),
           ),
           // Actions
-          Expanded(flex: 16, child: _buildActions(asset)),
+          SizedBox(
+            width: _actionsWidth,
+            child: Padding(
+              padding: p,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _buildActions(asset),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildTypeChip(String type) {
-    final (bg, fg) = _typeChipColors(type);
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(_getAssetIcon(type), size: 13, color: fg),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                _shortTypeLabel(type),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: fg,
-                ),
-              ),
-            ),
-          ],
-        ),
+      child: PremiumBadge(
+        label: _shortTypeLabel(type),
+        icon: _getAssetIcon(type),
+        accent: _typeAccent(type),
+        maxWidth: 150,
       ),
     );
   }
 
-  (Color, Color) _typeChipColors(String type) {
+  PremiumAccent _typeAccent(String type) {
     switch (type) {
       case AppConstants.poster:
-        return (const Color(0xFFFDE7EC), const Color(0xFFE11D48));
+        return PremiumAccent.blue;
       case AppConstants.reelVideo:
-        return (const Color(0xFFEDE9FE), const Color(0xFF7C3AED));
+        return PremiumAccent.violet;
       case AppConstants.document:
-        return (const Color(0xFFE7F8EF), const Color(0xFF15803D));
+        return PremiumAccent.amber;
       case AppConstants.websiteLink:
-        return (const Color(0xFFFEF3C7), const Color(0xFFB45309));
+        return PremiumAccent.cyan;
       case AppConstants.webApplication:
-        return (const Color(0xFFDBEAFE), const Color(0xFF2563EB));
+        return PremiumAccent.green;
       case AppConstants.mobileApplication:
-        return (const Color(0xFFEDE9FE), const Color(0xFF7C3AED));
+        return PremiumAccent.violet;
       default:
-        return (const Color(0xFFF1F5F9), AppColors.textSecondary);
+        return PremiumAccent.slate;
     }
   }
 
@@ -983,13 +1032,6 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   // ============================================================
 
   Widget _buildCompanyHeader(bool mobile) {
-    final color = widget.section == AppConstants.softwareDevelopment
-        ? AppColors.softwareDevelopment
-        : AppColors.digitalMarketing;
-    final lightColor = widget.section == AppConstants.softwareDevelopment
-        ? AppColors.softwareDevelopmentLight
-        : AppColors.digitalMarketingLight;
-
     final companyName = _companyName.trim();
     final firstLetter = companyName.isNotEmpty
         ? companyName.substring(0, 1).toUpperCase()
@@ -1005,294 +1047,114 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
         ? widget.company.allSections.join(' · ')
         : widget.section;
 
-    final meta = Text(
-      '$sections  ·  $count ${count == 1 ? 'asset' : 'assets'}  ·  Last updated ${_formatDate(updated)}',
-      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-    );
-
-    final identity = Row(
-      children: [
-        _buildCompanyLogo(mobile, color, lightColor, firstLetter),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                companyName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: mobile ? 22 : 26,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 5),
-              meta,
-            ],
-          ),
-        ),
-      ],
-    );
-
-    final actions = _buildPermissionActions(mobile);
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(mobile ? 18 : 24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: mobile
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                identity,
-                if (_canEditCompany ||
-                    _canDeleteCompany ||
-                    _canCreateAsset) ...[
-                  const SizedBox(height: 14),
-                  _buildCompactActions(),
-                ],
-              ],
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(child: identity),
-                if (actions.isNotEmpty) ...[
-                  const SizedBox(width: 16),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (int i = 0; i < actions.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 12),
-                        actions[i],
-                      ],
-                    ],
-                  ),
-                ],
-              ],
-            ),
+    return PremiumHero(
+      compact: mobile,
+      leading: _buildCompanyLogo(mobile, firstLetter),
+      eyebrow: sections,
+      eyebrowIcon: widget.section == AppConstants.softwareDevelopment
+          ? Icons.code_rounded
+          : Icons.campaign_rounded,
+      title: companyName,
+      subtitle:
+          '$count ${count == 1 ? 'asset' : 'assets'}  ·  Last updated ${_formatDate(updated)}',
+      actions: _buildPermissionActions(mobile),
     );
   }
 
-  // Compact mobile actions: small icon buttons for edit/delete + an
-  // Add asset button, with no "PERMISSION BASED" captions (saves height).
-  Widget _buildCompactActions() {
-    Widget iconBtn({
-      required IconData icon,
-      required String tooltip,
-      required VoidCallback onTap,
-      Color? color,
-    }) {
-      return Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: color == Colors.red
-                ? const Color(0xFFFECACA)
-                : AppColors.border,
-          ),
-        ),
-        child: IconButton(
-          tooltip: tooltip,
-          onPressed: onTap,
-          icon: Icon(icon, size: 19, color: color ?? AppColors.textPrimary),
-          visualDensity: VisualDensity.compact,
-          constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        if (_canEditCompany)
-          iconBtn(
-            icon: Icons.edit_outlined,
-            tooltip: 'Edit company',
-            onTap: _editCompany,
-          ),
-        if (_canEditCompany) const SizedBox(width: 10),
-        if (_canDeleteCompany)
-          iconBtn(
-            icon: Icons.delete_outline,
-            tooltip: 'Delete company',
-            color: Colors.red,
-            onTap: _deleteCompany,
-          ),
-        if (_canDeleteCompany) const SizedBox(width: 10),
-        if (_canCreateAsset)
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: _isAddingAsset ? null : _addAsset,
-              icon: _isAddingAsset
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.add, size: 18),
-              label: Text(_isAddingAsset ? 'Adding...' : 'Add asset'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  // Permission-based company actions, each labelled "PERMISSION BASED".
+  // Permission-based company actions, shown on the header banner.
   List<Widget> _buildPermissionActions(bool mobile) {
     final list = <Widget>[];
 
     if (_canEditCompany) {
       list.add(
-        _permissionAction(
+        PremiumButton(
           label: 'Edit company',
           icon: Icons.edit_outlined,
-          onTap: _editCompany,
+          iconLeading: true,
+          small: mobile,
+          variant: PremiumButtonVariant.glass,
+          onPressed: _editCompany,
         ),
       );
     }
     if (_canDeleteCompany) {
       list.add(
-        _permissionAction(
+        PremiumButton(
           label: 'Delete',
-          icon: Icons.delete_outline,
-          danger: true,
-          onTap: _deleteCompany,
+          icon: Icons.delete_outline_rounded,
+          iconLeading: true,
+          small: mobile,
+          variant: PremiumButtonVariant.glass,
+          onPressed: _deleteCompany,
         ),
       );
     }
     if (_canCreateAsset) {
       list.add(
-        _permissionAction(
+        PremiumButton(
           label: _isAddingAsset ? 'Adding...' : 'Add asset',
-          icon: Icons.add,
-          filled: true,
-          onTap: _isAddingAsset ? null : _addAsset,
+          icon: Icons.add_rounded,
+          iconLeading: true,
+          small: mobile,
+          loading: _isAddingAsset,
+          variant: PremiumButtonVariant.light,
+          onPressed: _isAddingAsset ? null : _addAsset,
         ),
       );
     }
     return list;
   }
 
-  Widget _permissionAction({
-    required String label,
-    required IconData icon,
-    required VoidCallback? onTap,
-    bool filled = false,
-    bool danger = false,
-  }) {
-    final accent = danger ? Colors.red : AppColors.primary;
-    final button = filled
-        ? FilledButton.icon(
-            onPressed: onTap,
-            icon: Icon(icon, size: 18),
-            label: Text(label),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            ),
-          )
-        : OutlinedButton.icon(
-            onPressed: onTap,
-            icon: Icon(icon, size: 18, color: accent),
-            label: Text(label, style: TextStyle(color: accent)),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: accent,
-              side: BorderSide(
-                color: danger ? const Color(0xFFFECACA) : AppColors.border,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            ),
-          );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'PERMISSION BASED',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-            color: AppColors.textSecondary,
-          ),
+  Widget _buildCompanyLogo(bool mobile, String firstLetter) {
+    final size = mobile ? 46.0 : 52.0;
+    final initials = Container(
+      alignment: Alignment.center,
+      color: const Color(0x26FFFFFF),
+      child: Text(
+        firstLetter,
+        style: TextStyle(
+          fontSize: mobile ? 20 : 22,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
         ),
-        const SizedBox(height: 6),
-        button,
-      ],
+      ),
     );
-  }
-
-  Widget _buildCompanyLogo(
-    bool mobile,
-    Color color,
-    Color lightColor,
-    String firstLetter,
-  ) {
-    final size = mobile ? 54.0 : 64.0;
+    Widget frame(Widget child) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0x66FFFFFF), width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
     final logoUrl = widget.company.logoUrl?.trim();
     if (logoUrl != null && logoUrl.isNotEmpty) {
       final parsed = Uri.tryParse(logoUrl);
       final imageUrl = parsed != null && parsed.hasScheme
           ? logoUrl
           : '${ApiService.baseUrl.replaceFirst('/client-repository', '').replaceFirst('/api', '')}${logoUrl.startsWith('/') ? logoUrl : '/$logoUrl'}';
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F7FA),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Image.network(
+      return frame(
+        Image.network(
           imageUrl,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => Container(
-            alignment: Alignment.center,
-            color: lightColor,
-            child: Text(
-              firstLetter,
-              style: TextStyle(
-                fontSize: mobile ? 22 : 26,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-          ),
+          errorBuilder: (_, _, _) =>
+              ColoredBox(color: PremiumColors.blue, child: initials),
         ),
       );
     }
     return Container(
       width: size,
       height: size,
-      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: lightColor,
-        borderRadius: BorderRadius.circular(13),
+        color: const Color(0x26FFFFFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0x66FFFFFF), width: 2),
       ),
-      child: Text(
-        firstLetter,
-        style: TextStyle(
-          fontSize: mobile ? 22 : 26,
-          fontWeight: FontWeight.w800,
-          color: color,
-        ),
-      ),
+      clipBehavior: Clip.antiAlias,
+      child: initials,
     );
   }
 
@@ -1300,18 +1162,24 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   // SEARCH
   // ============================================================
 
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Widget _buildSearch() {
-    return TextField(
+    return PremiumSearchField(
+      controller: _searchController,
+      hint: 'Search assets...',
       onChanged: (value) {
         setState(() {
           _search = value;
         });
       },
-      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
-      decoration: const InputDecoration(
-        hintText: 'Search assets...',
-        prefixIcon: Icon(Icons.search, size: 22),
-      ),
+      onClear: () => setState(() => _search = ''),
     );
   }
 
@@ -1323,119 +1191,59 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: _filters.map((filter) {
-          final selected = _filter == filter;
-          final count = _countForType(filter);
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => setState(() => _filter = filter),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: selected ? AppColors.primary : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: selected ? AppColors.primary : AppColors.border,
-                  ),
-                ),
-                child: Text(
-                  '${_filterLabel(filter)} ($count)',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: selected ? Colors.white : AppColors.textSecondary,
-                  ),
-                ),
+        children: [
+          for (final filter in _filters)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: PremiumFilterChip(
+                label: '${_filterLabel(filter)} (${_countForType(filter)})',
+                selected: _filter == filter,
+                onTap: () => setState(() => _filter = filter),
               ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
 
   // ============================================================
-  // ASSET CARD
+  // ASSET CARD (mobile)
   // ============================================================
 
   Widget _buildAssetCard(AssetModel asset, bool mobile) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: mobile
-            ? _buildMobileAssetCard(asset)
-            : _buildDesktopAssetCard(asset),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: PremiumColors.line),
       ),
-    );
-  }
-
-  Widget _buildDesktopAssetCard(AssetModel asset) {
-    return Row(
-      children: [
-        _buildAssetIcon(asset),
-
-        const SizedBox(width: 14),
-
-        Expanded(child: _buildAssetInformation(asset)),
-
-        const SizedBox(width: 15),
-
-        if (_hasLink(asset))
-          SizedBox(width: 210, child: _buildLinkPreview(asset)),
-
-        const SizedBox(width: 10),
-
-        _buildActions(asset),
-      ],
-    );
-  }
-
-  Widget _buildMobileAssetCard(AssetModel asset) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            _buildAssetIcon(asset),
-
-            const SizedBox(width: 12),
-
-            Expanded(child: _buildAssetInformation(asset)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _buildAssetIcon(asset),
+              const SizedBox(width: 12),
+              Expanded(child: _buildAssetInformation(asset)),
+            ],
+          ),
+          if (_hasLink(asset)) ...[
+            const SizedBox(height: 10),
+            _buildLinkPreview(asset),
           ],
-        ),
-
-        if (_hasLink(asset)) ...[
-          const SizedBox(height: 13),
-          _buildLinkPreview(asset),
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerRight, child: _buildActions(asset)),
         ],
-
-        const SizedBox(height: 13),
-
-        Align(alignment: Alignment.centerRight, child: _buildActions(asset)),
-      ],
+      ),
     );
   }
 
   Widget _buildAssetIcon(AssetModel asset) {
-    return Container(
-      width: 56,
-      height: 56,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F5FF),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Icon(
-        _getAssetIcon(asset.type),
-        color: AppColors.primary,
-        size: 27,
-      ),
+    return PremiumIconTile(
+      icon: _getAssetIcon(asset.type),
+      accent: _typeAccent(asset.type),
+      size: 38,
     );
   }
 
@@ -1448,40 +1256,26 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: 16,
+            fontSize: 14.5,
             fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
+            color: PremiumColors.ink,
           ),
         ),
-
-        const SizedBox(height: 7),
-
+        const SizedBox(height: 5),
         Wrap(
-          spacing: 9,
-          runSpacing: 5,
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                _filterLabel(asset.type),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
-              ),
+            PremiumBadge(
+              label: _shortTypeLabel(asset.type),
+              icon: _getAssetIcon(asset.type),
+              accent: _typeAccent(asset.type),
+              maxWidth: 150,
             ),
-
             Text(
               _formatDate(asset.updatedAt),
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
+              style: const TextStyle(fontSize: 12, color: PremiumColors.muted),
             ),
           ],
         ),
@@ -1497,27 +1291,22 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
     final link = asset.link?.trim() ?? '';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        color: PremiumColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: PremiumColors.line),
       ),
       child: Row(
         children: [
-          const Icon(Icons.link_outlined, size: 18, color: AppColors.primary),
-
+          const Icon(Icons.link_rounded, size: 16, color: PremiumColors.blue),
           const SizedBox(width: 8),
-
           Expanded(
             child: Text(
               link,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
+              style: const TextStyle(fontSize: 12, color: PremiumColors.muted),
             ),
           ),
         ],
@@ -1530,57 +1319,44 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   // ============================================================
 
   Widget _buildActions(AssetModel asset) {
-    Widget btn({
-      required IconData icon,
-      required String tooltip,
-      required VoidCallback onTap,
-      Color? color,
-    }) {
-      return IconButton(
-        tooltip: tooltip,
-        onPressed: onTap,
-        icon: Icon(icon, size: 18, color: color),
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
-      );
-    }
-
     final isLink = _hasLink(asset);
+    // An uploaded file can be downloaded even when the asset also has a link.
+    final hasFile = asset.filePath?.trim().isNotEmpty ?? false;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (_canViewAsset)
-          btn(
+          PremiumIconButton(
             icon: Icons.visibility_outlined,
             tooltip: 'View',
-            onTap: () => _viewAsset(asset),
+            onPressed: () => _viewAsset(asset),
           ),
-        if (_canDownloadAsset && !isLink)
-          btn(
+        if (_canDownloadAsset && (hasFile || !isLink))
+          PremiumIconButton(
             icon: Icons.download_outlined,
             tooltip: 'Download',
-            onTap: () => _downloadAsset(asset),
+            onPressed: () => _downloadAsset(asset),
           ),
         if (isLink)
-          btn(
-            icon: Icons.open_in_new,
+          PremiumIconButton(
+            icon: Icons.open_in_new_rounded,
             tooltip: 'Open link',
-            onTap: () => _openLink(asset.link!.trim()),
+            accent: PremiumAccent.cyan,
+            onPressed: () => _openLink(asset.link!.trim()),
           ),
         if (_canEditAsset)
-          btn(
+          PremiumIconButton(
             icon: Icons.edit_outlined,
             tooltip: 'Edit Asset',
-            onTap: () => _editAsset(asset),
+            onPressed: () => _editAsset(asset),
           ),
         if (_canDeleteAsset)
-          btn(
-            icon: Icons.delete_outline,
+          PremiumIconButton(
+            icon: Icons.delete_outline_rounded,
             tooltip: 'Delete Asset',
-            color: Colors.red,
-            onTap: () => _deleteAsset(asset),
+            accent: PremiumAccent.rose,
+            onPressed: () => _deleteAsset(asset),
           ),
       ],
     );
@@ -1762,7 +1538,7 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
                 Navigator.of(dialogContext).pop(true);
               },
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: const Color(0xFF1E3A8A),
                 foregroundColor: Colors.white,
               ),
               child: const Text('Delete'),
@@ -2014,47 +1790,12 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   // ============================================================
 
   Widget _buildEmptyState() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 50),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          const Icon(
-            Icons.folder_open_outlined,
-            size: 48,
-            color: AppColors.textSecondary,
-          ),
-
-          const SizedBox(height: 12),
-
-          const Text(
-            'No assets found',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          Text(
-            _search.isNotEmpty || _filter != 'All'
-                ? 'There are no assets matching your search or filter.'
-                : 'There are no assets in this company.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
+    return PremiumEmptyState(
+      icon: Icons.folder_open_outlined,
+      title: 'No assets found',
+      message: _search.isNotEmpty || _filter != 'All'
+          ? 'There are no assets matching your search or filter.'
+          : 'There are no assets in this company.',
     );
   }
 
@@ -2063,60 +1804,12 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   // ============================================================
 
   Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(maxWidth: 600),
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                size: 52,
-                color: Colors.redAccent,
-              ),
-
-              const SizedBox(height: 16),
-
-              const Text(
-                'Unable to load assets',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                _errorMessage ?? 'Something went wrong.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              FilledButton.icon(
-                onPressed: _loadAssets,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try Again'),
-              ),
-            ],
-          ),
-        ),
+    return PremiumBackground(
+      child: PremiumErrorState(
+        title: 'Unable to load assets',
+        message: _errorMessage ?? 'Something went wrong.',
+        retryLabel: 'Try Again',
+        onRetry: _loadAssets,
       ),
     );
   }
@@ -2225,25 +1918,6 @@ class _CompanyAssetsPageState extends State<CompanyAssetsPage> {
   }
 }
 
-// Column header label for the assets table.
-class _ColHead extends StatelessWidget {
-  final String label;
-  const _ColHead(this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-        color: AppColors.textSecondary,
-        letterSpacing: 0.2,
-      ),
-    );
-  }
-}
-
 // ============================================================================
 // ASSET PREVIEW PAGE
 // ============================================================================
@@ -2274,79 +1948,102 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final mobile = constraints.maxWidth < 900;
-          final pad = constraints.maxWidth < 700 ? 16.0 : 32.0;
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(pad, 20, pad, 36),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildBreadcrumb(),
-                const SizedBox(height: 16),
-                if (mobile)
-                  Column(
-                    children: [
-                      _buildPreviewArea(),
-                      const SizedBox(height: 18),
-                      _buildDetailsPanel(),
-                    ],
-                  )
-                else
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 3, child: _buildPreviewArea()),
-                      const SizedBox(width: 20),
-                      SizedBox(width: 380, child: _buildDetailsPanel()),
-                    ],
+      backgroundColor: PremiumColors.surface,
+      body: PremiumPage(
+        builder: (context, bp) => [
+          _buildBreadcrumb(),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final mobile = constraints.maxWidth < 900;
+              if (mobile) {
+                return Column(
+                  children: [
+                    Reveal(child: _buildPreviewArea()),
+                    SizedBox(height: bp.gap),
+                    Reveal(
+                      delay: const Duration(milliseconds: 120),
+                      child: _buildDetailsPanel(),
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: Reveal(child: _buildPreviewArea())),
+                  SizedBox(width: bp.gap),
+                  SizedBox(
+                    width: 380,
+                    child: Reveal(
+                      delay: const Duration(milliseconds: 120),
+                      child: _buildDetailsPanel(),
+                    ),
                   ),
-              ],
-            ),
-          );
-        },
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 
+  /// Preview height that keeps the whole page inside a laptop screen.
+  double get _previewHeight {
+    final size = MediaQuery.of(context).size;
+    if (size.width < 700) return 300;
+    return (size.height - 190).clamp(300.0, 560.0);
+  }
+
   // ── Breadcrumb ──────────────────────────────────────────────
   Widget _buildBreadcrumb() {
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
+    Widget link(String label) => HoverBuilder(
+      cursor: SystemMouseCursors.click,
+      builder: (context, hovered) => GestureDetector(
+        onTap: _back,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: hovered ? PremiumColors.blue : PremiumColors.muted,
+          ),
+        ),
+      ),
+    );
+    const chevron = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4),
+      child: Icon(
+        Icons.chevron_right_rounded,
+        size: 16,
+        color: PremiumColors.faint,
+      ),
+    );
+    return Row(
       children: [
-        InkWell(
-          onTap: _back,
-          child: const Text(
-            'Asset Library',
-            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-          ),
+        PremiumIconButton(
+          icon: Icons.arrow_back_rounded,
+          tooltip: 'Back to assets',
+          onPressed: _back,
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        InkWell(
-          onTap: _back,
-          child: Text(
-            asset.companyName,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Text('/', style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        Text(
-          asset.name,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
+        const SizedBox(width: 6),
+        Expanded(
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              link('Asset Library'),
+              chevron,
+              link(asset.companyName),
+              chevron,
+              Text(
+                asset.name,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: PremiumColors.blue,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -2360,180 +2057,171 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
     final hasLink = link.isNotEmpty;
     final description = asset.description?.trim() ?? '';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
+    return PremiumPanel(
+      padding: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            asset.name,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              height: 1.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Type chip
+          // Blue title strip
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(16),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            decoration: const BoxDecoration(
+              gradient: PremiumColors.heroGradient,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
             ),
-            child: Text(
-              asset.type,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-          if (description.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              description,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-          const SizedBox(height: 18),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 16),
-          // File info
-          if (hasFile)
-            Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.insert_drive_file_outlined,
-                  size: 22,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x26FFFFFF),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0x33FFFFFF)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        '${_displayFileName(asset.filePath!.trim())}'
-                        '${asset.fileSize != null ? '  ·  ${_formatBytes(asset.fileSize!)}' : ''}',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
+                      Icon(
+                        _getAssetIcon(asset.type),
+                        size: 13,
+                        color: const Color(0xFFBFDBFE),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(width: 5),
                       Text(
-                        'Updated ${_formatDateTime(asset.updatedAt)}',
+                        asset.type,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  asset.name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    height: 1.2,
+                    letterSpacing: -0.4,
+                  ),
+                ),
               ],
             ),
-          if (hasFile) const SizedBox(height: 16),
-          // Company / Section
-          _infoRow('Company', asset.companyName),
-          _infoRow('Section', asset.section),
-          const SizedBox(height: 8),
-          // Action buttons
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _back,
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Back to assets'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.border),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 13,
-                  ),
-                ),
-              ),
-              if (hasFile)
-                FilledButton.icon(
-                  onPressed: _isDownloading ? null : _download,
-                  icon: _isDownloading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.download_rounded, size: 18),
-                  label: Text(_isDownloading ? 'Downloading...' : 'Download'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 13,
-                    ),
-                  ),
-                ),
-              if (hasLink)
-                OutlinedButton.icon(
-                  onPressed: () => _openLink(link),
-                  icon: const Icon(Icons.open_in_new, size: 18),
-                  label: const Text('Open original'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side: const BorderSide(color: AppColors.border),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 13,
-                    ),
-                  ),
-                ),
-            ],
           ),
-          const SizedBox(height: 18),
-          // Info note
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Icon(Icons.info_outline, size: 18, color: AppColors.primary),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'This preview adapts to the asset type. Links, web apps and '
-                    'mobile apps open in a safe link card. Documents and videos '
-                    'use their respective previews with playback and download '
-                    'options.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.45,
-                      color: AppColors.textSecondary,
+              children: [
+                if (description.isNotEmpty) ...[
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.5,
+                      color: PremiumColors.body,
                     ),
                   ),
+                  const SizedBox(height: 14),
+                ],
+                // File info
+                if (hasFile) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: PremiumColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: PremiumColors.line),
+                    ),
+                    child: Row(
+                      children: [
+                        const PremiumIconTile(
+                          icon: Icons.insert_drive_file_outlined,
+                          accent: PremiumAccent.blue,
+                          size: 36,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_displayFileName(asset.filePath!.trim())}'
+                                '${asset.fileSize != null ? '  ·  ${_formatBytes(asset.fileSize!)}' : ''}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: PremiumColors.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Updated ${_formatDateTime(asset.updatedAt)}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: PremiumColors.muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                // Company / Section
+                _infoRow('Company', asset.companyName),
+                _infoRow('Section', asset.section),
+                const SizedBox(height: 6),
+                // Action buttons
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (hasFile)
+                      PremiumButton(
+                        label: _isDownloading ? 'Downloading...' : 'Download',
+                        icon: Icons.download_rounded,
+                        iconLeading: true,
+                        loading: _isDownloading,
+                        onPressed: _isDownloading ? null : _download,
+                      ),
+                    if (hasLink)
+                      PremiumButton(
+                        label: 'Open original',
+                        icon: Icons.open_in_new_rounded,
+                        iconLeading: true,
+                        variant: PremiumButtonVariant.soft,
+                        onPressed: () => _openLink(link),
+                      ),
+                    PremiumButton(
+                      label: 'Back to assets',
+                      icon: Icons.arrow_back_rounded,
+                      iconLeading: true,
+                      variant: PremiumButtonVariant.outlined,
+                      onPressed: _back,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Info note
+                const PremiumInfoNote(
+                  text:
+                      'This preview adapts to the asset type. Links, web apps and '
+                      'mobile apps open in a safe link card. Documents and videos '
+                      'use their respective previews with playback and download '
+                      'options.',
                 ),
               ],
             ),
@@ -2632,6 +2320,15 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
     return _buildPlaceholderPreview();
   }
 
+  BoxDecoration get _stageDecoration => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: PremiumColors.line),
+    boxShadow: const [
+      BoxShadow(color: Color(0x0F1E40AF), blurRadius: 18, offset: Offset(0, 8)),
+    ],
+  );
+
   Widget _buildLinkImagePreview(String link) {
     if (kIsWeb) {
       return _buildLinkFallbackCard(link);
@@ -2639,12 +2336,8 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
     // Non-web fallback: try as image, else link card
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 260, maxHeight: 520),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
+      height: _previewHeight,
+      decoration: _stageDecoration,
       clipBehavior: Clip.antiAlias,
       child: Image.network(
         link,
@@ -2658,69 +2351,74 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
     final host = Uri.tryParse(link)?.host ?? link;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
-      decoration: BoxDecoration(
+      height: _previewHeight,
+      decoration: _stageDecoration.copyWith(
         gradient: const LinearGradient(
-          colors: [Color(0xFFF0F4FF), Color(0xFFEEF2FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          colors: [Color(0xFFEAF2FF), Colors.white],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.language_rounded,
-              size: 36,
-              color: AppColors.primary,
-            ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PremiumFloat(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    gradient: PremiumAccent.blue.gradient,
+                    shape: BoxShape.circle,
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x402563EB),
+                        blurRadius: 24,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.language_rounded,
+                    size: 38,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'External Link',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: PremiumColors.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              PremiumBadge(label: host, icon: Icons.link_rounded),
+              const SizedBox(height: 8),
+              const Text(
+                'Live preview is not available for external websites.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: PremiumColors.muted),
+              ),
+              const SizedBox(height: 18),
+              PremiumButton(
+                label: 'Open in Browser',
+                icon: Icons.open_in_new_rounded,
+                iconLeading: true,
+                onPressed: () async {
+                  final uri = Uri.tryParse(link);
+                  if (uri != null) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          const Text(
-            'External Link',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            host,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Live preview is not available for external websites.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () async {
-              final uri = Uri.tryParse(link);
-              if (uri != null)
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-            icon: const Icon(Icons.open_in_new_rounded, size: 16),
-            label: const Text('Open in Browser'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2728,12 +2426,8 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
   Widget _buildImagePreview(String url) {
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 260, maxHeight: 520),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
+      height: _previewHeight,
+      decoration: _stageDecoration.copyWith(color: PremiumColors.surface),
       clipBehavior: Clip.antiAlias,
       child: Image.network(
         url,
@@ -2742,6 +2436,8 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
             ? child
             : Center(
                 child: CircularProgressIndicator(
+                  color: PremiumColors.blue,
+                  backgroundColor: const Color(0xFFDCE8FF),
                   value: progress.expectedTotalBytes != null
                       ? progress.cumulativeBytesLoaded /
                             progress.expectedTotalBytes!
@@ -2756,68 +2452,72 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
   Widget _buildVideoPreview(String url) {
     return Container(
       width: double.infinity,
-      height: 300,
+      height: _previewHeight,
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        gradient: PremiumColors.heroGradient,
+        borderRadius: BorderRadius.circular(18),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              size: 44,
-              color: Colors.white,
-            ),
+      clipBehavior: Clip.antiAlias,
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PremiumFloat(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0x40000F3D),
+                        blurRadius: 24,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    size: 46,
+                    color: PremiumColors.blue,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Video File',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                url.split('/').last,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xB3FFFFFF)),
+              ),
+              const SizedBox(height: 16),
+              PremiumButton(
+                label: 'Open / Download',
+                icon: Icons.open_in_new_rounded,
+                iconLeading: true,
+                variant: PremiumButtonVariant.light,
+                onPressed: () async {
+                  final uri = Uri.tryParse(url);
+                  if (uri != null) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          const Text(
-            'Video File',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            url.split('/').last,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.white.withValues(alpha: 0.6),
-            ),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () async {
-              final uri = Uri.tryParse(url);
-              if (uri != null)
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-            icon: const Icon(
-              Icons.open_in_new_rounded,
-              size: 16,
-              color: Colors.white,
-            ),
-            label: const Text(
-              'Open / Download',
-              style: TextStyle(color: Colors.white),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.white54),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2825,56 +2525,63 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
   Widget _buildPlaceholderPreview() {
     return Container(
       width: double.infinity,
-      height: 300,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+      height: _previewHeight,
+      decoration: _stageDecoration.copyWith(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFEAF2FF), Colors.white],
+        ),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 82,
-            height: 82,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Icon(
-              _getAssetIcon(asset.type),
-              size: 42,
-              color: AppColors.primary,
-            ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PremiumFloat(
+                child: Container(
+                  width: 84,
+                  height: 84,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: PremiumAccent.blue.gradient,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x402563EB),
+                        blurRadius: 24,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _getAssetIcon(asset.type),
+                    size: 42,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                asset.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: PremiumColors.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              PremiumBadge(
+                label: _previewMessage(),
+                icon: _getAssetIcon(asset.type),
+              ),
+            ],
           ),
-
-          const SizedBox(height: 17),
-
-          Text(
-            asset.name,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 19,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          Text(
-            _previewMessage(),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2905,33 +2612,32 @@ class _AssetPreviewPageState extends State<AssetPreviewPage> {
   }
 
   // ============================================================
-  // LINK CARD
+  // INFO ROW
   // ============================================================
 
   Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: PremiumColors.rowLine)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 90,
             child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-              ),
+              label.toUpperCase(),
+              style: PremiumColors.tableHeaderStyle,
             ),
           ),
-
           Expanded(
             child: Text(
               value,
               style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textPrimary,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: PremiumColors.ink,
               ),
             ),
           ),

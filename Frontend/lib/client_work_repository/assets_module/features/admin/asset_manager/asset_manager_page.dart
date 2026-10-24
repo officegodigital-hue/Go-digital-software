@@ -117,53 +117,48 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     );
 
     final sectionColor = isDigital
-        ? AppColors.digitalMarketing
-        : AppColors.softwareDevelopment;
+        ? PremiumAccent.blue.start
+        : PremiumAccent.violet.start;
     final sectionLightColor = isDigital
-        ? AppColors.digitalMarketingLight
-        : AppColors.softwareDevelopmentLight;
+        ? PremiumAccent.blue.soft
+        : PremiumAccent.violet.soft;
 
     return Scaffold(
       backgroundColor: PremiumColors.surface,
-      body: PremiumPage(
-        builder: (context, bp) => [
-          // 1. Page header
+      body: PremiumStickyPage(
+        // 1–2. Header and stats scroll away.
+        top: (context, bp) => [
           Reveal(child: _buildPageHeader(bp.mobile)),
           SizedBox(height: bp.gap),
-
-          // 2. Stat cards
           _buildStatCards(bp.mobile),
-          SizedBox(height: bp.gap),
-
-          // 3. Tabs, section header, search + filters
-          Reveal(
-            delay: const Duration(milliseconds: 380),
-            child: PremiumPanel(
-              padding: EdgeInsets.all(bp.mobile ? 12 : 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildTabBar(digitalCount, softwareCount),
-                  const SizedBox(height: 14),
-                  _buildSectionHeader(
-                    section: section,
-                    companyCount: companies.length,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildToolbar(
-                    section: section,
-                    filter: filter,
-                    filters: filters,
-                    searchController: searchController,
-                    compact: bp.mobile,
-                  ),
-                ],
+          const SizedBox(height: 4),
+        ],
+        // 3. Tabs, section header, search + filters stay pinned on top.
+        pinnedHeight: _pinnedPanelHeight,
+        pinned: (context, bp) => PremiumPanel(
+          padding: EdgeInsets.all(bp.mobile ? 12 : 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTabBar(digitalCount, softwareCount),
+              const SizedBox(height: 10),
+              _buildSectionHeader(
+                section: section,
+                companyCount: companies.length,
               ),
-            ),
+              const SizedBox(height: 10),
+              _buildToolbar(
+                section: section,
+                filter: filter,
+                filters: filters,
+                searchController: searchController,
+                compact: bp.mobile,
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-
-          // 4. Grid or empty state
+        ),
+        // 4. Grid or empty state scrolls under the pinned panel.
+        body: (context, bp) => [
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 320),
             switchInCurve: Curves.easeOutCubic,
@@ -190,6 +185,13 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
         ],
       ),
     );
+  }
+
+  /// Height of the pinned panel; taller when search and chips stack.
+  double _pinnedPanelHeight(PremiumBreakpoint bp) {
+    final pad = bp.mobile ? 12.0 : 14.0;
+    final inner = bp.width - bp.gutter * 2 - pad * 2;
+    return inner < 760 ? 226.0 : 176.0;
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -513,23 +515,6 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
                 child: Stack(
                   children: [
                     Positioned(
-                      right: -46,
-                      top: -46,
-                      child: AnimatedScale(
-                        scale: hovered ? 1.3 : 1,
-                        duration: const Duration(milliseconds: 420),
-                        curve: Curves.easeOutCubic,
-                        child: Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: accent.soft,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
                       left: 0,
                       top: 0,
                       bottom: 0,
@@ -675,29 +660,29 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
 
   // Named-company overrides (reference mockup companies)
   static const _logoColorMap = <String, Color>{
-    'Apex Media': Color(0xFF1F2937),
-    'Bloom Digital': Color(0xFFFF6B9D),
-    'ClearView Marketing': Color(0xFF10B981),
-    'Elevate Brands': Color(0xFF7C3AED),
-    'Fusion Creative': Color(0xFFF59E0B),
-    'Nexa Marketing': Color(0xFFEF4444),
+    'Apex Media': Color(0xFF0B1B3F),
+    'Bloom Digital': Color(0xFF1E3A8A),
+    'ClearView Marketing': Color(0xFF0284C7),
+    'Elevate Brands': Color(0xFF1D4ED8),
+    'Fusion Creative': Color(0xFF1E3A8A),
+    'Nexa Marketing': Color(0xFF3B5B9A),
     'Orbit Digital': Color(0xFF2563EB),
-    'Pulse Media': Color(0xFF166534),
-    'Vivid Marketing': Color(0xFF8B5CF6),
+    'Pulse Media': Color(0xFF0284C7),
+    'Vivid Marketing': Color(0xFF1D4ED8),
   };
 
   // Palette for companies not in the named map — cycles by first letter
   static const _palette = <Color>[
     Color(0xFF2563EB),
-    Color(0xFF7C3AED),
-    Color(0xFF10B981),
-    Color(0xFFD97706),
-    Color(0xFFEF4444),
-    Color(0xFF0891B2),
-    Color(0xFF059669),
-    Color(0xFFDC2626),
-    Color(0xFF4F46E5),
-    Color(0xFF9333EA),
+    Color(0xFF1D4ED8),
+    Color(0xFF0284C7),
+    Color(0xFF1E3A8A),
+    Color(0xFF3B5B9A),
+    Color(0xFF0369A1),
+    Color(0xFF0284C7),
+    Color(0xFF3B5B9A),
+    Color(0xFF1D4ED8),
+    Color(0xFF1D4ED8),
   ];
 
   Color _logoColorForName(String name) {
@@ -711,7 +696,7 @@ class _AssetManagerPageState extends State<AssetManagerPage> {
     final bg = _logoColorForName(name);
     return bg.computeLuminance() < 0.45
         ? Colors.white
-        : const Color(0xFF111827);
+        : const Color(0xFF0B1B3F);
   }
 
   Widget _buildCompanyLogoSized({

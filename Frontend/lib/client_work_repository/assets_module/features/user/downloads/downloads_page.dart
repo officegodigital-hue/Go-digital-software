@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../services/api_service.dart';
 
 class DownloadsPage extends StatefulWidget {
@@ -68,8 +68,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       ];
 
       return values.any(
-        (value) =>
-            value?.toString().toLowerCase().contains(query) ?? false,
+        (value) => value?.toString().toLowerCase().contains(query) ?? false,
       );
     }).toList();
   }
@@ -122,235 +121,207 @@ class _DownloadsPageState extends State<DownloadsPage> {
     return Icons.insert_drive_file_outlined;
   }
 
-  Widget _buildHeader() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Download History',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                'View files downloaded by users across the asset library.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        OutlinedButton.icon(
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildHeader(bool mobile) {
+    return PremiumHero(
+      compact: mobile,
+      eyebrow: 'Activity log',
+      eyebrowIcon: Icons.history_rounded,
+      title: 'Download History',
+      subtitle: 'View files downloaded by users across the asset library.',
+      actions: [
+        PremiumButton(
+          label: 'Refresh',
+          icon: Icons.refresh_rounded,
+          iconLeading: true,
+          variant: PremiumButtonVariant.glass,
+          loading: _loading,
           onPressed: _loading ? null : _loadLogs,
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('Refresh'),
         ),
       ],
     );
   }
 
   Widget _buildSummaryCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.download_outlined,
-                color: AppColors.primary,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Total Downloads',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_logs.length}',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ],
+    final maps = _logs.whereType<Map>();
+    final files = maps.map((m) => _text(m['file_name'], '')).toSet()
+      ..remove('');
+    final companies = maps.map((m) => _text(m['company_name'], '')).toSet()
+      ..remove('');
+    return PremiumStatRow(
+      stats: [
+        PremiumStat(
+          label: 'Total Downloads',
+          value: _logs.length,
+          icon: Icons.download_rounded,
+          accent: PremiumAccent.blue,
+          caption: 'All recorded downloads',
         ),
-      ),
+        PremiumStat(
+          label: 'Files',
+          value: files.length,
+          icon: Icons.insert_drive_file_rounded,
+          accent: PremiumAccent.violet,
+          caption: 'Unique files',
+        ),
+        PremiumStat(
+          label: 'Companies',
+          value: companies.length,
+          icon: Icons.apartment_rounded,
+          accent: PremiumAccent.cyan,
+          caption: 'With downloads',
+        ),
+      ],
     );
   }
 
   Widget _buildSearchField() {
-    return TextField(
-      onChanged: (value) {
-        setState(() {
-          _search = value;
-        });
+    return LayoutBuilder(
+      builder: (context, box) {
+        final field = PremiumSearchField(
+          controller: _searchController,
+          hint: 'Search user, file, asset or company...',
+          onChanged: (value) {
+            setState(() {
+              _search = value;
+            });
+          },
+          onClear: () => setState(() => _search = ''),
+        );
+        final count = PremiumBadge(
+          label: '${_filteredLogs.length} records',
+          icon: Icons.receipt_long_rounded,
+        );
+        if (box.maxWidth < 560) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [field, const SizedBox(height: 10), count],
+          );
+        }
+        return Row(
+          children: [
+            SizedBox(width: 380, child: field),
+            const Spacer(),
+            count,
+          ],
+        );
       },
-      decoration: InputDecoration(
-        hintText: 'Search user, file, asset or company...',
-        prefixIcon: const Icon(Icons.search),
-        suffixIcon: _search.isEmpty
-            ? null
-            : IconButton(
-                onPressed: () {
-                  setState(() {
-                    _search = '';
-                  });
-                },
-                icon: const Icon(Icons.clear),
-              ),
-      ),
     );
   }
 
   Widget _buildEmptyState() {
     final hasSearch = _search.trim().isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 70),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              hasSearch
-                  ? Icons.search_off_outlined
-                  : Icons.download_outlined,
-              size: 54,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              hasSearch
-                  ? 'No matching download records found.'
-                  : 'No downloads recorded yet.',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            if (hasSearch) ...[
-              const SizedBox(height: 6),
-              const Text(
-                'Try a different search term.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return PremiumEmptyState(
+      icon: hasSearch ? Icons.search_off_outlined : Icons.download_outlined,
+      title: hasSearch
+          ? 'No matching download records found.'
+          : 'No downloads recorded yet.',
+      message: hasSearch ? 'Try a different search term.' : null,
     );
   }
 
+  // Fixed-height table: the header stays pinned while rows scroll.
   Widget _buildDesktopTable() {
     final rows = _filteredLogs;
-
-    return Card(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 1050),
-          child: DataTable(
-            headingRowHeight: 52,
-            dataRowMinHeight: 68,
-            dataRowMaxHeight: 80,
-            columnSpacing: 28,
-            horizontalMargin: 20,
-            columns: const [
-              DataColumn(label: Text('User')),
-              DataColumn(label: Text('File')),
-              DataColumn(label: Text('Asset')),
-              DataColumn(label: Text('Company')),
-              DataColumn(label: Text('Type')),
-              DataColumn(label: Text('Downloaded At')),
-            ],
-            rows: rows.map<DataRow>((item) {
-              final map = item is Map ? item : <dynamic, dynamic>{};
-              final type = _text(map['asset_type']);
-
-              return DataRow(
-                cells: [
-                  DataCell(
-                    SizedBox(
-                      width: 150,
-                      child: _userCell(
-                        _text(map['user_name']),
-                        _text(map['user_email'], ''),
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    SizedBox(
-                      width: 190,
-                      child: _fileCell(_text(map['file_name'])),
-                    ),
-                  ),
-                  DataCell(
-                    SizedBox(
-                      width: 170,
-                      child: Text(
-                        _text(map['asset_name']),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    SizedBox(
-                      width: 145,
-                      child: Text(
-                        _text(map['company_name']),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  DataCell(_typeChip(type, map['section'])),
-                  DataCell(
-                    Text(
-                      _formatDownloadedAt(map['created_at']),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+    const p = EdgeInsets.symmetric(horizontal: 12);
+    Widget head(int flex, String label) => Expanded(
+      flex: flex,
+      child: Padding(
+        padding: p,
+        child: Text(label.toUpperCase(), style: PremiumColors.tableHeaderStyle),
+      ),
+    );
+    return PremiumTable(
+      minWidth: 980,
+      header: PremiumTableHeader(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          children: [
+            head(20, 'User'),
+            head(22, 'File'),
+            head(18, 'Asset'),
+            head(15, 'Company'),
+            head(12, 'Type'),
+            head(13, 'Downloaded At'),
+          ],
         ),
+      ),
+      itemCount: rows.length,
+      itemBuilder: (context, i) {
+        final item = rows[i];
+        final map = item is Map ? item : <dynamic, dynamic>{};
+        final type = _text(map['asset_type']);
+        Widget cell(int flex, Widget child) => Expanded(
+          flex: flex,
+          child: Padding(padding: p, child: child),
+        );
+        return PremiumTableRow(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Row(
+            children: [
+              cell(
+                20,
+                _userCell(
+                  _text(map['user_name']),
+                  _text(map['user_email'], ''),
+                ),
+              ),
+              cell(22, _fileCell(_text(map['file_name']), type)),
+              cell(
+                18,
+                Text(
+                  _text(map['asset_name']),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: PremiumColors.body,
+                  ),
+                ),
+              ),
+              cell(
+                15,
+                Text(
+                  _text(map['company_name']),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: PremiumColors.body,
+                  ),
+                ),
+              ),
+              cell(
+                12,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _typeChip(type, map['section']),
+                ),
+              ),
+              cell(
+                13,
+                Text(
+                  _formatDownloadedAt(map['created_at']),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: PremiumColors.muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      footer: PremiumTableFooter(
+        child: Text('Showing ${rows.length} of ${_logs.length} downloads'),
       ),
     );
   }
@@ -362,16 +333,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
     return Row(
       children: [
-        CircleAvatar(
-          radius: 18,
-          backgroundColor: const Color(0xFFEAF2FF),
-          child: Text(
-            initial,
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+        PremiumAvatar(
+          text: initial,
+          accent: PremiumAccent.forText(name),
+          size: 34,
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -384,20 +349,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 13.5,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: PremiumColors.ink,
                 ),
               ),
               if (email.isNotEmpty) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   email,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
+                    fontSize: 11.5,
+                    color: PremiumColors.muted,
                   ),
                 ),
               ],
@@ -408,15 +373,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  Widget _fileCell(String fileName) {
+  Widget _fileCell(String fileName, [String type = '']) {
     return Row(
       children: [
-        const Icon(
-          Icons.insert_drive_file_outlined,
-          size: 20,
-          color: AppColors.primary,
+        PremiumIconTile(
+          icon: _assetIcon(type.isEmpty ? fileName : type),
+          accent: PremiumAccent.blue,
+          size: 32,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             fileName,
@@ -424,8 +389,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+              color: PremiumColors.ink,
             ),
           ),
         ),
@@ -434,20 +399,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Widget _typeChip(String type, dynamic section) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        type,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppColors.primary,
-        ),
-      ),
+    return PremiumBadge(
+      label: type,
+      icon: _assetIcon(type),
+      accent: section?.toString() == 'Software Development'
+          ? PremiumAccent.violet
+          : PremiumAccent.blue,
+      maxWidth: 150,
     );
   }
 
@@ -455,45 +413,60 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final rows = _filteredLogs;
 
     return Column(
-      children: rows.map((item) {
-        final map = item is Map ? item : <dynamic, dynamic>{};
-        final userName = _text(map['user_name']);
-        final email = _text(map['user_email'], '');
-        final fileName = _text(map['file_name']);
-        final assetName = _text(map['asset_name']);
-        final companyName = _text(map['company_name']);
-        final type = _text(map['asset_type']);
-        final section = _text(map['section'], '');
+      children: [
+        for (var i = 0; i < rows.length; i++)
+          Builder(
+            builder: (context) {
+              final item = rows[i];
+              final map = item is Map ? item : <dynamic, dynamic>{};
+              final userName = _text(map['user_name']);
+              final email = _text(map['user_email'], '');
+              final fileName = _text(map['file_name']);
+              final assetName = _text(map['asset_name']);
+              final companyName = _text(map['company_name']);
+              final type = _text(map['asset_type']);
+              final section = _text(map['section'], '');
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: _userCell(userName, email)),
-                    _typeChip(type, section),
-                  ],
+              return Reveal(
+                delay: Duration(milliseconds: 40 * (i < 10 ? i : 10)),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: PremiumColors.line),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: _userCell(userName, email)),
+                          const SizedBox(width: 8),
+                          _typeChip(type, section),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(height: 1, color: PremiumColors.line),
+                      const SizedBox(height: 10),
+                      _detailLine('File', fileName),
+                      const SizedBox(height: 6),
+                      _detailLine('Asset', assetName),
+                      const SizedBox(height: 6),
+                      _detailLine('Company', companyName),
+                      const SizedBox(height: 6),
+                      _detailLine(
+                        'Downloaded At',
+                        _formatDownloadedAt(map['created_at']),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _detailLine('File', fileName),
-                const SizedBox(height: 9),
-                _detailLine('Asset', assetName),
-                const SizedBox(height: 9),
-                _detailLine('Company', companyName),
-                const SizedBox(height: 9),
-                _detailLine(
-                  'Downloaded At',
-                  _formatDownloadedAt(map['created_at']),
-                ),
-              ],
-            ),
+              );
+            },
           ),
-        );
-      }).toList(),
+      ],
     );
   }
 
@@ -504,11 +477,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
         SizedBox(
           width: 105,
           child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
+            label.toUpperCase(),
+            style: PremiumColors.tableHeaderStyle.copyWith(fontSize: 10.5),
           ),
         ),
         Expanded(
@@ -517,7 +487,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
+              color: PremiumColors.ink,
             ),
           ),
         ),
@@ -527,67 +497,55 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isDesktop = constraints.maxWidth >= 900;
-
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(isDesktop ? 24 : 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 18),
-              _buildSummaryCard(),
-              const SizedBox(height: 18),
-              _buildSearchField(),
-              const SizedBox(height: 18),
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 80),
-                  child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (_error != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 44,
-                          color: Colors.redAccent,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        ElevatedButton.icon(
-                          onPressed: _loadLogs,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Try Again'),
-                        ),
-                      ],
+    return PremiumPage(
+      builder: (context, bp) => [
+        Reveal(child: _buildHeader(bp.mobile)),
+        SizedBox(height: bp.gap),
+        _buildSummaryCard(),
+        SizedBox(height: bp.gap),
+        Reveal(
+          delay: const Duration(milliseconds: 320),
+          child: PremiumPanel(
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _buildSearchField(),
+                ),
+                const Divider(height: 1, color: PremiumColors.line),
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: PremiumLoading(label: 'Loading downloads...'),
+                  )
+                else if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: PremiumErrorState(
+                      title: 'Unable to load downloads',
+                      message: _error!,
+                      retryLabel: 'Try Again',
+                      onRetry: _loadLogs,
                     ),
+                  )
+                else if (_filteredLogs.isEmpty)
+                  _buildEmptyState()
+                else
+                  LayoutBuilder(
+                    builder: (context, box) => box.maxWidth >= 860
+                        ? _buildDesktopTable()
+                        : Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: _buildMobileList(),
+                          ),
                   ),
-                )
-              else if (_filteredLogs.isEmpty)
-                Card(child: _buildEmptyState())
-              else if (isDesktop)
-                _buildDesktopTable()
-              else
-                _buildMobileList(),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }

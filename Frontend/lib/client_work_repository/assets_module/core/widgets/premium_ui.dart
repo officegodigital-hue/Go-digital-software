@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 // ══════════════════════════════════════════════════════════════════════════
-// Premium blue & white UI kit, shared by the admin pages.
+// Premium blue & white UI kit, shared by the admin and employee pages.
+// Strictly blue and white: no other hues.
 // Compact "task manager" density, sized to fit a 14" laptop screen.
 // Flutter SDK only: no extra packages.
 // ══════════════════════════════════════════════════════════════════════════
@@ -12,11 +13,11 @@ class PremiumColors {
   PremiumColors._();
 
   static const ink = Color(0xFF0B1B3F);
-  static const body = Color(0xFF334155);
-  static const muted = Color(0xFF64748B);
-  static const faint = Color(0xFF94A3B8);
-  static const blue = Color(0xFF2563EB);
-  static const blueDeep = Color(0xFF1E40AF);
+  static const body = Color(0xFF2A3B5F);
+  static const muted = Color(0xFF5B6B8C);
+  static const faint = Color(0xFF94A3C0);
+  static const blue = Color(0xFF1B5FE8);
+  static const blueDeep = Color(0xFF1240C4);
   static const line = Color(0xFFE3EAF6);
   static const rowLine = Color(0xFFEDF2FA);
   static const rowHover = Color(0xFFF5F9FF);
@@ -27,7 +28,7 @@ class PremiumColors {
   static const heroGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF0F2A6B), Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+    colors: [Color(0xFF1240C4), Color(0xFF1B5FE8), Color(0xFF2E8BF2)],
   );
 
   static const pageGradient = LinearGradient(
@@ -68,40 +69,54 @@ class PremiumAccent {
     colors: [start, end],
   );
 
+  // Every accent is a shade of blue: the theme is strictly blue and white.
+  // The names are kept so pages can say what a colour means.
   static const blue = PremiumAccent(
     Color(0xFF2563EB),
-    Color(0xFF38BDF8),
+    Color(0xFF60A5FA),
     Color(0xFFE8F1FF),
   );
+
+  /// Sky blue, used for "on", "active" and success states.
   static const green = PremiumAccent(
-    Color(0xFF059669),
-    Color(0xFF34D399),
-    Color(0xFFE3F8EF),
+    Color(0xFF0284C7),
+    Color(0xFF38BDF8),
+    Color(0xFFE0F2FE),
   );
+
+  /// Royal blue.
   static const violet = PremiumAccent(
-    Color(0xFF7C3AED),
-    Color(0xFFC084FC),
-    Color(0xFFF3EBFF),
+    Color(0xFF1D4ED8),
+    Color(0xFF3B82F6),
+    Color(0xFFE6EDFF),
   );
+
+  /// Navy.
   static const amber = PremiumAccent(
-    Color(0xFFF59E0B),
-    Color(0xFFFB7185),
-    Color(0xFFFFF4E0),
+    Color(0xFF1E3A8A),
+    Color(0xFF2563EB),
+    Color(0xFFE3E9F8),
   );
+
+  /// Bright azure.
   static const cyan = PremiumAccent(
-    Color(0xFF0891B2),
-    Color(0xFF22D3EE),
-    Color(0xFFE0F7FB),
+    Color(0xFF0369A1),
+    Color(0xFF0EA5E9),
+    Color(0xFFE0F2FE),
   );
+
+  /// Muted steel blue, used for "off", "inactive" and delete.
   static const rose = PremiumAccent(
-    Color(0xFFE11D48),
-    Color(0xFFFB7185),
-    Color(0xFFFFE8EC),
+    Color(0xFF3B5B9A),
+    Color(0xFF7D97C9),
+    Color(0xFFEDF2FA),
   );
+
+  /// Grey blue.
   static const slate = PremiumAccent(
-    Color(0xFF475569),
-    Color(0xFF94A3B8),
-    Color(0xFFF1F5F9),
+    Color(0xFF475A7A),
+    Color(0xFF94A3C0),
+    Color(0xFFF0F3F9),
   );
 
   static const all = [blue, violet, green, amber, cyan, rose];
@@ -188,6 +203,123 @@ class PremiumPage extends StatelessWidget {
   );
 }
 
+/// Like [PremiumPage], but with a bar (search, filters) that stays pinned
+/// at the top while the content below it scrolls.
+class PremiumStickyPage extends StatelessWidget {
+  /// Scrolls away above the pinned bar (hero, stats).
+  final List<Widget> Function(BuildContext context, PremiumBreakpoint bp) top;
+
+  /// The pinned bar. It is given exactly [pinnedHeight] pixels.
+  final Widget Function(BuildContext context, PremiumBreakpoint bp) pinned;
+  final double Function(PremiumBreakpoint bp) pinnedHeight;
+
+  /// Scrolls under the pinned bar (cards, lists).
+  final List<Widget> Function(BuildContext context, PremiumBreakpoint bp) body;
+  final double maxWidth;
+
+  const PremiumStickyPage({
+    super.key,
+    required this.top,
+    required this.pinned,
+    required this.pinnedHeight,
+    required this.body,
+    this.maxWidth = 1440,
+  });
+
+  @override
+  Widget build(BuildContext context) => PremiumBackground(
+    child: DefaultTextStyle.merge(
+      style: const TextStyle(color: PremiumColors.ink),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final bp = PremiumBreakpoint(box.maxWidth);
+          final side =
+              bp.gutter +
+              ((box.maxWidth - bp.gutter * 2 - maxWidth) / 2).clamp(
+                0.0,
+                double.infinity,
+              );
+          final height = pinnedHeight(bp);
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  side,
+                  bp.mobile ? 12 : 16,
+                  side,
+                  0,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: top(context, bp),
+                  ),
+                ),
+              ),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _PinnedBarDelegate(
+                  height: height,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(side, 8, side, 8),
+                    child: pinned(context, bp),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(side, 4, side, 24),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: body(context, bp),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+class _PinnedBarDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+  _PinnedBarDelegate({required this.height, required this.child});
+
+  @override
+  double get minExtent => height + 16;
+  @override
+  double get maxExtent => height + 16;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => DecoratedBox(
+    decoration: BoxDecoration(
+      // Solid backdrop only once cards scroll underneath.
+      color: overlapsContent || shrinkOffset > 0
+          ? PremiumColors.surface
+          : Colors.transparent,
+      boxShadow: [
+        if (overlapsContent || shrinkOffset > 0)
+          const BoxShadow(
+            color: Color(0x141E40AF),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+      ],
+    ),
+    child: SizedBox.expand(child: child),
+  );
+
+  @override
+  bool shouldRebuild(_PinnedBarDelegate old) => true;
+}
+
 // ── Header banner ──────────────────────────────────────────────────────────
 
 /// Slim gradient page header: title on the left, actions on the right.
@@ -201,6 +333,9 @@ class PremiumHero extends StatelessWidget {
   final bool trailingOnNarrow;
   final bool compact;
 
+  /// Optional widget shown before the title, such as a company logo.
+  final Widget? leading;
+
   const PremiumHero({
     super.key,
     required this.title,
@@ -211,6 +346,7 @@ class PremiumHero extends StatelessWidget {
     this.trailing,
     this.trailingOnNarrow = true,
     this.compact = false,
+    this.leading,
   });
 
   @override
@@ -228,7 +364,7 @@ class PremiumHero extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(eyebrowIcon, size: 13, color: const Color(0xFFFDE68A)),
+                Icon(eyebrowIcon, size: 13, color: const Color(0xFFBFDBFE)),
                 const SizedBox(width: 5),
                 Flexible(
                   child: Text(
@@ -283,6 +419,15 @@ class PremiumHero extends StatelessWidget {
         ),
       ],
     );
+    final Widget titled = leading == null
+        ? text
+        : Row(
+            children: [
+              leading!,
+              SizedBox(width: compact ? 12 : 16),
+              Expanded(child: text),
+            ],
+          );
     final actionBar = actions.isEmpty
         ? null
         : Wrap(spacing: 10, runSpacing: 10, children: actions);
@@ -304,20 +449,13 @@ class PremiumHero extends StatelessWidget {
         borderRadius: radius,
         child: Stack(
           children: [
+            // Dotted panel on the right, echoing the Go Digital logo.
             Positioned(
-              right: -50,
-              top: -70,
-              child: _blob(180, const Color(0x1AFFFFFF)),
-            ),
-            Positioned(
-              right: 220,
-              bottom: -90,
-              child: _blob(150, const Color(0x2238BDF8)),
-            ),
-            Positioned(
-              left: -40,
-              bottom: -60,
-              child: _blob(110, const Color(0x12FFFFFF)),
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: compact ? 120 : 260,
+              child: const PremiumDots(color: Color(0x4DFFFFFF)),
             ),
             Padding(
               padding: compact
@@ -328,7 +466,7 @@ class PremiumHero extends StatelessWidget {
                   if (box.maxWidth >= 720) {
                     return Row(
                       children: [
-                        Expanded(child: text),
+                        Expanded(child: titled),
                         if (actionBar != null) ...[
                           const SizedBox(width: 16),
                           actionBar,
@@ -343,7 +481,7 @@ class PremiumHero extends StatelessWidget {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      text,
+                      titled,
                       if (actionBar != null) ...[
                         const SizedBox(height: 12),
                         actionBar,
@@ -587,7 +725,7 @@ class PremiumStatCard extends StatelessWidget {
       textAlign: dense ? TextAlign.center : TextAlign.start,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        color: const Color(0xFF475569),
+        color: const Color(0xFF3B5B9A),
         fontSize: dense ? 11 : 12.5,
         height: 1.3,
         fontWeight: FontWeight.w600,
@@ -669,13 +807,19 @@ class PremiumStatCard extends StatelessWidget {
           child: Stack(
             children: [
               Positioned(
-                right: -34,
-                top: -34,
-                child: AnimatedScale(
-                  scale: hovered ? 1.3 : 1,
-                  duration: const Duration(milliseconds: 400),
-                  curve: Curves.easeOutCubic,
-                  child: _blob(dense ? 72 : 86, accent.soft),
+                right: 0,
+                top: 0,
+                child: AnimatedOpacity(
+                  opacity: hovered ? 1 : 0.6,
+                  duration: const Duration(milliseconds: 300),
+                  child: SizedBox(
+                    width: dense ? 72 : 96,
+                    height: dense ? 72 : 96,
+                    child: PremiumDots(
+                      color: accent.start.withAlpha(70),
+                      spacing: 9,
+                    ),
+                  ),
                 ),
               ),
               Positioned(
@@ -1478,7 +1622,7 @@ class PremiumToggle extends StatelessWidget {
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               gradient: value ? accent.gradient : null,
-              color: value ? null : const Color(0xFFE2E8F0),
+              color: value ? null : const Color(0xFFDCE5F3),
               borderRadius: BorderRadius.circular(999),
               boxShadow: [
                 BoxShadow(
@@ -1945,8 +2089,37 @@ class AnimatedCount extends StatelessWidget {
   );
 }
 
-Widget _blob(double size, Color color) => Container(
-  width: size,
-  height: size,
-  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-);
+/// Grid of dots that fades out towards the left, like the dotted side of
+/// the Go Digital logo.
+class PremiumDots extends StatelessWidget {
+  final Color color;
+  final double spacing;
+  const PremiumDots({super.key, required this.color, this.spacing = 11});
+
+  @override
+  Widget build(BuildContext context) =>
+      IgnorePointer(child: CustomPaint(painter: _DotsPainter(color, spacing)));
+}
+
+class _DotsPainter extends CustomPainter {
+  final Color color;
+  final double spacing;
+  _DotsPainter(this.color, this.spacing);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+    for (var x = size.width - spacing / 2; x > 0; x -= spacing) {
+      // Fade from full strength on the right edge to nothing on the left.
+      final fade = (x / size.width).clamp(0.0, 1.0);
+      paint.color = color.withAlpha((color.a * 255 * fade * fade).round());
+      for (var y = spacing / 2; y < size.height; y += spacing) {
+        canvas.drawCircle(Offset(x, y), 1.6, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DotsPainter old) =>
+      old.color != color || old.spacing != spacing;
+}

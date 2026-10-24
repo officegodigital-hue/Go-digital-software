@@ -2,100 +2,67 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/premium_ui.dart';
 import '../../../models/asset_model.dart';
 
 class AssetViewPage extends StatelessWidget {
   final AssetModel asset;
 
-  const AssetViewPage({
-    super.key,
-    required this.asset,
-  });
+  const AssetViewPage({super.key, required this.asset});
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isMobile = width < 700;
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 700;
+    // Keep the preview inside the viewport on laptop screens.
+    final previewHeight = isMobile
+        ? 300.0
+        : (size.height - 250).clamp(300.0, 520.0);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FBFF),
+      backgroundColor: PremiumColors.surface,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context, isMobile),
-
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isMobile ? 16 : 28,
-                  vertical: 10,
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 850,
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.stretch,
-                      children: [
-                        const SizedBox(height: 10),
-
-                        // ==================================================
-                        // ASSET TITLE
-                        // ==================================================
-
-                        Text(
-                          asset.name,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: isMobile ? 28 : 34,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF122B78),
-                          ),
-                        ),
-
-                        const SizedBox(height: 20),
-
-                        // ==================================================
-                        // PREVIEW
-                        // ==================================================
-
-                        _buildPreview(
-                          context,
-                          isMobile,
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // ==================================================
-                        // FILE INFORMATION
-                        // ==================================================
-
-                        _buildFileInformation(
-                          isMobile,
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // ==================================================
-                        // DOWNLOAD
-                        // ==================================================
-
-                        _buildDownloadButton(
-                          context,
-                          isMobile,
-                        ),
-
-                        const SizedBox(height: 25),
-                      ],
-                    ),
+        child: PremiumPage(
+          maxWidth: 1200,
+          builder: (context, bp) => [
+            Reveal(child: _buildHeader(context, isMobile)),
+            SizedBox(height: bp.gap),
+            LayoutBuilder(
+              builder: (context, box) {
+                final preview = Reveal(
+                  delay: const Duration(milliseconds: 120),
+                  child: _buildPreview(context, isMobile, previewHeight),
+                );
+                final details = Reveal(
+                  delay: const Duration(milliseconds: 220),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildFileInformation(isMobile),
+                      const SizedBox(height: 12),
+                      _buildDownloadButton(context, isMobile),
+                    ],
                   ),
-                ),
-              ),
+                );
+                if (box.maxWidth < 900) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      preview,
+                      SizedBox(height: bp.gap),
+                      details,
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 3, child: preview),
+                    SizedBox(width: bp.gap),
+                    Expanded(flex: 2, child: details),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -107,81 +74,137 @@ class AssetViewPage extends StatelessWidget {
   // HEADER
   // ================================================================
 
-  Widget _buildHeader(
-    BuildContext context,
-    bool isMobile,
-  ) {
-    return Container(
-      height: isMobile ? 64 : 72,
-      width: double.infinity,
-      color: Colors.white,
-      child: Row(
-        children: [
-          const SizedBox(width: 6),
-
-          IconButton(
-            tooltip: 'Back',
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            icon: const Icon(
-              Icons.arrow_back,
-              color: AppColors.primary,
-              size: 30,
+  Widget _buildHeader(BuildContext context, bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            PremiumIconButton(
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Back',
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
             ),
-          ),
-
-          const Spacer(),
-
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {},
-            icon: const Icon(
-              Icons.notifications_none,
-              color: AppColors.primary,
-              size: 30,
+            const SizedBox(width: 10),
+            const Text(
+              'Assets',
+              style: TextStyle(fontSize: 13, color: PremiumColors.muted),
             ),
-          ),
-
-          const SizedBox(width: 8),
-        ],
-      ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: PremiumColors.faint,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                asset.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: PremiumColors.ink,
+                ),
+              ),
+            ),
+            PremiumIconButton(
+              icon: Icons.notifications_none_rounded,
+              tooltip: 'Notifications',
+              onPressed: () {},
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        PremiumHero(
+          compact: isMobile,
+          eyebrow: _typeLabel(),
+          eyebrowIcon: _typeIcon(),
+          title: asset.name,
+          subtitle: [
+            if (asset.companyName.isNotEmpty) asset.companyName,
+            if (asset.section.isNotEmpty) asset.section,
+            'Uploaded ${_formatDate(asset.createdAt)}',
+          ].join('  ·  '),
+        ),
+      ],
     );
   }
+
+  String _typeLabel() => switch (asset.type) {
+    AppConstants.poster => 'Poster',
+    AppConstants.reelVideo => 'Reel video',
+    AppConstants.document => 'Document',
+    AppConstants.websiteLink => 'Website link',
+    AppConstants.webApplication => 'Web application',
+    AppConstants.mobileApplication => 'Mobile application',
+    AppConstants.others => 'Other asset',
+    _ => asset.type,
+  };
+
+  IconData _typeIcon() => switch (asset.type) {
+    AppConstants.poster => Icons.image_outlined,
+    AppConstants.reelVideo => Icons.play_circle_outline_rounded,
+    AppConstants.document => Icons.description_outlined,
+    AppConstants.websiteLink => Icons.language_outlined,
+    AppConstants.webApplication => Icons.desktop_windows_outlined,
+    AppConstants.mobileApplication => Icons.phone_android_outlined,
+    _ => Icons.folder_outlined,
+  };
 
   // ================================================================
   // PREVIEW
   // ================================================================
 
-  Widget _buildPreview(
-    BuildContext context,
-    bool isMobile,
-  ) {
+  Widget _buildPreview(BuildContext context, bool isMobile, double height) {
+    final Widget child;
     switch (asset.type) {
       case AppConstants.poster:
-        return _buildPosterPreview(isMobile);
+        child = _buildPosterPreview(isMobile);
 
       case AppConstants.reelVideo:
-        return _buildVideoPreview(isMobile);
+        child = _buildVideoPreview(isMobile);
 
       case AppConstants.document:
-        return _buildDocumentPreview(isMobile);
+        child = _buildDocumentPreview(isMobile);
 
       case AppConstants.websiteLink:
-        return _buildWebsitePreview(isMobile);
+        child = _buildWebsitePreview(isMobile);
 
       case AppConstants.webApplication:
-        return _buildWebApplicationPreview(isMobile);
+        child = _buildWebApplicationPreview(isMobile);
 
       case AppConstants.mobileApplication:
-        return _buildMobileApplicationPreview(isMobile);
+        child = _buildMobileApplicationPreview(isMobile);
 
       case AppConstants.others:
-        return _buildOthersPreview(isMobile);
+        child = _buildOthersPreview(isMobile);
 
       default:
-        return _buildGenericPreview(isMobile);
+        child = _buildGenericPreview(isMobile);
     }
+    return Container(
+      width: double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: PremiumColors.line),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F1E40AF),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
   }
 
   // ================================================================
@@ -197,129 +220,104 @@ class AssetViewPage extends StatelessWidget {
      */
 
     if (_isImageUrl(filePath)) {
-      return Container(
-        width: double.infinity,
-        height: isMobile ? 350 : 520,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0xFFE1E8F2),
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
+      return ColoredBox(
+        color: PremiumColors.surface,
         child: Image.network(
           filePath,
+          width: double.infinity,
+          height: double.infinity,
           fit: BoxFit.contain,
-          errorBuilder: (
-            context,
-            error,
-            stackTrace,
-          ) {
+          errorBuilder: (context, error, stackTrace) {
             return _buildPosterPlaceholder();
           },
         ),
       );
     }
 
-    return Container(
-      width: double.infinity,
-      height: isMobile ? 350 : 520,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE1E8F2),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: _buildPosterPlaceholder(),
-    );
+    return _buildPosterPlaceholder();
   }
 
   Widget _buildPosterPlaceholder() {
+    return _gradientPreview(
+      icon: Icons.image_outlined,
+      label: 'POSTER PREVIEW',
+      detail: asset.name,
+    );
+  }
+
+  /// Blue gradient stage with a floating icon, shared by the media previews.
+  Widget _gradientPreview({
+    required IconData icon,
+    required String label,
+    required String detail,
+    bool round = false,
+  }) {
     return Container(
       width: double.infinity,
       height: double.infinity,
-      padding: const EdgeInsets.all(25),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF1265F4),
-            Color(0xFF0A8BFF),
-          ],
-        ),
-      ),
+      decoration: const BoxDecoration(gradient: PremiumColors.heroGradient),
       child: Stack(
         children: [
           Positioned(
-            left: 18,
-            top: 20,
-            child: _circleDecoration(
-              75,
-              const Color(0x221ffffff),
-            ),
+            left: -30,
+            top: -30,
+            child: _circleDecoration(140, const Color(0x1AFFFFFF)),
           ),
-
           Positioned(
-            right: 20,
-            bottom: 20,
-            child: _circleDecoration(
-              110,
-              const Color(0x221ffffff),
-            ),
+            right: -40,
+            bottom: -50,
+            child: _circleDecoration(200, const Color(0x2238BDF8)),
           ),
-
           Center(
-            child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 105,
-                  height: 105,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius:
-                        BorderRadius.circular(24),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  PremiumFloat(
+                    child: Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: round ? BoxShape.circle : BoxShape.rectangle,
+                        borderRadius: round ? null : BorderRadius.circular(22),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x40000F3D),
+                            blurRadius: 24,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 44, color: PremiumColors.blue),
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.image_outlined,
-                    size: 58,
-                    color: AppColors.primary,
+                  const SizedBox(height: 18),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1.2,
+                    ),
                   ),
-                ),
-
-                const SizedBox(height: 22),
-
-                const Text(
-                  'POSTER PREVIEW',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: 1,
+                  const SizedBox(height: 6),
+                  Text(
+                    detail,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xD9FFFFFF),
+                    ),
                   ),
-                ),
-
-                const SizedBox(height: 10),
-
-                Text(
-                  asset.name,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow:
-                      TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -327,17 +325,11 @@ class AssetViewPage extends StatelessWidget {
     );
   }
 
-  Widget _circleDecoration(
-    double size,
-    Color color,
-  ) {
+  Widget _circleDecoration(double size, Color color) {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 
@@ -346,68 +338,11 @@ class AssetViewPage extends StatelessWidget {
   // ================================================================
 
   Widget _buildVideoPreview(bool isMobile) {
-    return Container(
-      width: double.infinity,
-      height: isMobile ? 330 : 470,
-      decoration: BoxDecoration(
-        color: const Color(0xFF101827),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE1E8F2),
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 92,
-              height: 92,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.play_arrow,
-                size: 56,
-                color: Colors.white,
-              ),
-            ),
-
-            const SizedBox(height: 22),
-
-            const Text(
-              'VIDEO PREVIEW',
-              style: TextStyle(
-                fontSize: 23,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 25,
-              ),
-              child: Text(
-                asset.name,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow:
-                    TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.white70,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return _gradientPreview(
+      icon: Icons.play_arrow_rounded,
+      label: 'VIDEO PREVIEW',
+      detail: asset.name,
+      round: true,
     );
   }
 
@@ -416,60 +351,12 @@ class AssetViewPage extends StatelessWidget {
   // ================================================================
 
   Widget _buildDocumentPreview(bool isMobile) {
-    return Container(
-      width: double.infinity,
-      height: isMobile ? 330 : 470,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE1E8F2),
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 105,
-              height: 125,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFE9E9),
-                borderRadius:
-                    BorderRadius.circular(18),
-              ),
-              child: const Icon(
-                Icons.picture_as_pdf_outlined,
-                color: Color(0xFFE53935),
-                size: 64,
-              ),
-            ),
-
-            const SizedBox(height: 22),
-
-            const Text(
-              'DOCUMENT PREVIEW',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Text(
-              _fileName(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 15,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return _buildSimplePreviewCard(
+      isMobile: isMobile,
+      icon: Icons.picture_as_pdf_outlined,
+      accent: PremiumAccent.violet,
+      subtitle: 'Document',
+      detail: _fileName(),
     );
   }
 
@@ -481,9 +368,7 @@ class AssetViewPage extends StatelessWidget {
     return _buildSimplePreviewCard(
       isMobile: isMobile,
       icon: Icons.language_outlined,
-      iconBackground:
-          const Color(0xFFEAF2FF),
-      iconColor: AppColors.primary,
+      accent: PremiumAccent.blue,
       subtitle: 'Website Link',
     );
   }
@@ -492,15 +377,11 @@ class AssetViewPage extends StatelessWidget {
   // WEB APPLICATION
   // ================================================================
 
-  Widget _buildWebApplicationPreview(
-    bool isMobile,
-  ) {
+  Widget _buildWebApplicationPreview(bool isMobile) {
     return _buildSimplePreviewCard(
       isMobile: isMobile,
       icon: Icons.desktop_windows_outlined,
-      iconBackground:
-          const Color(0xFFEAF2FF),
-      iconColor: AppColors.primary,
+      accent: PremiumAccent.cyan,
       subtitle: 'Web Application',
     );
   }
@@ -509,15 +390,11 @@ class AssetViewPage extends StatelessWidget {
   // MOBILE APPLICATION
   // ================================================================
 
-  Widget _buildMobileApplicationPreview(
-    bool isMobile,
-  ) {
+  Widget _buildMobileApplicationPreview(bool isMobile) {
     return _buildSimplePreviewCard(
       isMobile: isMobile,
       icon: Icons.phone_android_outlined,
-      iconBackground:
-          const Color(0xFFE8F5E9),
-      iconColor: const Color(0xFF199447),
+      accent: PremiumAccent.green,
       subtitle: 'Mobile Application',
     );
   }
@@ -530,9 +407,7 @@ class AssetViewPage extends StatelessWidget {
     return _buildSimplePreviewCard(
       isMobile: isMobile,
       icon: Icons.folder_outlined,
-      iconBackground:
-          const Color(0xFFEAF2FF),
-      iconColor: AppColors.primary,
+      accent: PremiumAccent.amber,
       subtitle: 'Other Asset',
     );
   }
@@ -545,9 +420,7 @@ class AssetViewPage extends StatelessWidget {
     return _buildSimplePreviewCard(
       isMobile: isMobile,
       icon: Icons.insert_drive_file_outlined,
-      iconBackground:
-          const Color(0xFFEAF2FF),
-      iconColor: AppColors.primary,
+      accent: PremiumAccent.blue,
       subtitle: asset.type,
     );
   }
@@ -559,80 +432,80 @@ class AssetViewPage extends StatelessWidget {
   Widget _buildSimplePreviewCard({
     required bool isMobile,
     required IconData icon,
-    required Color iconBackground,
-    required Color iconColor,
+    required PremiumAccent accent,
     required String subtitle,
+    String? detail,
   }) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 22 : 40,
-        vertical: isMobile ? 35 : 50,
-      ),
+      height: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE1E8F2),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accent.soft, Colors.white],
         ),
       ),
-      child: Column(
-        children: [
-          Container(
-            width: 105,
-            height: 105,
-            decoration: BoxDecoration(
-              color: iconBackground,
-              borderRadius:
-                  BorderRadius.circular(22),
-            ),
-            child: Icon(
-              icon,
-              size: 58,
-              color: iconColor,
-            ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 20 : 36,
+            vertical: 24,
           ),
-
-          const SizedBox(height: 22),
-
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            asset.name,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 15,
-              color: AppColors.textSecondary,
-            ),
-          ),
-
-          if (_hasLink()) ...[
-            const SizedBox(height: 14),
-
-            Text(
-              asset.link!,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PremiumFloat(
+                child: Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    gradient: accent.gradient,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: accent.start.withAlpha(70),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, size: 44, color: Colors.white),
+                ),
               ),
-            ),
-          ],
-        ],
+              const SizedBox(height: 18),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: PremiumColors.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                detail ?? asset.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: PremiumColors.muted,
+                ),
+              ),
+              if (_hasLink()) ...[
+                const SizedBox(height: 12),
+                PremiumBadge(
+                  label: asset.link!,
+                  icon: Icons.link_rounded,
+                  accent: accent,
+                  maxWidth: 420,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -641,38 +514,32 @@ class AssetViewPage extends StatelessWidget {
   // FILE INFORMATION
   // ================================================================
 
-  Widget _buildFileInformation(
-    bool isMobile,
-  ) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 22 : 30,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE1E8F2),
-        ),
-      ),
+  Widget _buildFileInformation(bool isMobile) {
+    return PremiumPanel(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const PremiumSectionHeader(
+            title: 'File details',
+            icon: Icons.info_outline_rounded,
+            compact: true,
+          ),
+          const SizedBox(height: 6),
           _buildInfoRow(
+            icon: Icons.insert_drive_file_outlined,
             title: 'File Name',
             value: _fileName(),
           ),
-
           _buildInfoRow(
+            icon: Icons.sd_storage_outlined,
             title: 'Size',
             value: _fileSize(),
           ),
-
           _buildInfoRow(
+            icon: Icons.event_outlined,
             title: 'Uploaded On',
-            value: _formatDate(
-              asset.createdAt,
-            ),
+            value: _formatDate(asset.createdAt),
             showDivider: false,
           ),
         ],
@@ -681,47 +548,43 @@ class AssetViewPage extends StatelessWidget {
   }
 
   Widget _buildInfoRow({
+    required IconData icon,
     required String title,
     required String value,
     bool showDivider = true,
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 11),
       decoration: showDivider
           ? const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: Color(0xFFE5EAF1),
-                ),
-              ),
+              border: Border(bottom: BorderSide(color: PremiumColors.rowLine)),
             )
           : null,
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppColors.primary,
-            ),
-          ),
-
-          const SizedBox(height: 7),
-
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
+          PremiumIconTile(icon: icon, accent: PremiumAccent.blue, size: 34),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title.toUpperCase(),
+                  style: PremiumColors.tableHeaderStyle,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: PremiumColors.ink,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -733,36 +596,17 @@ class AssetViewPage extends StatelessWidget {
   // DOWNLOAD BUTTON
   // ================================================================
 
-  Widget _buildDownloadButton(
-    BuildContext context,
-    bool isMobile,
-  ) {
+  Widget _buildDownloadButton(BuildContext context, bool isMobile) {
     return SizedBox(
-      width: double.infinity,
-      height: isMobile ? 58 : 62,
-      child: FilledButton.icon(
+      height: 48,
+      child: PremiumButton(
+        label: 'Download',
+        icon: Icons.download_rounded,
+        iconLeading: true,
+        expand: true,
         onPressed: () {
           _downloadAsset(context);
         },
-        icon: const Icon(
-          Icons.download_outlined,
-          size: 26,
-        ),
-        label: const Text(
-          'Download',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        style: FilledButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(13),
-          ),
-        ),
       ),
     );
   }
@@ -771,55 +615,35 @@ class AssetViewPage extends StatelessWidget {
   // DOWNLOAD
   // ================================================================
 
-  Future<void> _downloadAsset(
-    BuildContext context,
-  ) async {
+  Future<void> _downloadAsset(BuildContext context) async {
     final rawLink = asset.link?.trim() ?? '';
 
     if (rawLink.isEmpty) {
-      _showMessage(
-        context,
-        'Download link is not available yet.',
-      );
+      _showMessage(context, 'Download link is not available yet.');
       return;
     }
 
     var link = rawLink;
 
-    if (!link.startsWith('http://') &&
-        !link.startsWith('https://')) {
+    if (!link.startsWith('http://') && !link.startsWith('https://')) {
       link = 'https://$link';
     }
 
     final uri = Uri.tryParse(link);
 
-    if (uri == null ||
-        (uri.scheme != 'http' &&
-            uri.scheme != 'https')) {
-      _showMessage(
-        context,
-        'The download link is not valid.',
-      );
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      _showMessage(context, 'The download link is not valid.');
       return;
     }
 
     try {
-      final opened = await launchUrl(
-        uri,
-        mode: LaunchMode.platformDefault,
-      );
+      final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
 
       if (!opened) {
-        _showMessage(
-          context,
-          'Unable to open the download link.',
-        );
+        _showMessage(context, 'Unable to open the download link.');
       }
     } catch (_) {
-      _showMessage(
-        context,
-        'Unable to open the download link.',
-      );
+      _showMessage(context, 'Unable to open the download link.');
     }
   }
 
@@ -834,11 +658,7 @@ class AssetViewPage extends StatelessWidget {
       return '${asset.name}.file';
     }
 
-    return path
-        .split('/')
-        .last
-        .split('\\')
-        .last;
+    return path.split('/').last.split('\\').last;
   }
 
   String _fileSize() {
@@ -853,8 +673,7 @@ class AssetViewPage extends StatelessWidget {
   }
 
   bool _hasLink() {
-    return asset.link != null &&
-        asset.link!.trim().isNotEmpty;
+    return asset.link != null && asset.link!.trim().isNotEmpty;
   }
 
   bool _isImageUrl(String value) {
@@ -864,8 +683,7 @@ class AssetViewPage extends StatelessWidget {
 
     final lower = value.toLowerCase();
 
-    return (lower.startsWith('http://') ||
-            lower.startsWith('https://')) &&
+    return (lower.startsWith('http://') || lower.startsWith('https://')) &&
         (lower.endsWith('.png') ||
             lower.endsWith('.jpg') ||
             lower.endsWith('.jpeg') ||
@@ -893,17 +711,11 @@ class AssetViewPage extends StatelessWidget {
         '${date.year}';
   }
 
-  void _showMessage(
-    BuildContext context,
-    String message,
-  ) {
+  void _showMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
       );
   }
 }
